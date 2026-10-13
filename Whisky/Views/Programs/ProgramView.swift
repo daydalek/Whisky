@@ -43,7 +43,10 @@ struct ProgramView: View {
                 }
             }
             Section("program.config", isExpanded: $configSectionExpanded) {
-                Picker("locale.title", selection: $program.settings.locale) {
+                Picker("locale.title", selection: Binding(
+                    get: { program.settings.locale },
+                    set: { program.settings.applyLocalePreset($0) }
+                )) {
                     ForEach(Locales.allCases, id: \.self) { locale in
                         Text(locale.pretty()).id(locale)
                     }
@@ -59,6 +62,7 @@ struct ProgramView: View {
                         .labelsHidden()
                 }
             }
+            ProgramEnvironmentPresetsView(program: program)
             EnvironmentArgView(program: program, isExpanded: $envArgsSectionExpanded)
             ProgramOverrideSettingsView(
                 bottle: program.bottle,

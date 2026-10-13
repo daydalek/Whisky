@@ -1,6 +1,167 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "program.env.presets" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Environment shortcuts"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Environment shortcuts"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "环境变量快捷设置"
+          }
+        }
+      }
+    },
+    "program.env.presets.locale" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Locale (LANG / LC_ALL)"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Locale (LANG / LC_ALL)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转区（LANG / LC_ALL）"
+          }
+        }
+      }
+    },
+    "program.env.presets.renderer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "WineD3D renderer (WINE_D3D_CONFIG)"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "WineD3D renderer (WINE_D3D_CONFIG)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "WineD3D 渲染方式（WINE_D3D_CONFIG）"
+          }
+        }
+      }
+    },
+    "program.env.presets.renderer.default" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "默认"
+          }
+        }
+      }
+    },
+    "program.env.presets.renderer.gdi" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GDI (3D disabled)"
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GDI (3D disabled)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GDI（关闭 3D）"
+          }
+        }
+      }
+    },
+    "program.env.presets.renderer.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controls Wine’s built-in WineD3D renderer. DXVK and other graphics backends use their own settings."
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controls Wine’s built-in WineD3D renderer. DXVK and other graphics backends use their own settings."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "控制 Wine 内置的 WineD3D 渲染器。DXVK 等图形后端使用各自的设置。"
+          }
+        }
+      }
+    },
+    "program.env.presets.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved immediately for the next program launch. Auto clears LANG / LC_ALL; Default clears only the renderer option."
+          }
+        },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved immediately for the next program launch. Auto clears LANG / LC_ALL; Default clears only the renderer option."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "立即保存，下次启动程序时生效。“自动”清除 LANG / LC_ALL；“默认”清除 renderer 选项。"
+          }
+        }
+      }
+    },
     "%@: %@" : {
       "localizations" : {
         "ar" : {

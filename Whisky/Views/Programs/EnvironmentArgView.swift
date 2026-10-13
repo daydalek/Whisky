@@ -62,10 +62,12 @@ struct EnvironmentArgView: View {
             }
             .alternatingRowBackgrounds(.enabled)
             .onAppear {
-                let keys = program.settings.environment.map { (key: String, value: String) in
-                    Key(key: key, value: value)
+                loadEnvironment()
+            }
+            .onChange(of: program.settings.environment) {
+                if currentEnvironment != program.settings.environment {
+                    loadEnvironment()
                 }
-                environmentKeys = keys.sorted(by: { $0.key < $1.key })
             }
             .onChange(of: environmentKeys.map(\.id)) {
                 persistEnvironment()
@@ -124,13 +126,23 @@ struct EnvironmentArgView: View {
         }
     }
 
-    private func persistEnvironment() {
+    private var currentEnvironment: [String: String] {
         var environment: [String: String] = [:]
         for key in environmentKeys where !key.key.isEmpty {
             environment[key.key] = key.value
         }
-        if program.settings.environment != environment {
-            program.settings.environment = environment
+        return environment
+    }
+
+    private func loadEnvironment() {
+        environmentKeys = program.settings.environment.sorted { $0.key < $1.key }.map {
+            Key(key: $0.key, value: $0.value)
+        }
+    }
+
+    private func persistEnvironment() {
+        if program.settings.environment != currentEnvironment {
+            program.settings.environment = currentEnvironment
         }
     }
 
@@ -189,6 +201,74 @@ struct KeyItem: View {
         .padding(.vertical, 4)
         .onHover { hover in
             hovered = hover
+        }
+    }
+}
+
+struct ProgramEnvironmentPresetsView: View {
+    @ObservedObject var program: Program
+
+    var body: some View {
+        Section("program.env.presets") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("program.env.presets.locale")
+                HStack {
+                    ForEach([Locales.japanese, .chineseSimplified, .chineseTraditional, .auto], id: \.self) { locale in
+                        Button {
+                            program.settings.applyLocalePreset(locale)
+                        } label: {
+                            Label(
+                                locale.pretty(),
+                                systemImage: localeSelected(locale) ? "checkmark.circle.fill" : "circle"
+                            )
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("program.env.presets.renderer")
+                HStack {
+                    ForEach(WineD3DRenderer.allCases, id: \.self) { renderer in
+                        Button {
+                            program.settings.applyWineD3DRenderer(renderer)
+                        } label: {
+                            Label(
+                                rendererLabel(renderer),
+                                systemImage:
+                                program.settings.wineD3DRenderer == renderer ? "checkmark.circle.fill" : "circle"
+                            )
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                Text("program.env.presets.renderer.help")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text("program.env.presets.help")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func localeSelected(_ locale: Locales) -> Bool {
+        if locale == .auto {
+            return program.settings.locale == .auto
+                && program.settings.environment["LANG"] == nil
+                && program.settings.environment["LC_ALL"] == nil
+        }
+        return program.settings.locale == locale
+            && program.settings.environment["LANG"] == locale.rawValue
+            && program.settings.environment["LC_ALL"] == locale.rawValue
+    }
+
+    private func rendererLabel(_ renderer: WineD3DRenderer) -> String {
+        switch renderer {
+        case .automatic: String(localized: "program.env.presets.renderer.default")
+        case .gdi: String(localized: "program.env.presets.renderer.gdi")
+        case .openGL: "OpenGL"
+        case .vulkan: "Vulkan"
         }
     }
 }
