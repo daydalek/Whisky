@@ -16,8 +16,8 @@
 本项目是 [frankea/Whisky](https://github.com/frankea/Whisky) 的 fork，保留 Whisky 的
 SwiftUI 界面、Bottle 管理和程序启动功能，接入我们在
 [ge-proton-macos-wine-poc](https://github.com/daydalek/ge-proton-macos-wine-poc)
-中构建的 Wine。主要目标是在 Apple Silicon 上提供带 GE-Proton 多媒体补丁及全屏修复的
-Wine 运行环境。应用和 Wine 分别构建、分别发布。
+中构建的 Wine 主要目标是在 Apple Silicon 上提供带 GE-Proton 多媒体补丁及全屏修复的
+Wine 运行环境,以提供更优的视觉小说(VN)运行兼容性。应用和 Wine 分别构建、分别发布。
 
 ### 下载的 Wine 包含什么
 
