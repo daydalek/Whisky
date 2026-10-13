@@ -20,7 +20,8 @@ jobs:
       - name: Release Info
         env:
           TAG_NAME: ${{ github.event.release.tag_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
           echo "Release $TAG_NAME published"
-          echo "Distribution: GitHub Releases and the frankea/homebrew-whisky tap"
-          echo "Download: https://github.com/frankea/Whisky/releases"
+          echo "Distribution: GitHub Releases"
+          echo "Download: https://github.com/$RELEASE_REPOSITORY/releases"

@@ -54,7 +54,31 @@ struct TerminalEnvironmentCommandTests {
         in shell: TestShell,
         home: URL
     ) async throws -> [String: String] {
-        let result = try await evaluate(output, in: shell, home: home, then: "/usr/bin/env -0")
+        // macOS strips DYLD_* when starting the protected system env executable.
+        // Query the shell's export attribute and value with builtins for this key.
+        let dyldProbe: String = switch shell {
+        case .zsh:
+            #"""
+            if [[ "${parameters[DYLD_FALLBACK_LIBRARY_PATH]}" == *export* ]]; then
+                builtin printf 'DYLD_FALLBACK_LIBRARY_PATH=%s\0' "$DYLD_FALLBACK_LIBRARY_PATH"
+            fi
+            """#
+        case .bash:
+            #"""
+            if [[ "$(declare -p DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null)" == "declare -x "* ]]; then
+                builtin printf 'DYLD_FALLBACK_LIBRARY_PATH=%s\0' "$DYLD_FALLBACK_LIBRARY_PATH"
+            fi
+            """#
+        case .fish:
+            #"""
+            if set -qx DYLD_FALLBACK_LIBRARY_PATH
+                builtin printf 'DYLD_FALLBACK_LIBRARY_PATH=%s\0' "$DYLD_FALLBACK_LIBRARY_PATH"
+            end
+            """#
+        default:
+            ""
+        }
+        let result = try await evaluate(output, in: shell, home: home, then: "/usr/bin/env -0\n\(dyldProbe)")
         try #require(result.status == 0, "\(shell.rawValue) exited \(result.status): \(result.errors)")
         var environment: [String: String] = [:]
         for entry in result.stdout.split(separator: 0) {
