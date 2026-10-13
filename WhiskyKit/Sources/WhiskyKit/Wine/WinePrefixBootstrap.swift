@@ -58,7 +58,8 @@ public extension Wine {
         args: [String], environment: [String: String]
     ) -> [String: String] {
         guard let command = args.first?.lowercased(),
-              ["wineboot", "wineboot.exe", "winecfg", "winecfg.exe"].contains(command) else {
+              ["wineboot", "wineboot.exe", "winecfg", "winecfg.exe"].contains(command)
+        else {
             return environment
         }
         var result = environment

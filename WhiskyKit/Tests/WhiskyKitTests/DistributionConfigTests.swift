@@ -21,36 +21,10 @@ import SemanticVersion
 import XCTest
 
 final class DistributionConfigTests: XCTestCase {
-    func testExplicitAssetURLSupportsDifferentReleaseTagAndRuntimeVersion() throws {
-        let manifest = WhiskyWineVersion(version: SemanticVersion(11, 0, 1), downloadURL:
-            "https://github.com/daydalek/ge-proton-macos-wine-poc/releases/download/v0.1.0/Libraries.tar.gz")
-        XCTAssertTrue(try DistributionConfig.librariesURL(for: manifest).path.contains("/v0.1.0/"))
-        let decoded = try PropertyListDecoder().decode(
-            WhiskyWineVersion.self, from: PropertyListEncoder().encode(manifest)
-        )
-        XCTAssertEqual(decoded.downloadURL, manifest.downloadURL)
-    }
-
-    func testArchiveURLValidation() throws {
-        for value in ["http://github.com/daydalek/ge-proton-macos-wine-poc/releases/download/v1/Libraries.tar.gz",
-                      "https://example.com/Libraries.tar.gz",
-                      "https://github.com/other/repo/releases/download/v1/Libraries.tar.gz",
-                      "https://github.com/daydalek/ge-proton-macos-wine-poc/releases/download/v1/Other.tar.gz"] {
-            let manifest = WhiskyWineVersion(version: SemanticVersion(1, 0, 0), downloadURL: value)
-            XCTAssertThrowsError(try DistributionConfig.librariesURL(for: manifest))
-        }
-    }
-
-    func testLegacyManifestUsesVersionTag() throws {
-        let manifest = WhiskyWineVersion(version: SemanticVersion(2, 5, 0))
-        XCTAssertEqual(try DistributionConfig.librariesURL(for: manifest).absoluteString,
-                       DistributionConfig.librariesURL(version: "2.5.0"))
-    }
-
     // MARK: - Base URL Tests
 
     func testBaseURL() {
-        XCTAssertEqual(DistributionConfig.baseURL, "https://frankea.github.io/Whisky")
+        XCTAssertEqual(DistributionConfig.baseURL, "https://daydalek.github.io/Whisky")
     }
 
     func testBaseURLIsHTTPS() {
@@ -60,7 +34,8 @@ final class DistributionConfigTests: XCTestCase {
     // MARK: - Version Plist URL Tests
 
     func testVersionPlistURL() {
-        let expectedURL = "https://raw.githubusercontent.com/daydalek/ge-proton-macos-wine-poc/runtime-channel/WhiskyWineVersion.plist"
+        let expectedURL = "https://raw.githubusercontent.com/daydalek/ge-proton-macos-wine-poc"
+            + "/runtime-channel/WhiskyWineVersion.plist"
         XCTAssertEqual(DistributionConfig.versionPlistURL, expectedURL)
     }
 
@@ -83,7 +58,7 @@ final class DistributionConfigTests: XCTestCase {
     // MARK: - Appcast URL Tests
 
     func testAppcastURL() {
-        let expectedURL = "https://frankea.github.io/Whisky/appcast.xml"
+        let expectedURL = "https://daydalek.github.io/Whisky/appcast.xml"
         XCTAssertEqual(DistributionConfig.appcastURL, expectedURL)
     }
 
@@ -97,7 +72,8 @@ final class DistributionConfigTests: XCTestCase {
     func testLibrariesURLWithStandardVersion() {
         let version = "2.5.0"
         let url = DistributionConfig.librariesURL(version: version)
-        let expectedURL = "https://github.com/daydalek/ge-proton-macos-wine-poc/releases/download/v2.5.0/Libraries.tar.gz"
+        let expectedURL = "https://github.com/daydalek/ge-proton-macos-wine-poc/releases/download"
+            + "/v2.5.0/Libraries.tar.gz"
 
         XCTAssertEqual(url, expectedURL)
     }
@@ -105,7 +81,8 @@ final class DistributionConfigTests: XCTestCase {
     func testLibrariesURLWithSingleDigitVersion() {
         let version = "1.0.0"
         let url = DistributionConfig.librariesURL(version: version)
-        let expectedURL = "https://github.com/daydalek/ge-proton-macos-wine-poc/releases/download/v1.0.0/Libraries.tar.gz"
+        let expectedURL = "https://github.com/daydalek/ge-proton-macos-wine-poc/releases/download"
+            + "/v1.0.0/Libraries.tar.gz"
 
         XCTAssertEqual(url, expectedURL)
     }
@@ -113,7 +90,8 @@ final class DistributionConfigTests: XCTestCase {
     func testLibrariesURLWithMultiDigitVersion() {
         let version = "10.20.30"
         let url = DistributionConfig.librariesURL(version: version)
-        let expectedURL = "https://github.com/daydalek/ge-proton-macos-wine-poc/releases/download/v10.20.30/Libraries.tar.gz"
+        let expectedURL = "https://github.com/daydalek/ge-proton-macos-wine-poc/releases/download"
+            + "/v10.20.30/Libraries.tar.gz"
 
         XCTAssertEqual(url, expectedURL)
     }
@@ -193,7 +171,8 @@ final class DistributionConfigTests: XCTestCase {
         )
         XCTAssertEqual(
             expectedURL,
-            "https://raw.githubusercontent.com/daydalek/ge-proton-macos-wine-poc/runtime-channel/WhiskyWineVersion.plist",
+            "https://raw.githubusercontent.com/daydalek/ge-proton-macos-wine-poc"
+                + "/runtime-channel/WhiskyWineVersion.plist",
             "WhiskyWineInstaller should use GitHub Pages URL"
         )
     }
@@ -246,7 +225,8 @@ final class DistributionConfigTests: XCTestCase {
         let downloadURLString = DistributionConfig.librariesURL(version: versionString)
 
         // Verify the complete URL
-        let expectedURL = "https://github.com/daydalek/ge-proton-macos-wine-poc/releases/download/v2.5.0/Libraries.tar.gz"
+        let expectedURL = "https://github.com/daydalek/ge-proton-macos-wine-poc/releases/download"
+            + "/v2.5.0/Libraries.tar.gz"
         XCTAssertEqual(downloadURLString, expectedURL)
 
         // Verify URL is valid
@@ -312,21 +292,6 @@ final class DistributionConfigTests: XCTestCase {
             // Expected - this tests that the decode error is propagated
             XCTAssertTrue(error is DecodingError, "Should throw DecodingError")
         }
-    }
-
-    /// Tests URL construction with edge case version numbers
-    func testURLConstructionEdgeCases() {
-        // Test with zero version
-        let zeroURL = DistributionConfig.librariesURL(version: "0.0.0")
-        let expectedZeroURL = "https://github.com/daydalek/ge-proton-macos-wine-poc/releases/download/v0.0.0/Libraries.tar.gz"
-        XCTAssertEqual(zeroURL, expectedZeroURL)
-        XCTAssertNotNil(URL(string: zeroURL))
-
-        // Test with large version numbers
-        let largeURL = DistributionConfig.librariesURL(version: "999.999.999")
-        let expectedLargeURL = "https://github.com/daydalek/ge-proton-macos-wine-poc/releases/download/v999.999.999/Libraries.tar.gz"
-        XCTAssertEqual(largeURL, expectedLargeURL)
-        XCTAssertNotNil(URL(string: largeURL))
     }
 
     // MARK: - HTTP Error Code Tests
@@ -403,7 +368,7 @@ final class DistributionConfigTests: XCTestCase {
         let appcastURL = URL(string: DistributionConfig.appcastURL)
         XCTAssertNotNil(appcastURL, "Appcast URL should be valid")
         XCTAssertEqual(appcastURL?.scheme, "https")
-        XCTAssertEqual(appcastURL?.host, "frankea.github.io")
+        XCTAssertEqual(appcastURL?.host, "daydalek.github.io")
     }
 }
 

@@ -120,6 +120,8 @@ enum Telemetry {
         Bundle.main.object(forInfoDictionaryKey: "PostHogProjectToken") as? String ?? ""
     }
 
+    static var isConfigured: Bool { !projectToken.isEmpty }
+
     @MainActor private static var started = false
 
     /// Records the user's choice and starts or stops the SDK accordingly.

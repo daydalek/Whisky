@@ -28,6 +28,7 @@ final class WhiskyWineSetupDiagnosticsTests: XCTestCase {
         let report = diagnostics.reportString(stage: "download", error: "boom")
 
         XCTAssertTrue(report.contains("WhiskyWine Setup Diagnostics"))
+        XCTAssertTrue(report.contains("https://github.com/daydalek/Whisky/issues"))
         XCTAssertTrue(report.contains("Stage: download"))
         XCTAssertTrue(report.contains("Error: boom"))
         XCTAssertTrue(report.contains("[NETWORK]"))

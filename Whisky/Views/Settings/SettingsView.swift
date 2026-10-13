@@ -74,9 +74,11 @@ struct SettingsView: View {
                 Toggle("settings.toggle.whiskywine.updates", isOn: $checkWhiskyWineUpdates)
             }
             GPTKSettingsSection()
-            Section("settings.privacy") {
-                Toggle("settings.toggle.telemetry", isOn: telemetryOptIn)
-                    .help("setup.telemetry.consent.help")
+            if Telemetry.isConfigured {
+                Section("settings.privacy") {
+                    Toggle("settings.toggle.telemetry", isOn: telemetryOptIn)
+                        .help("setup.telemetry.consent.help")
+                }
             }
         }
         .formStyle(.grouped)

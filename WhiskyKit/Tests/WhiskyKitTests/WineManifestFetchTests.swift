@@ -1,3 +1,21 @@
+//
+//  WineManifestFetchTests.swift
+//  WhiskyKitTests
+//
+//  This file is part of Whisky.
+//
+//  Whisky is free software: you can redistribute it and/or modify it under the terms
+//  of the GNU General Public License as published by the Free Software Foundation,
+//  either version 3 of the License, or (at your option) any later version.
+//
+//  Whisky is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  See the GNU General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along with Whisky.
+//  If not, see https://www.gnu.org/licenses/.
+//
+
 import Foundation
 import SemanticVersion
 @testable import WhiskyKit
@@ -32,16 +50,23 @@ private final class ManifestStubState: @unchecked Sendable {
 
 private final class ManifestStubProtocol: URLProtocol, @unchecked Sendable {
     static let state = ManifestStubState()
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        let url = request.url!
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
         let (data, status) = Self.state.response(for: url)
-        let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!
+        guard let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
+
     override func stopLoading() {}
 }
 
@@ -57,10 +82,10 @@ final class WineManifestFetchTests: XCTestCase {
                 version: SemanticVersion(11, 0, patch), sha256: String(repeating: "a", count: 64), downloadURL: asset
             ))
         }
-        ManifestStubProtocol.state.set(data: try encoded(1))
+        try ManifestStubProtocol.state.set(data: encoded(1))
         let first = try await DistributionConfig.fetchWineManifest(session: session, useCache: false)
         XCTAssertEqual(first.version.patch, 1)
-        ManifestStubProtocol.state.set(data: try encoded(2))
+        try ManifestStubProtocol.state.set(data: encoded(2))
         let cached = try await DistributionConfig.fetchWineManifest(session: session)
         XCTAssertEqual(cached.version.patch, 1)
         XCTAssertEqual(ManifestStubProtocol.state.requestedURLs().count, 1)

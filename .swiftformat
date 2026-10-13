@@ -25,7 +25,7 @@
 --swiftversion 5.9
 
 # Excluded paths
---exclude .build,WhiskyKit/.build,**/*.generated.swift
+--exclude .build,WhiskyKit/.build,build,**/*.generated.swift
 
 # Disabled rules
 # Keep file headers as-is (managed by SwiftLint)

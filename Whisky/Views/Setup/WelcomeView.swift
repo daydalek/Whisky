@@ -80,16 +80,15 @@ struct WelcomeView: View {
                 checkInstallStatus()
             }
             Spacer()
-            // Shown unconditionally on the welcome screen, which is reached on a
-            // genuine first run: SetupView only skips this screen once telemetry
-            // consent is decided, so a first-run user always sees this opt-in.
-            Toggle(isOn: telemetryOptIn) {
-                Text("setup.telemetry.consent")
-                    .font(.caption)
+            if Telemetry.isConfigured {
+                Toggle(isOn: telemetryOptIn) {
+                    Text("setup.telemetry.consent")
+                        .font(.caption)
+                }
+                .toggleStyle(.checkbox)
+                .help("setup.telemetry.consent.help")
+                .padding(.bottom, 4)
             }
-            .toggleStyle(.checkbox)
-            .help("setup.telemetry.consent.help")
-            .padding(.bottom, 4)
             HStack {
                 if let rosettaInstalled,
                    let whiskyWineInstalled {

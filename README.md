@@ -3,18 +3,12 @@
   # Whisky 🥃
   *Wine but a bit stronger*
 
-  > **Active community fork.** The original [whisky-app/whisky](https://github.com/whisky-app/whisky)
-  > was archived on April 9, 2025 with a final maintenance notice. This fork, maintained by
-  > [@frankea](https://github.com/frankea), continues development — addressing the backlog of
-  > upstream issues and adding new functionality. Not affiliated with the original project or
-  > getwhisky.app.
+  > This fork is maintained by [@daydalek](https://github.com/daydalek), based on
+  > [frankea/Whisky](https://github.com/frankea/Whisky), with a CrossOver-based GE Wine runtime.
 
-  ![](https://img.shields.io/github/actions/workflow/status/frankea/Whisky/CI.yml?style=for-the-badge&label=CI)
-  [![](https://img.shields.io/codecov/c/github/frankea/Whisky?style=for-the-badge&logo=codecov&label=Coverage&flag=whiskykit)](https://codecov.io/gh/frankea/Whisky)
-  [![](https://img.shields.io/github/downloads/frankea/Whisky/total?style=for-the-badge&logo=github&label=Downloads)](https://github.com/frankea/Whisky/releases)
-  [![](https://img.shields.io/github/downloads/frankea/Whisky/latest/total?style=for-the-badge&label=Latest)](https://github.com/frankea/Whisky/releases/latest)
-  [![](https://img.shields.io/github/issues/frankea/Whisky?style=for-the-badge)](https://github.com/frankea/Whisky/issues)
-  [![Documentation](https://img.shields.io/badge/Documentation-DocC-blue?style=for-the-badge)](https://frankea.github.io/Whisky/documentation/whiskykit/)
+  [![CI](https://img.shields.io/github/actions/workflow/status/daydalek/Whisky/CI.yml?style=for-the-badge)](https://github.com/daydalek/Whisky/actions)
+  [![Releases](https://img.shields.io/github/v/release/daydalek/Whisky?include_prereleases&style=for-the-badge)](https://github.com/daydalek/Whisky/releases)
+  [![Issues](https://img.shields.io/github/issues/daydalek/Whisky?style=for-the-badge)](https://github.com/daydalek/Whisky/issues)
 </div>
 
 ## Overview
@@ -55,23 +49,14 @@ Whisky provides a clean and easy-to-use graphical wrapper for Wine built in nati
 
 ## Installation
 
-### Homebrew (recommended)
+1. Download `Whisky-X.Y.Z-arm64.zip` from [Releases](https://github.com/daydalek/Whisky/releases).
+2. Extract **Whisky.app** and drag it to **/Applications**.
+3. Launch Whisky to download the Wine Libraries runtime.
 
-```sh
-brew install --cask frankea/whisky/whisky
-```
-
-This taps [frankea/homebrew-whisky](https://github.com/frankea/homebrew-whisky) and installs the latest signed/notarized DMG. `brew upgrade --cask` picks up new releases.
-
-> The default `brew install --cask whisky` still installs the **archived original** (last release April 2025) and always will until that cask is updated. Use the qualified `frankea/whisky/whisky` form to get this fork.
-
-### Manual
-
-1. Download the latest **[Whisky-X.Y.Z.dmg](https://github.com/frankea/Whisky/releases/latest)** (signed and notarized — Gatekeeper-approved).
-2. Open the DMG and drag **Whisky.app** to **/Applications**.
-3. Launch Whisky. On first run it downloads the Wine runtime (~330 MB) and sets up your default bottle.
-
-In-app updates are delivered through Sparkle from `https://frankea.github.io/Whisky/appcast.xml`.
+The app is ad-hoc signed; Gatekeeper may require first-launch approval. App upgrades
+are installed manually from Releases. Wine runtime updates use the separate
+[Wine release channel](https://github.com/daydalek/ge-proton-macos-wine-poc/releases).
+The current runtime requires macOS 27 or later and Rosetta 2.
 
 ### Migrating from the original Whisky
 
@@ -79,7 +64,7 @@ The original [whisky-app/whisky](https://github.com/whisky-app/whisky) was archi
 
 To switch:
 
-1. Install this fork: `brew install --cask frankea/whisky/whisky` or follow the manual steps above.
+1. Install this fork using the ZIP steps above.
 2. Open it and choose **File → Migrate from the Original Whisky**. It finds the bottles the original app left in `~/Library/Containers/com.isaacmarovitz.Whisky/` and imports the ones you pick. Bottles are referenced **in place** — nothing is moved or copied — so the original app keeps working if you'd like to keep it around.
 3. *(Optional)* Once you're happy, remove the original app: drag **/Applications/Whisky.app** to the Trash, or `brew uninstall --cask whisky` if you installed it via Homebrew. Your bottles stay put.
 
@@ -113,37 +98,13 @@ rm -f  ~/Library/Preferences/com.franke.Whisky.plist
 
 If you also installed bottles in a **custom location**, delete those folders too. Migrated bottles that still belong to the original app live under `~/Library/Containers/com.isaacmarovitz.Whisky` and are left untouched by the steps above.
 
-## Telemetry (opt-in)
+## Telemetry and diagnostics
 
-Whisky sends **no data by default**. During first-run setup you can opt in to
-anonymous usage telemetry — a checkbox that is **off** unless you tick it, and a
-toggle you can change anytime in **Settings → Privacy**.
-
-When (and only when) enabled, Whisky sends five events covering the first-run
-funnel, so the maintainer can see where new installs fail:
-
-| Event | Properties |
-| --- | --- |
-| `runtime_install_started` | — |
-| `runtime_install_succeeded` | — |
-| `runtime_install_failed` | `reason`: one of `download_failed`, `verify_failed`, `tarball_missing`, `extract_failed`, `runtime_incomplete` |
-| `first_bottle_created` | — |
-| `first_program_launch_attempted` | — |
-
-`runtime_install_started` is sent once per setup attempt; the `_succeeded` /
-`_failed` events are sent per install attempt (so retries are counted). The two
-`first_…` events are sent at most once per install.
-
-No personal data, file names, paths, raw error text, or identifiers tied to you
-are ever sent. Events carry a random per-install anonymous ID (reset if you opt
-out). Every event Whisky can send is the list above, and all of it is declared in
-one file, [`Whisky/Utils/Telemetry.swift`](Whisky/Utils/Telemetry.swift), with
-every automatic-capture feature of the analytics SDK disabled and no person
-profile ever created (`identify()` is never called). Each event also carries the
-SDK's standard context — app and macOS version, hardware model, locale, and more;
-see [SECURITY.md](SECURITY.md) for the full list. Like any HTTPS request,
-PostHog's ingestion sees the connecting IP (GeoIP enrichment is disabled); none
-of this is tied to your identity.
+Telemetry is disabled in this fork: the build omits the PostHog project token and
+hides telemetry consent controls. Diagnostics are exported to local files for
+manual submission to [our Issues](https://github.com/daydalek/Whisky/issues).
+Review exported reports before attaching them; they can contain local paths and
+Wine process output.
 
 ## Documentation
 

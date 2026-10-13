@@ -56,7 +56,7 @@ struct TerminalEnvironmentCommandTests {
     ) async throws -> [String: String] {
         // macOS strips DYLD_* when starting the protected system env executable.
         // Query the shell's export attribute and value with builtins for this key.
-        let dyldProbe: String = switch shell {
+        let dyldProbe = switch shell {
         case .zsh:
             #"""
             if [[ "${parameters[DYLD_FALLBACK_LIBRARY_PATH]}" == *export* ]]; then

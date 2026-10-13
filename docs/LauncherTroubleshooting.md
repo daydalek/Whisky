@@ -3,7 +3,7 @@
 **Feature:** Launcher Compatibility System (frankea/Whisky#41)
 **Last Updated:** January 12, 2026
 
-> **Note:** This documentation references issue numbers from both this fork (frankea/Whisky) and the original upstream project (whisky-app/whisky). Upstream references are kept for historical context. Please report new issues to [frankea/Whisky](https://github.com/frankea/Whisky/issues).
+> **Note:** This documentation references issue numbers from the upstream projects frankea/Whisky and whisky-app/whisky. Upstream references are kept for historical context. Please report new issues to [daydalek/Whisky](https://github.com/daydalek/Whisky/issues).
 
 ---
 
@@ -553,7 +553,7 @@ Include in your issue report:
 
 ### Community Resources
 
-- **GitHub Issues:** https://github.com/frankea/Whisky/issues
+- **GitHub Issues:** https://github.com/daydalek/Whisky/issues
 - **Upstream Repository:** https://github.com/whisky-app/whisky
 - **This Fork's Tracking Issue:** frankea/Whisky#41
 

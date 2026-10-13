@@ -19,8 +19,12 @@
 import Foundation
 
 public enum DistributionConfig {
+    public static let projectRepository = "daydalek/Whisky"
+    public static let projectURL = "https://github.com/\(projectRepository)"
+    public static let issuesURL = "\(projectURL)/issues"
+
     /// Base URL for GitHub Pages distribution
-    public static let baseURL = "https://frankea.github.io/Whisky"
+    public static let baseURL = "https://daydalek.github.io/Whisky"
 
     /// Public static manifest maintained by the Wine release CI.
     public static let versionPlistURL =
@@ -50,7 +54,7 @@ public enum DistributionConfig {
             switch self {
             case .invalidManifest:
                 "The Wine version manifest has an invalid archive URL or SHA-256."
-            case .httpStatus(let status):
+            case let .httpStatus(status):
                 "Wine version manifest download returned HTTP \(status)."
             }
         }
@@ -71,7 +75,8 @@ public enum DistributionConfig {
         guard let url = URL(string: value), url.scheme == "https", url.host == "github.com",
               url.user == nil, url.password == nil, url.query == nil,
               url.path.hasPrefix("/\(wineRepository)/releases/download/"),
-              url.lastPathComponent == "Libraries.tar.gz" else { throw WineManifestError.invalidManifest }
+              url.lastPathComponent == "Libraries.tar.gz"
+        else { throw WineManifestError.invalidManifest }
         return url
     }
 }
@@ -81,14 +86,17 @@ private actor WineManifestCache {
     private var checkedAt: Date?
 
     func fetch(session: URLSession, useCache: Bool) async throws -> Data {
-        if useCache, let data, let checkedAt, Date().timeIntervalSince(checkedAt) < 3600 {
+        if useCache, let data, let checkedAt, Date().timeIntervalSince(checkedAt) < 3_600 {
             return data
         }
-        var request = URLRequest(url: URL(string: DistributionConfig.versionPlistURL)!)
+        guard let url = URL(string: DistributionConfig.versionPlistURL) else {
+            throw DistributionConfig.WineManifestError.invalidManifest
+        }
+        var request = URLRequest(url: url)
         request.cachePolicy = .reloadRevalidatingCacheData
         request.timeoutInterval = 30
         let (fresh, response) = try await session.data(for: request)
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+        if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
             throw DistributionConfig.WineManifestError.httpStatus(http.statusCode)
         }
         let manifest = try PropertyListDecoder().decode(WhiskyWineVersion.self, from: fresh)

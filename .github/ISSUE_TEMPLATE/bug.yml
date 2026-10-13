@@ -6,8 +6,8 @@ body:
     attributes:
       value: |
         Thanks for taking the time to file a bug. Before submitting, please:
-        - Search [existing issues](https://github.com/frankea/Whisky/issues?q=is%3Aissue) — your bug may already be reported.
-        - Check the [troubleshooting docs](https://github.com/frankea/Whisky/blob/main/docs/) — many common issues have known fixes.
+        - Search [existing issues](https://github.com/daydalek/Whisky/issues?q=is%3Aissue) — your bug may already be reported.
+        - Check the [troubleshooting docs](https://github.com/daydalek/Whisky/blob/main/docs/) — many common issues have known fixes.
         - For game-specific compatibility problems, use the **Game Compatibility Report** template instead.
   - type: textarea
     id: description
@@ -97,7 +97,7 @@ body:
       options:
         - label: I searched existing issues and didn't find a duplicate.
           required: true
-        - label: I'm running **this fork** (`frankea/Whisky`, confirmed via **Whisky → About**) — not the archived original that the default `brew install --cask whisky` installs.
+        - label: I'm running **this fork** (`daydalek/Whisky`, confirmed via **Whisky → About**) — not the archived original that the default `brew install --cask whisky` installs.
           required: true
         - label: I confirmed this is **not** a game-specific compatibility issue (use the other template if it is).
           required: true

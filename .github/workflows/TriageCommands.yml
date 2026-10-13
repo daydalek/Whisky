@@ -26,7 +26,7 @@ jobs:
     name: Run command
     if: >-
       startsWith(github.event.comment.body, '/') &&
-      contains(fromJSON('["frankea", "dappermint"]'), github.event.comment.user.login)
+      github.event.comment.user.login == github.event.repository.owner.login
     runs-on: ubuntu-latest
     steps:
       - name: Apply command
