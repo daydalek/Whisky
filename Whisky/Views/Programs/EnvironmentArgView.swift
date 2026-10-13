@@ -27,7 +27,7 @@ enum Focusable: Hashable {
     case row(id: UUID, section: KeySection)
 }
 
-class Key: Identifiable {
+class Key: ObservableObject, Identifiable {
     static func == (lhs: Key, rhs: Key) -> Bool {
         lhs.id == rhs.id
     }
@@ -56,7 +56,8 @@ struct EnvironmentArgView: View {
                 KeyItem(
                     focus: _focus,
                     environmentKeys: $environmentKeys,
-                    key: key
+                    key: key,
+                    onChange: persistEnvironment
                 )
             }
             .alternatingRowBackgrounds(.enabled)
@@ -66,11 +67,8 @@ struct EnvironmentArgView: View {
                 }
                 environmentKeys = keys.sorted(by: { $0.key < $1.key })
             }
-            .onDisappear {
-                program.settings.environment.removeAll()
-                for key in environmentKeys where !key.key.isEmpty {
-                    program.settings.environment[key.key] = key.value
-                }
+            .onChange(of: environmentKeys.map(\.id)) {
+                persistEnvironment()
             }
         } header: {
             HStack {
@@ -126,6 +124,16 @@ struct EnvironmentArgView: View {
         }
     }
 
+    private func persistEnvironment() {
+        var environment: [String: String] = [:]
+        for key in environmentKeys where !key.key.isEmpty {
+            environment[key.key] = key.value
+        }
+        if program.settings.environment != environment {
+            program.settings.environment = environment
+        }
+    }
+
     func createNewKey() {
         if let key = environmentKeys.first(where: { $0.key.isEmpty }) {
             focus = .row(id: key.id, section: .key)
@@ -141,7 +149,8 @@ struct EnvironmentArgView: View {
 struct KeyItem: View {
     @FocusState var focus: Focusable?
     @Binding var environmentKeys: [Key]
-    @State var key: Key
+    @ObservedObject var key: Key
+    var onChange: () -> Void
     @State var hovered: Bool = false
 
     var body: some View {
@@ -153,6 +162,7 @@ struct KeyItem: View {
                 .focused($focus, equals: .row(id: key.id, section: .key))
                 .onChange(of: key.key) {
                     key.key = key.key.trimmingCharacters(in: .whitespacesAndNewlines)
+                    onChange()
                 }
                 .onSubmit {
                     // Try to move on to value
@@ -163,6 +173,9 @@ struct KeyItem: View {
                 .labelsHidden()
                 .frame(maxHeight: .infinity)
                 .focused($focus, equals: .row(id: key.id, section: .value))
+                .onChange(of: key.value) {
+                    onChange()
+                }
             Button {
                 environmentKeys.removeAll(where: { $0.id == key.id })
             } label: {

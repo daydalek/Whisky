@@ -28,13 +28,13 @@ public extension Program {
     /// alike, so a program behaves the same whichever of them started it.
     ///
     /// - Parameters:
-    ///   - args: Arguments for the program, one word each.
+    ///   - args: Arguments for the program, one word each. Omit to use the saved arguments.
     ///   - onOutput: Receives each output event of the Wine process as it arrives.
     /// - Returns: The exit code and log file of the run.
     /// - Throws: An error if the bottle cannot be prepared or the program cannot be started.
     @discardableResult
     func launch(
-        args: [String], onOutput: (@MainActor (ProcessOutput) -> Void)? = nil
+        args: [String]? = nil, onOutput: (@MainActor (ProcessOutput) -> Void)? = nil
     ) async throws -> Wine.ProgramRunResult {
         try await Wine.runProgram(at: url, bottle: bottle, programSettings: settings, onOutput: onOutput) {
             try await prepareLaunch(args: args)
@@ -78,7 +78,7 @@ extension Program {
     /// - Returns: The environment and `wine64` arguments of the launch.
     /// - Throws: An error if the bottle cannot be prepared.
     func prepareLaunch(
-        args: [String],
+        args: [String]? = nil,
         overrideWriter: Wine.DLLOverrideWriter = { try await Wine.syncDLLOverrides(bottle: $0, scopes: $1) },
         importer: Wine.RegistryImporter = { try await Wine.importRegistry(document: $0, bottle: $1) },
         bootstrapper: Wine.PrefixBootstrapper = { try await Wine.bootstrapPrefix(bottle: $0) }
@@ -86,7 +86,8 @@ extension Program {
         try await Wine.prepareBottlePrefix(bottle: bottle, bootstrapper: bootstrapper)
         await Wine.syncAudioRegistry(bottle: bottle)
         return try await Wine.prepareProgramLaunch(
-            at: url, args: args, bottle: bottle, environment: generateEnvironment(),
+            at: url, args: args ?? settings.arguments.split { $0.isWhitespace }.map(String.init),
+            bottle: bottle, environment: generateEnvironment(),
             programOverrides: settings.overrides, programSettings: settings,
             overrideWriter: overrideWriter, importer: importer
         )

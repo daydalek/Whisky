@@ -93,14 +93,14 @@ struct BottleActionBar: View {
                                 do {
                                     // Auto-detect launcher and apply fixes if compatibility mode enabled
                                     // This completes synchronously on MainActor, ensuring settings are
-                                    // persisted before Wine.runProgram() reads them
+                                    // persisted before the program loads its saved settings
                                     LauncherFixes.detectAndApply(from: url, for: bottle)
 
                                     Telemetry.capture(.firstProgramLaunchAttempted)
                                     if url.pathExtension == "bat" {
                                         try await Wine.runBatchFile(url: url, bottle: bottle)
                                     } else {
-                                        try await Wine.runProgram(at: url, bottle: bottle)
+                                        try await Program(url: url, bottle: bottle).launch()
                                     }
                                     await MainActor.run {
                                         withAnimation {

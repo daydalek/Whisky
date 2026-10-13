@@ -85,7 +85,7 @@ struct FileOpenView: View {
                 do {
                     // Auto-detect launcher and apply fixes if compatibility mode enabled
                     // This completes synchronously on MainActor, ensuring settings are
-                    // persisted before Wine.runProgram() reads them
+                    // persisted before the program loads its saved settings
                     await MainActor.run {
                         LauncherFixes.detectAndApply(from: fileURL, for: bottle)
                         Telemetry.capture(.firstProgramLaunchAttempted)
@@ -97,7 +97,7 @@ struct FileOpenView: View {
                             bottle: bottle
                         )
                     } else {
-                        try await Wine.runProgram(at: fileURL, bottle: bottle)
+                        try await Program(url: fileURL, bottle: bottle).launch()
                     }
                 } catch {
                     // Surface the failure on the presenting view's toast (the sheet

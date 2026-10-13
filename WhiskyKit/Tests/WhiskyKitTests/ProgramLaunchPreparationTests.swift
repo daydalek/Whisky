@@ -351,3 +351,30 @@ final class ProgramLaunchPreparationTests {
         #expect(environment["WINEDLLOVERRIDES"] == "d3d11=n,b;nvapi64=")
     }
 }
+
+extension ProgramLaunchPreparationTests {
+    @Test("Saved environment and arguments survive repeated program reconstruction")
+    func savedEnvironmentAfterReload() async throws {
+        let bottle = try makeBottle()
+        let executable = try makeExecutable("Games/Reload/Game.exe", in: bottle)
+        let editor = Program(url: executable, bottle: bottle, peFile: nil)
+        editor.settings.environment = [
+            "WHISKY_PERSISTENCE_PROBE": "value with spaces",
+            "WINE_D3D_CONFIG": "renderer=gdi",
+            "LC_ALL": "ja_JP.UTF-8"
+        ]
+        editor.settings.arguments = "-windowed -test"
+
+        for _ in 0 ..< 2 {
+            let reloaded = Program(url: executable, bottle: bottle, peFile: nil)
+            let recorder = RegistryRecorder()
+            let launch = try await reloaded.prepareLaunch(
+                overrideWriter: recorder.writer, importer: recorder.importer
+            )
+            for (key, value) in editor.settings.environment {
+                #expect(launch.environment[key] == value)
+            }
+            #expect(launch.arguments.suffix(2) == ["-windowed", "-test"])
+        }
+    }
+}
