@@ -335,33 +335,12 @@ public class WhiskyWineInstaller {
     ///   - A boolean indicating whether an update is available.
     ///   - The remote version if an update is available, or `0.0.0` otherwise.
     public static func shouldUpdateWhiskyWine() async -> (Bool, SemanticVersion) {
-        let versionPlistURL = DistributionConfig.versionPlistURL
         let localVersion = whiskyWineVersion()
-
         var remoteVersion: SemanticVersion?
-
-        if let remoteUrl = URL(string: versionPlistURL) {
-            remoteVersion = await withCheckedContinuation { continuation in
-                URLSession(configuration: .ephemeral).dataTask(with: URLRequest(url: remoteUrl)) { data, _, error in
-                    do {
-                        if error == nil, let data {
-                            let decoder = PropertyListDecoder()
-                            let remoteInfo = try decoder.decode(WhiskyWineVersion.self, from: data)
-                            let remoteVersion = remoteInfo.version
-
-                            continuation.resume(returning: remoteVersion)
-                            return
-                        }
-                        if let error {
-                            logger.warning("Failed to fetch remote version: \(error.localizedDescription)")
-                        }
-                    } catch {
-                        logger.warning("Failed to decode remote version: \(error.localizedDescription)")
-                    }
-
-                    continuation.resume(returning: nil)
-                }.resume()
-            }
+        do {
+            remoteVersion = try await DistributionConfig.fetchWineManifest().version
+        } catch {
+            logger.warning("Failed to fetch Wine release: \(error.localizedDescription)")
         }
 
         if let localVersion, let remoteVersion {

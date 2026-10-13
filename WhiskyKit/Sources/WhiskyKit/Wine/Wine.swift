@@ -102,7 +102,9 @@ public class Wine {
         process.executableURL = executableURL
         process.arguments = args
         process.currentDirectoryURL = directory ?? executableURL.deletingLastPathComponent()
-        process.environment = environment
+        process.environment = executableURL == wineBinary
+            ? prefixSetupEnvironment(args: args, environment: environment)
+            : environment
         process.qualityOfService = .userInitiated
 
         return try process.runStream(

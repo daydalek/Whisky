@@ -66,6 +66,11 @@ extension Wine {
         builder.set("WINEPREFIX", bottle.url.path, layer: .base)
         builder.set("WINEDEBUG", "fixme-all", layer: .base)
         builder.set("GST_DEBUG", "1", layer: .base)
+        builder.set("WINELOADER", wineBinary.path, layer: .base)
+        builder.set("WINESERVER", WhiskyWineInstaller.binFolder.appending(path: "wineserver").path, layer: .base)
+        // GE media codecs and MoltenVK ship alongside the Wine core.
+        let runtimeLib = WhiskyWineInstaller.binFolder.deletingLastPathComponent().appending(path: "lib")
+        builder.set("DYLD_FALLBACK_LIBRARY_PATH", "\(runtimeLib.path):/usr/lib", layer: .base)
 
         // Layer 2: Platform -- macOS compatibility fixes
         // Apply fixes from the MacOSCompatibilityFixes registry with reason strings.

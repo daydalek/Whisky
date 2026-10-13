@@ -35,6 +35,9 @@ import SemanticVersion
 public struct WhiskyWineVersion: Codable {
     public var version: SemanticVersion
 
+    /// Exact public Release asset URL; runtime and release tag versions can differ.
+    public var downloadURL: String?
+
     /// The bundled DXVK (macOS) version recorded alongside the runtime version,
     /// e.g. `"1.10.3"`. Optional so runtime plists written before this key
     /// existed still decode.
@@ -64,6 +67,7 @@ public struct WhiskyWineVersion: Codable {
 
     enum CodingKeys: String, CodingKey {
         case version
+        case downloadURL
         case dxvkVersion
         case dxmtVersion
         case sha256
@@ -75,13 +79,15 @@ public struct WhiskyWineVersion: Codable {
         dxvkVersion: String? = nil,
         dxmtVersion: String? = nil,
         sha256: String? = nil,
-        gptkCapable: Bool? = nil
+        gptkCapable: Bool? = nil,
+        downloadURL: String? = nil
     ) {
         self.version = version
         self.dxvkVersion = Self.normalized(dxvkVersion)
         self.dxmtVersion = Self.normalized(dxmtVersion)
         self.sha256 = Self.normalizedDigest(sha256)
         self.gptkCapable = gptkCapable
+        self.downloadURL = Self.normalized(downloadURL)
     }
 
     public init(from decoder: Decoder) throws {
@@ -91,6 +97,7 @@ public struct WhiskyWineVersion: Codable {
         let minor = try versionDict.decode(Int.self, forKey: .minor)
         let patch = try versionDict.decode(Int.self, forKey: .patch)
         version = SemanticVersion(major, minor, patch)
+        downloadURL = try Self.normalized(container.decodeIfPresent(String.self, forKey: .downloadURL))
         dxvkVersion = try Self.normalized(container.decodeIfPresent(String.self, forKey: .dxvkVersion))
         dxmtVersion = try Self.normalized(container.decodeIfPresent(String.self, forKey: .dxmtVersion))
         sha256 = try Self.normalizedDigest(container.decodeIfPresent(String.self, forKey: .sha256))
@@ -129,6 +136,7 @@ public struct WhiskyWineVersion: Codable {
         try versionDict.encode(version.major, forKey: .major)
         try versionDict.encode(version.minor, forKey: .minor)
         try versionDict.encode(version.patch, forKey: .patch)
+        try container.encodeIfPresent(downloadURL, forKey: .downloadURL)
         try container.encodeIfPresent(dxvkVersion, forKey: .dxvkVersion)
         try container.encodeIfPresent(dxmtVersion, forKey: .dxmtVersion)
         try container.encodeIfPresent(sha256, forKey: .sha256)

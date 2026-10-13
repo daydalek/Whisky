@@ -52,6 +52,23 @@ public enum WinePrefixBootstrapError: LocalizedError, Equatable {
 }
 
 public extension Wine {
+    /// Suppresses optional addon installers during prefix setup. The overrides
+    /// belong to this process and its children; game launches keep their own DLL policy.
+    internal static func prefixSetupEnvironment(
+        args: [String], environment: [String: String]
+    ) -> [String: String] {
+        guard let command = args.first?.lowercased(),
+              ["wineboot", "wineboot.exe", "winecfg", "winecfg.exe"].contains(command) else {
+            return environment
+        }
+        var result = environment
+        let existing = result["WINEDLLOVERRIDES"] ?? ""
+        result["WINEDLLOVERRIDES"] = existing.isEmpty
+            ? "mscoree,mshtml=d"
+            : existing + ";mscoree,mshtml=d"
+        return result
+    }
+
     /// Sets up a bottle's Wine prefix, the work ``prepareBottlePrefix(bottle:bootstrapper:)``
     /// hands off when the prefix is missing. Tests pass a recorder in its place.
     typealias PrefixBootstrapper = @MainActor (Bottle) async throws -> Void

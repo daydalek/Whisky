@@ -145,7 +145,7 @@ struct InstallStatusView: View {
                 }
             }
             .frame(width: 10)
-            Text(String(format: text, name))
+            Text(String(format: text, name == "WhiskyWine" ? String(localized: "setup.wine.runtime.name") : name))
             Spacer()
             if let installed = isInstalled {
                 if installed, showUninstall {

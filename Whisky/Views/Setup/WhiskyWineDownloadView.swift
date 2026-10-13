@@ -211,37 +211,16 @@ extension WhiskyWineDownloadView {
 
     @MainActor
     private func fetchVersionAndDownload() async {
-        guard let versionURL = URL(string: DistributionConfig.versionPlistURL) else {
-            setDownloadFailure(String(localized: "setup.whiskywine.error.invalidVersionURL"))
-            return
-        }
-
-        diagnostics.versionPlistURL = versionURL.absoluteString
-        diagnostics.record("Fetching version plist")
+        diagnostics.versionPlistURL = DistributionConfig.versionPlistURL
+        diagnostics.record("Fetching static Wine version manifest")
         do {
-            let (data, response) = try await URLSession(configuration: .ephemeral).data(from: versionURL)
-
-            // Check HTTP status code before attempting to decode
-            if let httpResponse = response as? HTTPURLResponse,
-               !(200 ... 299).contains(httpResponse.statusCode) {
-                diagnostics.versionHTTPStatus = httpResponse.statusCode
-                diagnostics.record("Version plist HTTP \(httpResponse.statusCode)")
-                setDownloadFailure(formatHTTPError(statusCode: httpResponse.statusCode))
-                return
-            }
-
-            let versionInfo = try PropertyListDecoder().decode(WhiskyWineVersion.self, from: data)
+            let versionInfo = try await DistributionConfig.fetchWineManifest(useCache: false)
             expectedSHA256 = versionInfo.sha256
 
             let version = versionInfo.version
             let versionString = "\(version.major).\(version.minor).\(version.patch)"
-            let downloadURLString = DistributionConfig.librariesURL(version: versionString)
+            let downloadURL = try DistributionConfig.librariesURL(for: versionInfo)
             diagnostics.record("Resolved version \(versionString)")
-
-            guard let downloadURL = URL(string: downloadURLString) else {
-                setDownloadFailure(String(localized: "setup.whiskywine.error.invalidDownloadURL"))
-                return
-            }
 
             diagnostics.downloadURL = downloadURL.absoluteString
             if await reuseExistingArchiveIfValid() {

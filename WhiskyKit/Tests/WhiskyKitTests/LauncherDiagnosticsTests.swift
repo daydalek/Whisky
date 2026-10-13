@@ -439,6 +439,27 @@ final class LauncherDiagnosticsTests: XCTestCase {
 
     // MARK: - Environment Merge Tests
 
+    func testRuntimeEnvironmentKeepsBottlePrefixAndProgramOverrides() throws {
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        let bottle = Bottle(bottleUrl: tempURL, inFlight: false, isAvailable: true)
+        let env = Wine.constructWineEnvironment(for: bottle)
+        let bin = WhiskyWineInstaller.binFolder
+        XCTAssertEqual(env["WINEPREFIX"], tempURL.path)
+        XCTAssertEqual(env["WINELOADER"], Wine.wineBinary.path)
+        XCTAssertEqual(env["WINESERVER"], bin.appending(path: "wineserver").path)
+        XCTAssertEqual(
+            env["DYLD_FALLBACK_LIBRARY_PATH"],
+            "\(bin.deletingLastPathComponent().appending(path: "lib").path):/usr/lib"
+        )
+        let custom = Wine.constructWineEnvironment(
+            for: bottle, environment: ["DYLD_FALLBACK_LIBRARY_PATH": "/custom/runtime/lib:/usr/lib"]
+        )
+        XCTAssertEqual(custom["DYLD_FALLBACK_LIBRARY_PATH"], "/custom/runtime/lib:/usr/lib")
+        XCTAssertEqual(custom["WINEPREFIX"], tempURL.path)
+    }
+
     func testLauncherEnvironmentMergePrecedence() throws {
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)

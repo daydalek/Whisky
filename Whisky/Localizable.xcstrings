@@ -74026,91 +74026,91 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "التحقق تلقائيا من تحديثات WhiskyWine"
+            "value" : "التحقق تلقائيا من تحديثات Wine"
           }
         },
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Automaticky vyhledávat WhiskyWine aktualizace"
+            "value" : "Automaticky vyhledávat Wine aktualizace"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Søg automatisk efter WhiskyWine-opdateringer"
+            "value" : "Søg automatisk efter Wine-opdateringer"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Automatisch nach Updates für WhiskyWine suchen"
+            "value" : "Automatisch nach Updates für Wine suchen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Automatically check for WhiskyWine updates"
+            "value" : "Automatically check for Wine updates"
           }
         },
         "en-GB" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Automatically check for WhiskyWine updates"
+            "value" : "Automatically check for Wine updates"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Buscar actualizaciones de WhiskyWine automáticamente"
+            "value" : "Buscar actualizaciones de Wine automáticamente"
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Automaattisesti tarkista WhiskyWine päivityksien varalta"
+            "value" : "Automaattisesti tarkista Wine päivityksien varalta"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rechercher automatiquement les mises à jour de WhiskyWine"
+            "value" : "Rechercher automatiquement les mises à jour de Wine"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Controlla automaticamente aggiornamenti di WhiskyWine"
+            "value" : "Controlla automaticamente aggiornamenti di Wine"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine のアップデートを自動的に確認する"
+            "value" : "Wine のアップデートを自動的に確認する"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine 업데이트를 자동으로 확인"
+            "value" : "Wine 업데이트를 자동으로 확인"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Automatisch controleren op WhiskyWine updates"
+            "value" : "Automatisch controleren op Wine updates"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Automatycznie sprawdzaj dostępność aktualizacji WhiskyWine"
+            "value" : "Automatycznie sprawdzaj dostępność aktualizacji Wine"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verificar automaticamente atualizações do WhiskyWine"
+            "value" : "Verificar automaticamente atualizações do Wine"
           }
         },
         "pt-PT" : {
@@ -74122,19 +74122,19 @@
         "ro" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verifică automat pentru actualizări WhiskyWine"
+            "value" : "Verifică automat pentru actualizări Wine"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Автоматически проверять на наличие обновлений WhiskyWine"
+            "value" : "Автоматически проверять на наличие обновлений Wine"
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sök automatiskt efter uppdateringar till WhiskyWine"
+            "value" : "Sök automatiskt efter uppdateringar till Wine"
           }
         },
         "tr" : {
@@ -74146,25 +74146,25 @@
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Автоматично перевіряти оновлення WhiskyWine"
+            "value" : "Автоматично перевіряти оновлення Wine"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tự động kiểm tra bản cập nhật WhiskyWine"
+            "value" : "Tự động kiểm tra bản cập nhật Wine"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自动检查 WhiskyWine 更新"
+            "value" : "自动检查 Wine 核心 更新"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自動檢查 WhiskyWine 更新"
+            "value" : "自動檢查 Wine 核心 更新"
           }
         }
       }
@@ -76986,13 +76986,13 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "تنزيل WhiskyWine"
+            "value" : "تنزيل Wine"
           }
         },
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Stahování WhiskyWine"
+            "value" : "Stahování Wine"
           }
         },
         "da" : {
@@ -77004,37 +77004,37 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine herunterladen"
+            "value" : "Wine herunterladen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Downloading WhiskyWine"
+            "value" : "Downloading Wine"
           }
         },
         "en-GB" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Downloading WhiskyWine"
+            "value" : "Downloading Wine"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Descargando WhiskyWine"
+            "value" : "Descargando Wine"
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ladataan WhiskyWine"
+            "value" : "Ladataan Wine"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Téléchargement de WhiskyWine"
+            "value" : "Téléchargement de Wine"
           }
         },
         "it" : {
@@ -77046,13 +77046,13 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine をダウンロード中"
+            "value" : "Wine をダウンロード中"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine를 다운로드 중입니다."
+            "value" : "Wine를 다운로드 중입니다."
           }
         },
         "nl" : {
@@ -77064,7 +77064,7 @@
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pobieranie WhiskyWine"
+            "value" : "Pobieranie Wine"
           }
         },
         "pt-BR" : {
@@ -77082,19 +77082,19 @@
         "ro" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Se descarcă WhiskyWine"
+            "value" : "Se descarcă Wine"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Скачивание WhiskyWine"
+            "value" : "Скачивание Wine"
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hämtar WhiskyWine"
+            "value" : "Hämtar Wine"
           }
         },
         "tr" : {
@@ -77106,7 +77106,7 @@
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Завантаження WhiskyWine"
+            "value" : "Завантаження Wine"
           }
         },
         "vi" : {
@@ -77118,13 +77118,13 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在下载 WhiskyWine"
+            "value" : "正在下载 Wine 核心"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在下載 WhiskyWine"
+            "value" : "正在下載 Wine 核心"
           }
         }
       }
@@ -78170,145 +78170,145 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "فشل تثبيت WhiskyWine. يُرجى نسخ التشخيصات وإرفاق السجلات."
+            "value" : "فشل تثبيت Wine. يُرجى نسخ التشخيصات وإرفاق السجلات."
           }
         },
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Instalace WhiskyWine se nezdařila. Zkopírujte diagnostiku a přiložte protokoly."
+            "value" : "Instalace Wine se nezdařila. Zkopírujte diagnostiku a přiložte protokoly."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installationen af WhiskyWine mislykkedes. Kopiér diagnostik og vedhæft logfiler."
+            "value" : "Installationen af Wine mislykkedes. Kopiér diagnostik og vedhæft logfiler."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Die Installation von WhiskyWine ist fehlgeschlagen. Bitte Diagnosedaten kopieren und Protokolle anhängen."
+            "value" : "Die Installation von Wine ist fehlgeschlagen. Bitte Diagnosedaten kopieren und Protokolle anhängen."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine installation failed. Please copy diagnostics and attach logs."
+            "value" : "Wine installation failed. Please copy diagnostics and attach logs."
           }
         },
         "en-GB" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine installation failed. Please copy diagnostics and attach logs."
+            "value" : "Wine installation failed. Please copy diagnostics and attach logs."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La instalación de WhiskyWine falló. Copie los diagnósticos y adjunte los registros."
+            "value" : "La instalación de Wine falló. Copie los diagnósticos y adjunte los registros."
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine-asennus epäonnistui. Kopioi diagnostiikka ja liitä lokit."
+            "value" : "Wine-asennus epäonnistui. Kopioi diagnostiikka ja liitä lokit."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'installation de WhiskyWine a échoué. Veuillez copier les diagnostics et joindre les journaux."
+            "value" : "L'installation de Wine a échoué. Veuillez copier les diagnostics et joindre les journaux."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installazione di WhiskyWine non riuscita. Copia la diagnostica e allega i log."
+            "value" : "Installazione di Wine non riuscita. Copia la diagnostica e allega i log."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine のインストールに失敗しました。診断情報をコピーしてログを添付してください。"
+            "value" : "Wine のインストールに失敗しました。診断情報をコピーしてログを添付してください。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine 설치에 실패했습니다. 진단 정보를 복사하고 로그를 첨부하세요."
+            "value" : "Wine 설치에 실패했습니다. 진단 정보를 복사하고 로그를 첨부하세요."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installatie van WhiskyWine is mislukt. Kopieer de diagnostiek en voeg logbestanden toe."
+            "value" : "Installatie van Wine is mislukt. Kopieer de diagnostiek en voeg logbestanden toe."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Instalacja WhiskyWine się nie powiodła. Skopiuj diagnostykę i dołącz dzienniki."
+            "value" : "Instalacja Wine się nie powiodła. Skopiuj diagnostykę i dołącz dzienniki."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A instalação do WhiskyWine falhou. Copie os diagnósticos e anexe os logs."
+            "value" : "A instalação do Wine falhou. Copie os diagnósticos e anexe os logs."
           }
         },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A instalação do WhiskyWine falhou. Copie os diagnósticos e anexe os registos."
+            "value" : "A instalação do Wine falhou. Copie os diagnósticos e anexe os registos."
           }
         },
         "ro" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Instalarea WhiskyWine a eșuat. Copiază diagnosticele și atașează jurnalele."
+            "value" : "Instalarea Wine a eșuat. Copiază diagnosticele și atașează jurnalele."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Установка WhiskyWine не удалась. Скопируйте диагностику и приложите журналы."
+            "value" : "Установка Wine не удалась. Скопируйте диагностику и приложите журналы."
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installationen av WhiskyWine misslyckades. Kopiera diagnostik och bifoga loggar."
+            "value" : "Installationen av Wine misslyckades. Kopiera diagnostik och bifoga loggar."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine kurulumu başarısız oldu. Lütfen tanılamayı kopyalayıp günlükleri ekleyin."
+            "value" : "Wine kurulumu başarısız oldu. Lütfen tanılamayı kopyalayıp günlükleri ekleyin."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не вдалося встановити WhiskyWine. Скопіюйте діагностику та додайте журнали."
+            "value" : "Не вдалося встановити Wine. Скопіюйте діагностику та додайте журнали."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cài đặt WhiskyWine thất bại. Vui lòng sao chép chẩn đoán và đính kèm nhật ký."
+            "value" : "Cài đặt Wine thất bại. Vui lòng sao chép chẩn đoán và đính kèm nhật ký."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine 安装失败。请复制诊断并附上日志。"
+            "value" : "Wine 核心 安装失败。请复制诊断并附上日志。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine 安裝失敗。請複製診斷並附上記錄。"
+            "value" : "Wine 核心 安裝失敗。請複製診斷並附上記錄。"
           }
         }
       }
@@ -78754,6 +78754,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "下載 URL 無效"
+          }
+        }
+      }
+    },
+    "setup.wine.runtime.name" : {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wine runtime"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wine 核心"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wine 核心"
+          }
+        }
+      }
+    },
+    "setup.whiskywine.error.noCompatibleRelease" : {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Published Wine versions currently lack a compatible installation package."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已发布的 Wine 版本暂缺可用的安装包。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已發佈的 Wine 版本暫缺可用的安裝套件。"
           }
         }
       }
@@ -79652,13 +79696,13 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "تثبيت WhiskyWine"
+            "value" : "تثبيت Wine"
           }
         },
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Instalace WhiskyWine"
+            "value" : "Instalace Wine"
           }
         },
         "da" : {
@@ -79670,55 +79714,55 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine wird installiert"
+            "value" : "Wine wird installiert"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installing WhiskyWine"
+            "value" : "Installing Wine"
           }
         },
         "en-GB" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installing WhiskyWine"
+            "value" : "Installing Wine"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Instalando WhiskyWine"
+            "value" : "Instalando Wine"
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Asennetaan WhiskyWine"
+            "value" : "Asennetaan Wine"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installation de WhiskyWine"
+            "value" : "Installation de Wine"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installazione di WhiskyWine"
+            "value" : "Installazione di Wine"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine をインストール中"
+            "value" : "Wine をインストール中"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine 설치 중"
+            "value" : "Wine 설치 중"
           }
         },
         "nl" : {
@@ -79730,7 +79774,7 @@
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Instalowanie WhiskyWine"
+            "value" : "Instalowanie Wine"
           }
         },
         "pt-BR" : {
@@ -79748,19 +79792,19 @@
         "ro" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Se instalează WhiskyWine"
+            "value" : "Se instalează Wine"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Установка WhiskyWine"
+            "value" : "Установка Wine"
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installerar WhiskyWine"
+            "value" : "Installerar Wine"
           }
         },
         "tr" : {
@@ -79772,7 +79816,7 @@
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Встановлення WhiskyWine"
+            "value" : "Встановлення Wine"
           }
         },
         "vi" : {
@@ -79784,13 +79828,13 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在安装 WhiskyWine"
+            "value" : "正在安装 Wine 核心"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在安裝 WhiskyWine"
+            "value" : "正在安裝 Wine 核心"
           }
         }
       }
@@ -94510,7 +94554,7 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "أنت تقوم بتشغيل WhiskyWine %@، ولكن %@ متوفر. هل ترغب في التحديث؟"
+            "value" : "أنت تقوم بتشغيل Wine %@، ولكن %@ متوفر. هل ترغب في التحديث؟"
           }
         },
         "cs" : {
@@ -94522,133 +94566,133 @@
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Du kører WhiskyWine %@, men %@ er tilgængelig. Ønsker du at opdatere?"
+            "value" : "Du kører Wine %@, men %@ er tilgængelig. Ønsker du at opdatere?"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sie verwenden WhiskyWine %@, die aktuelle Version ist %@. Möchten Sie WhiskyWine aktualisieren?"
+            "value" : "Sie verwenden Wine %@, die aktuelle Version ist %@. Möchten Sie Wine aktualisieren?"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "You are running WhiskyWine %@, but %@ is available. Would you like to update?"
+            "value" : "You are running Wine %@, but %@ is available. Would you like to update?"
           }
         },
         "en-GB" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "You are running WhiskyWine %@, but %@ is available. Would you like to update?"
+            "value" : "You are running Wine %@, but %@ is available. Would you like to update?"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Estás ejecutando WhiskyWine %@, pero %@ está disponible. ¿Quieres actualizar?"
+            "value" : "Estás ejecutando Wine %@, pero %@ está disponible. ¿Quieres actualizar?"
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Käytössäsi on WhiskyWine %@, mutta %@ on saatavilla. Haluatko päivittää sen?"
+            "value" : "Käytössäsi on Wine %@, mutta %@ on saatavilla. Haluatko päivittää sen?"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vous utilisez WhiskyWine %@, mais %@ est disponible. Voulez-vous le mettre à jour ?"
+            "value" : "Vous utilisez Wine %@, mais %@ est disponible. Voulez-vous le mettre à jour ?"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Stai utilizzando WhiskyWine %@, ma %@ è disponibile. Vuoi aggiornare?"
+            "value" : "Stai utilizzando Wine %@, ma %@ è disponibile. Vuoi aggiornare?"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "現在 WhiskyWine %@ を使用していますが、 %@ を利用可能です。アップデートしますか？"
+            "value" : "現在 Wine %@ を使用していますが、 %@ を利用可能です。アップデートしますか？"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine %@ 버전을 사용 중이지만 %@ 버전을 사용할 수 있습니다. 업데이트하시겠습니까?"
+            "value" : "Wine %@ 버전을 사용 중이지만 %@ 버전을 사용할 수 있습니다. 업데이트하시겠습니까?"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "U gebruikt WhiskyWine %@, maar %@ is beschikbaar. Wilt u updaten?"
+            "value" : "U gebruikt Wine %@, maar %@ is beschikbaar. Wilt u updaten?"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Używasz WhiskyWine %@, lecz nowsza wersja %@ jest dostępna. Czy chcesz zaktualizować?"
+            "value" : "Używasz Wine %@, lecz nowsza wersja %@ jest dostępna. Czy chcesz zaktualizować?"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine %@ está sendo usada, mas %@ está disponível. Atualizar?"
+            "value" : "Wine %@ está sendo usada, mas %@ está disponível. Atualizar?"
           }
         },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Está a usar o WhiskyWine %@, mas o %@ está disponível. Gostaria de atualizar?"
+            "value" : "Está a usar o Wine %@, mas o %@ está disponível. Gostaria de atualizar?"
           }
         },
         "ro" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dvs. rulați WhiskyWine %@, dar %@ este disponibil. Doriți să actualizați?"
+            "value" : "Dvs. rulați Wine %@, dar %@ este disponibil. Doriți să actualizați?"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Вы используете WhiskyWine %@, но %@ доступен. Желаете обновить?"
+            "value" : "Вы используете Wine %@, но %@ доступен. Желаете обновить?"
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Du kör WhiskyWine %@, men %@ finns tillgänglig. Vill du uppdatera?"
+            "value" : "Du kör Wine %@, men %@ finns tillgänglig. Vill du uppdatera?"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine %@ versiyonu kullanıyorsunuz ama %@ versiyonu mevcut. Güncellemek ister misiniz?"
+            "value" : "Wine %@ versiyonu kullanıyorsunuz ama %@ versiyonu mevcut. Güncellemek ister misiniz?"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ви використовуєте WhiskyWine %@, але доступна версія %@. Оновити?"
+            "value" : "Ви використовуєте Wine %@, але доступна версія %@. Оновити?"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bạn đang sử dụng WhiskyWine phiên bản %@, nhưng phiên bản%@ đã được phát hành. Bạn có muốn cập nhật không?"
+            "value" : "Bạn đang sử dụng Wine phiên bản %@, nhưng phiên bản%@ đã được phát hành. Bạn có muốn cập nhật không?"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "您正在运行 WhiskyWine %@，但 %@ 可用。您想要更新吗？"
+            "value" : "您正在运行 Wine 核心 %@，但 %@ 可用。您想要更新吗？"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "您正在使用WhiskyWine %@, %@已可更新 請問是否要更新?"
+            "value" : "您正在使用Wine 核心 %@, %@已可更新 請問是否要更新?"
           }
         }
       }
@@ -94658,145 +94702,145 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "إصدار جديد من WhiskyWine متوفر"
+            "value" : "إصدار جديد من Wine متوفر"
           }
         },
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "K dispozici je nová verze WhiskyWine"
+            "value" : "K dispozici je nová verze Wine"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ny version af WhiskyWine tilgængelig"
+            "value" : "Ny version af Wine tilgængelig"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Eine neue WhiskyWine Version ist verfügbar"
+            "value" : "Eine neue Wine Version ist verfügbar"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "New Version of WhiskyWine Available"
+            "value" : "New Version of Wine Available"
           }
         },
         "en-GB" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "New Version of WhiskyWine Available"
+            "value" : "New Version of Wine Available"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nueva versión de WhiskyWine disponible"
+            "value" : "Nueva versión de Wine disponible"
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Uusi WhiskyWine versio on saatavilla"
+            "value" : "Uusi Wine versio on saatavilla"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nouvelle version de WhiskyWine disponible"
+            "value" : "Nouvelle version de Wine disponible"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nuova versione di WhiskyWine disponibile"
+            "value" : "Nuova versione di Wine disponibile"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine の新しいバージョンがあります"
+            "value" : "Wine の新しいバージョンがあります"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "새로운 버전의 WhiskyWine를 사용할 수 있습니다"
+            "value" : "새로운 버전의 Wine를 사용할 수 있습니다"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nieuwe WhiskyWine versie is beschikbaar"
+            "value" : "Nieuwe Wine versie is beschikbaar"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nowa wersja WhiskyWine jest dostępna"
+            "value" : "Nowa wersja Wine jest dostępna"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nova versão do WhiskyWine disponível"
+            "value" : "Nova versão do Wine disponível"
           }
         },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nova versão do WhiskyWine disponível"
+            "value" : "Nova versão do Wine disponível"
           }
         },
         "ro" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O Nouă Versiune WhiskyWine este Disponibilă"
+            "value" : "O Nouă Versiune Wine este Disponibilă"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Доступна новая версия WhiskyWine"
+            "value" : "Доступна новая версия Wine"
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En ny version av WhiskyWine finns tillgänglig"
+            "value" : "En ny version av Wine finns tillgänglig"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "WhiskyWine'nin yeni versiyonu mevcut"
+            "value" : "Wine'nin yeni versiyonu mevcut"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Доступна нова версія WhiskyWine"
+            "value" : "Доступна нова версія Wine"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Phiên bản mới của WhiskyWine đã được phát hành"
+            "value" : "Phiên bản mới của Wine đã được phát hành"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "有更新的 WhiskyWine 版本可用"
+            "value" : "有更新的 Wine 核心 版本可用"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "有新的WhiskyWine版本可供安裝"
+            "value" : "有新的Wine 核心版本可供安裝"
           }
         }
       }

@@ -23,6 +23,25 @@ import Testing
 @Suite("Program prefix bootstrap and terminal runs")
 @MainActor
 final class ProgramPrefixBootstrapTests {
+    @Test
+    func prefixSetupSkipsAddonInstallersAndPreservesGraphicsOverrides() {
+        let environment = ["WINEDLLOVERRIDES": "d3d11=n,b;mscoree=n", "WINEPREFIX": "/tmp/prefix"]
+        for command in ["wineboot", "wineboot.exe", "winecfg", "winecfg.exe"] {
+            let result = Wine.prefixSetupEnvironment(args: [command, "-u"], environment: environment)
+            #expect(result["WINEDLLOVERRIDES"] == "d3d11=n,b;mscoree=n;mscoree,mshtml=d")
+            #expect(result["WINEPREFIX"] == environment["WINEPREFIX"])
+        }
+    }
+
+    @Test
+    func gameAndDependencyInstallersKeepTheirDLLPolicy() {
+        let environment = ["WINEDLLOVERRIDES": "mscoree=n,b;d3d11=n"]
+        for command in ["game.exe", "msiexec", "reg", "control", "--version"] {
+            #expect(Wine.prefixSetupEnvironment(args: [command], environment: environment) == environment)
+        }
+        #expect(Wine.prefixSetupEnvironment(args: [], environment: environment) == environment)
+    }
+
     private let tempRoot: URL
 
     init() throws {
