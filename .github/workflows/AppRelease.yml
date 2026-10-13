@@ -2,7 +2,7 @@ name: Build and release Whisky app
 
 on:
   push:
-    tags: ['v*', 'app-v*']
+    tags: ['v*', 'app-v*', 'vn-v*']
   workflow_dispatch:
     inputs:
       version:
@@ -39,7 +39,8 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             version="$MANUAL_VERSION"
           else
-            version="${RELEASE_TAG#app-}"
+            version="${RELEASE_TAG#vn-}"
+            version="${version#app-}"
             version="${version#v}"
           fi
           bash scripts/build-app-release.sh "$version"
@@ -70,8 +71,11 @@ jobs:
           cd release
           sha256sum -c SHA256SUMS
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo 'Release already exists; preserve its published assets.'
-            exit 1
+            gh release upload "$RELEASE_TAG" --clobber \
+              ./*.zip SHA256SUMS build-info.json RELEASE-NOTES.md
+            gh release edit "$RELEASE_TAG" --prerelease \
+              --title "Whisky $RELEASE_TAG — Apple Silicon" --notes-file RELEASE-NOTES.md
+            exit 0
           fi
           gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease \
             --title "Whisky $RELEASE_TAG — Apple Silicon" \
