@@ -240,3 +240,5 @@ Special thanks to Gcenx, ohaiibuzzle, Nat Brown, and [Isaac Marovitz](https://gi
     </td>
   </tr>
 </table>
+
+游戏资料来源包括 [月幕 Galgame](https://www.ymgal.games/)，通过其[官方开放 API](https://www.ymgal.games/developer)提供搜索、封面与游戏简介。月幕 API 适用于非商业用途。

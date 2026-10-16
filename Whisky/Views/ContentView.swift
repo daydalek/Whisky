@@ -37,6 +37,7 @@ struct ContentView: View {
 
     @State var toast: ToastData?
     @State var corruptRegistryBackupURL: URL?
+    @State private var updateWine = false
 
     var body: some View {
         NavigationSplitView {
@@ -147,7 +148,8 @@ struct ContentView: View {
             BottleCreationView(newlyCreatedBottleURL: $newlyCreatedBottleURL)
         }
         .sheet(isPresented: $showSetup) {
-            SetupView(showSetup: $showSetup, firstTime: false)
+            SetupView(showSetup: $showSetup, firstTime: false, updateWine: updateWine)
+                .onDisappear { updateWine = false }
         }
         .sheet(item: $openedFileURL) { url in
             FileOpenView(
@@ -214,6 +216,7 @@ struct ContentView: View {
 
             if !WhiskyWineInstaller.isWhiskyWineInstalled() {
                 showSetup = true
+                return
             }
             let task = Task.detached {
                 await WhiskyWineInstaller.shouldUpdateWhiskyWine()
@@ -235,7 +238,7 @@ struct ContentView: View {
                 let response = alert.runModal()
 
                 if response == .alertFirstButtonReturn {
-                    WhiskyWineInstaller.uninstall()
+                    updateWine = true
                     showSetup = true
                 }
             }

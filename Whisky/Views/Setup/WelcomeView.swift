@@ -28,6 +28,7 @@ struct WelcomeView: View {
     @Binding var path: [SetupStage]
     @Binding var showSetup: Bool
     var firstTime: Bool
+    var updateWine: Bool = false
 
     /// Opt-in checkbox state; writing records the explicit choice.
     private var telemetryOptIn: Binding<Bool> {
@@ -92,20 +93,21 @@ struct WelcomeView: View {
             HStack {
                 if let rosettaInstalled,
                    let whiskyWineInstalled {
-                    if !rosettaInstalled || !whiskyWineInstalled {
-                        Button("setup.quit") {
-                            exit(0)
+                    if !rosettaInstalled || !whiskyWineInstalled || updateWine {
+                        Button("setup.whiskywine.later") {
+                            showSetup = false
                         }
                         .keyboardShortcut(.cancelAction)
+                        .accessibilityIdentifier("setup.defer")
                     }
                     Spacer()
-                    Button(rosettaInstalled && whiskyWineInstalled ? "setup.done" : "setup.next") {
+                    Button(rosettaInstalled && whiskyWineInstalled && !updateWine ? "setup.done" : "setup.next") {
                         if !rosettaInstalled {
                             path.append(.rosetta)
                             return
                         }
 
-                        if !whiskyWineInstalled {
+                        if !whiskyWineInstalled || updateWine {
                             path.append(.whiskyWineDownload)
                             return
                         }
@@ -113,6 +115,7 @@ struct WelcomeView: View {
                         showSetup = false
                     }
                     .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("setup.continue")
                 }
             }
         }

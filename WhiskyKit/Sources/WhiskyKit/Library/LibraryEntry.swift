@@ -36,6 +36,7 @@ public struct LibrarySourceID: RawRepresentable, Hashable, Sendable, Codable {
     public static let pinned = LibrarySourceID(rawValue: "pinned")
     /// Games installed through the Steam client inside a bottle.
     public static let steam = LibrarySourceID(rawValue: "steam")
+    public static let folder = LibrarySourceID(rawValue: "folder")
 }
 
 /// One thing a person can launch, whatever put it there.
@@ -221,21 +222,15 @@ public enum LibraryCatalogue {
         merge(sources.map { $0.items(inBottleAt: url, settings: settings) })
     }
 
-    /// Collapses groups of entries, earlier groups winning.
-    ///
-    /// A Steam game that has also been pinned appears once, as the pin, because
-    /// the pin is the entry the person made themselves. Exposed separately so a
-    /// caller that gathered its groups from different actors can still merge
-    /// them the same way.
+    /// Collapse repeated identities, not repeated titles. A pinned executable
+    /// must never silently shadow a same-named Steam App ID and bypass Steam.
     public static func merge(_ groups: [[LibraryEntry]]) -> [LibraryEntry] {
-        var seenNames = Set<String>()
+        var seenIDs = Set<String>()
         var items: [LibraryEntry] = []
 
         for group in groups {
             for item in group {
-                let key = item.name.lowercased()
-                guard !seenNames.contains(key) else { continue }
-                seenNames.insert(key)
+                guard seenIDs.insert(item.id).inserted else { continue }
                 items.append(item)
             }
         }

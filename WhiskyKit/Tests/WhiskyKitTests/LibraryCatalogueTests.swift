@@ -89,10 +89,24 @@ struct LibraryCatalogueTests {
         #expect(items.map(\.name) == ["Fine"])
     }
 
-    @Test("Sources are registered in order, and pins win a name collision")
-    func pinsWinCollisions() {
+    @Test("Sources are registered in order")
+    func sourceRegistration() {
         #expect(LibraryCatalogue.sources.count >= 2)
         #expect(LibraryCatalogue.sources.first?.id == .pinned)
+    }
+
+    @Test("A same-named pin cannot shadow a Steam launch")
+    func sameNameKeepsDistinctLaunches() {
+        let root = URL(fileURLWithPath: "/test/bottle")
+        let exe = root.appendingPathComponent("drive_c/Game/Game.exe")
+        let pin = LibraryEntry(id: "pin", name: "Game", iconURL: exe,
+                               bottleURL: root, source: .pinned, launch: .program(exe))
+        let steam = LibraryEntry(id: "steam:1", name: "Game", iconURL: nil,
+                                 bottleURL: root, source: .steam, launch: .steam(appID: 1))
+        let items = LibraryCatalogue.merge([[pin], [steam, steam]])
+        #expect(items.count == 2)
+        #expect(items.contains { $0.launch == .steam(appID: 1) })
+        #expect(items.contains { $0.launch == .program(exe) })
     }
 
     @Test("Steam artwork resolves the folder layout, then the flat one")

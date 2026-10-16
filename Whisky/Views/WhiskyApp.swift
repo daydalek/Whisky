@@ -165,6 +165,7 @@ struct WhiskyApp: App {
                 Button("open.setup") {
                     showSetup = true
                 }
+                .accessibilityIdentifier("menu.openSetup")
                 Button("install.cli") {
                     Task {
                         await WhiskyCmd.install()

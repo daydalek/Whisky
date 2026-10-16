@@ -551,10 +551,10 @@ extension Whisky {
             falling back to the first bottle that has it installed.
 
             The game is launched through the bottle's Steam client, which starts \
-            first if it isn't running. The command confirms once Wine is running \
-            the client, then waits for that invocation to finish: a few seconds \
-            when the client was already running, the whole session when this \
-            launch started it.
+            first if it isn't running. Waits for client login/UI readiness, sends \
+            the request, then confirms only when the game's process appears. \
+            Progress is written to stderr; successful confirmation is on stdout. \
+            An unacknowledged request may be retried once, never during cloud sync.
             """
         )
 
@@ -589,9 +589,22 @@ extension Whisky {
             let appId = self.appId
             let json = self.json
             let bottleName = target.settings.name
-            let launch = try SteamLauncher.launch(appId: appId, bottle: target) { output in
+            guard let game = SteamLibrary.enumerate(bottleURL: target.url).first(where: { $0.appId == appId }) else {
+                throw SteamLaunchError.gameNotFound(appId: appId)
+            }
+            guard let steamRoot = SteamLibrary.detectInstall(bottleURL: target.url) else {
+                throw SteamLaunchError.steamNotInstalled
+            }
+            var receipt = SteamLaunchReceipt(steamRoot: steamRoot)
+            var lastClientState: SteamClientReadiness.State?
+            let launch = try SteamLauncher.launch(appId: appId, bottle: target, onClientState: { state in
+                if state == .waitingForLogin, state != lastClientState {
+                    FileHandle.standardError.write(Data("Waiting for Steam login/connection…\n".utf8))
+                }
+                lastClientState = state
+            }) { output in
                 if case .started = output {
-                    Self.printConfirmation(appId: appId, bottleName: bottleName, json: json)
+                    FileHandle.standardError.write(Data("Launch request sent for \(appId); waiting for game process…\n".utf8))
                 }
             }
             let result = try await launch.value
@@ -602,6 +615,35 @@ extension Whisky {
                 FileHandle.standardError.write(Data("Steam exited with code \(result.exitCode). Log: \(log)\n".utf8))
                 throw ExitCode(result.exitCode)
             }
+            let names = SteamLibrary.executableNames(under: game.installURL)
+            let driver = WineSteamClientDriver(bottle: target)
+            let appeared = try await SteamGameLaunchMonitor.wait(
+                names: names,
+                runningImages: {
+                    guard await !driver.hostWineImageNames().isEmpty else { return [] }
+                    return await Set(driver.processList().map { $0.imageName.lowercased() })
+                },
+                accepted: { receipt.status(appID: appId) != .waiting },
+                prepareRetry: {
+                    try await SteamClientReadiness.wait(
+                        steamRoot: steamRoot,
+                        showClient: { SteamLauncher.showClient(steamRoot: steamRoot, bottle: target) }
+                    )
+                },
+                retry: {
+                    receipt = SteamLaunchReceipt(steamRoot: steamRoot)
+                    let retry = try SteamLauncher.launch(
+                        appId: appId, bottle: target, installURL: game.installURL, clientIsRunning: true
+                    )
+                    let result = try await retry.value
+                    if result.exitCode != 0 { throw ExitCode(result.exitCode) }
+                }
+            )
+            guard appeared else {
+                try Task.checkCancellation()
+                throw DomainError("The game process was not confirmed. Open Windows Steam to check login, synchronization or other prompts, then retry.")
+            }
+            Self.printConfirmation(appId: appId, bottleName: bottleName, json: json)
         }
 
         /// Prints that the game was handed to the bottle's Steam client.

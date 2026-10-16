@@ -73,6 +73,7 @@ public enum SteamLauncher {
     public static func launch(
         appId: Int, bottle: Bottle, installURL: URL? = nil, record: Bool = true,
         clientIsRunning: Bool = false,
+        onClientState: (@MainActor (SteamClientReadiness.State) -> Void)? = nil,
         onOutput: (@MainActor (ProcessOutput) -> Void)? = nil
     ) throws -> Task<Wine.ProgramRunResult, any Error> {
         guard let steamRoot = SteamLibrary.detectInstall(bottleURL: bottle.url) else {
@@ -85,24 +86,46 @@ public enum SteamLauncher {
 
         let installURL = installURL ?? SteamLibrary.enumerate(bottleURL: bottle.url)
             .first { $0.appId == appId }?.installURL
+        let selectedURL = try installURL.flatMap {
+            try SteamGameProgram.selectedURL(appID: appId, installURL: $0, bottleURL: bottle.url)
+        }
+        let selectedOverrides = selectedURL.map { url in
+            bottle.programs.first(where: { $0.url == url })?.settings.overrides
+                ?? Program.persistedOverrides(for: url, bottleURL: bottle.url)
+                ?? ProgramOverrides()
+        }
         let plan = LaunchResolver.plan(
             steamAppId: appId,
-            userOverrides: installURL.flatMap { userOverrides(forInstallURL: $0, bottle: bottle) }
+            userOverrides: selectedOverrides
+                ?? installURL.flatMap { userOverrides(forInstallURL: $0, bottle: bottle) }
         )
         let steamExe = steamRoot.appending(path: "steam.exe")
         let gameExecutables = gameExecutables(installURL: installURL, plan: plan)
 
         return Task {
+            try Task.checkCancellation()
             try await Wine.prepareBottlePrefix(bottle: bottle)
             await Wine.syncAudioRegistry(bottle: bottle)
+            try Task.checkCancellation()
             if !clientIsRunning {
                 let running = await hostSteamPIDs()
-                await startClientIfNeeded(
-                    isRunning: { await isClientRunning(bottle: bottle, hostSteamPIDs: running) },
+                let alreadyRunning = await isClientRunning(bottle: bottle, hostSteamPIDs: running)
+                let previousSession = SteamClientReadiness.snapshot(steamRoot: steamRoot).session
+                let started = await startClientIfNeeded(
+                    isRunning: { alreadyRunning },
                     start: { startClient(steamExe: steamExe, bottle: bottle) },
                     hasStarted: { await !hostSteamPIDs().subtracting(running).isEmpty }
                 )
+                try Task.checkCancellation()
+                guard started else { throw SteamOrchestratorError.clientTimeout }
+                try await SteamClientReadiness.wait(
+                    steamRoot: steamRoot, previousSession: previousSession,
+                    requiresNewSession: !alreadyRunning,
+                    onState: { onClientState?($0) },
+                    showClient: { showClient(steamRoot: steamRoot, bottle: bottle) }
+                )
             }
+            try Task.checkCancellation()
             return try await Wine.runProgram(
                 at: steamExe, args: ["-applaunch", String(appId)], bottle: bottle,
                 programOverrides: plan.overrides,
@@ -115,6 +138,16 @@ public enum SteamLauncher {
                 descendantExecutables: gameExecutables,
                 descendantLaunchers: plan.startsLaunchers,
                 onOutput: onOutput
+            )
+        }
+    }
+
+    /// Bring up this bottle's Windows client, not the host's Steam installation.
+    @MainActor
+    public static func showClient(steamRoot: URL, bottle: Bottle) {
+        Task {
+            _ = try? await Wine.runProgram(
+                at: steamRoot.appendingPathComponent("steam.exe"), args: ["steam://open/main"], bottle: bottle
             )
         }
     }
@@ -163,16 +196,18 @@ public enum SteamLauncher {
         isRunning: @MainActor () async -> Bool,
         start: @MainActor () -> Void,
         hasStarted: @MainActor () async -> Bool,
-        timeout: Duration = .seconds(90),
+        timeout: Duration = .seconds(150),
         pollInterval: Duration = .seconds(2)
     ) async -> Bool {
         if await isRunning() {
-            return true
+            return !Task.isCancelled
         }
+        guard !Task.isCancelled else { return false }
         start()
         let deadline = ContinuousClock.now.advanced(by: timeout)
         while ContinuousClock.now < deadline {
             try? await Task.sleep(for: pollInterval)
+            guard !Task.isCancelled else { return false }
             if await hasStarted() {
                 return true
             }

@@ -20,6 +20,7 @@ import AppKit
 import Combine
 import Foundation
 import WhiskyKit
+import UniformTypeIdentifiers
 
 /// How the library grid is ordered.
 enum LibrarySort: String, CaseIterable, Identifiable {
@@ -64,6 +65,7 @@ final class LibraryModel: ObservableObject {
 
     /// App IDs with a launch in flight, per bottle.
     @Published private var steamLaunching: [URL: Set<Int>] = [:]
+    @Published private var steamPhases: [URL: [Int: SteamClientOrchestrator.Phase]] = [:]
     /// App IDs whose own processes are in the bottle's process list.
     @Published private var steamRunning: [URL: Set<Int>] = [:]
     /// Programs whose launch call has not returned yet.
@@ -78,6 +80,9 @@ final class LibraryModel: ObservableObject {
 
     private var orchestrators: [URL: SteamClientOrchestrator] = [:]
     private var cancellables: Set<AnyCancellable> = []
+    private var settingsSubscriptions: [AnyCancellable] = []
+    private var discoveredEntries: [URL: [LibraryEntry]] = [:]
+    private var reloadGeneration = 0
 
     // MARK: - State
 
@@ -94,7 +99,11 @@ final class LibraryModel: ObservableObject {
             if steamRunning[entry.bottleURL]?.contains(appID) == true {
                 .running
             } else if steamLaunching[entry.bottleURL]?.contains(appID) == true {
-                .launching
+                switch steamPhases[entry.bottleURL]?[appID] {
+                case .startingClient: .startingSteam
+                case .waitingForClient: .waitingForSteam
+                default: .launching
+                }
             } else {
                 .idle
             }
@@ -109,32 +118,71 @@ final class LibraryModel: ObservableObject {
     /// `libraryfolders.vdf` and every run log lookup is a plist read, so doing
     /// it inside a card turns scrolling into disk traffic.
     func reload(bottles: [Bottle]) async {
-        var built: [LibraryRow] = []
+        reloadGeneration += 1
+        let generation = reloadGeneration
         let showBottleName = bottles.count > 1
-        let routed = GameRouting().lastLaunches()
-
+        settingsSubscriptions = bottles.map { bottle in
+            bottle.$settings.dropFirst().sink { [weak self, weak bottle] settings in
+                guard let self, let bottle else { return }
+                // @Published emits before bottle.settings changes: use the new
+                // value, not a read of the old settings through the bottle.
+                self.updateEntries(in: bottle, settings: settings, showBottleName: showBottleName)
+            }
+        }
+        let available = Set(bottles.map(\.url))
+        rows.removeAll { !available.contains($0.item.bottleURL) }
+        discoveredEntries = discoveredEntries.filter { available.contains($0.key) }
+        // Publish pins immediately; slow filesystem discovery must not delay a
+        // newly added pin, or keep a removed one visible.
+        for bottle in bottles {
+            updateEntries(in: bottle, settings: bottle.settings, showBottleName: showBottleName)
+        }
         for bottle in bottles {
             let url = bottle.url
-            // Pins come straight from settings, which is a main-actor read.
-            // Steam is the part that walks the filesystem, so only that goes
-            // off the main actor, and it needs nothing but the bottle URL.
-            let pinned = PinnedLibrarySource.items(inBottleAt: url, settings: bottle.settings)
-            let steam = await Task.detached { SteamLibrarySource.entries(inBottleAt: url) }.value
-
-            for item in LibraryCatalogue.merge([pinned, steam]) {
-                built.append(
-                    LibraryRow(
-                        item: item,
-                        bottleName: showBottleName ? bottle.settings.name : nil,
-                        lastPlayed: lastPlayed(for: item, routed: routed)
-                    )
-                )
+            let discovered: [LibraryEntry]
+            do {
+                let result = try await Task.detached {
+                    let steam = SteamLibrarySource.entries(inBottleAt: url)
+                    var folders = try FolderGameLibrary.load(bottleURL: url)
+                    let exclusions = SteamLibrary.enumerate(bottleURL: url).map(\.installURL)
+                        + [SteamLibrary.detectInstall(bottleURL: url)].compactMap { $0 }
+                    let entries = folders.scan(bottleURL: url, steamDirectories: exclusions)
+                    return (steam + entries, folders)
+                }.value
+                guard !Task.isCancelled, generation == reloadGeneration else { return }
+                var current = try FolderGameLibrary.load(bottleURL: url)
+                if current.roots == result.1.roots, !current.roots.isEmpty {
+                    current.knownFolders = result.1.knownFolders
+                    current.initializedRoots = result.1.initializedRoots
+                    current.pendingMetadata.formUnion(result.1.pendingMetadata)
+                    try current.save(bottleURL: url)
+                }
+                discovered = result.0
+            } catch {
+                launchError = error.localizedDescription
+                continue
             }
-
+            guard !Task.isCancelled, generation == reloadGeneration else { return }
+            discoveredEntries[url] = discovered
+            // Read pins after the await so an earlier scan cannot resurrect a
+            // pin removed while discovery was running.
+            updateEntries(in: bottle, settings: bottle.settings, showBottleName: showBottleName)
             trackSteam(in: bottle)
         }
+    }
 
-        rows = sorted(built)
+    private func updateEntries(in bottle: Bottle, settings: BottleSettings, showBottleName: Bool) {
+        let pinned = PinnedLibrarySource.items(inBottleAt: bottle.url, settings: settings)
+        let visibility: LibraryVisibility
+        do { visibility = try LibraryVisibility.load(bottleURL: bottle.url) }
+        catch { launchError = error.localizedDescription; return }
+        let items = LibraryCatalogue.merge([pinned, discoveredEntries[bottle.url] ?? []]).filter(visibility.includes)
+        let routed = GameRouting().lastLaunches()
+        let updated = items.map { item in
+            LibraryRow(item: item, bottleName: showBottleName ? settings.name : nil,
+                       lastPlayed: lastPlayed(for: item, routed: routed))
+        }
+        rows = sorted(rows.filter { $0.item.bottleURL != bottle.url } + updated)
     }
 
     /// When an entry was last started in Whisky.
@@ -190,12 +238,30 @@ final class LibraryModel: ObservableObject {
 // MARK: - Launching
 
 extension LibraryModel {
+    func removeFromLibrary(_ item: LibraryEntry, bottles: [Bottle]) {
+        do {
+            var visibility = try LibraryVisibility.load(bottleURL: item.bottleURL)
+            visibility.hiddenIdentities.insert(item.metadataIdentity)
+            try visibility.save(bottleURL: item.bottleURL)
+            rows.removeAll { $0.id == item.id }
+        } catch { launchError = error.localizedDescription }
+    }
+
+    func cancelLaunch(_ row: LibraryRow) {
+        guard case let .steam(appID) = row.item.launch else { return }
+        orchestrators[row.item.bottleURL]?.cancelLaunch(appID: appID)
+    }
+
     func launch(_ row: LibraryRow, bottles: [Bottle]) {
         guard let bottle = bottles.first(where: { $0.url == row.item.bottleURL }) else { return }
 
         switch row.item.launch {
         case let .program(url):
-            launchProgram(at: url, in: bottle)
+            if row.item.source == .folder {
+                if let executable = folderExecutable(row.item) { launchProgram(at: executable, in: bottle) }
+            } else {
+                launchProgram(at: url, in: bottle)
+            }
         case let .steam(appID):
             let games = SteamLibrary.enumerate(bottleURL: bottle.url)
             guard let game = games.first(where: { $0.appId == appID }) else {
@@ -203,6 +269,28 @@ extension LibraryModel {
                 return
             }
             orchestrator(for: bottle).launch(game)
+        }
+    }
+
+    func folderExecutable(_ item: LibraryEntry, chooseAgain: Bool = false) -> URL? {
+        guard case let .program(folder) = item.launch else { return nil }
+        do {
+            var library = try FolderGameLibrary.load(bottleURL: item.bottleURL)
+            if !chooseAgain, let url = library.executable(for: folder, bottleURL: item.bottleURL),
+               FileManager.default.fileExists(atPath: url.path) { return url }
+            let panel = NSOpenPanel()
+            panel.directoryURL = folder
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.allowedContentTypes = [UTType(filenameExtension: "exe") ?? .data]
+            guard panel.runModal() == .OK, let url = panel.url else { return nil }
+            library.executables[FolderGameLibrary.key(for: folder, bottleURL: item.bottleURL)] =
+                FolderGameLibrary.key(for: url, bottleURL: item.bottleURL)
+            try library.save(bottleURL: item.bottleURL)
+            return url
+        } catch {
+            launchError = error.localizedDescription
+            return nil
         }
     }
 
@@ -259,6 +347,7 @@ extension LibraryModel {
         made.$phases
             .sink { [weak self] phases in
                 self?.steamLaunching[url] = Set(phases.keys)
+                self?.steamPhases[url] = phases
             }
             .store(in: &cancellables)
         made.$runningAppIds
@@ -286,6 +375,8 @@ extension LibraryModel {
 
     /// Stops every poller. Called when the library leaves the screen.
     func stopTracking() {
+        settingsSubscriptions.removeAll()
+        reloadGeneration += 1
         for orchestrator in orchestrators.values {
             orchestrator.stop()
         }

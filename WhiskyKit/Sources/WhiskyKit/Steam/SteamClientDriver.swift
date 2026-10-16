@@ -55,6 +55,32 @@ public protocol SteamClientDriver: AnyObject {
     /// The orchestrator is being stopped; release anything started in
     /// ``clientDidBecomeReady()``.
     func shutdown()
+
+    /// Implementations must distinguish a client process from usable client IPC.
+    func waitUntilReady(onState: @escaping @MainActor (SteamClientReadiness.State) -> Void) async throws
+    func launchWasAccepted(_ game: SteamGame) -> Bool
+    func waitForClientProcess(timeout: TimeInterval, pollInterval: Duration) async -> Bool
+}
+
+public extension SteamClientDriver {
+    // Non-Wine drivers (including test doubles) may have an intrinsically ready
+    // client. The production Wine driver always implements the log/session gate.
+    func waitUntilReady(onState: @escaping @MainActor (SteamClientReadiness.State) -> Void) async throws {
+        try Task.checkCancellation()
+    }
+    func launchWasAccepted(_ game: SteamGame) -> Bool { true }
+    func waitForClientProcess(timeout: TimeInterval, pollInterval: Duration) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(timeout))
+        repeat {
+            guard !Task.isCancelled else { return false }
+            if await processList().contains(where: { $0.imageName.lowercased() == "steam.exe" }) {
+                return !Task.isCancelled
+            }
+            if clock.now >= deadline { return false }
+            do { try await Task.sleep(for: pollInterval) } catch { return false }
+        } while true
+    }
 }
 
 /// The production driver: Wine, `tasklist.exe`, `ps`, and ``SteamLauncher``.
@@ -64,6 +90,9 @@ public protocol SteamClientDriver: AnyObject {
 @MainActor
 open class WineSteamClientDriver: SteamClientDriver {
     public let bottle: Bottle
+    private var previousSession: String?
+    private var startedClient = false
+    private var receipts: [Int: SteamLaunchReceipt] = [:]
 
     public init(bottle: Bottle) {
         self.bottle = bottle
@@ -112,7 +141,45 @@ open class WineSteamClientDriver: SteamClientDriver {
 
     /// `steam.exe -silent` runs for the whole session, so the run is never awaited.
     open func startClient(steamExe: URL) {
+        previousSession = SteamClientReadiness.snapshot(steamRoot: steamExe.deletingLastPathComponent()).session
+        startedClient = true
         SteamLauncher.startClient(steamExe: steamExe, bottle: bottle)
+    }
+
+    open func waitUntilReady(
+        onState: @escaping @MainActor (SteamClientReadiness.State) -> Void
+    ) async throws {
+        guard let root = SteamLibrary.detectInstall(bottleURL: bottle.url) else {
+            throw SteamOrchestratorError.steamNotInstalled
+        }
+        defer { startedClient = false }
+        try await SteamClientReadiness.wait(
+            steamRoot: root, previousSession: previousSession, requiresNewSession: startedClient,
+            onState: onState, showClient: { SteamLauncher.showClient(steamRoot: root, bottle: self.bottle) }
+        )
+    }
+
+    open func launchWasAccepted(_ game: SteamGame) -> Bool {
+        // Unknown evidence must suppress retries too, not risk duplicate games.
+        receipts[game.appId]?.status(appID: game.appId) != .waiting
+    }
+
+    /// Never spawn a Wine helper while the startup's registry import is waiting
+    /// for cold-boot services to release inherited stdout handles. Host evidence
+    /// alone is not bottle-scoped, so also require this bottle's new log session.
+    open func waitForClientProcess(timeout: TimeInterval, pollInterval: Duration) async -> Bool {
+        guard let root = SteamLibrary.detectInstall(bottleURL: bottle.url) else { return false }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(timeout))
+        repeat {
+            guard !Task.isCancelled else { return false }
+            let names = await hostWineImageNames()
+            let session = SteamClientReadiness.snapshot(steamRoot: root).session
+            if names.contains("steam.exe"), session != nil,
+               !startedClient || session != previousSession { return true }
+            if clock.now >= deadline { return false }
+            do { try await Task.sleep(for: pollInterval) } catch { return false }
+        } while true
     }
 
     /// Through the shared path, which carries the locale, DXVK and
@@ -126,6 +193,9 @@ open class WineSteamClientDriver: SteamClientDriver {
     /// to the client. The returned task can outlive the game, so it is never
     /// awaited. The install URL is already known, which saves a library rescan.
     open func launchGame(_ game: SteamGame) throws {
+        if let root = SteamLibrary.detectInstall(bottleURL: bottle.url) {
+            receipts[game.appId] = SteamLaunchReceipt(steamRoot: root)
+        }
         // The orchestrator has started the client or found it running already.
         _ = try SteamLauncher.launch(
             appId: game.appId, bottle: bottle, installURL: game.installURL, clientIsRunning: true

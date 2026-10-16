@@ -31,8 +31,22 @@ enum LibraryEntryState: Equatable {
     case idle
     /// Whisky has been asked to start it and Wine has not put a window up yet.
     case launching
+    case startingSteam
+    case waitingForSteam
     /// It has a process of its own in ``ProcessRegistry``.
     case running
+
+    var isPending: Bool {
+        self == .launching || self == .startingSteam || self == .waitingForSteam
+    }
+
+    var phaseLabel: LocalizedStringKey {
+        switch self {
+        case .startingSteam: "library.steam.starting"
+        case .waitingForSteam: "library.steam.waiting"
+        default: "library.card.launching"
+        }
+    }
 }
 
 /// One library entry, coloured by its own icon.
@@ -183,12 +197,14 @@ struct LibraryCard: View {
     @ViewBuilder
     private var statusView: some View {
         switch state {
-        case .launching:
-            ProgressView()
-                .controlSize(.small)
-                .frame(width: 30, height: 30)
-                .cardGlass(.circle)
-                .help("library.card.launching")
+        case .launching, .startingSteam, .waitingForSteam:
+            HStack(spacing: 5) {
+                ProgressView().controlSize(.mini)
+                Text(state.phaseLabel).font(.caption2).lineLimit(1)
+            }
+            .padding(7)
+            .cardGlass(.capsule)
+            .help(state.phaseLabel)
         case .running:
             Label("library.card.running", systemImage: "circle.fill")
                 .labelStyle(.titleAndIcon)
@@ -232,6 +248,8 @@ struct LibraryCard: View {
         }
         if item.source == .steam {
             parts.append(String(localized: "library.source.steam"))
+        } else {
+            parts.append(String(localized: "library.source.local"))
         }
         if let lastPlayed {
             parts.append(lastPlayed.formatted(.relative(presentation: .named)))

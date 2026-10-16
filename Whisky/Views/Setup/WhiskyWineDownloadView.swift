@@ -42,25 +42,20 @@ struct WhiskyWineDownloadView: View {
     /// Guards the once-per-setup-attempt `runtime_install_started` capture against
     /// repeated `onAppear` calls from NavigationStack (mirrors the install view).
     @State private var hasStartedDownload: Bool = false
+    @State private var showDownloadConfirmation = false
+    @State private var hasCancelled = false
     @Binding var tarLocation: URL
     @Binding var path: [SetupStage]
     @Binding var showSetup: Bool
     @Binding var diagnostics: WhiskyWineSetupDiagnostics
 
-    /// Stable on-disk home for the runtime archive. Living in Caches rather
-    /// than the ephemeral temp directory means a partially downloaded archive
-    /// survives an app relaunch, and the next attempt resumes it instead of
-    /// starting the full download over.
+    /// Cached archives survive relaunches so interrupted downloads can resume.
     static let archiveDestination: URL = .cachesDirectory
         .appending(path: Bundle.whiskyBundleIdentifier)
         .appending(path: "RuntimeDownload")
         .appending(path: "Libraries.tar.gz")
 
-    /// Downloader that resumes interrupted transfers and retries transient
-    /// failures with backoff. The session survives transient connectivity loss
-    /// (Wi-Fi/Ethernet switches, VPN reconnects) and applies bounded
-    /// request/resource timeouts so a stalled download surfaces an error
-    /// instead of hanging forever.
+    /// Resumes interrupted transfers and retries transient failures with bounded timeouts.
     private static let downloader: ResumableDownloader = {
         let config = URLSessionConfiguration.ephemeral
         config.waitsForConnectivity = true
@@ -89,25 +84,46 @@ struct WhiskyWineDownloadView: View {
                 Spacer()
             }
             Spacer()
+            Button("button.cancel", role: .cancel) {
+                cancelDownload()
+            }
+            .keyboardShortcut(.cancelAction)
         }
         .frame(width: 400, height: 200)
         .onAppear {
-            // Guard against multiple onAppear calls from NavigationStack so the
-            // once-per-setup-attempt runtime_install_started capture holds.
             guard !hasStartedDownload else { return }
-            hasStartedDownload = true
-            Task {
-                diagnostics.reset()
-                diagnostics.record("Entered download stage")
-                diagnostics.record("Telemetry consent: \(Telemetry.consent.rawValue)")
-                Telemetry.capture(.runtimeInstallStarted)
-                await fetchVersionAndDownload()
+            showDownloadConfirmation = true
+        }
+        .alert("setup.whiskywine.confirm.title", isPresented: $showDownloadConfirmation) {
+            Button("setup.whiskywine.confirm.download") {
+                hasStartedDownload = true
+                downloadTask = Task {
+                    diagnostics.reset()
+                    diagnostics.record("Entered download stage")
+                    diagnostics.record("Telemetry consent: \(Telemetry.consent.rawValue)")
+                    Telemetry.capture(.runtimeInstallStarted)
+                    await fetchVersionAndDownload()
+                }
             }
+            Button("setup.whiskywine.later", role: .cancel) {
+                cancelDownload()
+            }
+        } message: {
+            Text("setup.whiskywine.confirm.message")
+        }
+        .onDisappear {
+            downloadTask?.cancel()
         }
     }
 }
 
 extension WhiskyWineDownloadView {
+    private func cancelDownload() {
+        hasCancelled = true
+        downloadTask?.cancel()
+        showSetup = false
+    }
+
     private func errorView(error: String) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "xmark.circle")
@@ -144,7 +160,7 @@ extension WhiskyWineDownloadView {
                 .keyboardShortcut(.defaultAction)
 
                 Button("setup.quit") {
-                    showSetup = false
+                    cancelDownload()
                 }
                 .buttonStyle(.bordered)
                 .keyboardShortcut(.cancelAction)
@@ -195,7 +211,7 @@ extension WhiskyWineDownloadView {
         downloadTask?.cancel()
         downloadTask = nil
         diagnostics.resetDownloadState(reason: "Retry requested")
-        Task {
+        downloadTask = Task {
             await fetchVersionAndDownload()
         }
     }
@@ -206,6 +222,7 @@ extension WhiskyWineDownloadView {
     }
 
     private func proceed() {
+        guard !hasCancelled, !Task.isCancelled else { return }
         path.append(.whiskyWineInstall)
     }
 
@@ -215,6 +232,8 @@ extension WhiskyWineDownloadView {
         diagnostics.record("Fetching static Wine version manifest")
         do {
             let versionInfo = try await DistributionConfig.fetchWineManifest(useCache: false)
+            try Task.checkCancellation()
+            guard !hasCancelled else { return }
             expectedSHA256 = versionInfo.sha256
 
             let version = versionInfo.version
@@ -226,8 +245,13 @@ extension WhiskyWineDownloadView {
             if await reuseExistingArchiveIfValid() {
                 return
             }
+            try Task.checkCancellation()
+            guard !hasCancelled else { return }
             startDownload(from: downloadURL)
+        } catch is CancellationError {
+            // The user declined or cancelled setup; do not turn this into a failure.
         } catch {
+            guard !hasCancelled, !Task.isCancelled else { return }
             let errorMessage = error.localizedDescription
             diagnostics.record("Version fetch failed: \(errorMessage)")
             setDownloadFailure(String(
@@ -237,9 +261,7 @@ extension WhiskyWineDownloadView {
         }
     }
 
-    /// A finished archive can be left behind when the app quits between the
-    /// download and install stages. If it matches the advertised hash, skip
-    /// straight to install; if not, discard it so the download starts clean.
+    /// Reuses a cached archive only if its advertised hash matches.
     /// - Returns: `true` when the setup flow already moved on to install.
     @MainActor
     private func reuseExistingArchiveIfValid() async -> Bool {
@@ -251,6 +273,7 @@ extension WhiskyWineDownloadView {
         let result = await Task.detached {
             WhiskyWineInstaller.integrityResult(forFileAt: destination, expectedSHA256: expected)
         }.value
+        guard !hasCancelled, !Task.isCancelled else { return false }
         guard result == .match else {
             diagnostics.record("Previous archive failed verification; discarding")
             ResumableDownloader.discardArtifacts(at: destination)
@@ -281,6 +304,7 @@ extension WhiskyWineDownloadView {
                         Task { @MainActor in handleProgressUpdate(progress) }
                     }
                 )
+                try Task.checkCancellation()
                 diagnostics.downloadFinishedAt = Date()
                 diagnostics.record("Download completed")
                 await verifyThenProceed(fileURL: destination)
@@ -296,6 +320,7 @@ extension WhiskyWineDownloadView {
 
     @MainActor
     private func handleDownloadError(_ error: Error) {
+        guard !hasCancelled, !Task.isCancelled else { return }
         diagnostics.downloadFinishedAt = Date()
         if case let ResumableDownloadError.httpStatus(statusCode) = error {
             diagnostics.downloadHTTPStatus = statusCode
@@ -310,11 +335,7 @@ extension WhiskyWineDownloadView {
         ))
     }
 
-    /// Verifies the downloaded archive against the advertised SHA-256, then
-    /// continues to the install stage. Fails closed on a mismatch (deletes the
-    /// archive, surfaces an error) rather than installing unverified bytes. When
-    /// no hash is advertised, verification is skipped so older runtime metadata
-    /// still installs.
+    /// Fails closed on a SHA-256 mismatch; legacy manifests without hashes skip verification.
     @MainActor
     private func verifyThenProceed(fileURL: URL) async {
         if let expected = expectedSHA256 {
@@ -323,6 +344,7 @@ extension WhiskyWineDownloadView {
             let result = await Task.detached {
                 WhiskyWineInstaller.integrityResult(forFileAt: fileURL, expectedSHA256: expected)
             }.value
+            guard !hasCancelled, !Task.isCancelled else { return }
             let failure: String? = switch result {
             case .match: nil
             case let .mismatch(actual): "expected \(expected), got \(actual)"

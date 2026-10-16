@@ -24,6 +24,7 @@ struct RosettaView: View {
     @State var successful: Bool = true
     @Binding var path: [SetupStage]
     @Binding var showSetup: Bool
+    var updateWine: Bool = false
 
     var body: some View {
         VStack {
@@ -105,7 +106,7 @@ struct RosettaView: View {
 
     @MainActor
     func proceed() {
-        if !WhiskyWineInstaller.isWhiskyWineInstalled() {
+        if !WhiskyWineInstaller.isWhiskyWineInstalled() || updateWine {
             path.append(.whiskyWineDownload)
             return
         }

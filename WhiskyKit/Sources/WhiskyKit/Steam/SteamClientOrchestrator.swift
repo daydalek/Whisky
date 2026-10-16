@@ -24,6 +24,7 @@ public enum SteamOrchestratorError: LocalizedError, Equatable {
     case clientTimeout
     /// The bottle no longer contains a Steam installation.
     case steamNotInstalled
+    case clientNotReady
 
     public var errorDescription: String? {
         switch self {
@@ -31,6 +32,8 @@ public enum SteamOrchestratorError: LocalizedError, Equatable {
             String(localized: "steam.client.timeout")
         case .steamNotInstalled:
             String(localized: "steam.client.missing")
+        case .clientNotReady:
+            String(localized: "steam.client.notReady")
         }
     }
 }
@@ -53,13 +56,14 @@ public enum SteamOrchestratorError: LocalizedError, Equatable {
 public final class SteamClientOrchestrator: ObservableObject {
     public enum Phase: Equatable, Sendable {
         case startingClient
+        case waitingForClient
         case launching
     }
 
     /// The waits and intervals, injectable so tests do not sit through them.
     public struct Timing: Sendable {
         /// How long to wait for steam.exe after starting the client.
-        public var clientReadyTimeout: TimeInterval = 90
+        public var clientReadyTimeout: TimeInterval = 150
         /// Steam forks the game and the -applaunch invocation returns
         /// immediately; shader precompilation can hold the real game process
         /// back for a long time. Lutris ships 120 seconds for this same wait.
@@ -70,19 +74,22 @@ public final class SteamClientOrchestrator: ObservableObject {
         public var trackingInterval: Duration = .seconds(10)
         /// How long one process snapshot answers for.
         public var snapshotLifetime: TimeInterval = 1
+        public var retryDelay: TimeInterval = 10
 
         public init(
-            clientReadyTimeout: TimeInterval = 90,
+            clientReadyTimeout: TimeInterval = 150,
             launchGrace: TimeInterval = 120,
             pollInterval: Duration = .seconds(2),
             trackingInterval: Duration = .seconds(10),
-            snapshotLifetime: TimeInterval = 1
+            snapshotLifetime: TimeInterval = 1,
+            retryDelay: TimeInterval = 10
         ) {
             self.clientReadyTimeout = clientReadyTimeout
             self.launchGrace = launchGrace
             self.pollInterval = pollInterval
             self.trackingInterval = trackingInterval
             self.snapshotLifetime = snapshotLifetime
+            self.retryDelay = retryDelay
         }
     }
 
@@ -100,7 +107,9 @@ public final class SteamClientOrchestrator: ObservableObject {
     private var executableNamesByAppId: [Int: Set<String>] = [:]
     /// The in-flight client startup, shared by every concurrent launch.
     private var clientStartup: Task<Void, Error>?
+    private var startupID: UUID?
     private var launchTasks: [Int: Task<Void, Never>] = [:]
+    private var launchIDs: [Int: UUID] = [:]
     var processSnapshot: (processes: [WineProcess], taken: Date)?
     var snapshotRead: Task<[WineProcess], Never>?
 
@@ -124,8 +133,19 @@ public final class SteamClientOrchestrator: ObservableObject {
     /// still inside its grace period.
     public func launch(_ game: SteamGame) {
         guard phases[game.appId] == nil else { return }
+        let requestID = UUID()
+        launchIDs[game.appId] = requestID
         phases[game.appId] = .startingClient
-        launchTasks[game.appId] = Task { await performLaunch(game) }
+        launchTasks[game.appId] = Task { await performLaunch(game, requestID: requestID) }
+    }
+
+    /// Cancel only this request, never Steam or an already-running game.
+    public func cancelLaunch(appID: Int) {
+        launchTasks[appID]?.cancel()
+        launchTasks[appID] = nil
+        launchIDs[appID] = nil
+        phases[appID] = nil
+        if launchTasks.isEmpty { clientStartup?.cancel() }
     }
 
     /// Polls the bottle's process list so the library can show which games
@@ -167,8 +187,11 @@ public final class SteamClientOrchestrator: ObservableObject {
             task.cancel()
         }
         launchTasks.removeAll()
+        launchIDs.removeAll()
+        phases.removeAll()
         clientStartup?.cancel()
         clientStartup = nil
+        startupID = nil
         driver.shutdown()
     }
 
@@ -185,11 +208,16 @@ public final class SteamClientOrchestrator: ObservableObject {
 
     // MARK: - Launch sequence
 
-    private func performLaunch(_ game: SteamGame) async {
+    private func performLaunch(_ game: SteamGame, requestID: UUID) async {
         defer {
-            phases[game.appId] = nil
-            launchTasks[game.appId] = nil
+            if launchIDs[game.appId] == requestID {
+                phases[game.appId] = nil
+                launchTasks[game.appId] = nil
+                launchIDs[game.appId] = nil
+            }
         }
+
+        guard !Task.isCancelled else { return }
 
         guard let steamRoot = SteamLibrary.detectInstall(bottleURL: bottle.url) else {
             launchError = SteamOrchestratorError.steamNotInstalled.errorDescription
@@ -199,8 +227,11 @@ public final class SteamClientOrchestrator: ObservableObject {
 
         do {
             try await ensureClientRunning(steamExe: steamExe)
+            try Task.checkCancellation()
+        } catch is CancellationError {
+            return
         } catch {
-            launchError = error.localizedDescription
+            if !Task.isCancelled { launchError = error.localizedDescription }
             return
         }
 
@@ -212,23 +243,35 @@ public final class SteamClientOrchestrator: ObservableObject {
             return
         }
 
-        if await !waitForGameProcess(installURL: game.installURL) {
-            launchError = String(localized: "steam.launch.timeout")
+        do {
+            let appeared = try await waitForLaunchedGame(game)
+            if appeared { runningAppIds.insert(game.appId) }
+            else { launchError = String(localized: "steam.launch.timeout") }
+        } catch is CancellationError {
+            return
+        } catch {
+            if !Task.isCancelled { launchError = error.localizedDescription }
         }
     }
 
     private func ensureClientRunning(steamExe: URL) async throws {
-        if let clientStartup {
+        if let clientStartup, !clientStartup.isCancelled {
             return try await clientStartup.value
         }
+        let id = UUID()
         let startup = Task { try await startClient(steamExe: steamExe) }
+        startupID = id
         clientStartup = startup
-        defer { clientStartup = nil }
+        defer {
+            if startupID == id { clientStartup = nil; startupID = nil }
+        }
         try await startup.value
     }
 
     private func startClient(steamExe: URL) async throws {
         if await isClientRunning() {
+            try await waitForClientReadiness()
+            try Task.checkCancellation()
             driver.clientDidBecomeReady()
             return
         }
@@ -238,27 +281,50 @@ public final class SteamClientOrchestrator: ObservableObject {
         }
         driver.startClient(steamExe: steamExe)
 
-        if await watch.waitForAny(of: ["steam.exe"], timeout: timing.clientReadyTimeout) {
+        if await driver.waitForClientProcess(timeout: timing.clientReadyTimeout, pollInterval: timing.pollInterval) {
+            try await waitForClientReadiness()
+            try Task.checkCancellation()
             driver.clientDidBecomeReady()
             return
         }
+        try Task.checkCancellation()
         throw SteamOrchestratorError.clientTimeout
+    }
+
+    private func waitForClientReadiness() async throws {
+        try await driver.waitUntilReady { [weak self] state in
+            guard let self, !state.canLaunch else { return }
+            for appID in Array(self.phases.keys) where self.phases[appID] != .launching {
+                self.phases[appID] = .waitingForClient
+            }
+        }
+    }
+
+    private func waitForLaunchedGame(_ game: SteamGame) async throws -> Bool {
+        let names = SteamLibrary.executableNames(under: game.installURL)
+        return try await SteamGameLaunchMonitor.wait(
+            names: names, timeout: timing.launchGrace, retryDelay: timing.retryDelay,
+            pollInterval: timing.pollInterval,
+            runningImages: { await self.runningImageNames() },
+            accepted: { self.driver.launchWasAccepted(game) },
+            prepareRetry: {
+                try await self.driver.waitUntilReady { state in
+                    guard !Task.isCancelled, self.phases[game.appId] != nil else { return }
+                    self.phases[game.appId] = state.canLaunch ? .launching : .waitingForClient
+                }
+            },
+            retry: { try self.driver.launchGame(game) }
+        )
     }
 
     private func isClientRunning() async -> Bool {
         await runningImageNames().contains("steam.exe")
     }
 
-    /// Waits for any of the game's executables to appear in the process list.
-    ///
-    /// Returns `true` when the game shows up (or when no candidate exe names
-    /// could be determined, in which case there is nothing to watch for).
-    private func waitForGameProcess(installURL: URL) async -> Bool {
-        let candidates = SteamLibrary.executableNames(under: installURL)
-        return await watch.waitForAny(of: candidates, timeout: timing.launchGrace)
-    }
-
     private func refreshRunningState() async {
+        // Tracking must not create tasklist.exe during client preparation, even
+        // though Wine's background services already show up in the host list.
+        guard clientStartup == nil else { return }
         runningAppIds = await watch.runningKeys(byExecutables: executableNamesByAppId)
     }
 }
@@ -267,7 +333,9 @@ public final class SteamClientOrchestrator: ObservableObject {
 
 extension SteamClientOrchestrator {
     func runningImageNames() async -> Set<String> {
-        guard await driver.hostWineImageNames().isEmpty == false else { return [] }
+        let hostNames = await driver.hostWineImageNames()
+        let relevantNames = executableNamesByAppId.values.reduce(into: Set(["steam.exe"])) { $0.formUnion($1) }
+        guard !hostNames.isDisjoint(with: relevantNames) else { return [] }
         return await Set(runningProcesses().map { $0.imageName.lowercased() })
     }
 

@@ -1,12 +1,8 @@
 name: Documentation
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'WhiskyKit/**'
-      - 'dist/pages/**'
-      - '.github/workflows/Documentation.yml'
+  # Opt-in only: forks without GitHub Pages enabled cannot deploy this site.
+  # App builds and GitHub Releases do not depend on this workflow.
   workflow_dispatch:
 
 # Sets permissions for GitHub Pages deployment

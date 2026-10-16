@@ -1,6 +1,262 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "library.scan.existing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Show pinned programs and Steam games" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "显示已固定程序和 Steam 游戏" } }
+      }
+    },
+    "library.sync.manual" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scan and sync game details" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "扫描并同步资料" } }
+      }
+    },
+    "library.remove" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remove from library" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "从游戏库删除" } }
+      }
+    },
+    "library.scan.folders" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Game folders" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "游戏目录" } }
+      }
+    },
+    "library.scan.add" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add folder…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "添加目录…" } }
+      }
+    },
+    "library.scan.now" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Scan now" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "立即扫描" } }
+      }
+    },
+    "library.scan.metadata" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Automatically match game details" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "自动刮削游戏资料" } }
+      }
+    },
+    "library.scan.executable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Choose executable…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "选择启动程序…" } }
+      }
+    },
+    "steam.client.notReady" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Steam did not become ready. Open Windows Steam in this bottle, finish login or choose offline mode, then retry." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Steam 尚未就绪。请打开此容器中的 Windows Steam，完成登录或选择离线模式后重试。" } }
+      }
+    },
+    "library.steam.starting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Starting Steam…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "正在启动 Steam…" } }
+      }
+    },
+    "library.steam.waiting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Waiting for Steam login/connection…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "等待 Steam 登录或连接…" } }
+      }
+    },
+    "library.steam.cancelWaiting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel launch waiting" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "取消启动等待" } }
+      }
+    },
+    "library.source.local" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Local program" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "本地程序" } }
+      }
+    },
+    "library.steam.management" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Steam management" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Steam 管理" } }
+      }
+    },
+    "library.steam.managedOptions" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Set launch options, verify files and manage updates in Steam. Whisky continues to launch this game through the Steam client, not its executable directly." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "请在 Steam 中设置启动选项、校验文件和管理更新。Whisky 仍通过 Steam 客户端启动此游戏，不直接运行游戏 exe。" } }
+      }
+    },
+    "library.steam.openClient" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open game in Windows Steam" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "在 Windows Steam 中打开游戏" } }
+      }
+    },
+    "library.steam.compatibility" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Whisky compatibility" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Whisky 兼容性" } }
+      }
+    },
+    "library.steam.runtimeScope" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Shared runtime settings belong to the bottle. Advanced: explicitly choose an executable's saved compatibility overrides for this game's Steam launch. This does not apply its arguments, locale or environment variables to the Steam client." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "共享运行环境由容器管理。高级设置：可明确选择一个 exe 的兼容性覆盖，供此游戏的 Steam 启动使用；不会将它的启动参数、语言环境或环境变量应用到 Steam 客户端。" } }
+      }
+    },
+    "library.steam.overrideTarget" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Advanced override settings" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "高级兼容性覆盖" } }
+      }
+    },
+    "library.steam.chooseTarget" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Automatic (existing behavior)" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "自动（保持原有行为）" } }
+      }
+    },
+    "library.steam.noExecutables" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No executable candidates found. Use Steam to manage this game." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未找到可配置的 exe，请通过 Steam 管理此游戏。" } }
+      }
+    },
+    "library.view.classic" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Classic cards" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "经典卡片" } }
+      }
+    },
+    "library.metadata.error" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unable to load game metadata" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法读取游戏资料" } }
+      }
+    },
+    "library.view.covers" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Cover bookshelf" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "封面书架" } }
+      }
+    },
+    "library.program.settings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Game runtime settings…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "游戏运行设置…" } }
+      }
+    },
+    "library.metadata.details" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Game details and metadata…" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "游戏详情与资料…" } }
+      }
+    },
+    "library.metadata.search" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search metadata" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "搜索游戏资料" } }
+      }
+    },
+    "library.metadata.query" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Original or translated game title" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "游戏原名或译名" } }
+      }
+    },
+    "library.metadata.privacy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search terms are sent directly to selected sources. Confirm a candidate before saving. Ymgal authentication is pending; Hikarinagi is disabled until an official direct API is verified. No PotatoVN servers are used." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "搜索词直接发送至选中的来源，确认候选后才保存。月幕认证尚未接入；Hikarinagi 在核实官方直连接口前不启用。不使用 PotatoVN 服务器。" } }
+      }
+    },
+    "library.metadata.empty" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No matching games" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未找到匹配游戏" } }
+      }
+    },
+    "library.metadata.use" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Use this result" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "使用此资料" } }
+      }
+    },
+    "library.metadata.unlink" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unlink metadata" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "解除资料关联" } }
+      }
+    },
+    "setup.whiskywine.confirm.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Download Wine runtime?" } },
+        "en-GB" : { "stringUnit" : { "state" : "translated", "value" : "Download Wine runtime?" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "是否下载 Wine 运行时？" } }
+      }
+    },
+    "setup.whiskywine.confirm.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Wine is required to run Windows programs. Download and install it now? You can cancel the download at any time. Your existing Wine runtime stays installed until installation begins. Bottles and games will not be deleted." } },
+        "en-GB" : { "stringUnit" : { "state" : "translated", "value" : "Wine is required to run Windows programs. Download and install it now? You can cancel the download at any time. Your existing Wine runtime stays installed until installation begins. Bottles and games will not be deleted." } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "运行 Windows 程序需要 Wine。是否现在下载并安装？下载期间可随时取消，安装开始前会保留现有 Wine。不会删除 bottle 和游戏。" } }
+      }
+    },
+    "setup.whiskywine.confirm.download" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Download and Install" } },
+        "en-GB" : { "stringUnit" : { "state" : "translated", "value" : "Download and Install" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "下载并安装" } }
+      }
+    },
+    "setup.whiskywine.later" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Not Now" } },
+        "en-GB" : { "stringUnit" : { "state" : "translated", "value" : "Not Now" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "暂不安装" } }
+      }
+    },
     "program.env.presets" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -82387,145 +82643,145 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "لم يبدأ Steam خلال 90 ثانية. راجع دليل استكشاف أخطاء المشغّلات."
+            "value" : "لم يبدأ Steam خلال 150 ثانية. راجع دليل استكشاف أخطاء المشغّلات."
           }
         },
         "cs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam se nespustil do 90 sekund. Podívejte se do průvodce řešením potíží s launchery."
+            "value" : "Steam se nespustil do 150 sekund. Podívejte se do průvodce řešením potíží s launchery."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam startede ikke inden for 90 sekunder. Se vejledningen til fejlfinding af launchere."
+            "value" : "Steam startede ikke inden for 150 sekunder. Se vejledningen til fejlfinding af launchere."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam wurde nicht innerhalb von 90 Sekunden gestartet. Sieh in der Anleitung zur Launcher-Fehlerbehebung nach."
+            "value" : "Steam wurde nicht innerhalb von 150 Sekunden gestartet. Sieh in der Anleitung zur Launcher-Fehlerbehebung nach."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam didn't start within 90 seconds. Check the launcher troubleshooting guide."
+            "value" : "Steam didn't start within 150 seconds. Check the launcher troubleshooting guide."
           }
         },
         "en-GB" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam didn't start within 90 seconds. Check the launcher troubleshooting guide."
+            "value" : "Steam didn't start within 150 seconds. Check the launcher troubleshooting guide."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam no se ha iniciado en 90 segundos. Consulta la guía de resolución de problemas de lanzadores."
+            "value" : "Steam no se ha iniciado en 150 segundos. Consulta la guía de resolución de problemas de lanzadores."
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam ei käynnistynyt 90 sekunnissa. Katso käynnistimen vianmääritysopas."
+            "value" : "Steam ei käynnistynyt 150 sekunnissa. Katso käynnistimen vianmääritysopas."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam n'a pas démarré en 90 secondes. Consultez le guide de dépannage des lanceurs."
+            "value" : "Steam n'a pas démarré en 150 secondes. Consultez le guide de dépannage des lanceurs."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam non si è avviato entro 90 secondi. Consulta la guida alla risoluzione dei problemi dei launcher."
+            "value" : "Steam non si è avviato entro 150 secondi. Consulta la guida alla risoluzione dei problemi dei launcher."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam が 90 秒以内に起動しませんでした。ランチャーのトラブルシューティングガイドを確認してください。"
+            "value" : "Steam が 150 秒以内に起動しませんでした。ランチャーのトラブルシューティングガイドを確認してください。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam이 90초 안에 시작되지 않았습니다. 런처 문제 해결 가이드를 확인하십시오."
+            "value" : "Steam이 150초 안에 시작되지 않았습니다. 런처 문제 해결 가이드를 확인하십시오."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam is niet binnen 90 seconden gestart. Raadpleeg de handleiding voor launcherproblemen."
+            "value" : "Steam is niet binnen 150 seconden gestart. Raadpleeg de handleiding voor launcherproblemen."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam nie uruchomił się w ciągu 90 sekund. Sprawdź przewodnik rozwiązywania problemów z launcherami."
+            "value" : "Steam nie uruchomił się w ciągu 150 sekund. Sprawdź przewodnik rozwiązywania problemów z launcherami."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O Steam não iniciou em 90 segundos. Consulte o guia de resolução de problemas de launchers."
+            "value" : "O Steam não iniciou em 150 segundos. Consulte o guia de resolução de problemas de launchers."
           }
         },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O Steam não arrancou em 90 segundos. Consulte o guia de resolução de problemas de launchers."
+            "value" : "O Steam não arrancou em 150 segundos. Consulte o guia de resolução de problemas de launchers."
           }
         },
         "ro" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam nu a pornit în 90 de secunde. Consultă ghidul de depanare pentru launchere."
+            "value" : "Steam nu a pornit în 150 de secunde. Consultă ghidul de depanare pentru launchere."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam не запустился за 90 секунд. См. руководство по устранению неполадок лаунчеров."
+            "value" : "Steam не запустился за 150 секунд. См. руководство по устранению неполадок лаунчеров."
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam startade inte inom 90 sekunder. Se felsökningsguiden för launchers."
+            "value" : "Steam startade inte inom 150 sekunder. Se felsökningsguiden för launchers."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam 90 saniye içinde başlamadı. Başlatıcı sorun giderme kılavuzuna bakın."
+            "value" : "Steam 150 saniye içinde başlamadı. Başlatıcı sorun giderme kılavuzuna bakın."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam не запустився за 90 секунд. Перегляньте посібник з усунення проблем лаунчерів."
+            "value" : "Steam не запустився за 150 секунд. Перегляньте посібник з усунення проблем лаунчерів."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam không khởi động trong 90 giây. Hãy xem hướng dẫn khắc phục trình khởi chạy."
+            "value" : "Steam không khởi động trong 150 giây. Hãy xem hướng dẫn khắc phục trình khởi chạy."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam 未在 90 秒内启动。请查看启动器疑难解答指南。"
+            "value" : "Steam 未在 150 秒内启动。请查看启动器疑难解答指南。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Steam 未在 90 秒內啟動。請查看啟動器疑難排解指南。"
+            "value" : "Steam 未在 150 秒內啟動。請查看啟動器疑難排解指南。"
           }
         }
       }

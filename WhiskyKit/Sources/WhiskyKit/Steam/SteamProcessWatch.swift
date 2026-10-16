@@ -46,16 +46,20 @@ public struct SteamProcessWatch: Sendable {
     /// is nothing to wait for. Returns `false` on cancellation rather than
     /// running the timeout out, since `Task.sleep` throwing is swallowed here.
     public func waitForAny(of names: Set<String>, timeout: TimeInterval) async -> Bool {
+        guard !Task.isCancelled else { return false }
         guard !names.isEmpty else { return true }
 
-        let deadline = Date(timeIntervalSinceNow: timeout)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(timeout))
         repeat {
-            if await !runningImageNames().isDisjoint(with: names) {
+            let running = await runningImageNames()
+            guard !Task.isCancelled else { return false }
+            if !running.isDisjoint(with: names) {
                 return true
             }
             try? await Task.sleep(for: pollInterval)
             guard !Task.isCancelled else { return false }
-        } while Date() < deadline
+        } while clock.now < deadline
         return false
     }
 

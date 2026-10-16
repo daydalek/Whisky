@@ -19,6 +19,23 @@
 import XCTest
 
 final class WhiskyUITests: WhiskyUITestCase {
+    func testMissingRuntimeSetupCanBeDeferred() throws {
+        app.menuBars.menuBarItems.element(boundBy: 1).click()
+        require(app.menuItems["menu.openSetup"], "setup menu item").click()
+
+        let deferButton = app.buttons["setup.defer"]
+        guard deferButton.waitForExistence(timeout: 5) else {
+            throw XCTSkip("Setup prerequisites are already installed; no deferral is needed.")
+        }
+        deferButton.click()
+
+        let dismissed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"), object: deferButton
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+        XCTAssertTrue(app.buttons["toolbar.createBottle"].exists)
+    }
+
     func testAppLaunchesAndShowsBottleDetail() throws {
         try requireBottleFixture()
         require(app.buttons["nav.bottleConfiguration"], "bottle nav row", timeout: 8)

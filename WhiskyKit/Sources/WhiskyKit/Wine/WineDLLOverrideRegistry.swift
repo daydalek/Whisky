@@ -77,7 +77,16 @@ public extension Wine {
 
         // `reg import`, not `regedit`: regedit has no silent switch, so it puts up
         // the import confirmation and never exits.
-        try await runWine(["reg", "import", url.path(percentEncoded: false)], bottle: bottle)
+        let clock = ContinuousClock()
+        let start = clock.now
+        dllOverrideLogger.info("Beginning DLL override import for \(scopes.count) scope(s)")
+        do {
+            try await runWine(["reg", "import", url.path(percentEncoded: false)], bottle: bottle)
+        } catch {
+            dllOverrideLogger.error("DLL override import failed after \(String(describing: start.duration(to: clock.now)), privacy: .public)")
+            throw error
+        }
+        dllOverrideLogger.info("DLL override import finished after \(String(describing: start.duration(to: clock.now)), privacy: .public)")
         dllOverrideLogger.debug("Synced DLL overrides for \(scopes.count) scope(s) in one import")
     }
 

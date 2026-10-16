@@ -31,16 +31,17 @@ struct SetupView: View {
     @State private var whiskyWineDiagnostics = WhiskyWineSetupDiagnostics()
     @Binding var showSetup: Bool
     var firstTime: Bool = true
+    var updateWine: Bool = false
 
     var body: some View {
         VStack {
             NavigationStack(path: $path) {
-                WelcomeView(path: $path, showSetup: $showSetup, firstTime: firstTime)
+                WelcomeView(path: $path, showSetup: $showSetup, firstTime: firstTime, updateWine: updateWine)
                     .navigationBarBackButtonHidden(true)
                     .navigationDestination(for: SetupStage.self) { stage in
                         switch stage {
                         case .rosetta:
-                            RosettaView(path: $path, showSetup: $showSetup)
+                            RosettaView(path: $path, showSetup: $showSetup, updateWine: updateWine)
                         case .whiskyWineDownload:
                             WhiskyWineDownloadView(
                                 tarLocation: $tarLocation,
@@ -62,11 +63,10 @@ struct SetupView: View {
         .padding()
         .interactiveDismissDisabled()
         .onAppear {
-            // Repeat setup can proceed directly to the runtime download once
-            // configured telemetry consent is decided. Builds without a telemetry
-            // project have no consent step to display.
+            // Updates retain the installed runtime until the replacement is ready.
+            // The download stage asks for consent before making a request.
             if !firstTime, !Telemetry.isConfigured || Telemetry.consent != .undecided,
-               !WhiskyWineInstaller.isWhiskyWineInstalled() {
+               updateWine {
                 path = [.whiskyWineDownload]
             }
         }
