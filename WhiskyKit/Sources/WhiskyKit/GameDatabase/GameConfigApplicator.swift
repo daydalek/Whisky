@@ -292,9 +292,9 @@ public enum GameConfigApplicator {
 
             for override in updatedOverrides {
                 if let existing = bottle.settings.dllOverrides.first(where: {
-                       $0.dllName == override.dllName
-                   }),
-                   existing.mode != override.mode {
+                    $0.dllName == override.dllName
+                }),
+                    existing.mode != override.mode {
                     changes.append(ConfigChange(
                         category: "DLL Overrides",
                         settingName: override.dllName,
