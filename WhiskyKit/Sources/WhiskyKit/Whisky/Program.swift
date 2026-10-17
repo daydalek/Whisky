@@ -281,6 +281,9 @@ public final class Program: ObservableObject, Equatable, Hashable, Identifiable 
         var environment = settings.environment
         if settings.locale != .auto {
             environment["LC_ALL"] = settings.locale.rawValue
+            if environment["LANG"] == nil {
+                environment["LANG"] = settings.locale.rawValue
+            }
         }
         return environment
     }

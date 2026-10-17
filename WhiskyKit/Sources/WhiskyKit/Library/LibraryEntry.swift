@@ -68,7 +68,9 @@ public struct LibraryEntry: Identifiable, Hashable, Sendable {
     /// is looking for, so it is labelled and sorted below the games.
     public let launcher: LauncherType?
 
-    public var isLauncher: Bool { launcher != nil }
+    public var isLauncher: Bool {
+        launcher != nil
+    }
 
     public init(
         id: String,

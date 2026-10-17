@@ -136,7 +136,9 @@ extension Winetricks {
         var verbs = Set<String>()
         for line in logContents.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty { continue }
+            if trimmed.isEmpty {
+                continue
+            }
 
             if trimmed.hasPrefix("Executing load_") {
                 let verb = String(trimmed.dropFirst("Executing load_".count))

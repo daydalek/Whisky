@@ -509,7 +509,7 @@ public class Wine {
 
         // Build the Wine environment with program overrides flowing through the programUser layer
         var wineEnvironment = constructWineEnvironment(
-            for: bottle, environment: environment, programOverrides: programOverrides,
+            for: bottle, environment: environment, targetURL: url, programOverrides: programOverrides,
             programSettings: programSettings, gameProfileEnvironment: gameProfileEnvironment,
             recommendedBackend: recommendedBackend, builtinD3D12IsD3DMetal: builtinD3D12IsD3DMetal
         )
@@ -587,7 +587,7 @@ public class Wine {
         // Escape args and environment values to prevent shell injection from user-editable settings
         let escapedArgs = preEscaped ? args : args.esc
         WineUserProfile.reconcile(bottleURL: bottle.url)
-        let wineEnv = constructWineEnvironment(for: bottle, environment: environment)
+        let wineEnv = constructWineEnvironment(for: bottle, environment: environment, targetURL: url)
         return shellCommand(
             "\(wineBinary.esc) start /unix \(url.esc) \(escapedArgs)", environment: wineEnv
         )
@@ -1343,8 +1343,7 @@ extension Wine {
     /// - Parameter key: The environment variable name to validate.
     /// - Returns: `true` if the key is safe to use in shell commands.
     static func isValidEnvKey(_ key: String) -> Bool {
-        guard let first = key.first else { return false }
-        guard isAsciiLetter(first) || first == "_" else { return false }
+        guard let first = key.first, isAsciiLetter(first) || first == "_" else { return false }
         return key.allSatisfy { isAsciiLetter($0) || isAsciiDigit($0) || $0 == "_" }
     }
 

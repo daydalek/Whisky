@@ -126,15 +126,12 @@ public enum PreflightCollector {
         let logsFolder = bottle.url.appending(path: "logs")
         let fileManager = FileManager.default
 
-        guard fileManager.fileExists(atPath: logsFolder.path(percentEncoded: false)) else {
-            return nil
-        }
-
-        guard let enumerator = fileManager.enumerator(
-            at: logsFolder,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        )
+        guard fileManager.fileExists(atPath: logsFolder.path(percentEncoded: false)),
+              let enumerator = fileManager.enumerator(
+                  at: logsFolder,
+                  includingPropertiesForKeys: [.contentModificationDateKey],
+                  options: [.skipsHiddenFiles]
+              )
         else {
             return nil
         }
@@ -143,9 +140,8 @@ public enum PreflightCollector {
         var mostRecentDate: Date?
 
         for case let fileURL as URL in enumerator {
-            guard fileURL.pathExtension == "log" else { continue }
-
-            guard let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]),
+            guard fileURL.pathExtension == "log",
+                  let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]),
                   let modDate = values.contentModificationDate
             else {
                 continue

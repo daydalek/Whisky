@@ -165,7 +165,9 @@ struct DependencyConfigSection: View {
     // MARK: - Helpers
 
     private func isInstalled(_ status: DependencyInstallStatus) -> Bool {
-        if case .installed = status { return true }
+        if case .installed = status {
+            return true
+        }
         return false
     }
 

@@ -53,8 +53,7 @@ class SteamDownloadMonitor: ObservableObject {
 
     /// Starts monitoring if the detected launcher is Steam.
     func startMonitoring(bottleURL: URL, detectedLauncher: LauncherType?) {
-        guard detectedLauncher == .steam else { return }
-        guard !isMonitoring else { return }
+        guard detectedLauncher == .steam, !isMonitoring else { return }
 
         isMonitoring = true
         lastSnapshot = [:]
@@ -117,7 +116,9 @@ class SteamDownloadMonitor: ObservableObject {
             status = .downloading
             stallStartTime = nil
         } else {
-            if stallStartTime == nil { stallStartTime = Date() }
+            if stallStartTime == nil {
+                stallStartTime = Date()
+            }
             let stallDuration = Date().timeIntervalSince(stallStartTime ?? Date())
 
             if stallDuration >= stallThreshold {
@@ -174,7 +175,9 @@ class SteamDownloadMonitor: ObservableObject {
                 forKeys: [.fileSizeKey, .contentModificationDateKey]
             )
             else { continue }
-            if let size = values.fileSize { totalSize += UInt64(size) }
+            if let size = values.fileSize {
+                totalSize += UInt64(size)
+            }
             if let mtime = values.contentModificationDate, mtime > newestMtime {
                 newestMtime = mtime
             }
@@ -195,7 +198,9 @@ class SteamDownloadMonitor: ObservableObject {
         }
         for (key, cur) in current {
             guard let prev = previous[key] else { continue }
-            if cur.size > prev.size || cur.mtime > prev.mtime { return true }
+            if cur.size > prev.size || cur.mtime > prev.mtime {
+                return true
+            }
         }
         return false
     }

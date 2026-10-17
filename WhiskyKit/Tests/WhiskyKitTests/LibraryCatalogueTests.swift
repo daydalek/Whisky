@@ -99,10 +99,22 @@ struct LibraryCatalogueTests {
     func sameNameKeepsDistinctLaunches() {
         let root = URL(fileURLWithPath: "/test/bottle")
         let exe = root.appendingPathComponent("drive_c/Game/Game.exe")
-        let pin = LibraryEntry(id: "pin", name: "Game", iconURL: exe,
-                               bottleURL: root, source: .pinned, launch: .program(exe))
-        let steam = LibraryEntry(id: "steam:1", name: "Game", iconURL: nil,
-                                 bottleURL: root, source: .steam, launch: .steam(appID: 1))
+        let pin = LibraryEntry(
+            id: "pin",
+            name: "Game",
+            iconURL: exe,
+            bottleURL: root,
+            source: .pinned,
+            launch: .program(exe)
+        )
+        let steam = LibraryEntry(
+            id: "steam:1",
+            name: "Game",
+            iconURL: nil,
+            bottleURL: root,
+            source: .steam,
+            launch: .steam(appID: 1)
+        )
         let items = LibraryCatalogue.merge([[pin], [steam, steam]])
         #expect(items.count == 2)
         #expect(items.contains { $0.launch == .steam(appID: 1) })

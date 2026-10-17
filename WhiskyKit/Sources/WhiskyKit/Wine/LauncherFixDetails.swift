@@ -34,16 +34,6 @@ extension LauncherType {
         case .steam:
             [
                 LauncherFixDetail(
-                    key: "LC_ALL", value: "en_US.UTF-8",
-                    reason: "Fixes steamwebhelper CEF locale crashes",
-                    category: .locale
-                ),
-                LauncherFixDetail(
-                    key: "LANG", value: "en_US.UTF-8",
-                    reason: "Fixes steamwebhelper CEF locale crashes",
-                    category: .locale
-                ),
-                LauncherFixDetail(
                     key: "LC_TIME", value: "C",
                     reason: "Avoids ICU date/time parsing errors",
                     category: .locale
@@ -78,8 +68,13 @@ extension LauncherType {
                     category: .compatibility
                 ),
                 LauncherFixDetail(
-                    key: "LC_ALL", value: "en_US.UTF-8",
-                    reason: "Sets locale for launcher UI rendering",
+                    key: "LC_TIME", value: "C",
+                    reason: "Avoids ICU date/time parsing errors",
+                    category: .locale
+                ),
+                LauncherFixDetail(
+                    key: "LC_NUMERIC", value: "C",
+                    reason: "Avoids ICU numeric parsing errors",
                     category: .locale
                 )
             ]
@@ -87,13 +82,13 @@ extension LauncherType {
         case .eaApp:
             [
                 LauncherFixDetail(
-                    key: "LC_ALL", value: "en_US.UTF-8",
-                    reason: "Fixes Chromium-based launcher locale issues",
+                    key: "LC_TIME", value: "C",
+                    reason: "Avoids ICU date/time parsing errors",
                     category: .locale
                 ),
                 LauncherFixDetail(
-                    key: "LANG", value: "en_US.UTF-8",
-                    reason: "Fixes Chromium-based launcher locale issues",
+                    key: "LC_NUMERIC", value: "C",
+                    reason: "Avoids ICU numeric parsing errors",
                     category: .locale
                 )
             ]
@@ -101,8 +96,13 @@ extension LauncherType {
         case .epicGames:
             [
                 LauncherFixDetail(
-                    key: "LC_ALL", value: "en_US.UTF-8",
-                    reason: "Fixes Chromium-based launcher locale issues",
+                    key: "LC_TIME", value: "C",
+                    reason: "Avoids ICU date/time parsing errors",
+                    category: .locale
+                ),
+                LauncherFixDetail(
+                    key: "LC_NUMERIC", value: "C",
+                    reason: "Avoids ICU numeric parsing errors",
                     category: .locale
                 )
             ]
@@ -119,8 +119,13 @@ extension LauncherType {
         case .battleNet:
             [
                 LauncherFixDetail(
-                    key: "LC_ALL", value: "en_US.UTF-8",
-                    reason: "Fixes Chromium-based launcher locale issues",
+                    key: "LC_TIME", value: "C",
+                    reason: "Avoids ICU date/time parsing errors",
+                    category: .locale
+                ),
+                LauncherFixDetail(
+                    key: "LC_NUMERIC", value: "C",
+                    reason: "Avoids ICU numeric parsing errors",
                     category: .locale
                 )
             ]

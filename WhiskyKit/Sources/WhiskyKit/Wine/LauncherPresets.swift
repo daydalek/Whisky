@@ -164,10 +164,8 @@ public enum LauncherType: String, Codable, CaseIterable, Sendable, Identifiable 
         case .steam:
             // Steam-specific fixes for steamwebhelper crashes
             // (whisky-app/whisky#946, #1224, #1241)
-            // The Chromium Embedded Framework in Steam requires specific locale
-            env["LC_ALL"] = "en_US.UTF-8"
-            env["LANG"] = "en_US.UTF-8"
-            // Force C locale for numeric/time to avoid ICU parsing errors
+            // Force C locale for numeric/time to avoid ICU parsing errors in CEF
+            // without overriding the user's or game's display/encoding locale.
             env["LC_TIME"] = "C"
             env["LC_NUMERIC"] = "C"
 
@@ -195,21 +193,23 @@ public enum LauncherType: String, Codable, CaseIterable, Sendable, Identifiable 
             // Launcher initialization improvements
             env["WINE_LARGE_ADDRESS_AWARE"] = "1"
 
-            // Locale for launcher UI
-            env["LC_ALL"] = "en_US.UTF-8"
+            // Force C locale for numeric/time in Chromium UI
+            env["LC_TIME"] = "C"
+            env["LC_NUMERIC"] = "C"
 
         case .eaApp:
             // EA App (formerly Origin) fixes (whisky-app/whisky#1195, #1322)
             // Note: CEF_DISABLE_SANDBOX is set globally in MacOSCompatibility.swift
-            env["LC_ALL"] = "en_US.UTF-8"
-            env["LANG"] = "en_US.UTF-8"
+            env["LC_TIME"] = "C"
+            env["LC_NUMERIC"] = "C"
 
             // Note: Network timeouts configured via bottle.settings.networkTimeout (default 60s)
 
         case .epicGames:
             // Epic Games Store launcher fixes
             // Note: CEF_DISABLE_SANDBOX is set globally in MacOSCompatibility.swift
-            env["LC_ALL"] = "en_US.UTF-8"
+            env["LC_TIME"] = "C"
+            env["LC_NUMERIC"] = "C"
 
         case .ubisoft:
             // Ubisoft Connect fixes (whisky-app/whisky#1004)
@@ -222,7 +222,8 @@ public enum LauncherType: String, Codable, CaseIterable, Sendable, Identifiable 
         case .battleNet:
             // Blizzard Battle.net launcher
             // Note: CEF_DISABLE_SANDBOX is set globally in MacOSCompatibility.swift
-            env["LC_ALL"] = "en_US.UTF-8"
+            env["LC_TIME"] = "C"
+            env["LC_NUMERIC"] = "C"
 
         case .paradox:
             // No environment fix: the old resource lookup workaround
@@ -308,15 +309,11 @@ public enum LauncherType: String, Codable, CaseIterable, Sendable, Identifiable 
 
     /// The recommended locale for this launcher.
     ///
-    /// Most launchers work best with US English locale to avoid
-    /// date/time parsing issues in embedded web views.
+    /// Defaults to ``Locales/auto``, which normalizes the host language to a
+    /// valid UTF-8 locale while `LC_TIME=C` and `LC_NUMERIC=C` prevent ICU
+    /// date/time/numeric parsing errors in embedded Chromium web views.
     public var recommendedLocale: Locales {
-        switch self {
-        case .steam, .eaApp, .epicGames, .battleNet:
-            .english
-        default:
-            .auto
-        }
+        .auto
     }
 
     /// User-friendly description of common issues this preset fixes.

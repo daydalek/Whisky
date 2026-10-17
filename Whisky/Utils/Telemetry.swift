@@ -120,7 +120,9 @@ enum Telemetry {
         Bundle.main.object(forInfoDictionaryKey: "PostHogProjectToken") as? String ?? ""
     }
 
-    static var isConfigured: Bool { !projectToken.isEmpty }
+    static var isConfigured: Bool {
+        !projectToken.isEmpty
+    }
 
     @MainActor private static var started = false
 

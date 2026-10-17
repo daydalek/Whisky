@@ -241,7 +241,13 @@ final class ProcessRunStreamTests: XCTestCase {
         XCTAssertEqual(outputs.first, .started)
         XCTAssertEqual(outputs.last, .terminated(0))
         XCTAssertTrue(
-            outputs.contains { if case let .message(line) = $0 { line.contains("hello") } else { false } },
+            outputs.contains {
+                if case let .message(line) = $0 {
+                    line.contains("hello")
+                } else {
+                    false
+                }
+            },
             "expected a stdout message containing 'hello', got \(outputs)"
         )
     }
@@ -256,7 +262,13 @@ final class ProcessRunStreamTests: XCTestCase {
 
         XCTAssertEqual(outputs.last, .terminated(0))
         XCTAssertTrue(
-            outputs.contains { if case let .message(line) = $0 { line.contains("early") } else { false } },
+            outputs.contains {
+                if case let .message(line) = $0 {
+                    line.contains("early")
+                } else {
+                    false
+                }
+            },
             "output written before the pipe closed must not be lost, got \(outputs)"
         )
     }
@@ -267,7 +279,15 @@ final class ProcessRunStreamTests: XCTestCase {
         XCTAssertEqual(outputs.first, .started)
         XCTAssertEqual(outputs.last, .terminated(0))
         XCTAssertFalse(
-            outputs.contains { if case .message = $0 { true } else if case .error = $0 { true } else { false } },
+            outputs.contains {
+                if case .message = $0 {
+                    true
+                } else if case .error = $0 {
+                    true
+                } else {
+                    false
+                }
+            },
             "a silent process should produce no message/error output, got \(outputs)"
         )
     }

@@ -71,7 +71,9 @@ public enum WinePrefixValidation {
 
         /// Returns true if the prefix is valid.
         public var isValid: Bool {
-            if case .valid = self { return true }
+            if case .valid = self {
+                return true
+            }
             return false
         }
     }

@@ -1,4 +1,20 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+//
+//  SteamClientReadiness.swift
+//  WhiskyKit
+//
+//  This file is part of Whisky.
+//
+//  Whisky is free software: you can redistribute it and/or modify it under the terms
+//  of the GNU General Public License as published by the Free Software Foundation,
+//  either version 3 of the License, or (at your option) any later version.
+//
+//  Whisky is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  See the GNU General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along with Whisky.
+//  If not, see https://www.gnu.org/licenses/.
+//
 
 import Foundation
 
@@ -8,7 +24,9 @@ import Foundation
 public enum SteamClientReadiness {
     public enum State: Sendable, Equatable {
         case initializing, waitingForLogin, ready, offlineReady
-        public var canLaunch: Bool { self == .ready || self == .offlineReady }
+        public var canLaunch: Bool {
+            self == .ready || self == .offlineReady
+        }
     }
 
     public struct Snapshot: Sendable {
@@ -41,14 +59,20 @@ public enum SteamClientReadiness {
         var loggedOn = false
         var lastOnlineAttempt = ""
         for line in current(connection) {
-            if line.contains("[Logged On,") { loggedOn = true }
+            if line.contains("[Logged On,") {
+                loggedOn = true
+            }
             if line.contains("[Logged Off,") || line.contains("[Logging On,")
-                || line.contains("[Connecting,") { loggedOn = false }
+                || line.contains("[Connecting,") {
+                loggedOn = false
+            }
             if line.contains("[Logging On,") || line.contains("[Connecting,") {
                 lastOnlineAttempt = timestamp(line) ?? lastOnlineAttempt
             }
         }
-        if uiReady && loggedOn { return Snapshot(session: session, state: .ready) }
+        if uiReady, loggedOn {
+            return Snapshot(session: session, state: .ready)
+        }
         // Only explicit offline-mode evidence counts, never a generic network
         // failure or a cached account. The UI must also have initialized.
         let offlineDate = consoleLines.last(where: {
@@ -78,12 +102,16 @@ public enum SteamClientReadiness {
             let current = !requiresNewSession || (snapshot.session != nil && snapshot.session != previousSession)
             let state: State = current ? snapshot.state : .initializing
             onState(state)
-            if state.canLaunch { return }
-            if !shown && start.duration(to: clock.now) >= .seconds(10) {
+            if state.canLaunch {
+                return
+            }
+            if !shown, start.duration(to: clock.now) >= .seconds(10) {
                 shown = true
                 showClient()
             }
-            if clock.now >= deadline { break }
+            if clock.now >= deadline {
+                break
+            }
             try await Task.sleep(for: pollInterval)
         } while true
         throw SteamOrchestratorError.clientNotReady
@@ -102,7 +130,8 @@ public enum SteamClientReadiness {
         do {
             let end = try handle.seekToEnd()
             try handle.seek(toOffset: end > 524_288 ? end - 524_288 : 0)
-            return String(decoding: try handle.readToEnd() ?? Data(), as: UTF8.self)
+            guard let data = try handle.readToEnd() else { return "" }
+            return String(data: data, encoding: .utf8) ?? ""
         } catch { return "" }
     }
 }
@@ -138,7 +167,8 @@ public struct SteamLaunchReceipt: Sendable {
             guard inode != nil, currentInode == inode, end >= offset else { return .unavailable }
             let beginning = offset
             try handle.seek(toOffset: max(beginning, end > 524_288 ? end - 524_288 : 0))
-            let text = String(decoding: try handle.readToEnd() ?? Data(), as: UTF8.self)
+            guard let data = try handle.readToEnd() else { return .waiting }
+            let text = String(data: data, encoding: .utf8) ?? ""
             let accepted = text.contains("GameAction [AppID \(appID),")
                 || text.contains("Game process added : AppID \(appID) ")
             return accepted ? .accepted : .waiting
@@ -166,18 +196,28 @@ public enum SteamGameLaunchMonitor {
             try Task.checkCancellation()
             let running = await runningImages()
             try Task.checkCancellation()
-            if !running.isDisjoint(with: names) { return true }
+            if !running.isDisjoint(with: names) {
+                return true
+            }
             received = received || accepted()
-            if clock.now >= deadline { return false }
-            if !retried && !received && start.duration(to: clock.now) >= .seconds(retryDelay) {
+            if clock.now >= deadline {
+                return false
+            }
+            if !retried, !received, start.duration(to: clock.now) >= .seconds(retryDelay) {
                 retried = true
                 try await prepareRetry()
                 try Task.checkCancellation()
                 let afterWait = await runningImages()
                 try Task.checkCancellation()
-                if !afterWait.isDisjoint(with: names) { return true }
-                if clock.now >= deadline { return false }
-                if !accepted() { try await retry() }
+                if !afterWait.isDisjoint(with: names) {
+                    return true
+                }
+                if clock.now >= deadline {
+                    return false
+                }
+                if !accepted() {
+                    try await retry()
+                }
             }
             try await Task.sleep(for: pollInterval)
         } while true

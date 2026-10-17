@@ -23,11 +23,12 @@ final class LauncherPresetTests: XCTestCase {
     func testSteamPresetIncludesLocale() {
         let env = LauncherType.steam.environmentOverrides()
 
-        // Steam should set en_US locale to fix steamwebhelper crashes
-        XCTAssertEqual(env["LC_ALL"], "en_US.UTF-8")
-        XCTAssertEqual(env["LANG"], "en_US.UTF-8")
+        // Steam preset should not force LC_ALL or LANG to en_US.UTF-8, so games
+        // and user locale overrides keep their native language/encoding.
+        XCTAssertNil(env["LC_ALL"])
+        XCTAssertNil(env["LANG"])
 
-        // Should force C locale for time/numeric to avoid ICU issues
+        // Should force C locale for time/numeric to avoid ICU issues in steamwebhelper
         XCTAssertEqual(env["LC_TIME"], "C")
         XCTAssertEqual(env["LC_NUMERIC"], "C")
     }
@@ -71,13 +72,18 @@ final class LauncherPresetTests: XCTestCase {
         let env = launcher.environmentOverrides()
         XCTAssertNil(env["DXVK_REQUIRED"], "No shipped runtime reads DXVK_REQUIRED")
         XCTAssertNil(env["D3DM_FORCE_D3D11"], "No shipped runtime reads D3DM_FORCE_D3D11")
+        XCTAssertNil(env["LC_ALL"])
+        XCTAssertEqual(env["LC_TIME"], "C")
+        XCTAssertEqual(env["LC_NUMERIC"], "C")
     }
 
     func testEAAppPreset() {
         let env = LauncherType.eaApp.environmentOverrides()
 
-        XCTAssertEqual(env["LC_ALL"], "en_US.UTF-8")
-        XCTAssertEqual(env["LANG"], "en_US.UTF-8")
+        XCTAssertNil(env["LC_ALL"])
+        XCTAssertNil(env["LANG"])
+        XCTAssertEqual(env["LC_TIME"], "C")
+        XCTAssertEqual(env["LC_NUMERIC"], "C")
         // GPU detection is the spoof's job (LauncherFixes turns it on); no
         // shipped runtime reads the D3DMetal feature-level keys.
         XCTAssertNil(env["D3DM_FEATURE_LEVEL_12_1"])
@@ -93,7 +99,9 @@ final class LauncherPresetTests: XCTestCase {
         XCTAssertNil(env["CEF_DISABLE_SANDBOX"], "Should be set globally, not in preset")
 
         // Epic-specific settings
-        XCTAssertEqual(env["LC_ALL"], "en_US.UTF-8")
+        XCTAssertNil(env["LC_ALL"])
+        XCTAssertEqual(env["LC_TIME"], "C")
+        XCTAssertEqual(env["LC_NUMERIC"], "C")
         XCTAssertNil(env["WINE_DISABLE_NTDLL_THREAD_REGS"], "No shipped runtime reads it")
         XCTAssertNil(env["D3DM_FORCE_D3D11"])
     }
@@ -112,7 +120,9 @@ final class LauncherPresetTests: XCTestCase {
         XCTAssertNil(env["CEF_DISABLE_SANDBOX"], "Should be set globally, not in preset")
 
         // Battle.net-specific settings
-        XCTAssertEqual(env["LC_ALL"], "en_US.UTF-8")
+        XCTAssertNil(env["LC_ALL"])
+        XCTAssertEqual(env["LC_TIME"], "C")
+        XCTAssertEqual(env["LC_NUMERIC"], "C")
         XCTAssertNil(env["WINE_CPU_TOPOLOGY"], "No shipped runtime reads it")
     }
 
@@ -131,15 +141,26 @@ final class LauncherPresetTests: XCTestCase {
     }
 
     func testRecommendedLocales() {
-        // Steam, EA App, Epic Games, Battle.net should recommend English
-        XCTAssertEqual(LauncherType.steam.recommendedLocale, .english)
-        XCTAssertEqual(LauncherType.eaApp.recommendedLocale, .english)
-        XCTAssertEqual(LauncherType.epicGames.recommendedLocale, .english)
-        XCTAssertEqual(LauncherType.battleNet.recommendedLocale, .english)
+        // All launchers default to .auto so the host's language is normalized to a
+        // valid UTF-8 locale without forcing the entire bottle into English.
+        for launcher in LauncherType.allCases {
+            XCTAssertEqual(launcher.recommendedLocale, .auto, "\(launcher.rawValue)")
+        }
+    }
 
-        // Others can use auto
-        XCTAssertEqual(LauncherType.rockstar.recommendedLocale, .auto)
-        XCTAssertEqual(LauncherType.ubisoft.recommendedLocale, .auto)
+    func testHostLocaleResolution() {
+        XCTAssertEqual(Locales.hostLocale(preferredLanguages: ["zh-Hans-CN", "en-US"]), .chineseSimplified)
+        XCTAssertEqual(Locales.hostLocale(preferredLanguages: ["zh-Hant-TW", "en-US"]), .chineseTraditional)
+        XCTAssertEqual(Locales.hostLocale(preferredLanguages: ["zh-HK"]), .chineseTraditional)
+        XCTAssertEqual(Locales.hostLocale(preferredLanguages: ["ja-JP"]), .japanese)
+        XCTAssertEqual(Locales.hostLocale(preferredLanguages: ["ko-KR"]), .korean)
+        XCTAssertEqual(Locales.hostLocale(preferredLanguages: ["de-DE"]), .german)
+        XCTAssertEqual(Locales.hostLocale(preferredLanguages: ["fr-FR"]), .french)
+        XCTAssertEqual(Locales.hostLocale(preferredLanguages: ["ru-RU"]), .russian)
+        XCTAssertEqual(Locales.hostLocale(preferredLanguages: ["uk-UA"]), .ukrainian)
+        XCTAssertEqual(Locales.hostLocale(preferredLanguages: ["nl-NL", "ja-JP"]), .japanese)
+        XCTAssertEqual(Locales.hostLocale(preferredLanguages: ["sv-SE"]), .english)
+        XCTAssertEqual(Locales.hostLocale(preferredLanguages: []), .english)
     }
 
     func testFixesDescription() {

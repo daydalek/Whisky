@@ -23,7 +23,7 @@ import Testing
 @Suite("Discord IPC Tests")
 struct DiscordIPCTests {
     @Test("A frame is an opcode and a length, little-endian, then the payload")
-    func framingLayout() throws {
+    func framingLayout() {
         let payload = Data("{\"v\":1}".utf8)
         let frame = DiscordIPC.encode(opcode: .handshake, payload: payload)
 

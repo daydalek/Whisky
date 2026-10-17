@@ -59,8 +59,13 @@ final class ResumableDownloaderTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private var partialURL: URL { ResumableDownloader.partialURL(for: destination) }
-    private var stateURL: URL { ResumableDownloader.resumeStateURL(for: destination) }
+    private var partialURL: URL {
+        ResumableDownloader.partialURL(for: destination)
+    }
+
+    private var stateURL: URL {
+        ResumableDownloader.resumeStateURL(for: destination)
+    }
 
     private func makeDownloader(
         maxAttempts: Int = 4,

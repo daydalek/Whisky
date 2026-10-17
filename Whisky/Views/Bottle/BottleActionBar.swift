@@ -41,7 +41,6 @@ struct BottleActionBar: View {
     /// only and is what lets the capsules blend instead of stacking their own
     /// layers, so the older path is the same buttons in bordered styles, which
     /// still carries the emphasis.
-    @ViewBuilder
     var body: some View {
         if #available(macOS 26.0, *) {
             GlassEffectContainer(spacing: 8) {
@@ -52,7 +51,6 @@ struct BottleActionBar: View {
         }
     }
 
-    @ViewBuilder
     private var buttons: some View {
         HStack {
             Spacer()

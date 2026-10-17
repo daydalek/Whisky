@@ -108,8 +108,7 @@ struct GameEntryRowView: View {
     }
 
     private var recommendedBackendTag: String? {
-        guard let variant = entry.defaultVariant else { return nil }
-        guard let backend = variant.settings.graphicsBackend else { return nil }
+        guard let variant = entry.defaultVariant, let backend = variant.settings.graphicsBackend else { return nil }
         switch backend {
         case .d3dMetal:
             return "D3DMetal"

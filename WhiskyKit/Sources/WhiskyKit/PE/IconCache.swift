@@ -48,7 +48,9 @@ public actor IconCache {
     /// `NSCache` stores objects, and ``Sampled`` is a value.
     private final class SampledBox {
         let sampled: Sampled
-        init(_ sampled: Sampled) { self.sampled = sampled }
+        init(_ sampled: Sampled) {
+            self.sampled = sampled
+        }
     }
 
     private let memoryCache = NSCache<NSURL, NSImage>()

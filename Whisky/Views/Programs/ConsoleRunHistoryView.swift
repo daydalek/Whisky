@@ -240,19 +240,18 @@ struct ConsoleRunHistoryView: View {
         }
     }
 
+    @ViewBuilder
     private func exitCodeBadge(_ exitCode: Int32?) -> some View {
-        Group {
-            if let code = exitCode {
-                Text("console.exitCode \(code)")
-                    .font(.caption)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(code == 0 ? Color.green.opacity(0.2) : Color.red.opacity(0.2))
-                    )
-                    .foregroundStyle(code == 0 ? .green : .red)
-            }
+        if let code = exitCode {
+            Text("console.exitCode \(code)")
+                .font(.caption)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(code == 0 ? Color.green.opacity(0.2) : Color.red.opacity(0.2))
+                )
+                .foregroundStyle(code == 0 ? .green : .red)
         }
     }
 

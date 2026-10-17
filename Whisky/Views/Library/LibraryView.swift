@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 //
 //  LibraryView.swift
 //  Whisky
@@ -18,9 +19,10 @@
 
 import AppKit
 import SwiftUI
-import WhiskyKit
 import UniformTypeIdentifiers
+import WhiskyKit
 
+// swiftlint:disable type_body_length
 /// Everything worth launching, across every bottle, most recently played first.
 ///
 /// This is the home screen because it is the thing people open Whisky to do. A
@@ -54,13 +56,17 @@ struct LibraryView: View {
     @State private var syncing = false
     @AppStorage("libraryMetadataEnabledSources") private var enabledSourceIDs = "bangumi,vndb,steam,ymgal"
 
-    private var bottles: [Bottle] { bottleVM.bottles.filter(\.isAvailable) }
+    private var bottles: [Bottle] {
+        bottleVM.bottles.filter(\.isAvailable)
+    }
 
     private var visible: [LibraryRow] {
         guard !search.isEmpty else { return model.rows }
-        return model.rows.filter {
-            $0.item.name.localizedCaseInsensitiveContains(search)
-                || metadata[$0.id]?.title.localizedCaseInsensitiveContains(search) == true
+        return model.rows.filter { row in
+            row.item.name.localizedCaseInsensitiveContains(search)
+                || metadata[row.id]?.matchingTitles.contains {
+                    $0.localizedCaseInsensitiveContains(search)
+                } == true
         }
     }
 
@@ -90,12 +96,20 @@ struct LibraryView: View {
         .sheet(item: $detailRow) { row in
             LibraryGameSheet(
                 item: row.item,
+                bottles: bottles,
                 launch: { model.launch(row, bottles: bottles) },
+                moveBottle: { targetBottle in
+                    Task {
+                        if let moved = await model.moveEntry(row.item, to: targetBottle, bottles: bottles) {
+                            detailRow = moved
+                        }
+                    }
+                },
                 didSave: { metadataRevision += 1 }
             )
         }
         .sheet(isPresented: $showScanSettings) {
-            LibraryFolderSettings(bottles: bottles) { refresh.toggle() }
+            LibraryFolderSettings(bottles: bottles, initialBottleURL: selectedBottle) { refresh.toggle() }
         }
         .sheet(item: $settingsProgram) { program in
             VStack(spacing: 0) {
@@ -127,10 +141,17 @@ struct LibraryView: View {
             Text(model.launchError == nil ? "library.metadata.error" : "library.launch.failed"),
             isPresented: Binding(
                 get: { model.launchError != nil || metadataError != nil },
-                set: { if !$0 { model.launchError = nil; metadataError = nil } }
+                set: {
+                    if !$0 {
+                        model.launchError = nil
+                        metadataError = nil
+                    }
+                }
             )
         ) {
-            Button("button.ok") { model.launchError = nil; metadataError = nil }
+            Button("button.ok") { model.launchError = nil
+                metadataError = nil
+            }
         } message: {
             Text(model.launchError ?? metadataError ?? "")
         }
@@ -199,6 +220,7 @@ struct LibraryView: View {
                         if coverMode {
                             LibraryCoverCard(
                                 item: row.item, metadata: metadata[row.id],
+                                bottleName: row.bottleName,
                                 state: model.state(for: row.item), details: { detailRow = row },
                                 launch: { model.launch(row, bottles: bottles) }
                             )
@@ -220,6 +242,7 @@ struct LibraryView: View {
     }
 
     @ViewBuilder
+    // swiftlint:disable:next function_body_length
     private func menu(for row: LibraryRow) -> some View {
         Button("button.run") { model.launch(row, bottles: bottles) }
             .disabled(model.state(for: row.item).isPending)
@@ -237,12 +260,30 @@ struct LibraryView: View {
             Button("library.metadata.details") { detailRow = row }
         }
         if case let .program(url) = row.item.launch {
+            if bottles.count > 1 {
+                Menu("library.bottle.target") {
+                    Picker("library.bottle.target", selection: Binding(
+                        get: { row.item.bottleURL },
+                        set: { targetURL in
+                            guard let target = bottles.first(where: { $0.url == targetURL }) else { return }
+                            Task { await model.moveEntry(row.item, to: target, bottles: bottles) }
+                        }
+                    )) {
+                        ForEach(bottles, id: \.url) { bottle in
+                            Text(bottle.settings.name).tag(bottle.url)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                }
+            }
             if row.item.source == .folder {
                 Button("library.scan.executable") { _ = model.folderExecutable(row.item, chooseAgain: true) }
             }
             Button("library.program.settings") {
-                guard let bottle = bottles.first(where: { $0.url == row.item.bottleURL }) else { return }
-                guard let executable = row.item.source == .folder ? model.folderExecutable(row.item) : url else { return }
+                guard let bottle = bottles.first(where: { $0.url == row.item.bottleURL }),
+                      let executable = row.item.source == .folder ? model.folderExecutable(row.item) : url
+                else { return }
                 settingsProgram = bottle.programs.first(where: { $0.url == executable })
                     ?? Program(url: executable, bottle: bottle)
             }
@@ -269,48 +310,69 @@ struct LibraryView: View {
         }
     }
 
+    // swiftlint:disable:next function_body_length cyclomatic_complexity
     private func loadMetadata() async {
         syncing = true
         let requested = manualSync
         manualSync = false
         defer { syncing = false }
         var loaded: [String: GameMetadata] = [:]
+        var stores: [URL: GameMetadataStore] = [:]
+        var libraries: [URL: FolderGameLibrary] = [:]
+        let sources = GameMetadataSource.allCases.filter {
+            enabledSourceIDs.split(separator: ",").contains(Substring($0.rawValue))
+                && $0 != .hikarinagi
+        }
+        let providers = sources.map { PublicGameMetadataProvider(source: $0) }
         for row in model.rows {
             guard !Task.isCancelled else { return }
             do {
-                let store = GameMetadataStore(directory: row.item.metadataDirectory)
+                let directory = row.item.metadataDirectory
+                let store = stores[directory] ?? {
+                    let created = GameMetadataStore(directory: directory)
+                    stores[directory] = created
+                    return created
+                }()
                 loaded[row.id] = try await store.load(for: row.item.metadataIdentity)
-                if !Task.isCancelled { metadata[row.id] = loaded[row.id] }
-                let library = try FolderGameLibrary.load(bottleURL: row.item.bottleURL)
+                if !Task.isCancelled {
+                    metadata[row.id] = loaded[row.id]
+                }
+                let bottleURL = row.item.bottleURL
+                let library = try libraries[bottleURL] ?? {
+                    let loadedLibrary = try FolderGameLibrary.load(bottleURL: bottleURL)
+                    libraries[bottleURL] = loadedLibrary
+                    return loadedLibrary
+                }()
                 let folderKey: String? = {
                     guard row.item.source == .folder, case let .program(folder) = row.item.launch else { return nil }
-                    return FolderGameLibrary.key(for: folder, bottleURL: row.item.bottleURL)
+                    return FolderGameLibrary.key(for: folder, bottleURL: bottleURL)
                 }()
                 if loaded[row.id] == nil, let folderKey,
                    requested || (library.automaticMetadata && library.pendingMetadata.contains(folderKey)),
                    try await store.allowsAutomaticMatch(for: row.item.metadataIdentity) {
-                    let sources = GameMetadataSource.allCases.filter {
-                        enabledSourceIDs.split(separator: ",").contains(Substring($0.rawValue))
-                            && $0 != .hikarinagi
-                    }
-                    if !sources.isEmpty {
+                    if !providers.isEmpty {
                         let query = FolderGameMatching.query(row.item.name)
-                        let results = await GameMetadataSearch.search(query, providers: sources.map {
-                            PublicGameMetadataProvider(source: $0)
-                        })
+                        let outcome = await GameMetadataSearch.automaticMatch(query, providers: providers)
                         try Task.checkCancellation()
-                        try completeInitialMatch(folderKey, bottleURL: row.item.bottleURL)
-                        if let candidate = FolderGameMatching.candidate(query: query, results: results, sources: sources) {
+                        if !outcome.allProvidersFailed {
+                            try completeInitialMatch(folderKey, bottleURL: bottleURL, libraries: &libraries)
+                        }
+                        if let candidate = outcome.candidate {
                             let details = try await PublicGameMetadataProvider(source: candidate.source)
                                 .details(for: candidate).usingLibraryTitle(row.item.name)
                             try Task.checkCancellation()
                             try await store.saveAutomatic(details, for: row.item.metadataIdentity)
                             loaded[row.id] = try await store.load(for: row.item.metadataIdentity)
-                            if let cover = details.coverURL { try? await store.cacheCover(from: cover) }
+                            if let cover = details.coverURL {
+                                try? await store.cacheCover(from: cover)
+                            }
+                            if !Task.isCancelled {
+                                metadata[row.id] = loaded[row.id]
+                            }
                         }
                     }
                 } else if let folderKey, library.pendingMetadata.contains(folderKey) {
-                    try completeInitialMatch(folderKey, bottleURL: row.item.bottleURL)
+                    try completeInitialMatch(folderKey, bottleURL: bottleURL, libraries: &libraries)
                 }
             } catch is CancellationError {
                 return
@@ -319,13 +381,21 @@ struct LibraryView: View {
                 metadataError = error.localizedDescription
             }
         }
-        if !Task.isCancelled { metadata = loaded }
+        if !Task.isCancelled {
+            metadata = loaded
+        }
     }
 
-    private func completeInitialMatch(_ key: String, bottleURL: URL) throws {
+    private func completeInitialMatch(
+        _ key: String, bottleURL: URL, libraries: inout [URL: FolderGameLibrary]
+    ) throws {
         var library = try FolderGameLibrary.load(bottleURL: bottleURL)
-        library.pendingMetadata.remove(key)
+        guard library.pendingMetadata.remove(key) != nil else {
+            libraries[bottleURL] = library
+            return
+        }
         try library.save(bottleURL: bottleURL)
+        libraries[bottleURL] = library
     }
 
     private var emptyState: some View {
@@ -342,21 +412,27 @@ struct LibraryView: View {
     }
 }
 
+// swiftlint:enable type_body_length
+
 private struct LibraryFolderSettings: View {
     let bottles: [Bottle]
+    let initialBottleURL: URL?
     let didSave: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var bottleURL: URL?
     @State private var library = FolderGameLibrary()
     @State private var error: String?
     @State private var includePinnedAndSteam = true
+    @State private var movingRoot = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("library.scan.folders").font(.title2).bold()
                 Spacer()
-                Button("button.ok") { didSave(); dismiss() }
+                Button("button.ok") { didSave()
+                    dismiss()
+                }
             }
             Picker("library.sort.bottle", selection: $bottleURL) {
                 ForEach(bottles, id: \.url) { bottle in
@@ -379,6 +455,16 @@ private struct LibraryFolderSettings: View {
                     HStack {
                         Text(root).lineLimit(2).textSelection(.enabled)
                         Spacer()
+                        if bottles.count > 1, let bottleURL {
+                            Menu("library.scan.moveBottle") {
+                                ForEach(bottles.filter { $0.url != bottleURL }, id: \.url) { target in
+                                    Button(target.settings.name) {
+                                        moveRoot(root, from: bottleURL, to: target.url)
+                                    }
+                                }
+                            }
+                            .fixedSize()
+                        }
                         Button(role: .destructive) {
                             library.roots.removeAll { $0 == root }
                             save()
@@ -389,14 +475,26 @@ private struct LibraryFolderSettings: View {
             HStack {
                 Button("library.scan.add") { addRoot() }.disabled(bottleURL == nil)
                 Spacer()
-                Button("library.scan.now") { didSave(); dismiss() }.disabled(bottleURL == nil)
+                Button("library.scan.now") { didSave()
+                    dismiss()
+                }.disabled(bottleURL == nil)
                     .buttonStyle(.borderedProminent)
             }
-            if let error { Text(error).foregroundStyle(.red) }
+            if let error {
+                Text(error).foregroundStyle(.red)
+            }
         }
         .padding(24)
         .frame(width: 620, height: 430)
-        .onAppear { bottleURL = bottles.first?.url; load() }
+        .disabled(movingRoot)
+        .onAppear {
+            if let initialBottleURL, bottles.contains(where: { $0.url == initialBottleURL }) {
+                bottleURL = initialBottleURL
+            } else {
+                bottleURL = bottles.first?.url
+            }
+            load()
+        }
         .onChange(of: bottleURL) { load() }
     }
 
@@ -406,8 +504,19 @@ private struct LibraryFolderSettings: View {
             library = try FolderGameLibrary.load(bottleURL: bottleURL)
             includePinnedAndSteam = try LibraryVisibility.load(bottleURL: bottleURL).includePinnedAndSteam
             error = nil
+        } catch { self.error = error.localizedDescription }
+    }
+
+    private func moveRoot(_ root: String, from sourceBottleURL: URL, to targetBottleURL: URL) {
+        guard !movingRoot else { return }
+        movingRoot = true
+        Task { @MainActor in
+            defer { movingRoot = false }
+            do {
+                try await FolderGameLibrary.moveRoot(root, from: sourceBottleURL, to: targetBottleURL)
+                load()
+            } catch { self.error = error.localizedDescription }
         }
-        catch { self.error = error.localizedDescription }
     }
 
     private func save() {
@@ -416,11 +525,17 @@ private struct LibraryFolderSettings: View {
             // Preserve executable selections made since the settings were opened.
             var current = try FolderGameLibrary.load(bottleURL: bottleURL)
             current.roots = library.roots
+            current.excludedFolders = library.excludedFolders
             current.initializedRoots.formIntersection(Set(library.roots))
+            let assignedSet = Set(current.assignedFolders)
             current.pendingMetadata = current.pendingMetadata.filter { key in
-                library.roots.contains {
-                    FolderGameLibrary.url(for: key, bottleURL: bottleURL).deletingLastPathComponent().path
-                        == FolderGameLibrary.url(for: $0, bottleURL: bottleURL).path
+                if assignedSet.contains(key) {
+                    return true
+                }
+                let parentPath = FolderGameLibrary.url(for: key, bottleURL: bottleURL)
+                    .deletingLastPathComponent().standardizedFileURL.path
+                return library.roots.contains {
+                    parentPath == FolderGameLibrary.url(for: $0, bottleURL: bottleURL).standardizedFileURL.path
                 }
             }
             current.automaticMetadata = library.automaticMetadata
@@ -439,14 +554,25 @@ private struct LibraryFolderSettings: View {
         guard panel.runModal() == .OK else { return }
         for url in panel.urls {
             let key = FolderGameLibrary.key(for: url, bottleURL: bottleURL)
-            if !library.roots.contains(key) { library.roots.append(key) }
+            if !library.roots.contains(key) {
+                library.roots.append(key)
+            }
+            let rootStandardPath = url.standardizedFileURL.path
+            library.excludedFolders = library.excludedFolders.filter { excludedKey in
+                let parentPath = FolderGameLibrary.url(for: excludedKey, bottleURL: bottleURL)
+                    .deletingLastPathComponent().standardizedFileURL.path
+                return parentPath != rootStandardPath
+            }
             do {
                 var visibility = try LibraryVisibility.load(bottleURL: bottleURL)
+                let prefix = "program:" + key.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/"
                 visibility.hiddenIdentities = visibility.hiddenIdentities.filter {
-                    !$0.hasPrefix("program:" + key + "/")
+                    !$0.hasPrefix(prefix) && !$0.hasPrefix("program:" + key + "/")
                 }
                 try visibility.save(bottleURL: bottleURL)
-            } catch { self.error = error.localizedDescription; return }
+            } catch { self.error = error.localizedDescription
+                return
+            }
         }
         save()
     }

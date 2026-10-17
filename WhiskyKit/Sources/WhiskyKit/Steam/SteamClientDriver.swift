@@ -63,12 +63,16 @@ public protocol SteamClientDriver: AnyObject {
 }
 
 public extension SteamClientDriver {
-    // Non-Wine drivers (including test doubles) may have an intrinsically ready
-    // client. The production Wine driver always implements the log/session gate.
+    /// Non-Wine drivers (including test doubles) may have an intrinsically ready
+    /// client. The production Wine driver always implements the log/session gate.
     func waitUntilReady(onState: @escaping @MainActor (SteamClientReadiness.State) -> Void) async throws {
         try Task.checkCancellation()
     }
-    func launchWasAccepted(_ game: SteamGame) -> Bool { true }
+
+    func launchWasAccepted(_ game: SteamGame) -> Bool {
+        true
+    }
+
     func waitForClientProcess(timeout: TimeInterval, pollInterval: Duration) async -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(timeout))
@@ -77,7 +81,9 @@ public extension SteamClientDriver {
             if await processList().contains(where: { $0.imageName.lowercased() == "steam.exe" }) {
                 return !Task.isCancelled
             }
-            if clock.now >= deadline { return false }
+            if clock.now >= deadline {
+                return false
+            }
             do { try await Task.sleep(for: pollInterval) } catch { return false }
         } while true
     }
@@ -176,8 +182,12 @@ open class WineSteamClientDriver: SteamClientDriver {
             let names = await hostWineImageNames()
             let session = SteamClientReadiness.snapshot(steamRoot: root).session
             if names.contains("steam.exe"), session != nil,
-               !startedClient || session != previousSession { return true }
-            if clock.now >= deadline { return false }
+               !startedClient || session != previousSession {
+                return true
+            }
+            if clock.now >= deadline {
+                return false
+            }
             do { try await Task.sleep(for: pollInterval) } catch { return false }
         } while true
     }

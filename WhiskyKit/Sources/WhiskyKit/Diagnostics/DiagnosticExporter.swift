@@ -409,16 +409,17 @@ extension DiagnosticExporter {
         guard let logURL = context.logFileURL else { return }
 
         if context.options.includeFullLog,
-           FileManager.default.fileExists(atPath: logURL.path(percentEncoded: false)) {
-            if let logContent = try? String(contentsOf: logURL, encoding: .utf8) {
-                let redacted = context.options.includeSensitiveDetails ? logContent
-                    : Redactor.redactLogText(logContent)
-                try? redacted.write(
-                    to: contentDir.appendingPathComponent("wine.log"),
-                    atomically: true,
-                    encoding: .utf8
-                )
-            }
+           FileManager.default.fileExists(atPath: logURL.path(percentEncoded: false)), let logContent = try? String(
+               contentsOf: logURL,
+               encoding: .utf8
+           ) {
+            let redacted = context.options.includeSensitiveDetails ? logContent
+                : Redactor.redactLogText(logContent)
+            try? redacted.write(
+                to: contentDir.appendingPathComponent("wine.log"),
+                atomically: true,
+                encoding: .utf8
+            )
         }
 
         let tailText = tailOfLogFile(logURL, lineCount: context.options.tailLineCount)

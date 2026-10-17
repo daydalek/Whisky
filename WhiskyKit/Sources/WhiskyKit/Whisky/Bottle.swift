@@ -182,8 +182,7 @@ public final class Bottle: ObservableObject, Equatable, Hashable, Identifiable, 
         // Get rid of duplicates and pins that reference removed files
         var found: Set<URL> = []
         let validPins = self.settings.pins.filter { pin in
-            guard let url = pin.url else { return false }
-            guard !found.contains(url) else { return false }
+            guard let url = pin.url, !found.contains(url) else { return false }
             found.insert(url)
             let urlPath = url.path(percentEncoded: false)
             let volume: URL?
@@ -293,8 +292,9 @@ public final class Bottle: ObservableObject, Equatable, Hashable, Identifiable, 
                 // Skip ClickOnce cache executables (noisy internal artifacts)
                 guard !url.path.contains("/Apps/2.0/") else { continue }
                 // Skip known launcher helpers and crash reporters that pollute the list
-                guard !noiseExecutableNames.contains(url.lastPathComponent.lowercased()) else { continue }
-                guard !blocklist.contains(url) else { continue }
+                guard !noiseExecutableNames.contains(url.lastPathComponent.lowercased()),
+                      !blocklist.contains(url)
+                else { continue }
                 found.append(url)
             }
         }

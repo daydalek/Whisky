@@ -157,7 +157,7 @@ final class LauncherFixesApplyTests: LauncherFixesTestCase {
 
         XCTAssertTrue(bottle.settings.launcherCompatibilityMode)
         XCTAssertEqual(bottle.settings.detectedLauncher, .steam)
-        XCTAssertEqual(bottle.settings.launcherLocale, .english)
+        XCTAssertEqual(bottle.settings.launcherLocale, .auto)
         XCTAssertTrue(bottle.settings.dxvk)
         XCTAssertTrue(bottle.settings.dxvkAsync)
         XCTAssertTrue(bottle.settings.gpuSpoofing)
@@ -167,7 +167,7 @@ final class LauncherFixesApplyTests: LauncherFixesTestCase {
         let persisted = try persistedSettings()
         XCTAssertTrue(persisted.launcherCompatibilityMode)
         XCTAssertEqual(persisted.detectedLauncher, .steam)
-        XCTAssertEqual(persisted.launcherLocale, .english)
+        XCTAssertEqual(persisted.launcherLocale, .auto)
         XCTAssertTrue(persisted.dxvk)
         XCTAssertTrue(persisted.dxvkAsync)
         XCTAssertTrue(persisted.gpuSpoofing)
@@ -175,20 +175,21 @@ final class LauncherFixesApplyTests: LauncherFixesTestCase {
     }
 
     @MainActor
-    func testApplyWithoutForceKeepsExistingDXVKChoice() {
-        // With DXVK already on, the non-forced Steam profile must not flip
-        // dxvkAsync behind the user's back.
+    func testApplyWithoutForceKeepsExistingDXVKAndLocaleChoice() {
+        // With DXVK already on and a user-picked locale, the non-forced Steam
+        // profile must not flip dxvkAsync or overwrite launcherLocale behind the user's back.
         let bottle = makeBottle()
         bottle.settings.dxvk = true
         bottle.settings.dxvkAsync = false
+        bottle.settings.launcherLocale = .japanese
 
         LauncherFixes.apply(to: bottle, launcher: .steam)
 
         XCTAssertTrue(bottle.settings.dxvk)
         XCTAssertFalse(bottle.settings.dxvkAsync)
-        // The rest of the profile still lands.
+        // The rest of the profile still lands while preserving user's locale choice.
         XCTAssertTrue(bottle.settings.gpuSpoofing)
-        XCTAssertEqual(bottle.settings.launcherLocale, .english)
+        XCTAssertEqual(bottle.settings.launcherLocale, .japanese)
     }
 
     @MainActor
@@ -201,6 +202,16 @@ final class LauncherFixesApplyTests: LauncherFixesTestCase {
 
         XCTAssertTrue(bottle.settings.dxvk)
         XCTAssertTrue(bottle.settings.dxvkAsync)
+    }
+
+    @MainActor
+    func testForcePreservesUserConfiguredLocale() {
+        let bottle = makeBottle()
+        bottle.settings.launcherLocale = .japanese
+
+        LauncherFixes.apply(to: bottle, launcher: .steam, force: true)
+
+        XCTAssertEqual(bottle.settings.launcherLocale, .japanese)
     }
 
     @MainActor
@@ -233,10 +244,10 @@ final class LauncherFixesScopingTests: LauncherFixesTestCase {
 
         XCTAssertEqual(bottle.settings.graphicsBackend, .recommended)
         XCTAssertEqual(try persistedSettings().graphicsBackend, .recommended)
-        // The rest of the profile still lands.
+        // The rest of the profile still lands without forcing English locale.
         XCTAssertTrue(bottle.settings.launcherCompatibilityMode)
         XCTAssertEqual(bottle.settings.detectedLauncher, .steam)
-        XCTAssertEqual(bottle.settings.launcherLocale, .english)
+        XCTAssertEqual(bottle.settings.launcherLocale, .auto)
         XCTAssertEqual(bottle.settings.networkTimeout, 90_000)
     }
 
@@ -276,7 +287,7 @@ final class LauncherFixesScopingTests: LauncherFixesTestCase {
         XCTAssertEqual(bottle.settings.graphicsBackend, .recommended)
         XCTAssertEqual(try persistedSettings().graphicsBackend, .recommended)
         XCTAssertTrue(bottle.settings.launcherCompatibilityMode)
-        XCTAssertEqual(bottle.settings.launcherLocale, .english)
+        XCTAssertEqual(bottle.settings.launcherLocale, .auto)
     }
 
     @MainActor

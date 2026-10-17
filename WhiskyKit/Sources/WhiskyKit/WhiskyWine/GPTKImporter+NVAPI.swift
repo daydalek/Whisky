@@ -79,8 +79,11 @@ extension GPTKImporter {
     /// `nvapi64` of its own, so the file being replaced is backed up rather than
     /// overwritten.
     static func installNVAPIBridge(intoLibraryFolder folder: URL, usingStore store: URL) throws {
-        guard let source = nvapiBridgeSource(inStore: store) else { return }
-        guard !isNVAPIBridgeInstalled(inLibraryFolder: folder, usingStore: store) else { return }
+        guard let source = nvapiBridgeSource(inStore: store), !isNVAPIBridgeInstalled(
+            inLibraryFolder: folder,
+            usingStore: store
+        )
+        else { return }
         let fileManager = FileManager.default
         let destination = nvapiBridgePE(inLibraryFolder: folder)
         let backup = nvapiPlaceholderBackup(inLibraryFolder: folder)

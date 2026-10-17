@@ -73,7 +73,9 @@ public final class DiscordIntegration {
         watcher = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.watchInterval)
-                if Task.isCancelled { return }
+                if Task.isCancelled {
+                    return
+                }
 
                 if await !Wine.isWineserverRunning(for: bottle) {
                     await DiscordPresence.shared.clear()

@@ -358,11 +358,9 @@ extension Whisky {
         /// Tails a log file, printing new lines as they appear until the Wine process exits.
         @MainActor
         private func tailLogFile(at logFileURL: URL) async throws {
-            guard FileManager.default.fileExists(atPath: logFileURL.path(percentEncoded: false)) else {
-                return
-            }
-
-            guard let handle = try? FileHandle(forReadingFrom: logFileURL) else { return }
+            guard FileManager.default.fileExists(atPath: logFileURL.path(percentEncoded: false)),
+                  let handle = try? FileHandle(forReadingFrom: logFileURL)
+            else { return }
             defer { try? handle.close() }
 
             // Seek to end to only show new content
@@ -568,6 +566,7 @@ extension Whisky {
         var json: Bool = false
 
         @MainActor
+        // swiftlint:disable:next function_body_length
         mutating func run() async throws {
             var bottlesList = BottleData()
             let bottles = bottlesList.loadBottles()
@@ -597,16 +596,22 @@ extension Whisky {
             }
             var receipt = SteamLaunchReceipt(steamRoot: steamRoot)
             var lastClientState: SteamClientReadiness.State?
-            let launch = try SteamLauncher.launch(appId: appId, bottle: target, onClientState: { state in
-                if state == .waitingForLogin, state != lastClientState {
-                    FileHandle.standardError.write(Data("Waiting for Steam login/connection…\n".utf8))
+            let launch = try SteamLauncher.launch(
+                appId: appId,
+                bottle: target,
+                onClientState: { state in
+                    if state == .waitingForLogin, state != lastClientState {
+                        FileHandle.standardError.write(Data("Waiting for Steam login/connection…\n".utf8))
+                    }
+                    lastClientState = state
+                },
+                onOutput: { output in
+                    if case .started = output {
+                        FileHandle.standardError
+                            .write(Data("Launch request sent for \(appId); waiting for game process…\n".utf8))
+                    }
                 }
-                lastClientState = state
-            }) { output in
-                if case .started = output {
-                    FileHandle.standardError.write(Data("Launch request sent for \(appId); waiting for game process…\n".utf8))
-                }
-            }
+            )
             let result = try await launch.value
 
             if result.exitCode != 0 {
@@ -636,12 +641,17 @@ extension Whisky {
                         appId: appId, bottle: target, installURL: game.installURL, clientIsRunning: true
                     )
                     let result = try await retry.value
-                    if result.exitCode != 0 { throw ExitCode(result.exitCode) }
+                    if result.exitCode != 0 {
+                        throw ExitCode(result.exitCode)
+                    }
                 }
             )
             guard appeared else {
                 try Task.checkCancellation()
-                throw DomainError("The game process was not confirmed. Open Windows Steam to check login, synchronization or other prompts, then retry.")
+                throw DomainError(
+                    "The game process was not confirmed. Open Windows Steam to check login, " +
+                        "synchronization or other prompts, then retry."
+                )
             }
             Self.printConfirmation(appId: appId, bottleName: bottleName, json: json)
         }

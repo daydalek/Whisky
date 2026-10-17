@@ -99,7 +99,6 @@ struct BottleCreationView: View {
         .frame(width: ViewWidth.small)
     }
 
-    @ViewBuilder
     private func locationWarning(_ issue: BottleLocationValidation.ValidationResult) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("create.location.problem", systemImage: "exclamationmark.triangle.fill")

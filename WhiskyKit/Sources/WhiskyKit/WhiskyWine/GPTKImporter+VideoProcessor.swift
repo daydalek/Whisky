@@ -131,8 +131,9 @@ extension GPTKImporter {
     static func install(_ interposer: GPTKInterposer, intoLibraryFolder folder: URL) throws {
         let fileManager = FileManager.default
         let shim = shim(for: interposer, inLibraryFolder: folder)
-        guard has(interposer, inLibraryFolder: folder) else { return }
-        guard !isInstalled(interposer, inLibraryFolder: folder) else { return }
+        guard has(interposer, inLibraryFolder: folder),
+              !isInstalled(interposer, inLibraryFolder: folder)
+        else { return }
         let version = deployedPayloadVersion(inLibraryFolder: folder)
         guard interposersSupport(payloadVersion: version) else {
             let skipped = "\(interposer.label) interposer for GPTK \(version ?? "an unreadable version")"
@@ -347,9 +348,13 @@ struct PEImage {
         exportDirectoryOffset = try Self.fileOffset(of: exportDirectoryRVA, in: sections)
     }
 
-    func u32(_ offset: Int) throws -> Int { try Self.u32(data, offset) }
+    func u32(_ offset: Int) throws -> Int {
+        try Self.u32(data, offset)
+    }
 
-    func fileOffset(of rva: Int) throws -> Int { try Self.fileOffset(of: rva, in: sections) }
+    func fileOffset(of rva: Int) throws -> Int {
+        try Self.fileOffset(of: rva, in: sections)
+    }
 
     private static func fileOffset(of rva: Int, in sections: [Section]) throws -> Int {
         for section in sections

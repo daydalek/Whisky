@@ -1,4 +1,21 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// swiftlint:disable file_length
+//
+//  LibraryGameSheet.swift
+//  Whisky
+//
+//  This file is part of Whisky.
+//
+//  Whisky is free software: you can redistribute it and/or modify it under the terms
+//  of the GNU General Public License as published by the Free Software Foundation,
+//  either version 3 of the License, or (at your option) any later version.
+//
+//  Whisky is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  See the GNU General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along with Whisky.
+//  If not, see https://www.gnu.org/licenses/.
+//
 
 import SwiftUI
 import WhiskyKit
@@ -6,7 +23,9 @@ import WhiskyKit
 /// Browsing metadata is separate from launching; accepting a candidate is explicit.
 struct LibraryGameSheet: View {
     let item: LibraryEntry
+    let bottles: [Bottle]
     let launch: () -> Void
+    let moveBottle: (Bottle) -> Void
     let didSave: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -19,7 +38,9 @@ struct LibraryGameSheet: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var error: String?
 
-    private var store: GameMetadataStore { GameMetadataStore(directory: item.metadataDirectory) }
+    private var store: GameMetadataStore {
+        GameMetadataStore(directory: item.metadataDirectory)
+    }
 
     private var enabled: Set<GameMetadataSource> {
         get {
@@ -37,6 +58,20 @@ struct LibraryGameSheet: View {
             HStack {
                 Text(metadata?.title ?? item.name).font(.title2).bold()
                 Spacer()
+                if case .program = item.launch, bottles.count > 1 {
+                    Picker("library.bottle.target", selection: Binding(
+                        get: { item.bottleURL },
+                        set: { targetURL in
+                            guard let target = bottles.first(where: { $0.url == targetURL }) else { return }
+                            moveBottle(target)
+                        }
+                    )) {
+                        ForEach(bottles, id: \.url) { bottle in
+                            Text(bottle.settings.name).tag(bottle.url)
+                        }
+                    }
+                    .frame(maxWidth: 240)
+                }
                 Button("button.ok") { dismiss() }
             }
             ScrollView {
@@ -52,8 +87,10 @@ struct LibraryGameSheet: View {
                                 if let url = metadata.pageURL {
                                     Link(metadata.source.title, destination: url)
                                 }
-                                Button("button.run") { launch(); dismiss() }
-                                    .buttonStyle(.borderedProminent)
+                                Button("button.run") { launch()
+                                    dismiss()
+                                }
+                                .buttonStyle(.borderedProminent)
                                 Button("library.metadata.unlink", role: .destructive) {
                                     Task { await unlink() }
                                 }
@@ -72,14 +109,22 @@ struct LibraryGameSheet: View {
                                 || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         if searching {
                             ProgressView().controlSize(.small)
-                            Button("button.cancel") { searchTask?.cancel(); searching = false }
+                            Button("button.cancel") { searchTask?.cancel()
+                                searching = false
+                            }
                         }
                     }
                     HStack {
                         ForEach(GameMetadataSource.allCases.filter { $0 != .hikarinagi }) { source in
                             Toggle(source.title, isOn: Binding(
                                 get: { enabled.contains(source) },
-                                set: { if $0 { enabled.insert(source) } else { enabled.remove(source) } }
+                                set: {
+                                    if $0 {
+                                        enabled.insert(source)
+                                    } else {
+                                        enabled.remove(source)
+                                    }
+                                }
                             ))
                             .toggleStyle(.checkbox)
                         }
@@ -93,7 +138,7 @@ struct LibraryGameSheet: View {
                         }
                         ForEach(FolderGameMatching.ranked(query: query, games: result.games)) { candidate in
                             HStack(alignment: .top) {
-                                cover(candidate.coverURL).frame(width: 52, height: 78)
+                                cover(candidate.thumbnailURL ?? candidate.coverURL).frame(width: 52, height: 78)
                                 VStack(alignment: .leading) {
                                     Text(candidate.title).bold()
                                     Text(candidate.originalTitle).font(.caption)
@@ -109,14 +154,19 @@ struct LibraryGameSheet: View {
                     }
                 }
             }
-            if let error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+            if let error {
+                Text(error).foregroundStyle(.red).textSelection(.enabled)
+            }
         }
         .padding(24)
         .frame(width: 720, height: 620)
-        .task {
+        .task(id: item.id) {
             query = item.source == .folder ? FolderGameMatching.query(item.name) : item.name
-            do { metadata = try await store.load(for: item.metadataIdentity) }
-            catch { self.error = error.localizedDescription }
+            do {
+                metadata = try await store.load(for: item.metadataIdentity)
+            } catch {
+                self.error = error.localizedDescription
+            }
         }
         .onDisappear { searchTask?.cancel() }
     }
@@ -171,6 +221,7 @@ struct LibraryGameSheet: View {
 struct LibraryCoverCard: View {
     let item: LibraryEntry
     let metadata: GameMetadata?
+    let bottleName: String?
     let state: LibraryEntryState
     let details: () -> Void
     let launch: () -> Void
@@ -183,7 +234,9 @@ struct LibraryCoverCard: View {
                     .overlay {
                         if let url = metadata?.coverURL {
                             LibraryMetadataArtwork(url: url, directory: item.metadataDirectory)
-                        } else { placeholder }
+                        } else {
+                            placeholder
+                        }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 10))
             }
@@ -214,8 +267,16 @@ struct LibraryCoverCard: View {
                         Text(state.phaseLabel).font(.caption).lineLimit(1)
                     }
                 } else {
-                    Text(item.source == .steam ? "library.source.steam" : "library.source.local")
-                        .font(.caption).foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Text(item.source == .steam ? "library.source.steam" : "library.source.local")
+                        if let bottleName {
+                            Text("·")
+                            Text(bottleName)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 }
             }
         }
@@ -267,7 +328,9 @@ struct LibrarySteamSettingsSheet: View {
                 Section("library.steam.compatibility") {
                     Text("library.steam.runtimeScope").foregroundStyle(.secondary)
                     Button("library.card.configure", action: openBottle)
-                    if loading { ProgressView() }
+                    if loading {
+                        ProgressView()
+                    }
                     if !candidates.isEmpty {
                         Picker("library.steam.overrideTarget", selection: Binding(
                             get: { selectedURL },
@@ -287,7 +350,9 @@ struct LibrarySteamSettingsSheet: View {
                         bottle: bottle, program: program, isExpanded: $overridesExpanded
                     )
                 }
-                if let error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+                if let error {
+                    Text(error).foregroundStyle(.red).textSelection(.enabled)
+                }
             }
             .formStyle(.grouped)
         }
@@ -307,7 +372,9 @@ struct LibrarySteamSettingsSheet: View {
                 do {
                     if let url = try SteamGameProgram.selectedURL(
                         appID: appID, installURL: game.installURL, bottleURL: bottle.url
-                    ) { select(url) }
+                    ) {
+                        select(url)
+                    }
                 } catch { self.error = error.localizedDescription }
             }
         }
@@ -350,10 +417,17 @@ private struct LibraryMetadataArtwork: View {
     let directory: URL
     @State private var cachedImage: NSImage?
 
+    private var localURL: URL? {
+        guard let url else { return nil }
+        return GameMetadataStore(directory: directory).cachedCoverURL(for: url)
+    }
+
     var body: some View {
         Group {
             if let cachedImage {
                 Image(nsImage: cachedImage).resizable().scaledToFit()
+            } else if localURL != nil {
+                Rectangle().fill(.quaternary).overlay { Image(systemName: "photo") }
             } else {
                 AsyncImage(url: url) { image in
                     image.resizable().scaledToFit()
@@ -362,11 +436,10 @@ private struct LibraryMetadataArtwork: View {
                 }
             }
         }
-        .task(id: url) {
+        .task(id: localURL ?? url) {
             cachedImage = nil
-            if let url,
-               let local = await GameMetadataStore(directory: directory).cachedCoverURL(for: url) {
-                cachedImage = NSImage(contentsOf: local)
+            if let local = localURL {
+                cachedImage = await Task.detached { NSImage(contentsOf: local) }.value
             }
         }
     }

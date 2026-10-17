@@ -1,4 +1,20 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+//
+//  SteamClientReadinessTests.swift
+//  WhiskyKitTests
+//
+//  This file is part of Whisky.
+//
+//  Whisky is free software: you can redistribute it and/or modify it under the terms
+//  of the GNU General Public License as published by the Free Software Foundation,
+//  either version 3 of the License, or (at your option) any later version.
+//
+//  Whisky is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  See the GNU General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along with Whisky.
+//  If not, see https://www.gnu.org/licenses/.
+//
 
 import Foundation
 import Testing
@@ -12,28 +28,38 @@ struct SteamClientReadinessTests {
 
     @Test func requiresBothLoginAndInitializedUI() {
         #expect(SteamClientReadiness.parse(bootstrap: bootstrap, connection: login, console: "").state == .initializing)
-        #expect(SteamClientReadiness.parse(bootstrap: bootstrap, connection: "", console: initialized).state == .waitingForLogin)
-        #expect(SteamClientReadiness.parse(bootstrap: bootstrap, connection: login, console: initialized).state == .ready)
+        #expect(SteamClientReadiness.parse(bootstrap: bootstrap, connection: "", console: initialized)
+            .state == .waitingForLogin)
+        #expect(SteamClientReadiness.parse(bootstrap: bootstrap, connection: login, console: initialized)
+            .state == .ready)
     }
 
     @Test func oldSessionEvidenceIsNotReady() {
         let fresh = "[2026-10-16 16:00:00] Startup - Steam Client launched with: steam.exe"
-        #expect(!SteamClientReadiness.parse(bootstrap: bootstrap + "\n" + fresh,
-                                           connection: login, console: initialized).state.canLaunch)
+        #expect(!SteamClientReadiness.parse(
+            bootstrap: bootstrap + "\n" + fresh,
+            connection: login,
+            console: initialized
+        ).state.canLaunch)
         #expect(!SteamClientReadiness.parse(bootstrap: "", connection: login, console: initialized).state.canLaunch)
     }
 
     @Test func disconnectInvalidatesOnlineReadiness() {
         let connection = login + "\n[2026-10-16 15:01:00] [Logged Off, 0, 0] Disconnected"
-        #expect(SteamClientReadiness.parse(bootstrap: bootstrap, connection: connection,
-                                          console: initialized).state == .waitingForLogin)
+        #expect(SteamClientReadiness.parse(
+            bootstrap: bootstrap,
+            connection: connection,
+            console: initialized
+        ).state == .waitingForLogin)
     }
 
     @Test func explicitOfflineModeDoesNotRequireOnlineLogin() {
         let offline = initialized + "\n[2026-10-16 15:02:00] Entering offline mode"
-        #expect(SteamClientReadiness.parse(bootstrap: bootstrap, connection: "", console: offline).state == .offlineReady)
+        #expect(SteamClientReadiness.parse(bootstrap: bootstrap, connection: "", console: offline)
+            .state == .offlineReady)
         let reconnect = "[2026-10-16 15:03:00] [Connecting, 4, 0] Connecting"
-        #expect(!SteamClientReadiness.parse(bootstrap: bootstrap, connection: reconnect, console: offline).state.canLaunch)
+        #expect(!SteamClientReadiness.parse(bootstrap: bootstrap, connection: reconnect, console: offline).state
+            .canLaunch)
     }
 
     @Test func historicalGameActionsAreNotReceipts() throws {
@@ -61,9 +87,13 @@ struct SteamClientReadinessTests {
         try Data(login.utf8).write(to: logs.appendingPathComponent("connection_log.txt"))
         try Data(initialized.utf8).write(to: logs.appendingPathComponent("console_log.txt"))
         await #expect(throws: SteamOrchestratorError.clientNotReady) {
-            try await SteamClientReadiness.wait(steamRoot: root, previousSession: "2026-10-16 15:00:00",
-                                                requiresNewSession: true, timeout: 0,
-                                                pollInterval: .milliseconds(1))
+            try await SteamClientReadiness.wait(
+                steamRoot: root,
+                previousSession: "2026-10-16 15:00:00",
+                requiresNewSession: true,
+                timeout: 0,
+                pollInterval: .milliseconds(1)
+            )
         }
     }
 

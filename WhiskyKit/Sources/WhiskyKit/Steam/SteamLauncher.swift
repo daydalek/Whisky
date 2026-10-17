@@ -70,6 +70,7 @@ public enum SteamLauncher {
     /// - Throws: ``SteamLaunchError/steamNotInstalled`` if the bottle has no client.
     @MainActor
     @discardableResult
+    // swiftlint:disable:next function_body_length
     public static func launch(
         appId: Int, bottle: Bottle, installURL: URL? = nil, record: Bool = true,
         clientIsRunning: Bool = false,

@@ -242,22 +242,17 @@ public enum GameMatcher {
         entry: GameDBEntry
     ) -> (Double, String)? {
         // Steam App ID match (highest confidence)
-        if let metadataAppId = metadata.steamAppId, let entryAppId = entry.steamAppId {
-            if metadataAppId == entryAppId {
-                return (1.0, "Steam App ID \(entryAppId) matches exactly")
-            }
+        if let metadataAppId = metadata.steamAppId, let entryAppId = entry.steamAppId, metadataAppId == entryAppId {
+            return (1.0, "Steam App ID \(entryAppId) matches exactly")
         }
 
         // File size + PE timestamp match (0.95)
-        if let metaSize = metadata.fileSize, let metaTimestamp = metadata.peTimestamp {
-            if let fingerprints = entry.exeFingerprints {
-                for fingerprint in fingerprints {
-                    if let fpSize = fingerprint.fileSize, let fpTimestamp = fingerprint.peTimestamp {
-                        if metaSize == fpSize,
-                           abs(metaTimestamp.timeIntervalSince(fpTimestamp)) < 1.0 {
-                            return (0.95, "File size and PE timestamp match known fingerprint")
-                        }
-                    }
+        if let metaSize = metadata.fileSize, let metaTimestamp = metadata.peTimestamp,
+           let fingerprints = entry.exeFingerprints {
+            for fingerprint in fingerprints {
+                if let fpSize = fingerprint.fileSize, let fpTimestamp = fingerprint.peTimestamp, metaSize == fpSize,
+                   abs(metaTimestamp.timeIntervalSince(fpTimestamp)) < 1.0 {
+                    return (0.95, "File size and PE timestamp match known fingerprint")
                 }
             }
         }

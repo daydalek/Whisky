@@ -316,7 +316,7 @@ struct MetalFXSettingTests {
     }
 
     @Test("The env var follows the setting, and is only set under D3DMetal")
-    func environmentFollowsTheSetting() throws {
+    func environmentFollowsTheSetting() {
         var builder = EnvironmentBuilder()
         var settings = BottleSettings()
         settings.graphicsBackend = .d3dMetal
@@ -365,7 +365,7 @@ struct Metal4SettingTests {
     }
 
     @Test("The env var follows the setting, and is only set under D3DMetal")
-    func environmentFollowsTheSetting() throws {
+    func environmentFollowsTheSetting() {
         var builder = EnvironmentBuilder()
         var settings = BottleSettings()
         settings.graphicsBackend = .d3dMetal

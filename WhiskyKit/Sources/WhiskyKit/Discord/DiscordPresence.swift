@@ -62,7 +62,9 @@ public actor DiscordPresence {
     static func resolveClientID(environment: [String: String], bundled: String?, fallback: String) -> String? {
         for candidate in [environment["WHISKY_DISCORD_CLIENT_ID"], bundled, fallback] {
             let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !trimmed.isEmpty { return trimmed }
+            if !trimmed.isEmpty {
+                return trimmed
+            }
         }
         return nil
     }
@@ -78,14 +80,18 @@ public actor DiscordPresence {
     }
 
     /// Whether a presence can be published at all.
-    public static var isAvailable: Bool { clientID != nil }
+    public static var isAvailable: Bool {
+        clientID != nil
+    }
 
     private let clientID: String?
     private let socketDirectory: URL
     private var descriptor: Int32 = -1
     private var published: String?
 
-    private var isConnected: Bool { descriptor >= 0 }
+    private var isConnected: Bool {
+        descriptor >= 0
+    }
 
     /// Both dependencies are injected so a test can point an instance at its own
     /// socket; ``shared`` takes the configured id and the real directory.
@@ -101,8 +107,7 @@ public actor DiscordPresence {
     /// a presence that cannot be published must never affect the launch that
     /// asked for it.
     public func publish(program: String, startedAt: Date = Date()) {
-        guard let clientID else { return }
-        guard published != program else { return }
+        guard let clientID, published != program else { return }
 
         do {
             if !isConnected {
@@ -195,7 +200,9 @@ public actor DiscordPresence {
     }
 
     private func disconnect() {
-        if descriptor >= 0 { close(descriptor) }
+        if descriptor >= 0 {
+            close(descriptor)
+        }
         descriptor = -1
         published = nil
     }
@@ -226,7 +233,9 @@ public actor DiscordPresence {
         var buffer = [UInt8](repeating: 0, count: 1_024)
         let received = recv(descriptor, &buffer, buffer.count, 0)
 
-        if received == 0 { throw DiscordPresenceError.handshakeRejected }
+        if received == 0 {
+            throw DiscordPresenceError.handshakeRejected
+        }
         guard received > 0 else { return }
 
         if let frame = DiscordIPC.decode(Data(buffer.prefix(received))),
@@ -281,9 +290,9 @@ public enum DiscordPresenceError: Error, LocalizedError, Equatable {
 
 // MARK: - Wire payloads
 
-/// The payload types are file-scope rather than nested in ``DiscordPresence``
-/// because each of them needs a `CodingKeys` of its own, and one more level of
-/// nesting would put those two deep.
+// The payload types are file-scope rather than nested in ``DiscordPresence``
+// because each of them needs a `CodingKeys` of its own, and one more level of
+// nesting would put those two deep.
 
 struct DiscordHandshake: Encodable {
     let version = 1

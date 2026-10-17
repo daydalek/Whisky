@@ -1,4 +1,20 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+//
+//  GameMetadata.swift
+//  WhiskyKit
+//
+//  This file is part of Whisky.
+//
+//  Whisky is free software: you can redistribute it and/or modify it under the terms
+//  of the GNU General Public License as published by the Free Software Foundation,
+//  either version 3 of the License, or (at your option) any later version.
+//
+//  Whisky is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  See the GNU General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along with Whisky.
+//  If not, see https://www.gnu.org/licenses/.
+//
 
 import Foundation
 
@@ -6,7 +22,9 @@ import Foundation
 public enum GameMetadataSource: String, Codable, CaseIterable, Sendable, Identifiable {
     case bangumi, vndb, steam, ymgal, hikarinagi
 
-    public var id: String { rawValue }
+    public var id: String {
+        rawValue
+    }
 
     public var title: String {
         switch self {
@@ -30,18 +48,32 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
     public var developer: String
     public var releaseDate: String
     public var coverURL: URL?
+    public var thumbnailURL: URL?
     public var pageURL: URL?
     /// Optional fields keep snapshots written by older app versions readable.
     public var alternateTitles: [String]?
     public var titleLanguage: String?
     public var fetchedAt: Date
 
-    public var id: String { "\(source.rawValue):\(sourceID)" }
+    public var id: String {
+        "\(source.rawValue):\(sourceID)"
+    }
 
-    public init(source: GameMetadataSource, sourceID: String, title: String,
-                originalTitle: String = "", summary: String = "", developer: String = "",
-                releaseDate: String = "", coverURL: URL? = nil, pageURL: URL? = nil,
-                fetchedAt: Date = Date(), alternateTitles: [String]? = nil, titleLanguage: String? = nil) {
+    public init(
+        source: GameMetadataSource,
+        sourceID: String,
+        title: String,
+        originalTitle: String = "",
+        summary: String = "",
+        developer: String = "",
+        releaseDate: String = "",
+        coverURL: URL? = nil,
+        thumbnailURL: URL? = nil,
+        pageURL: URL? = nil,
+        fetchedAt: Date = Date(),
+        alternateTitles: [String]? = nil,
+        titleLanguage: String? = nil
+    ) {
         self.source = source
         self.sourceID = sourceID
         self.title = title
@@ -50,6 +82,7 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
         self.developer = developer
         self.releaseDate = releaseDate
         self.coverURL = coverURL
+        self.thumbnailURL = thumbnailURL
         self.pageURL = pageURL
         self.fetchedAt = fetchedAt
         self.alternateTitles = alternateTitles
@@ -65,8 +98,11 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
     public func usingLibraryTitle(_ localName: String) -> GameMetadata {
         guard source == .vndb, let titleLanguage, !titleLanguage.hasPrefix("zh") else { return self }
         let local = FolderGameMatching.query(localName)
-        guard local.unicodeScalars.contains(where: { (0x3400...0x9fff).contains($0.value) }),
-              !local.unicodeScalars.contains(where: { (0x3040...0x30ff).contains($0.value) }) else { return self }
+        guard local.unicodeScalars.contains(where: { (0x3400 ... 0x9FFF).contains($0.value) }),
+              !local.unicodeScalars.contains(where: {
+                  (0x3040 ... 0x30FF).contains($0.value) && $0.value != 0x30FB
+              })
+        else { return self }
         var result = self
         result.alternateTitles = Array(Set(matchingTitles)).sorted()
         result.title = local
@@ -83,6 +119,15 @@ public struct GameMetadataSearchResult: Sendable {
     public let source: GameMetadataSource
     public let games: [GameMetadata]
     public let error: String?
+}
+
+public struct GameMetadataAutomaticMatchOutcome: Sendable {
+    public let candidate: GameMetadata?
+    public let results: [GameMetadataSearchResult]
+    /// True when at least one provider was queried and every queried provider failed with an error.
+    public var allProvidersFailed: Bool {
+        !results.isEmpty && results.allSatisfy { $0.error != nil }
+    }
 }
 
 public enum GameMetadataSearch {
@@ -104,8 +149,48 @@ public enum GameMetadataSearch {
                 }
             }
             var results: [GameMetadataSearchResult] = []
-            for await result in group { results.append(result) }
+            for await result in group {
+                results.append(result)
+            }
             return results.sorted { $0.source.rawValue < $1.source.rawValue }
         }
+    }
+
+    /// Queries providers sequentially in priority order and short-circuits as soon as an
+    /// unambiguous exact match (or exact-match ambiguity) is found, minimizing load on remote APIs.
+    public static func automaticMatch(_ query: String, providers: [any GameMetadataProvider]) async
+        -> GameMetadataAutomaticMatchOutcome {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !providers.isEmpty else {
+            return GameMetadataAutomaticMatchOutcome(candidate: nil, results: [])
+        }
+        var results: [GameMetadataSearchResult] = []
+        let sources = providers.map(\.source)
+        for provider in providers {
+            if Task.isCancelled {
+                break
+            }
+            let result: GameMetadataSearchResult
+            do {
+                let games = try await provider.search(trimmed)
+                result = GameMetadataSearchResult(source: provider.source, games: games, error: nil)
+            } catch {
+                result = GameMetadataSearchResult(
+                    source: provider.source, games: [], error: error.localizedDescription
+                )
+            }
+            results.append(result)
+            if result.error == nil {
+                let exactMatches = FolderGameMatching.exactMatches(query: trimmed, in: result.games)
+                if exactMatches.count == 1 {
+                    return GameMetadataAutomaticMatchOutcome(candidate: exactMatches[0], results: results)
+                }
+                if exactMatches.count > 1 {
+                    return GameMetadataAutomaticMatchOutcome(candidate: nil, results: results)
+                }
+            }
+        }
+        let candidate = FolderGameMatching.candidate(query: trimmed, results: results, sources: sources)
+        return GameMetadataAutomaticMatchOutcome(candidate: candidate, results: results)
     }
 }

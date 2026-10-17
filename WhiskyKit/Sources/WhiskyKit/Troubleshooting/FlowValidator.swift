@@ -193,15 +193,13 @@ public enum FlowValidator {
             issues += fixIssues(node: node, nodeId: nodeId, flowId: flowId)
 
             // Check fragment references resolve
-            if let fragmentRef = node.fragmentRef {
-                if !fragmentKeys.contains(fragmentRef) {
-                    issues.append(ValidationIssue(
-                        flowId: flowId,
-                        nodeId: nodeId,
-                        message: "Fragment reference '\(fragmentRef)' not found in loaded fragments",
-                        severity: .error
-                    ))
-                }
+            if let fragmentRef = node.fragmentRef, !fragmentKeys.contains(fragmentRef) {
+                issues.append(ValidationIssue(
+                    flowId: flowId,
+                    nodeId: nodeId,
+                    message: "Fragment reference '\(fragmentRef)' not found in loaded fragments",
+                    severity: .error
+                ))
             }
         }
 
@@ -297,8 +295,7 @@ public enum FlowValidator {
         while !stack.isEmpty {
             let (nodeId, depth, visited) = stack.removeLast()
 
-            guard !visited.contains(nodeId) else { continue }
-            guard let node = flow.nodes[nodeId] else { continue }
+            guard !visited.contains(nodeId), let node = flow.nodes[nodeId] else { continue }
 
             var currentVisited = visited
             currentVisited.insert(nodeId)

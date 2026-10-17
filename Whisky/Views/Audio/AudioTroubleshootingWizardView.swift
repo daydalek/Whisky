@@ -265,7 +265,9 @@ struct AudioTroubleshootingWizardView: View {
 
     private func exportDiagnostics() {
         var lines = ["=== Audio Diagnostics Export ===", "Date: \(Date().formatted())"]
-        if let symptom = engine.selectedSymptom { lines.append("Symptom: \(symptom.displayName)") }
+        if let symptom = engine.selectedSymptom {
+            lines.append("Symptom: \(symptom.displayName)")
+        }
         lines.append("\n--- Probe Results ---")
         for result in engine.probeResults {
             lines.append("[\(result.status.displayName)] \(result.summary)")

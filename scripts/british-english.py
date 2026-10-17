@@ -158,10 +158,23 @@ def main() -> int:
             region = region[:head] + block(value) + region[tail:]
         elif '        "en" : {' in region:
             at = region.index('        "en" : {')
-            closing = region.index("\n        }", at) + len("\n        }")
+            depth, idx = 0, region.index("{", at)
+            while True:
+                if region[idx] == "{":
+                    depth += 1
+                elif region[idx] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        closing = idx + 1
+                        break
+                elif region[idx] == '"':
+                    idx += 1
+                    while region[idx] != '"':
+                        idx += 2 if region[idx] == "\\" else 1
+                idx += 1
             if region[closing:closing + 1] == ",":
                 # Another language follows, so a comma-terminated block slots in.
-                region = region[:closing + 2] + block(value) + region[closing + 2:]
+                region = region[:closing + 1] + "\n" + block(value) + region[closing + 2:].lstrip("\n")
             else:
                 # en is the only language here. It needs the comma, and the row
                 # going in after it must not have one.

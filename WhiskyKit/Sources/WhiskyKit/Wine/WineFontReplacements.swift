@@ -105,6 +105,7 @@ enum CJKFontReplacements {
     }
 }
 
+@MainActor
 extension Wine {
     /// Adds the Noto CJK aliases once winetricks has installed Source Han Sans.
     ///
@@ -117,7 +118,6 @@ extension Wine {
     /// - Parameters:
     ///   - bottle: The bottle a program is about to start in.
     ///   - importer: What imports the missing aliases.
-    @MainActor
     static func syncCJKFontReplacements(
         bottle: Bottle,
         importer: RegistryImporter = { try await importRegistry(document: $0, bottle: $1) }

@@ -68,10 +68,14 @@ final class HTTPStubProtocol: URLProtocol {
 
     // URLProtocol declares these as class funcs, so `static` is not an option.
     // swiftlint:disable:next static_over_final_class
-    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
 
     // swiftlint:disable:next static_over_final_class
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
 
     override func startLoading() {
         guard let handler = Self.handler else {

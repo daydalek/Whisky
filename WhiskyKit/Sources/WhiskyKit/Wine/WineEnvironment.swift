@@ -53,6 +53,7 @@ extension Wine {
     public static func constructWineEnvironment(
         for bottle: Bottle,
         environment: [String: String] = [:],
+        targetURL: URL? = nil,
         programOverrides: ProgramOverrides? = nil,
         programSettings: ProgramSettings? = nil,
         gameProfileEnvironment: [String: String] = [:],
@@ -118,7 +119,8 @@ extension Wine {
 
         // Layer 4: Launcher managed -- launcher compatibility overrides
         let launcherOverrides = bottle.settings.populateLauncherManagedLayer(
-            builder: &builder, builtinD3D12IsD3DMetal: builtinD3D12IsD3DMetal
+            builder: &builder, targetURL: targetURL,
+            builtinD3D12IsD3DMetal: builtinD3D12IsD3DMetal
         )
         dllResolver.managed.append(contentsOf: launcherOverrides)
 

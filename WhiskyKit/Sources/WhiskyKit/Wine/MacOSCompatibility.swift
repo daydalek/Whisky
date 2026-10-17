@@ -185,10 +185,8 @@ extension Wine {
 
         // Special case: WINEESYNC is conditional on other sync settings not being set.
         // This cannot be expressed as a simple registry entry because it depends on state.
-        if currentVersion >= .sequoia15_4 {
-            if environment["WINEMSYNC"] == nil, environment["WINEESYNC"] == nil {
-                environment["WINEESYNC"] = "1"
-            }
+        if currentVersion >= .sequoia15_4, environment["WINEMSYNC"] == nil, environment["WINEESYNC"] == nil {
+            environment["WINEESYNC"] = "1"
         }
 
         Logger.wineKit.debug("""

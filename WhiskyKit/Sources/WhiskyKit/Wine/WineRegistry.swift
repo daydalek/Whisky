@@ -46,17 +46,16 @@ enum WineRegistryFile {
                 continue
             }
 
-            if inSection, trimmed.hasPrefix("\"\(valueName)\"") {
-                // Parse value: "valueName"="value" or "valueName"=dword:00000001
-                if let equalsIndex = trimmed.firstIndex(of: "=") {
-                    let rawValue = String(trimmed[trimmed.index(after: equalsIndex)...])
-                        .trimmingCharacters(in: .whitespaces)
-                    // Strip surrounding quotes if present
-                    if rawValue.hasPrefix("\""), rawValue.hasSuffix("\"") {
-                        return String(rawValue.dropFirst().dropLast())
-                    }
-                    return rawValue
+            if inSection, trimmed.hasPrefix("\"\(valueName)\""),
+               // Parse value: "valueName"="value" or "valueName"=dword:00000001
+               let equalsIndex = trimmed.firstIndex(of: "=") {
+                let rawValue = String(trimmed[trimmed.index(after: equalsIndex)...])
+                    .trimmingCharacters(in: .whitespaces)
+                // Strip surrounding quotes if present
+                if rawValue.hasPrefix("\""), rawValue.hasSuffix("\"") {
+                    return String(rawValue.dropFirst().dropLast())
                 }
+                return rawValue
             }
         }
 

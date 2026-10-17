@@ -5,6 +5,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Show pinned programs and Steam games" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show pinned programs and Steam games"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "显示已固定程序和 Steam 游戏" } }
       }
     },
@@ -12,6 +18,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Scan and sync game details" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scan and sync game details"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "扫描并同步资料" } }
       }
     },
@@ -19,6 +31,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Remove from library" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove from library"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "从游戏库删除" } }
       }
     },
@@ -26,6 +44,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Game folders" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Game folders"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "游戏目录" } }
       }
     },
@@ -33,6 +57,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Add folder…" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add folder…"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "添加目录…" } }
       }
     },
@@ -40,6 +70,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Scan now" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scan now"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "立即扫描" } }
       }
     },
@@ -47,6 +83,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Automatically match game details" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatically match game details"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "自动刮削游戏资料" } }
       }
     },
@@ -54,13 +96,51 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Choose executable…" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose executable…"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "选择启动程序…" } }
+      }
+    },
+    "library.bottle.target" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Run in bottle" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run in bottle"
+          }
+        },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "运行容器" } }
+      }
+    },
+    "library.scan.moveBottle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Move to bottle" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move to bottle"
+          }
+        },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "移至容器" } }
       }
     },
     "steam.client.notReady" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Steam did not become ready. Open Windows Steam in this bottle, finish login or choose offline mode, then retry." } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Steam did not become ready. Open Windows Steam in this bottle, finish login or choose offline mode, then retry."
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Steam 尚未就绪。请打开此容器中的 Windows Steam，完成登录或选择离线模式后重试。" } }
       }
     },
@@ -68,6 +148,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Starting Steam…" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starting Steam…"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "正在启动 Steam…" } }
       }
     },
@@ -75,6 +161,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Waiting for Steam login/connection…" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting for Steam login/connection…"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "等待 Steam 登录或连接…" } }
       }
     },
@@ -82,6 +174,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Cancel launch waiting" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel launch waiting"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "取消启动等待" } }
       }
     },
@@ -89,6 +187,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Local program" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local program"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "本地程序" } }
       }
     },
@@ -96,6 +200,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Steam management" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Steam management"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Steam 管理" } }
       }
     },
@@ -103,6 +213,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Set launch options, verify files and manage updates in Steam. Whisky continues to launch this game through the Steam client, not its executable directly." } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set launch options, verify files and manage updates in Steam. Whisky continues to launch this game through the Steam client, not its executable directly."
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "请在 Steam 中设置启动选项、校验文件和管理更新。Whisky 仍通过 Steam 客户端启动此游戏，不直接运行游戏 exe。" } }
       }
     },
@@ -110,6 +226,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Open game in Windows Steam" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open game in Windows Steam"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "在 Windows Steam 中打开游戏" } }
       }
     },
@@ -117,6 +239,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Whisky compatibility" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Whisky compatibility"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "Whisky 兼容性" } }
       }
     },
@@ -124,6 +252,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Shared runtime settings belong to the bottle. Advanced: explicitly choose an executable's saved compatibility overrides for this game's Steam launch. This does not apply its arguments, locale or environment variables to the Steam client." } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shared runtime settings belong to the bottle. Advanced: explicitly choose an executable's saved compatibility overrides for this game's Steam launch. This does not apply its arguments, locale or environment variables to the Steam client."
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "共享运行环境由容器管理。高级设置：可明确选择一个 exe 的兼容性覆盖，供此游戏的 Steam 启动使用；不会将它的启动参数、语言环境或环境变量应用到 Steam 客户端。" } }
       }
     },
@@ -131,6 +265,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Advanced override settings" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Advanced override settings"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "高级兼容性覆盖" } }
       }
     },
@@ -138,6 +278,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Automatic (existing behavior)" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic (existing behaviour)"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "自动（保持原有行为）" } }
       }
     },
@@ -145,6 +291,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "No executable candidates found. Use Steam to manage this game." } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No executable candidates found. Use Steam to manage this game."
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未找到可配置的 exe，请通过 Steam 管理此游戏。" } }
       }
     },
@@ -152,6 +304,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Classic cards" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Classic cards"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "经典卡片" } }
       }
     },
@@ -159,6 +317,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Unable to load game metadata" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to load game metadata"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "无法读取游戏资料" } }
       }
     },
@@ -166,6 +330,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Cover bookshelf" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cover bookshelf"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "封面书架" } }
       }
     },
@@ -173,6 +343,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Game runtime settings…" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Game runtime settings…"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "游戏运行设置…" } }
       }
     },
@@ -180,6 +356,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Game details and metadata…" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Game details and metadata…"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "游戏详情与资料…" } }
       }
     },
@@ -187,6 +369,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Search metadata" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search metadata"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "搜索游戏资料" } }
       }
     },
@@ -194,20 +382,38 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Original or translated game title" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Original or translated game title"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "游戏原名或译名" } }
       }
     },
     "library.metadata.privacy" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search terms are sent directly to selected sources. Confirm a candidate before saving. Ymgal authentication is pending; Hikarinagi is disabled until an official direct API is verified. No PotatoVN servers are used." } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "搜索词直接发送至选中的来源，确认候选后才保存。月幕认证尚未接入；Hikarinagi 在核实官方直连接口前不启用。不使用 PotatoVN 服务器。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search terms are sent directly to selected sources. Confirm a candidate before saving. Ymgal authentication is pending; Hikarinagi is disabled until an official direct API is verified." } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search terms are sent directly to selected sources. Confirm a candidate before saving. Ymgal authentication is pending; Hikarinagi is disabled until an official direct API is verified."
+          }
+        },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "搜索词直接发送至选中的来源，确认候选后才保存。" } }
       }
     },
     "library.metadata.empty" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "No matching games" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No matching games"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未找到匹配游戏" } }
       }
     },
@@ -215,6 +421,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Use this result" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use this result"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "使用此资料" } }
       }
     },
@@ -222,6 +434,12 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Unlink metadata" } },
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unlink metadata"
+          }
+        },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "解除资料关联" } }
       }
     },

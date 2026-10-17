@@ -26,13 +26,17 @@ public enum VDFValue: Equatable, Sendable {
 
     /// The string content, or `nil` for objects.
     public var stringValue: String? {
-        if case let .string(value) = self { return value }
+        if case let .string(value) = self {
+            return value
+        }
         return nil
     }
 
     /// The nested object, or `nil` for strings.
     public var objectValue: [String: VDFValue]? {
-        if case let .object(value) = self { return value }
+        if case let .object(value) = self {
+            return value
+        }
         return nil
     }
 
@@ -177,7 +181,9 @@ public enum VDFParser {
 
         while true {
             guard let token = try scanner.nextToken() else {
-                if isTopLevel { return result }
+                if isTopLevel {
+                    return result
+                }
                 throw VDFParseError.unexpectedEnd
             }
 

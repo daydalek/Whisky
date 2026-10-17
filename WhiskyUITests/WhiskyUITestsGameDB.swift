@@ -47,7 +47,9 @@ final class WhiskyUITestsGameDB: WhiskyUITestCase {
         try requireBottleFixture()
         openGameConfigurations()
         let searchField: XCUIElement = {
-            if app.searchFields.firstMatch.exists { return app.searchFields.firstMatch }
+            if app.searchFields.firstMatch.exists {
+                return app.searchFields.firstMatch
+            }
             return app.textFields.firstMatch
         }()
         require(searchField, "GameDB search field", timeout: 5)

@@ -148,8 +148,8 @@ extension ContentView {
 
 // MARK: - Process Close Confirmation
 
+@MainActor
 extension ContentView {
-    @MainActor
     func showProcessCloseAlert(for bottle: Bottle) {
         let checkbox = NSButton(
             checkboxWithTitle: String(localized: "bottle.close.remember"),

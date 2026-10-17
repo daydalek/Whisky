@@ -215,22 +215,20 @@ public struct BitmapInfoHeader: Hashable {
             if let providerRef = CGDataProvider(data: Data(
                 bytes: &pixels,
                 count: pixels.count * quadStride
-            ) as CFData) {
-                if let cgImg = CGImage(
-                    width: Int(width),
-                    height: Int(abs(height) / 2),
-                    bitsPerComponent: 8,
-                    bitsPerPixel: 32,
-                    bytesPerRow: Int(width) * quadStride,
-                    space: CGColorSpaceCreateDeviceRGB(),
-                    bitmapInfo: bitmapInfo,
-                    provider: providerRef,
-                    decode: nil,
-                    shouldInterpolate: true,
-                    intent: .defaultIntent
-                ) {
-                    return NSImage(cgImage: cgImg, size: .zero)
-                }
+            ) as CFData), let cgImg = CGImage(
+                width: Int(width),
+                height: Int(abs(height) / 2),
+                bitsPerComponent: 8,
+                bitsPerPixel: 32,
+                bytesPerRow: Int(width) * quadStride,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: bitmapInfo,
+                provider: providerRef,
+                decode: nil,
+                shouldInterpolate: true,
+                intent: .defaultIntent
+            ) {
+                return NSImage(cgImage: cgImg, size: .zero)
             }
         }
 

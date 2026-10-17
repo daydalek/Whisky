@@ -27,7 +27,9 @@ struct CrashDiagnosisBannerState: Identifiable {
     let programPath: String
     let logFileURL: URL
 
-    var id: String { programPath + logFileURL.absoluteString }
+    var id: String {
+        programPath + logFileURL.absoluteString
+    }
 }
 
 // MARK: - Diagnostics Picker Sheet

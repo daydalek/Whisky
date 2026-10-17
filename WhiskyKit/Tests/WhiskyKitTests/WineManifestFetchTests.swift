@@ -50,8 +50,14 @@ private final class ManifestStubState: @unchecked Sendable {
 
 private final class ManifestStubProtocol: URLProtocol, @unchecked Sendable {
     static let state = ManifestStubState()
-    override static func canInit(with request: URLRequest) -> Bool { true }
-    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override static func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
     override func startLoading() {
         guard let url = request.url else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))

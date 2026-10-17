@@ -109,16 +109,14 @@ public struct LinkInfo: Hashable {
     func getProgram(handle: FileHandle, offset: UInt64, bottle: Bottle, unicode: Bool) -> Program? {
         do {
             try handle.seek(toOffset: offset)
-            if let pathData = try handle.readToEnd() {
-                if let nullRange = pathData.firstIndex(of: 0) {
-                    let encoding: String.Encoding = unicode ? .utf16 : .windowsCP1254
-                    if var string = String(data: pathData[..<nullRange], encoding: encoding) {
-                        // UNIX-ify the path
-                        string.replace("\\", with: "/")
-                        string.replace("C:", with: "\(bottle.url.path)/drive_c")
-                        let url = URL(filePath: string)
-                        return Program(url: url, bottle: bottle)
-                    }
+            if let pathData = try handle.readToEnd(), let nullRange = pathData.firstIndex(of: 0) {
+                let encoding: String.Encoding = unicode ? .utf16 : .windowsCP1254
+                if var string = String(data: pathData[..<nullRange], encoding: encoding) {
+                    // UNIX-ify the path
+                    string.replace("\\", with: "/")
+                    string.replace("C:", with: "\(bottle.url.path)/drive_c")
+                    let url = URL(filePath: string)
+                    return Program(url: url, bottle: bottle)
                 }
             }
         } catch {

@@ -145,7 +145,9 @@ public final class SteamClientOrchestrator: ObservableObject {
         launchTasks[appID] = nil
         launchIDs[appID] = nil
         phases[appID] = nil
-        if launchTasks.isEmpty { clientStartup?.cancel() }
+        if launchTasks.isEmpty {
+            clientStartup?.cancel()
+        }
     }
 
     /// Polls the bottle's process list so the library can show which games
@@ -208,6 +210,7 @@ public final class SteamClientOrchestrator: ObservableObject {
 
     // MARK: - Launch sequence
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func performLaunch(_ game: SteamGame, requestID: UUID) async {
         defer {
             if launchIDs[game.appId] == requestID {
@@ -231,7 +234,9 @@ public final class SteamClientOrchestrator: ObservableObject {
         } catch is CancellationError {
             return
         } catch {
-            if !Task.isCancelled { launchError = error.localizedDescription }
+            if !Task.isCancelled {
+                launchError = error.localizedDescription
+            }
             return
         }
 
@@ -245,12 +250,17 @@ public final class SteamClientOrchestrator: ObservableObject {
 
         do {
             let appeared = try await waitForLaunchedGame(game)
-            if appeared { runningAppIds.insert(game.appId) }
-            else { launchError = String(localized: "steam.launch.timeout") }
+            if appeared {
+                runningAppIds.insert(game.appId)
+            } else {
+                launchError = String(localized: "steam.launch.timeout")
+            }
         } catch is CancellationError {
             return
         } catch {
-            if !Task.isCancelled { launchError = error.localizedDescription }
+            if !Task.isCancelled {
+                launchError = error.localizedDescription
+            }
         }
     }
 
@@ -263,7 +273,10 @@ public final class SteamClientOrchestrator: ObservableObject {
         startupID = id
         clientStartup = startup
         defer {
-            if startupID == id { clientStartup = nil; startupID = nil }
+            if startupID == id {
+                clientStartup = nil
+                startupID = nil
+            }
         }
         try await startup.value
     }

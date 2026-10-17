@@ -119,7 +119,9 @@ public extension Wine {
             guard fields.count >= 5 else { continue }
 
             // Skip the header line
-            if fields[1] == "PID" { continue }
+            if fields[1] == "PID" {
+                continue
+            }
 
             // Parse the PID
             guard let pid = Int32(fields[1]) else { continue }

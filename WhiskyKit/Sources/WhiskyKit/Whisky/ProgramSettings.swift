@@ -105,6 +105,56 @@ public enum Locales: String, Codable, CaseIterable, Sendable {
             "繁體中文"
         }
     }
+
+    // swiftlint:disable cyclomatic_complexity
+    /// Resolves a list of preferred BCP-47 language tags to a canonical UTF-8 Wine locale.
+    ///
+    /// Maps the first recognized language in `preferredLanguages` (defaulting to
+    /// `Locale.preferredLanguages`) to a supported `.UTF-8` locale, falling back to
+    /// ``english`` (`en_US.UTF-8`) when no supported language matches.
+    public static func hostLocale(
+        preferredLanguages: [String] = Locale.preferredLanguages
+    ) -> Locales {
+        for rawTag in preferredLanguages {
+            let normalized = rawTag
+                .replacingOccurrences(of: "_", with: "-")
+                .lowercased()
+            let parts = normalized.split(separator: "-").map(String.init)
+            guard let language = parts.first else { continue }
+
+            switch language {
+            case "zh":
+                let isTraditional = parts.contains {
+                    $0 == "hant" || $0 == "tw" || $0 == "hk" || $0 == "mo"
+                }
+                return isTraditional ? .chineseTraditional : .chineseSimplified
+            case "ja":
+                return .japanese
+            case "ko":
+                return .korean
+            case "de":
+                return .german
+            case "es":
+                return .spanish
+            case "fr":
+                return .french
+            case "it":
+                return .italian
+            case "ru":
+                return .russian
+            case "uk":
+                return .ukrainian
+            case "th":
+                return .thai
+            case "en":
+                return .english
+            default:
+                continue
+            }
+        }
+        return .english
+    }
+    // swiftlint:enable cyclomatic_complexity
 }
 
 /// Configuration settings for an individual Windows program.

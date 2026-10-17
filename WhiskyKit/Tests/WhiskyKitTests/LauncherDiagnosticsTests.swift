@@ -429,12 +429,9 @@ final class LauncherDiagnosticsTests: XCTestCase {
     }
 
     func testRecommendedLocales() {
-        XCTAssertEqual(LauncherType.steam.recommendedLocale, .english)
-        XCTAssertEqual(LauncherType.eaApp.recommendedLocale, .english)
-        XCTAssertEqual(LauncherType.epicGames.recommendedLocale, .english)
-        XCTAssertEqual(LauncherType.battleNet.recommendedLocale, .english)
-        XCTAssertEqual(LauncherType.rockstar.recommendedLocale, .auto)
-        XCTAssertEqual(LauncherType.ubisoft.recommendedLocale, .auto)
+        for launcher in LauncherType.allCases {
+            XCTAssertEqual(launcher.recommendedLocale, .auto, "\(launcher.rawValue)")
+        }
     }
 
     // MARK: - Environment Merge Tests
@@ -537,8 +534,9 @@ final class LauncherDiagnosticsTests: XCTestCase {
     // MARK: - Locale Preservation Tests
 
     func testSteamLocaleNotOverwritten() throws {
-        // CRITICAL: Verify that Steam's "en_US.UTF-8" locale is not overwritten
-        // with "en_US" (missing .UTF-8 suffix) which would break steamwebhelper
+        // Verify that an explicit launcherLocale on a Steam bottle sets both LC_ALL
+        // and LANG with the .UTF-8 suffix, and that custom locales (e.g. Japanese/Chinese)
+        // are respected rather than clobbered to en_US.UTF-8.
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempURL) }
@@ -546,15 +544,76 @@ final class LauncherDiagnosticsTests: XCTestCase {
         let bottle = Bottle(bottleUrl: tempURL, inFlight: false, isAvailable: true)
         bottle.settings.launcherCompatibilityMode = true
         bottle.settings.detectedLauncher = .steam
-        bottle.settings.launcherLocale = .english // This is set by LauncherDetection
+        bottle.settings.launcherLocale = .english
 
-        // Get full Wine environment (includes launcher preset + bottle settings)
         let env = Wine.constructWineEnvironment(for: bottle, environment: [:])
-
-        // CRITICAL: LC_ALL must be "en_US.UTF-8" (with .UTF-8 suffix) not just "en_US"
-        // The .UTF-8 suffix is essential for preventing steamwebhelper crashes
         XCTAssertEqual(env["LC_ALL"], "en_US.UTF-8", "Steam's LC_ALL must have .UTF-8 suffix")
         XCTAssertEqual(env["LANG"], "en_US.UTF-8", "Steam's LANG must have .UTF-8 suffix")
+
+        // User-selected CJK locale on a Steam bottle must NOT be clobbered to English
+        bottle.settings.launcherLocale = .chineseSimplified
+        let zhEnv = Wine.constructWineEnvironment(for: bottle, environment: [:])
+        XCTAssertEqual(zhEnv["LC_ALL"], "zh_CN.UTF-8")
+        XCTAssertEqual(zhEnv["LANG"], "zh_CN.UTF-8")
+        XCTAssertEqual(zhEnv["LC_TIME"], "C")
+        XCTAssertEqual(zhEnv["LC_NUMERIC"], "C")
+    }
+
+    func testSteamAutoLocaleUsesHostUTF8WithoutForcingLCAll() {
+        var settings = BottleSettings()
+        settings.launcherCompatibilityMode = true
+        settings.detectedLauncher = .steam
+        settings.launcherLocale = .auto
+
+        var builder = EnvironmentBuilder()
+        _ = settings.populateLauncherManagedLayer(
+            builder: &builder,
+            preferredLanguages: ["zh-Hans-CN", "en-US"]
+        )
+        let (resolved, _) = builder.resolve()
+
+        XCTAssertNil(resolved["LC_ALL"], "Auto locale must not lock LC_ALL to English")
+        XCTAssertEqual(resolved["LANG"], "zh_CN.UTF-8")
+        XCTAssertEqual(resolved["LC_TIME"], "C")
+        XCTAssertEqual(resolved["LC_NUMERIC"], "C")
+    }
+
+    func testNonLauncherTargetInAutoModeDoesNotReceiveSteamLauncherLayer() throws {
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let bottle = Bottle(bottleUrl: tempURL, inFlight: false, isAvailable: true)
+        LauncherFixes.apply(to: bottle, launcher: .steam)
+        bottle.settings.launcherLocale = .english
+
+        let standaloneExe = URL(fileURLWithPath: "C:/Games/VisualNovel/game.exe")
+        let standaloneEnv = Wine.constructWineEnvironment(
+            for: bottle, targetURL: standaloneExe
+        )
+
+        // Standalone non-launcher executable in auto mode must not inherit Steam's locale or spoof
+        XCTAssertNil(standaloneEnv["LC_ALL"])
+        XCTAssertNil(standaloneEnv["LANG"])
+        XCTAssertNil(standaloneEnv["MESA_GL_VERSION_OVERRIDE"])
+        XCTAssertNil(standaloneEnv["WINHTTP_CONNECT_TIMEOUT"])
+
+        // Launching Steam itself still applies the launcher layer
+        let steamExe = URL(fileURLWithPath: "C:/Program Files (x86)/Steam/steam.exe")
+        let steamEnv = Wine.constructWineEnvironment(
+            for: bottle, targetURL: steamExe
+        )
+        XCTAssertEqual(steamEnv["LC_ALL"], "en_US.UTF-8")
+        XCTAssertEqual(steamEnv["MESA_GL_VERSION_OVERRIDE"], "4.6")
+        XCTAssertEqual(steamEnv["WINHTTP_CONNECT_TIMEOUT"], "90000")
+
+        // Manual mode forces the launcher layer even for non-launcher executables
+        bottle.settings.launcherMode = .manual
+        let manualEnv = Wine.constructWineEnvironment(
+            for: bottle, targetURL: standaloneExe
+        )
+        XCTAssertEqual(manualEnv["LC_ALL"], "en_US.UTF-8")
+        XCTAssertEqual(manualEnv["MESA_GL_VERSION_OVERRIDE"], "4.6")
     }
 
     func testEnglishLocaleIncludesUTF8() {

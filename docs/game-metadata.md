@@ -50,16 +50,19 @@ rescans configured roots and queries only missing, eligible folder metadata;
 successfully matched entries are read locally, never requested again. Initial
 pending work is persisted; upgrading existing roots does not rescrape them.
 Known packaging/version suffixes
-are removed iteratively without deleting arbitrary bracketed subtitles. The
-enabled direct providers are searched; a unique exact match across all retained names takes priority; a clearly
-leading long-name near-match can also be saved automatically. A source error
-allows the remaining providers to be evaluated. Ambiguity requires selection. Other results remain
-unlinked and can be searched/confirmed through the existing details sheet.
-An initial automatic attempt is consumed before accepting its result; failures
-or ambiguities can be retried explicitly with manual sync/search. Existing
-metadata is not overwritten. Explicit unlinking creates a manual-only marker so
-the next scan cannot undo it. Source-level matching and folder discovery are
-covered by fixture tests; broad real-library/UI validation remains outstanding.
+are removed iteratively without deleting arbitrary bracketed subtitles. During
+automatic sync, enabled direct providers are queried sequentially in priority
+order (`GameMetadataSearch.automaticMatch`), short-circuiting as soon as a
+provider yields an unambiguous exact match so remaining providers are not
+queried unnecessarily. A clearly leading long-name near-match can also be saved
+automatically after checking whether any later source has an exact match. A
+source error allows the remaining providers to be evaluated; if every queried
+provider fails with an error, the pending initial match is retained for the
+next sync. Ambiguity requires selection. Other results remain unlinked and can
+be searched/confirmed through the existing details sheet. Existing metadata is
+not overwritten. Explicit unlinking creates a manual-only marker so the next
+scan cannot undo it. Source-level matching and folder discovery are covered by
+fixture tests; broad real-library/UI validation remains outstanding.
 
 **Remove from library** hides an entry persistently using its bottle-relative
 metadata identity in `Library Visibility.json`. Scanning does not resurrect it;
@@ -74,9 +77,12 @@ providers are omitted from the source selector until usable.
 Metadata lives in `Game Metadata/` inside each bottle, separate from executable
 settings. Program identities use bottle-relative paths, not filenames. Steam
 identities use app IDs within that bottle. Moving a bottle preserves associations.
-Confirmed covers are cached in `Game Metadata/Covers/` by URL hash. Unlinking
-metadata leaves installed files and launch settings untouched; shared cached
-images are retained.
+Confirmed covers are cached in `Game Metadata/Covers/` by URL hash and checked
+synchronously before mounting network image views so cached artwork is never
+re-requested from remote CDNs. Search candidate lists use lightweight
+thumbnails where available (`thumbnailURL`) and only fetch full covers upon
+confirmation. Unlinking metadata leaves installed files and launch settings
+untouched; shared cached images are retained.
 
 Source selections are a global preference stored in UserDefaults under
 `libraryMetadataEnabledSources`. They survive sheet dismissal and app restarts,
@@ -93,7 +99,7 @@ timestamps are no longer consulted.
 | VNDB | Kana API search, multilingual title and developer information |
 | Steam | Store search, selected-app details, portrait artwork URL |
 | Ymgal | Official OAuth public client, search, selected-game details and source snapshot |
-| Hikarinagi | Disabled pending verification of an official direct API; no PotatoVN proxy |
+| Hikarinagi | Disabled pending verification of an official direct API|
 
 Hikarinagi reports an explicit availability error.
 Bangumi and VNDB public requests were smoke-tested using CLANNAD; the Steam live
@@ -101,17 +107,8 @@ request timed out in the development environment. Deterministic fixture tests
 cover all four enabled source response formats.
 
 The design was informed by PotatoVN's separate parsers and mixed-source
-orchestration. This implementation does not bundle PotatoVN code, databases,
-translation resources, credentials, or a .NET runtime. Use of service APIs and
-artwork remains subject to their respective terms.
+orchestration.
 
-### No PotatoVN server dependency
-
-Whisky must not use PotatoVN's sync servers, metadata proxy routes, accounts,
-tokens, or application credentials. Hikarinagi's anonymous PotatoVN proxy is
-excluded too: anonymous access still depends on PotatoVN infrastructure. A source
-may only be enabled after its own official direct API and usage conditions have
-been verified. If no independent API is available, leave that source disabled.
 
 ## Remaining work toward the agreed full feature
 
@@ -120,12 +117,18 @@ been verified. If no independent API is available, leave that source disabled.
 - Confirmed cross-source identities and field-level merge/provenance. Currently,
   accepting a candidate replaces the source snapshot; no automatic merge occurs.
 - Local title/cover overrides and custom cover selection.
-- Explicit source-ID lookup and per-source refresh.
+- Explicit source-ID lookup UI and per-source refresh (VNDB `v<id>` queries
+  already use direct ID filters).
 - Rich detail-page styling, direct detail-page runtime settings, double-click
   launch, accessibility/UI testing, and large-library performance testing.
-- Rate-limit handling, bounded image streaming, thumbnail/downsampling pipeline,
-  and cache maintenance. Current requests have a 20-second timeout, images have
-  a post-download 15 MiB validation limit, and source errors are independent.
+- Bounded image streaming, thumbnail/downsampling pipeline, and disk cache maintenance.
+
+### Active network and cache behaviors
+
+- Per-source request serialization and 250ms burst pacing.
+- In-memory caching: 5-minute (300s) search results cache and 10-minute (600s) game details cache with FIFO eviction (oldest inserted entries dropped on capacity).
+- HTTP 429/503 `Retry-After` cooldowns active across all enabled providers.
+- Request timeout of 20 seconds, post-download 15 MiB image validation limit, and independent per-source error handling.
 
 Run core tests with `cd WhiskyKit && swift test --filter GameMetadataTests`.
 
@@ -147,12 +150,14 @@ original script. A local Chinese folder title is retained when VNDB supplies
 another language; the remote identity and names remain stored. Older snapshots
 remain readable.
 
-Matching compares all names after case/width/punctuation and Traditional to
-Simplified normalization. Exact matches across enabled sources take priority.
-A single source failure allows other sources to supply candidates. Long names
-(at least eight normalized characters) can match with an edit similarity of
-0.92 or greater and a lead of at least 0.12 over the next candidate; these are
-initial conservative thresholds. Numeric and edition markers constrain fuzzy
-matching. Manual search lists candidates by the same score. Short names and
-ambiguous candidates use explicit selection. Packaging cleanup covers recognized
-translation-group prefixes and Chinese packaging/version suffixes.
+Matching compares all names after case/width/punctuation, Traditional to
+Simplified Chinese, and Japanese Shinjitai normalization. Exact matches across
+enabled sources take priority. A single source failure allows other sources to
+supply candidates. Long names (at least six normalized characters for CJK or
+eight for Latin script) can match with an edit similarity of 0.92 or greater
+and a lead of at least 0.12 over the next candidate; these are initial
+conservative thresholds. Canonicalized numeric/Roman-numeral and edition
+markers constrain fuzzy matching. Manual search lists candidates by similarity
+score across all lengths. Short names and ambiguous candidates use explicit
+selection. Packaging cleanup covers recognized translation-group/date/ID
+prefixes and Chinese packaging/version suffixes.

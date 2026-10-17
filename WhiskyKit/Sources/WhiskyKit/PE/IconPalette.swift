@@ -32,10 +32,14 @@ public struct IconPalette: Equatable, Sendable {
     public let blue: Double
 
     /// Whether that colour is dark enough that white text sits comfortably on it.
-    public var prefersLightForeground: Bool { luminance < 0.55 }
+    public var prefersLightForeground: Bool {
+        luminance < 0.55
+    }
 
     /// Rec. 709 relative luminance, which is what decides foreground contrast.
-    public var luminance: Double { 0.2126 * red + 0.7152 * green + 0.0722 * blue }
+    public var luminance: Double {
+        0.2126 * red + 0.7152 * green + 0.0722 * blue
+    }
 
     public init(red: Double, green: Double, blue: Double) {
         self.red = min(max(red, 0), 1)

@@ -343,10 +343,8 @@ public class WhiskyWineInstaller {
             logger.warning("Failed to fetch Wine release: \(error.localizedDescription)")
         }
 
-        if let localVersion, let remoteVersion {
-            if localVersion < remoteVersion {
-                return (true, remoteVersion)
-            }
+        if let localVersion, let remoteVersion, localVersion < remoteVersion {
+            return (true, remoteVersion)
         }
 
         return (false, SemanticVersion(0, 0, 0))

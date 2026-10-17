@@ -167,7 +167,9 @@ public enum BottleLocationValidation {
         // false therefore classified exactly the gated volumes as internal, so
         // nothing was ever reported as a consent problem. Only a definite true
         // rules a volume out.
-        if values.volumeIsLocal == false { return true }
+        if values.volumeIsLocal == false {
+            return true
+        }
         return values.volumeIsInternal != true
     }
 
@@ -195,8 +197,12 @@ public enum BottleLocationValidation {
             .volumeAvailableCapacityKey
         ]
         guard let values = try? directory.resourceValues(forKeys: keys) else { return nil }
-        if let important = values.volumeAvailableCapacityForImportantUsage { return important }
-        if let basic = values.volumeAvailableCapacity { return Int64(basic) }
+        if let important = values.volumeAvailableCapacityForImportantUsage {
+            return important
+        }
+        if let basic = values.volumeAvailableCapacity {
+            return Int64(basic)
+        }
         return nil
     }
 }

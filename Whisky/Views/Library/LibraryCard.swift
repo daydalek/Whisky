@@ -74,8 +74,13 @@ struct LibraryCard: View {
     /// Both stops are opaque. A gradient that fades towards transparent
     /// composites against the window, which is near-white in light mode, and
     /// the white label on top of that corner falls to about 2:1 contrast.
-    private var backdrop: Color { Color(palette.deepened()) }
-    private var backdropDeep: Color { Color(palette.deepened(toLuminance: 0.07)) }
+    private var backdrop: Color {
+        Color(palette.deepened())
+    }
+
+    private var backdropDeep: Color {
+        Color(palette.deepened(toLuminance: 0.07))
+    }
 
     /// Taken from the palette rather than hardcoded, so the label cannot end up
     /// the same lightness as what is behind it if the deepening target moves.
@@ -85,7 +90,9 @@ struct LibraryCard: View {
 
     /// A launcher is named by what it is. A pin takes its name from the
     /// executable, which is how the Steam client ends up on screen as "steam".
-    private var title: String { item.launcher?.displayName ?? item.name }
+    private var title: String {
+        item.launcher?.displayName ?? item.name
+    }
 
     var body: some View {
         Button(action: launch) {
@@ -115,7 +122,9 @@ struct LibraryCard: View {
 
     /// Hover is a mouse-only signal, so anything shown only on hover does not
     /// exist for somebody on the keyboard.
-    private var isActive: Bool { isHovering || isFocused }
+    private var isActive: Bool {
+        isHovering || isFocused
+    }
 
     private var card: some View {
         ZStack(alignment: .topLeading) {

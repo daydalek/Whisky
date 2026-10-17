@@ -12,10 +12,9 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     steps:
-      # The official Homebrew cask `whisky` tracks the original (archived) Whisky
-      # project and is not controlled by this fork, so it is not bumped here. This
-      # fork's Homebrew distribution is the frankea/homebrew-whisky tap, updated by
-      # the UpdateHomebrewTap workflow (see docs/ReleaseWorkflow.md for BREW_TOKEN).
+      # This fork distributes ad-hoc signed app ZIPs through AppRelease.yml.
+      # UpdateHomebrewTap.yml is scoped to the upstream frankea/Whisky repository.
+      # See docs/ReleaseWorkflow.md for the current app and Wine release paths.
 
       - name: Release Info
         env:

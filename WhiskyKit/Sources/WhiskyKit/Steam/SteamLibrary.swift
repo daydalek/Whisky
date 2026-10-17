@@ -20,7 +20,10 @@ import Foundation
 
 /// A fully installed Steam game discovered inside a Wine bottle.
 public struct SteamGame: Identifiable, Equatable, Sendable {
-    public var id: Int { appId }
+    public var id: Int {
+        appId
+    }
+
     /// The Steam App ID.
     public let appId: Int
     /// The display name from the manifest.

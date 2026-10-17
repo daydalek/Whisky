@@ -209,21 +209,20 @@ struct ConsoleLogView: View {
 
     // MARK: - Footer
 
+    @ViewBuilder
     private var logFooter: some View {
-        Group {
-            if !isStillRunning, let exitCode = currentExitCode {
-                HStack {
-                    Text("console.exited \(exitCode)")
-                        .font(.caption)
-                        .foregroundStyle(exitCode == 0 ? .green : .red)
-                    Spacer()
-                    Text("\(filteredLines.count) / \(logLines.count)")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+        if !isStillRunning, let exitCode = currentExitCode {
+            HStack {
+                Text("console.exited \(exitCode)")
+                    .font(.caption)
+                    .foregroundStyle(exitCode == 0 ? .green : .red)
+                Spacer()
+                Text("\(filteredLines.count) / \(logLines.count)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
         }
     }
 

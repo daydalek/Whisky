@@ -41,8 +41,9 @@ public enum BottleFontBootstrap {
 
         for (filename, sources) in candidates {
             let destURL = dest.appending(path: filename)
-            guard !manager.fileExists(atPath: destURL.path(percentEncoded: false)) else { continue }
-            guard let source = sources.first(where: { manager.fileExists(atPath: $0) }) else { continue }
+            guard !manager.fileExists(atPath: destURL.path(percentEncoded: false)),
+                  let source = sources.first(where: { manager.fileExists(atPath: $0) })
+            else { continue }
             do {
                 try manager.copyItem(at: URL(fileURLWithPath: source), to: destURL)
                 logger.info("Bootstrapped \(filename, privacy: .public) into bottle fonts")

@@ -102,14 +102,20 @@ final class FakeSteamClientDriver: SteamClientDriver {
     func waitUntilReady(onState: @escaping @MainActor (SteamClientReadiness.State) -> Void) async throws {
         repeat {
             try Task.checkCancellation()
-            if let readinessError { throw readinessError }
+            if let readinessError {
+                throw readinessError
+            }
             onState(readinessState)
-            if readinessState.canLaunch { return }
+            if readinessState.canLaunch {
+                return
+            }
             try await Task.sleep(for: .milliseconds(5))
         } while true
     }
 
-    func launchWasAccepted(_ game: SteamGame) -> Bool { accepted }
+    func launchWasAccepted(_ game: SteamGame) -> Bool {
+        accepted
+    }
 }
 
 /// A bottle with a fake Steam install and games, plus timing that does not

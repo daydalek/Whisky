@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 //
 //  LibraryModel.swift
 //  Whisky
@@ -19,8 +20,8 @@
 import AppKit
 import Combine
 import Foundation
-import WhiskyKit
 import UniformTypeIdentifiers
+import WhiskyKit
 
 /// How the library grid is ordered.
 enum LibrarySort: String, CaseIterable, Identifiable {
@@ -28,7 +29,9 @@ enum LibrarySort: String, CaseIterable, Identifiable {
     case name
     case bottle
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     var label: LocalizedStringResource {
         switch self {
@@ -47,7 +50,9 @@ struct LibraryRow: Identifiable {
     let bottleName: String?
     let lastPlayed: Date?
 
-    var id: String { item.id }
+    var id: String {
+        item.id
+    }
 }
 
 /// Builds the library and owns what is currently starting or running.
@@ -151,7 +156,10 @@ final class LibraryModel: ObservableObject {
                 }.value
                 guard !Task.isCancelled, generation == reloadGeneration else { return }
                 var current = try FolderGameLibrary.load(bottleURL: url)
-                if current.roots == result.1.roots, !current.roots.isEmpty {
+                if current.roots == result.1.roots,
+                   current.assignedFolders == result.1.assignedFolders,
+                   current.excludedFolders == result.1.excludedFolders,
+                   !current.roots.isEmpty || !current.assignedFolders.isEmpty {
                     current.knownFolders = result.1.knownFolders
                     current.initializedRoots = result.1.initializedRoots
                     current.pendingMetadata.formUnion(result.1.pendingMetadata)
@@ -174,13 +182,20 @@ final class LibraryModel: ObservableObject {
     private func updateEntries(in bottle: Bottle, settings: BottleSettings, showBottleName: Bool) {
         let pinned = PinnedLibrarySource.items(inBottleAt: bottle.url, settings: settings)
         let visibility: LibraryVisibility
-        do { visibility = try LibraryVisibility.load(bottleURL: bottle.url) }
-        catch { launchError = error.localizedDescription; return }
+        do {
+            visibility = try LibraryVisibility.load(bottleURL: bottle.url)
+        } catch {
+            launchError = error.localizedDescription
+            return
+        }
         let items = LibraryCatalogue.merge([pinned, discoveredEntries[bottle.url] ?? []]).filter(visibility.includes)
         let routed = GameRouting().lastLaunches()
         let updated = items.map { item in
-            LibraryRow(item: item, bottleName: showBottleName ? settings.name : nil,
-                       lastPlayed: lastPlayed(for: item, routed: routed))
+            LibraryRow(
+                item: item,
+                bottleName: showBottleName ? settings.name : nil,
+                lastPlayed: lastPlayed(for: item, routed: routed)
+            )
         }
         rows = sorted(rows.filter { $0.item.bottleURL != bottle.url } + updated)
     }
@@ -247,6 +262,65 @@ extension LibraryModel {
         } catch { launchError = error.localizedDescription }
     }
 
+    @discardableResult
+    // swiftlint:disable:next function_body_length
+    func moveEntry(_ item: LibraryEntry, to targetBottle: Bottle, bottles: [Bottle]) async -> LibraryRow? {
+        guard item.bottleURL != targetBottle.url,
+              case let .program(url) = item.launch
+        else { return nil }
+        do {
+            let targetEntry = LibraryEntry(
+                id: item.id,
+                name: item.name,
+                iconURL: item.iconURL,
+                artworkURL: item.artworkURL,
+                bottleURL: targetBottle.url,
+                source: item.source,
+                launch: item.launch,
+                launcher: item.launcher
+            )
+            if item.source == .folder {
+                try FolderGameLibrary.moveFolder(url, from: item.bottleURL, to: targetBottle.url)
+            } else {
+                // Program initialization writes defaults when no settings file exists.
+                FolderGameLibrary.migrateProgramSettings(for: url, from: item.bottleURL, to: targetBottle.url)
+                if let sourceBottle = bottles.first(where: { $0.url == item.bottleURL }) {
+                    sourceBottle.settings.pins.removeAll { $0.url == url }
+                    if let program = sourceBottle.programs.first(where: { $0.url == url }) {
+                        program.pinned = false
+                    }
+                }
+                if !targetBottle.settings.pins.contains(where: { $0.url == url }) {
+                    targetBottle.settings.pins.append(PinnedProgram(name: item.name, url: url))
+                }
+                if let program = targetBottle.programs.first(where: { $0.url == url }) {
+                    program.pinned = true
+                } else {
+                    let program = Program(url: url, bottle: targetBottle)
+                    program.pinned = true
+                    targetBottle.programs.append(program)
+                }
+            }
+
+            let sourceStore = GameMetadataStore(directory: item.metadataDirectory)
+            let targetStore = GameMetadataStore(directory: targetEntry.metadataDirectory)
+            try await sourceStore.copyEntry(
+                for: item.metadataIdentity,
+                to: targetStore,
+                targetIdentity: targetEntry.metadataIdentity
+            )
+            var visibility = try LibraryVisibility.load(bottleURL: targetBottle.url)
+            if visibility.hiddenIdentities.remove(targetEntry.metadataIdentity) != nil {
+                try visibility.save(bottleURL: targetBottle.url)
+            }
+            await reload(bottles: bottles)
+            return rows.first { $0.item.bottleURL == targetBottle.url && $0.item.launch == item.launch }
+        } catch {
+            launchError = error.localizedDescription
+            return nil
+        }
+    }
+
     func cancelLaunch(_ row: LibraryRow) {
         guard case let .steam(appID) = row.item.launch else { return }
         orchestrators[row.item.bottleURL]?.cancelLaunch(appID: appID)
@@ -258,7 +332,9 @@ extension LibraryModel {
         switch row.item.launch {
         case let .program(url):
             if row.item.source == .folder {
-                if let executable = folderExecutable(row.item) { launchProgram(at: executable, in: bottle) }
+                if let executable = folderExecutable(row.item) {
+                    launchProgram(at: executable, in: bottle)
+                }
             } else {
                 launchProgram(at: url, in: bottle)
             }
@@ -277,7 +353,9 @@ extension LibraryModel {
         do {
             var library = try FolderGameLibrary.load(bottleURL: item.bottleURL)
             if !chooseAgain, let url = library.executable(for: folder, bottleURL: item.bottleURL),
-               FileManager.default.fileExists(atPath: url.path) { return url }
+               FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
             let panel = NSOpenPanel()
             panel.directoryURL = folder
             panel.canChooseDirectories = false

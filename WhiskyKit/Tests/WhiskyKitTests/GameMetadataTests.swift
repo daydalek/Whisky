@@ -1,4 +1,21 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// swiftlint:disable file_length
+//
+//  GameMetadataTests.swift
+//  WhiskyKitTests
+//
+//  This file is part of Whisky.
+//
+//  Whisky is free software: you can redistribute it and/or modify it under the terms
+//  of the GNU General Public License as published by the Free Software Foundation,
+//  either version 3 of the License, or (at your option) any later version.
+//
+//  Whisky is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  See the GNU General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along with Whisky.
+//  If not, see https://www.gnu.org/licenses/.
+//
 
 import Foundation
 import Testing
@@ -24,8 +41,14 @@ struct GameMetadataTests {
         func item(root: String, path: String) -> LibraryEntry {
             let bottle = URL(fileURLWithPath: root)
             let executable = bottle.appendingPathComponent(path)
-            return LibraryEntry(id: executable.path, name: "Launch", iconURL: executable,
-                                bottleURL: bottle, source: .pinned, launch: .program(executable))
+            return LibraryEntry(
+                id: executable.path,
+                name: "Launch",
+                iconURL: executable,
+                bottleURL: bottle,
+                source: .pinned,
+                launch: .program(executable)
+            )
         }
         let first = item(root: "/old/bottle", path: "drive_c/A/Launch.exe")
         let moved = item(root: "/new/bottle", path: "drive_c/A/Launch.exe")
@@ -144,61 +167,234 @@ struct GameMetadataTests {
         ])
         #expect(results.first?.error != nil)
     }
+
+    @Test func automaticMatchShortCircuitsAfterExactHitAndReportsAllProviderFailure() async {
+        let first = CountingProvider(source: .bangumi, games: [
+            GameMetadata(source: .bangumi, sourceID: "1", title: "CLANNAD")
+        ])
+        let second = CountingProvider(source: .vndb, games: [
+            GameMetadata(source: .vndb, sourceID: "v4", title: "CLANNAD")
+        ])
+        let outcome = await GameMetadataSearch.automaticMatch("CLANNAD", providers: [first, second])
+        #expect(outcome.candidate?.source == .bangumi)
+        #expect(!outcome.allProvidersFailed)
+        #expect(await first.callCount == 1)
+        #expect(await second.callCount == 0)
+
+        let failing1 = CountingProvider(source: .bangumi, fails: true)
+        let failing2 = CountingProvider(source: .vndb, fails: true)
+        let failedOutcome = await GameMetadataSearch.automaticMatch("CLANNAD", providers: [failing1, failing2])
+        #expect(failedOutcome.candidate == nil)
+        #expect(failedOutcome.allProvidersFailed)
+        #expect(await failing1.callCount == 1)
+        #expect(await failing2.callCount == 1)
+    }
+
+    @Test func providerCachesRepeatedCaseFoldedQueriesWithinSession() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CountingNetworkProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        CountingNetworkProtocol.reset()
+        let provider = PublicGameMetadataProvider(source: .bangumi, session: session)
+        let first = try await provider.search("Clannad")
+        let second = try await provider.search("  ＣＬＡＮＮＡＤ ")
+        #expect(first == second)
+        #expect(first.first?.thumbnailURL?.absoluteString == "https://example.org/thumb.jpg")
+        #expect(CountingNetworkProtocol.requestCount == 1)
+        #expect(PublicGameMetadataProvider.parseRetryAfter("45") == 45)
+        #expect(PublicGameMetadataProvider.parseRetryAfter("9999") == 300)
+    }
+
+    @Test func localChineseTitleAllowsKatakanaMiddleDot() {
+        let game = GameMetadata(
+            source: .vndb, sourceID: "v2002", title: "Steins;Gate 0",
+            originalTitle: "STEINS;GATE 0", titleLanguage: "en"
+        )
+        let displayed = game.usingLibraryTitle("命运石之门・零 官方中文版 v1.0")
+        #expect(displayed.title == "命运石之门・零")
+    }
+
+    @Test func gatekeeperPacesRequestsAcrossFailedSearchAndDetailsAttempts() async throws {
+        let gatekeeper = SourceGatekeeper(minInterval: 0.08)
+        let clock = ContinuousClock()
+        let searchStart = clock.now
+        await #expect(throws: URLError.self) {
+            _ = try await gatekeeper.search("first") { throw URLError(.badServerResponse) }
+        }
+        let found = try await gatekeeper.search("second") {
+            [GameMetadata(source: .bangumi, sourceID: "1", title: "Recovered")]
+        }
+        #expect(found.first?.title == "Recovered")
+        #expect(searchStart.duration(to: clock.now) >= .milliseconds(70))
+
+        let detailStart = clock.now
+        await #expect(throws: URLError.self) {
+            _ = try await gatekeeper.details("10") { throw URLError(.badServerResponse) }
+        }
+        let detail = try await gatekeeper.details("11") {
+            GameMetadata(source: .steam, sourceID: "11", title: "Recovered Detail")
+        }
+        #expect(detail.title == "Recovered Detail")
+        #expect(detailStart.duration(to: clock.now) >= .milliseconds(140))
+    }
 }
 
-private final class MetadataFixtureProtocol: URLProtocol {
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+private actor CountingProvider: GameMetadataProvider {
+    nonisolated let source: GameMetadataSource
+    let games: [GameMetadata]
+    let fails: Bool
+    private(set) var callCount = 0
+
+    init(source: GameMetadataSource, games: [GameMetadata] = [], fails: Bool = false) {
+        self.source = source
+        self.games = games
+        self.fails = fails
+    }
+
+    func search(_ query: String) async throws -> [GameMetadata] {
+        callCount += 1
+        if fails {
+            throw URLError(.notConnectedToInternet)
+        }
+        return games
+    }
+}
+
+private class CountingNetworkProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var count = 0
+    static var requestCount: Int {
+        lock.withLock { count }
+    }
+
+    static func reset() {
+        lock.withLock { count = 0 }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Self.lock.withLock { Self.count += 1 }
+        let body = """
+        {"data":[{"id":1,"name":"CLANNAD","name_cn":"CLANNAD","summary":"简介",\
+        "images":{"large":"https://example.org/cover.jpg","common":"https://example.org/thumb.jpg"}}]}
+        """
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                  url: url,
+                  statusCode: 200,
+                  httpVersion: nil,
+                  headerFields: ["Content-Type": "application/json"]
+              )
+        else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+private class MetadataFixtureProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    // swiftlint:disable:next function_body_length
     override func startLoading() {
         let body: String
         switch request.url?.host {
         case "api.bgm.tv":
-            body = #"{"data":[{"id":1,"name":"Original","name_cn":"作品","summary":"简介","images":{"large":"https://example.org/cover.jpg"}}]}"#
+            body = """
+            {"data":[{"id":1,"name":"Original","name_cn":"作品","summary":"简介",\
+            "images":{"large":"https://example.org/cover.jpg"}}]}
+            """
         case "api.vndb.org":
-            body = #"{"results":[{"id":"v1","title":"Original","titles":[{"lang":"zh-Hans","title":"作品"}],"developers":[{"name":"Studio","original":null}],"image":{"url":"https://example.org/cover.jpg"}}]}"#
+            body = """
+            {"results":[{"id":"v1","title":"Original","titles":[{"lang":"zh-Hans","title":"作品"}],\
+            "developers":[{"name":"Studio","original":null}],"image":{"url":"https://example.org/cover.jpg"}}]}
+            """
         case "www.ymgal.games":
             if request.url?.path == "/oauth/token" {
                 body = #"{"access_token":"fixture-token"}"#
             } else if request.url?.path == "/open/archive" {
-                body = #"{"success":true,"code":0,"data":{"game":{"gid":9007199254740993,"name":"Original","chineseName":"作品","introduction":"完整简介","mainImg":"https://example.org/cover.jpg"}}}"#
+                body = """
+                {"success":true,"code":0,"data":{"game":{"gid":9007199254740993,"name":"Original",\
+                "chineseName":"作品","introduction":"完整简介","mainImg":"https://example.org/cover.jpg"}}}
+                """
             } else {
                 guard request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-token",
-                      request.value(forHTTPHeaderField: "version") == "1" else {
+                      request.value(forHTTPHeaderField: "version") == "1"
+                else {
                     client?.urlProtocol(self, didFailWithError: URLError(.userAuthenticationRequired))
                     return
                 }
-                let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
                     .queryItems?.first { $0.name == "keyword" }?.value
                 if query == "rate-limit" || query == "expired" {
                     body = query == "expired"
                         ? #"{"success":false,"code":401,"msg":"expired"}"#
                         : #"{"success":false,"code":429,"msg":"rate limited"}"#
                 } else {
-                    body = #"{"success":true,"code":0,"data":{"result":[{"id":"9007199254740993","name":"Original","chineseName":"作品","orgName":"Studio","mainImg":"https://example.org/cover.jpg"}]}}"#
+                    body = """
+                    {"success":true,"code":0,"data":{"result":[{"id":"9007199254740993","name":"Original",\
+                    "chineseName":"作品","orgName":"Studio","mainImg":"https://example.org/cover.jpg"}]}}
+                    """
                 }
             }
         default:
             body = #"{"items":[{"id":1,"name":"作品"}]}"#
         }
-        let response = HTTPURLResponse(url: request.url!, statusCode: 200,
-                                       httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                  url: url,
+                  statusCode: 200,
+                  httpVersion: nil,
+                  headerFields: ["Content-Type": "application/json"]
+              )
+        else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
+
     override func stopLoading() {}
 }
 
-private final class MetadataInvalidProtocol: URLProtocol {
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+private class MetadataInvalidProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
     override func startLoading() {
-        let response = HTTPURLResponse(url: request.url!, statusCode: 200,
-                                       httpVersion: nil, headerFields: nil)!
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                  url: url,
+                  statusCode: 200,
+                  httpVersion: nil,
+                  headerFields: nil
+              )
+        else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data("not JSON".utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
+
     override func stopLoading() {}
 }
 
@@ -206,51 +402,72 @@ private struct FixtureProvider: GameMetadataProvider {
     let source: GameMetadataSource
     let fails: Bool
     func search(_ query: String) async throws -> [GameMetadata] {
-        if fails { throw URLError(.timedOut) }
+        if fails {
+            throw URLError(.timedOut)
+        }
         return [GameMetadata(source: source, sourceID: "1", title: query)]
     }
 }
 
-private final class VNDBNamesProtocol: URLProtocol {
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+private class VNDBNamesProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
     override func startLoading() {
         do {
             let body: Data
-            if let data = request.httpBody { body = data }
-            else if let stream = request.httpBodyStream {
+            if let data = request.httpBody {
+                body = data
+            } else if let stream = request.httpBodyStream {
                 stream.open()
                 defer { stream.close() }
                 var data = Data()
-                var bytes = [UInt8](repeating: 0, count: 2048)
+                var bytes = [UInt8](repeating: 0, count: 2_048)
                 while stream.hasBytesAvailable {
                     let count = stream.read(&bytes, maxLength: bytes.count)
                     guard count > 0 else { break }
                     data.append(contentsOf: bytes.prefix(count))
                 }
                 body = data
-            } else { throw URLError(.badServerResponse) }
-            let payload = try JSONSerialization.jsonObject(with: body) as! [String: Any]
-            let fields = payload["fields"] as! String
-            guard ["alttitle", "aliases", "titles.latin", "titles.main"].allSatisfy(fields.contains) else {
+            } else {
                 throw URLError(.badServerResponse)
             }
-            let language = (payload["filters"] as! [String])[2]
+            guard let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any],
+                  let fields = payload["fields"] as? String,
+                  ["alttitle", "aliases", "titles.latin", "titles.main"].allSatisfy(fields.contains),
+                  let filters = payload["filters"] as? [String],
+                  filters.count > 2
+            else {
+                throw URLError(.badServerResponse)
+            }
+            let language = filters[2]
             var titles: [[String: Any]] = [
                 ["lang": "ja", "title": "夏の物語", "latin": "Natsu no Monogatari", "main": true],
                 ["lang": "en", "title": "Summer Story", "latin": NSNull(), "main": false]
             ]
-            if language != "ja" { titles.append(["lang": "zh-Hant", "title": "夏日物語", "main": false]) }
-            if language == "zh-Hans" { titles.append(["lang": "zh-Hans", "title": "夏日物语", "main": false]) }
+            if language != "ja" {
+                titles.append(["lang": "zh-Hant", "title": "夏日物語", "main": false])
+            }
+            if language == "zh-Hans" {
+                titles.append(["lang": "zh-Hans", "title": "夏日物语", "main": false])
+            }
             let result: [String: Any] = ["results": [[
                 "id": "v123", "title": "Natsu no Monogatari", "alttitle": "夏の物語",
                 "aliases": ["夏日故事"], "titles": titles
             ]]]
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            guard let url = request.url,
+                  let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)
+            else { return }
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: try JSONSerialization.data(withJSONObject: result))
+            try client?.urlProtocol(self, didLoad: JSONSerialization.data(withJSONObject: result))
             client?.urlProtocolDidFinishLoading(self)
         } catch { client?.urlProtocol(self, didFailWithError: error) }
     }
+
     override func stopLoading() {}
 }

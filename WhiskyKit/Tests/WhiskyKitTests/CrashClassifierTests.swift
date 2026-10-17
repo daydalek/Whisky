@@ -127,11 +127,10 @@ final class CrashClassifierTests: XCTestCase {
 
         var matched = false
         for index in patterns.indices {
-            if patterns[index].id == "access-violation" || patterns[index].id == "nt-raise-exception" {
-                if patterns[index].match(line: line) != nil {
-                    matched = true
-                    XCTAssertEqual(patterns[index].category, .coreCrashFatal)
-                }
+            if patterns[index].id == "access-violation" || patterns[index].id == "nt-raise-exception",
+               patterns[index].match(line: line) != nil {
+                matched = true
+                XCTAssertEqual(patterns[index].category, .coreCrashFatal)
             }
         }
         XCTAssertTrue(matched, "Access violation line should match a coreCrashFatal pattern")
@@ -200,14 +199,13 @@ final class CrashClassifierTests: XCTestCase {
 
         var matched = false
         for index in patterns.indices {
-            if patterns[index].id == "dotnet-clr-missing" || patterns[index].id == "dll-load-failure" {
-                if let result = patterns[index].match(line: line) {
-                    matched = true
-                    // Both patterns may match -- at least one should be dependenciesLoading
-                    XCTAssertEqual(patterns[index].category, .dependenciesLoading)
-                    if patterns[index].id == "dll-load-failure" {
-                        XCTAssertEqual(result.captures.first, "mscoree.dll")
-                    }
+            if patterns[index].id == "dotnet-clr-missing" || patterns[index].id == "dll-load-failure",
+               let result = patterns[index].match(line: line) {
+                matched = true
+                // Both patterns may match -- at least one should be dependenciesLoading
+                XCTAssertEqual(patterns[index].category, .dependenciesLoading)
+                if patterns[index].id == "dll-load-failure" {
+                    XCTAssertEqual(result.captures.first, "mscoree.dll")
                 }
             }
         }

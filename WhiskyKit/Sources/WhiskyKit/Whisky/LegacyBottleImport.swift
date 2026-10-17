@@ -95,8 +95,9 @@ public enum LegacyBottleImport {
         var result: [URL] = []
         for candidate in candidates {
             let standardized = candidate.standardizedFileURL
-            guard !existing.contains(standardized), seen.insert(standardized).inserted else { continue }
-            guard isBottle(at: standardized) else { continue }
+            guard !existing.contains(standardized), seen.insert(standardized).inserted,
+                  isBottle(at: standardized)
+            else { continue }
             result.append(standardized)
         }
 

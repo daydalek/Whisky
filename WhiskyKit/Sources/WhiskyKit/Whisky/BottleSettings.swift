@@ -1006,6 +1006,7 @@ public struct BottleSettings: Codable, Equatable {
 
     // swiftlint:enable cyclomatic_complexity function_body_length
 
+    // swiftlint:disable cyclomatic_complexity
     /// Populates the ``EnvironmentLayer/launcherManaged`` layer with launcher compatibility fixes.
     ///
     /// This method implements the dual-mode launcher compatibility system from frankea/Whisky#41:
@@ -1016,28 +1017,43 @@ public struct BottleSettings: Codable, Equatable {
     ///
     /// - Parameters:
     ///   - builder: The environment builder to populate.
+    ///   - targetURL: Optional URL of the executable being launched. In ``LauncherMode/auto``
+    ///     mode, launcher-specific environment overrides only apply when `targetURL` is `nil`
+    ///     (bottle-level inspection) or resolves to a known launcher via ``LauncherType/detect(from:)``.
+    ///   - preferredLanguages: Preferred BCP-47 language tags used to resolve ``Locales/auto``
+    ///     for active launchers. Defaults to `Locale.preferredLanguages`.
     ///   - builtinD3D12IsD3DMetal: Whether the runtime's builtin `d3d12` is
     ///     D3DMetal's, passed on to the DXVK preset a launcher can require.
     ///     Defaults to whether the GPTK payload is deployed.
     /// - Returns: Launcher-required DLL override entries with their sources.
     public func populateLauncherManagedLayer(
         builder: inout EnvironmentBuilder,
+        targetURL: URL? = nil,
+        preferredLanguages: [String] = Locale.preferredLanguages,
         builtinD3D12IsD3DMetal: Bool = GPTKImporter.isDeployed()
     ) -> [(entry: DLLOverrideEntry, source: DLLOverrideSource)] {
         var launcherDLLOverrides: [(entry: DLLOverrideEntry, source: DLLOverrideSource)] = []
 
         guard launcherCompatibilityMode else { return launcherDLLOverrides }
 
-        // Track whether the launcher preset provides a locale
-        var launcherProvidesLocale = false
+        let effectiveLauncher: LauncherType?
+        if launcherMode == .auto, let targetURL {
+            guard let targetLauncher = LauncherType.detect(from: targetURL) else {
+                // Non-launcher executable in auto mode: do not pollute standalone games
+                // with another launcher's environment or locale overrides.
+                return launcherDLLOverrides
+            }
+            effectiveLauncher = targetLauncher
+        } else {
+            effectiveLauncher = detectedLauncher
+        }
 
-        // Apply launcher-specific environment overrides if launcher detected
-        if let launcher = detectedLauncher {
+        // Apply launcher-specific environment overrides if launcher is active
+        if let launcher = effectiveLauncher {
             let fixDetails = launcher.fixDetails()
             for detail in fixDetails {
                 builder.set(detail.key, detail.value, layer: .launcherManaged, reason: detail.reason)
             }
-            launcherProvidesLocale = fixDetails.contains { $0.key == "LC_ALL" }
 
             // Auto-enable DXVK DLL overrides if launcher requires it
             if autoEnableDXVK, launcher.requiresDXVK {
@@ -1047,23 +1063,25 @@ public struct BottleSettings: Codable, Equatable {
             }
         }
 
-        // Apply locale override if specified (not using launcher default)
-        // Defensive: Also check rawValue is not empty to prevent setting LC_ALL/LANG to ""
-        // Only apply if launcher preset didn't already set LC_ALL (preserves launcher optimization)
-        if launcherLocale != .auto, !launcherLocale.rawValue.isEmpty, !launcherProvidesLocale {
+        // Apply locale override if explicitly chosen, or normalize host UTF-8 LANG for active launchers
+        if launcherLocale != .auto, !launcherLocale.rawValue.isEmpty {
             builder.set("LC_ALL", launcherLocale.rawValue, layer: .launcherManaged)
             builder.set("LANG", launcherLocale.rawValue, layer: .launcherManaged)
-            // Force C locale for date/time parsing to avoid ICU issues
+            // Force C locale for date/time and numeric parsing to avoid ICU issues
             builder.set("LC_TIME", "C", layer: .launcherManaged)
             builder.set("LC_NUMERIC", "C", layer: .launcherManaged)
+        } else if effectiveLauncher != nil {
+            let hostUTF8 = Locales.hostLocale(preferredLanguages: preferredLanguages).rawValue
+            builder.set(
+                "LANG", hostUTF8, layer: .launcherManaged,
+                reason: "Normalizes host locale to UTF-8 for Chromium/CEF stability"
+            )
         }
-        // Note: If launcher preset already set LC_ALL (e.g., Steam sets "en_US.UTF-8"),
-        // we don't overwrite it. This preserves launcher-optimized locale strings.
 
         // Apply GPU spoofing if enabled
         if gpuSpoofing {
             let gpuEnv = spoofEnvironment()
-            let launcherEnv = detectedLauncher?.environmentOverrides() ?? [:]
+            let launcherEnv = effectiveLauncher?.environmentOverrides() ?? [:]
             // Don't override values already set by launcher preset (original behavior:
             // merge with "current.isEmpty ? new : current")
             for (key, value) in gpuEnv {
@@ -1089,6 +1107,8 @@ public struct BottleSettings: Codable, Equatable {
 
         return launcherDLLOverrides
     }
+
+    // swiftlint:enable cyclomatic_complexity
 
     /// The GPU spoof environment with the ray tracing key resolved against
     /// the bottle's own settings.

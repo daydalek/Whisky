@@ -83,10 +83,12 @@ public extension Wine {
         do {
             try await runWine(["reg", "import", url.path(percentEncoded: false)], bottle: bottle)
         } catch {
-            dllOverrideLogger.error("DLL override import failed after \(String(describing: start.duration(to: clock.now)), privacy: .public)")
+            let elapsed = String(describing: start.duration(to: clock.now))
+            dllOverrideLogger.error("DLL override import failed after \(elapsed, privacy: .public)")
             throw error
         }
-        dllOverrideLogger.info("DLL override import finished after \(String(describing: start.duration(to: clock.now)), privacy: .public)")
+        let elapsed = String(describing: start.duration(to: clock.now))
+        dllOverrideLogger.info("DLL override import finished after \(elapsed, privacy: .public)")
         dllOverrideLogger.debug("Synced DLL overrides for \(scopes.count) scope(s) in one import")
     }
 

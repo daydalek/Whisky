@@ -215,8 +215,7 @@ extension Bottle {
 
             // Add missing programs from pins
             for pin in settings.pins {
-                guard let url = pin.url else { continue }
-                guard !foundURLS.contains(url) else { continue }
+                guard let url = pin.url, !foundURLS.contains(url) else { continue }
                 programs.append(Program(url: url, bottle: self))
             }
 

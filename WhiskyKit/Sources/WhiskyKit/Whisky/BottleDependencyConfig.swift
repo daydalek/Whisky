@@ -246,7 +246,9 @@ public struct DependencyInstallAttempt: Codable, Sendable {
         var bytes = 0
         for line in lines.reversed() {
             let lineBytes = line.utf8.count + (kept.isEmpty ? 0 : 1)
-            if bytes + lineBytes > maxOutputTailBytes { break }
+            if bytes + lineBytes > maxOutputTailBytes {
+                break
+            }
             kept.append(line)
             bytes += lineBytes
         }
