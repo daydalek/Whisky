@@ -20,8 +20,13 @@ import XCTest
 
 final class WhiskyUITests: WhiskyUITestCase {
     func testMissingRuntimeSetupCanBeDeferred() throws {
-        app.menuBars.menuBarItems.element(boundBy: 1).click()
-        require(app.menuItems["menu.openSetup"], "setup menu item").click()
+        require(app.menuBars.menuBarItems["Whisky"], "application menu").click()
+        // Native menu items can expose their visible label without the SwiftUI identifier.
+        let setupItem = app.menuItems.matching(NSPredicate(
+            format: "identifier == %@ OR label == %@ OR label == %@",
+            "menu.openSetup", "Setup...", "Setup…"
+        )).firstMatch
+        require(setupItem, "setup menu item").click()
 
         let deferButton = app.buttons["setup.defer"]
         guard deferButton.waitForExistence(timeout: 5) else {

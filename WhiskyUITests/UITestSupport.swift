@@ -26,7 +26,7 @@ class WhiskyUITestCase: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments += ["-WhiskyUITestMode", "1"]
+        app.launchArguments += ["-WhiskyUITestMode", "1", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
         // Frontmost before interacting: a non-key window makes toolbar elements
         // unhittable — the usual source of "element missing" flakiness.
