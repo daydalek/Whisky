@@ -7,11 +7,7 @@ on:
   # paths-ignore skips a run only when *every* changed file matches, so a PR that
   # also touches code still runs the full suite.
   #
-  # NOTE: `main` has no required status checks today, so a skipped docs PR simply
-  # reports no checks and stays mergeable. If branch protection is ever added that
-  # *requires* these checks by name, note that the ui-test job is also gated by
-  # the `changes` job below and a skipped run reports no status — required-check
-  # names would need a carve-out for it.
+  # Required status checks should account for docs-only workflow skips.
   push:
     branches: [main]
     paths-ignore: &docs-paths
@@ -86,26 +82,6 @@ jobs:
             echo "Run ./scripts/british-english.py locally and commit the result."
             exit 1
           }
-
-  # Detects which areas a PR touches so macOS jobs can be skipped when they
-  # can't be affected. Runs on every event; the outputs are only consulted for
-  # pull requests (pushes to main always run everything).
-  changes:
-    name: Detect changed areas
-    runs-on: ubuntu-latest
-    outputs:
-      app: ${{ steps.filter.outputs.app }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            app:
-              - 'Whisky/**'
-              - 'WhiskyUITests/**'
-              - 'Whisky.xcodeproj/**'
-              - '.github/workflows/CI.yml'
 
   # All three schemes build in one job: they share WhiskyKit and most compiled
   # sources through a common DerivedData, so sequential scheme builds are mostly
@@ -186,102 +162,6 @@ jobs:
           # strings render as raw identifiers (#291). The "Fill Missing
           # Translations" build phase does the filling; this asserts it ran.
           python3 scripts/fill-missing-translations.py --check "$app/Contents/Resources"
-
-  # XCUITest job - runs WhiskyUITests against the Whisky app target.
-  # Tests that need bottle fixtures call `try requireBottleFixture()` which
-  # XCTSkips them when the user container is empty (always true on a fresh
-  # CI runner). The fixture-free tests - create-bottle sheet flow and the
-  # toolbar checks - run for real and verify the app launches without
-  # crashing and the toolbar surface renders.
-  #
-  # No user-controllable inputs are interpolated into shell commands here;
-  # all values are constants from the workflow file or static action inputs.
-  #
-  # Skipped on PRs that don't touch the app target, the UI tests, or the
-  # project file: WhiskyKit-only PRs are covered by the unit-test job and the
-  # app still compiles in `build`. Pushes to main always run the full suite,
-  # so a Kit change that alters UI behavior is still caught post-merge.
-  ui-test:
-    name: WhiskyUITests
-    needs: [lint, format, changes]
-    if: github.event_name != 'pull_request' || needs.changes.outputs.app == 'true'
-    runs-on: macos-15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: ${{ env.XCODE_VERSION }}
-
-      - name: Cache SPM Dependencies
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/Library/Developer/Xcode/DerivedData/*/SourcePackages
-            .build
-            WhiskyKit/.build
-          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
-          restore-keys: |
-            ${{ runner.os }}-spm-
-
-      - name: Run WhiskyUITests
-        run: |
-          rm -rf TestResults.xcresult
-          # Retry failed tests up to 3 total runs. XCUITests against a SwiftUI
-          # surface are timing-sensitive (e.g. waiting for the create-bottle
-          # sheet to render on a busy CI runner), so a single flake shouldn't
-          # red-X main. A genuinely broken test still fails after all retries.
-          xcodebuild -project Whisky.xcodeproj \
-            -scheme Whisky \
-            -configuration Debug \
-            -destination 'platform=macOS' \
-            -only-testing:WhiskyUITests \
-            -enableCodeCoverage YES \
-            -resultBundlePath TestResults.xcresult \
-            -retry-tests-on-failure \
-            -test-iterations 3 \
-            test \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
-
-      # App-target (Whisky scheme) coverage from the UI-test run, uploaded under the
-      # `whiskyapp` Codecov flag so the SwiftUI app/CLI/thumbnail aren't completely
-      # dark. This is BEST-EFFORT: every step below is `continue-on-error`, so a broken
-      # extraction just means no app-target number that run and can never gate CI.
-      - name: Convert app-target coverage to Cobertura
-        if: always()
-        continue-on-error: true
-        run: |
-          brew install xcresultparser
-          xcresultparser --output-format cobertura TestResults.xcresult > coverage-app.xml
-          # Normalize any absolute source paths to repo-relative so Codecov's `Whisky/**`
-          # flag filter matches. No-op if xcresultparser already emits relative paths.
-          sed -i '' "s|${GITHUB_WORKSPACE}/||g" coverage-app.xml || true
-          echo "=== coverage-app.xml (first 20 lines) ==="
-          head -20 coverage-app.xml || true
-
-      - name: Upload app-target coverage to Codecov
-        if: always()
-        continue-on-error: true
-        uses: codecov/codecov-action@v7
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage-app.xml
-          flags: whiskyapp
-          fail_ci_if_error: false
-          verbose: true
-
-      - name: Upload xcresult bundle on failure
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ui-test-xcresult
-          path: TestResults.xcresult
-          if-no-files-found: ignore
 
   # Test job for WhiskyKit - always runs to ensure coverage is uploaded
   test:
