@@ -25,6 +25,12 @@ struct SettingsView: View {
     @AppStorage("showMenuBarExtra") var showMenuBarExtra = false
     @AppStorage("checkWhiskyWineUpdates") var checkWhiskyWineUpdates = true
     @AppStorage("defaultBottleLocation") var defaultBottleLocation = BottleData.defaultBottleDir
+    @AppStorage("libraryDetailBlurredBackground") private var blurredDetailBackground = true
+    @AppStorage("librarySingleLineTitles") private var singleLineTitles = false
+    @AppStorage("libraryCenterWideCoverText") private var centerCoverText = false
+    @AppStorage("libraryMixedCoverLayout") private var mixedCoverLayout = false
+    @AppStorage("libraryCoverFillStyle") private var coverFillStyle = "blurred"
+    @AppStorage("libraryBlurredCoverFill") private var blurredCoverFill = true
     @AppStorage("preferredTerminal") var preferredTerminal = "terminal"
     @AppStorage(Telemetry.consentDefaultsKey) private var telemetryConsentRaw: String = Telemetry.ConsentState
         .undecided.rawValue
@@ -68,6 +74,23 @@ struct SettingsView: View {
                         }
                     }
                 }
+            }
+            Section("settings.library") {
+                Toggle("library.details.blurredBackground", isOn: $blurredDetailBackground)
+                    .help("library.details.blurredBackground.help")
+                Toggle("settings.library.mixedCoverLayout", isOn: $mixedCoverLayout)
+                    .help("settings.library.mixedCoverLayout.help")
+                Toggle("settings.library.singleLineTitles", isOn: $singleLineTitles)
+                    .help("settings.library.singleLineTitles.help")
+                Toggle("settings.library.centerWideCoverText", isOn: $centerCoverText)
+                    .help("settings.library.centerWideCoverText.help")
+                Toggle("settings.library.blurredCoverFill", isOn: $blurredCoverFill)
+                    .help("settings.library.blurredCoverFill.help")
+                Picker("settings.library.coverFillStyle", selection: $coverFillStyle) {
+                    Text("settings.library.coverFillStyle.blurred").tag("blurred")
+                    Text("settings.library.coverFillStyle.theme").tag("theme")
+                }
+                .disabled(!blurredCoverFill)
             }
             Section("settings.updates") {
                 Toggle("settings.toggle.whisky.updates", isOn: $whiskyUpdate)

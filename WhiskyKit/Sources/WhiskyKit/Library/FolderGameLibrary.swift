@@ -339,8 +339,24 @@ public struct LibraryVisibility: Codable, Sendable {
         )
     }
 
+    public func isHidden(_ entry: LibraryEntry) -> Bool {
+        hiddenIdentities.contains(entry.metadataIdentity)
+    }
+
+    public mutating func setHidden(_ hidden: Bool, for entry: LibraryEntry) {
+        if hidden {
+            hiddenIdentities.insert(entry.metadataIdentity)
+        } else {
+            hiddenIdentities.remove(entry.metadataIdentity)
+        }
+    }
+
     public func includes(_ entry: LibraryEntry) -> Bool {
-        !hiddenIdentities.contains(entry.metadataIdentity) && (includePinnedAndSteam || entry.source == .folder)
+        includes(entry, showHidden: false)
+    }
+
+    public func includes(_ entry: LibraryEntry, showHidden: Bool) -> Bool {
+        (showHidden || !isHidden(entry)) && (includePinnedAndSteam || entry.source == .folder)
     }
 }
 

@@ -65,6 +65,7 @@ struct LibraryRow: Identifiable {
 @MainActor
 final class LibraryModel: ObservableObject {
     @Published private(set) var rows: [LibraryRow] = []
+    @Published private var hiddenByBottle: [URL: Set<String>] = [:]
     @Published var launchError: String?
     @Published var toast: ToastData?
 
@@ -90,6 +91,10 @@ final class LibraryModel: ObservableObject {
     private var reloadGeneration = 0
 
     // MARK: - State
+
+    func isHidden(_ entry: LibraryEntry) -> Bool {
+        hiddenByBottle[entry.bottleURL]?.contains(entry.metadataIdentity) == true
+    }
 
     /// What a card should be showing.
     ///
@@ -188,7 +193,9 @@ final class LibraryModel: ObservableObject {
             launchError = error.localizedDescription
             return
         }
-        let items = LibraryCatalogue.merge([pinned, discoveredEntries[bottle.url] ?? []]).filter(visibility.includes)
+        hiddenByBottle[bottle.url] = visibility.hiddenIdentities
+        let items = LibraryCatalogue.merge([pinned, discoveredEntries[bottle.url] ?? []])
+            .filter { visibility.includes($0, showHidden: true) }
         let routed = GameRouting().lastLaunches()
         let updated = items.map { item in
             LibraryRow(
@@ -253,12 +260,12 @@ final class LibraryModel: ObservableObject {
 // MARK: - Launching
 
 extension LibraryModel {
-    func removeFromLibrary(_ item: LibraryEntry, bottles: [Bottle]) {
+    func setHidden(_ hidden: Bool, for item: LibraryEntry) {
         do {
             var visibility = try LibraryVisibility.load(bottleURL: item.bottleURL)
-            visibility.hiddenIdentities.insert(item.metadataIdentity)
+            visibility.setHidden(hidden, for: item)
             try visibility.save(bottleURL: item.bottleURL)
-            rows.removeAll { $0.id == item.id }
+            hiddenByBottle[item.bottleURL] = visibility.hiddenIdentities
         } catch { launchError = error.localizedDescription }
     }
 
@@ -268,6 +275,7 @@ extension LibraryModel {
         guard item.bottleURL != targetBottle.url,
               case let .program(url) = item.launch
         else { return nil }
+        let wasHidden = isHidden(item)
         do {
             let targetEntry = LibraryEntry(
                 id: item.id,
@@ -310,9 +318,8 @@ extension LibraryModel {
                 targetIdentity: targetEntry.metadataIdentity
             )
             var visibility = try LibraryVisibility.load(bottleURL: targetBottle.url)
-            if visibility.hiddenIdentities.remove(targetEntry.metadataIdentity) != nil {
-                try visibility.save(bottleURL: targetBottle.url)
-            }
+            visibility.setHidden(wasHidden, for: targetEntry)
+            try visibility.save(bottleURL: targetBottle.url)
             await reload(bottles: bottles)
             return rows.first { $0.item.bottleURL == targetBottle.url && $0.item.launch == item.launch }
         } catch {

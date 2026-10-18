@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-18 (Whisky VN fork)
+
+### Added
+- Mixed portrait and landscape cover layout with locally optimized row packing.
+- Blurred-image and theme-colour backgrounds for landscape covers, with a default-fill switch.
+- Custom cover imports with per-game zoom and position adjustments, preserved across Bottle moves.
+- Optional blurred cover backgrounds in game details, with adaptive reading panels and accessibility support.
+- Single-line cover titles with full-title tooltips, and centred captions for every cover card.
+- Reversible game hiding, a toolbar toggle to show all games, and badges for hidden entries.
+
+### Fixed
+- Landscape artwork now fills the complete two-column cover area.
+- Cover captions use compact spacing, with launch controls placed over the artwork.
+- Hidden entries remain recoverable across app restarts while retaining game files and settings.
+
 ## [Unreleased]
 
 ### Fixed

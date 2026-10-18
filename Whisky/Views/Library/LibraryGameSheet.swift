@@ -18,6 +18,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 import WhiskyKit
 
 /// Browsing metadata is separate from launching; accepting a candidate is explicit.
@@ -28,8 +29,10 @@ struct LibraryGameSheet: View {
     let moveBottle: (Bottle) -> Void
     let didSave: () -> Void
 
+    @AppStorage("libraryDetailBlurredBackground") private var blurredDetailBackground = true
     @Environment(\.dismiss) private var dismiss
     @State private var metadata: GameMetadata?
+    @State private var coverSettings = GameCoverSettings()
     @State private var query = ""
     @State private var results: [GameMetadataSearchResult] = []
     @AppStorage("libraryMetadataEnabledSources") private var enabledSourceIDs = "bangumi,vndb,steam,ymgal"
@@ -74,12 +77,12 @@ struct LibraryGameSheet: View {
                 }
                 Button("button.ok") { dismiss() }
             }
+            .modifier(LibraryDetailReadingPanel(enabled: usesDetailBackground))
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    coverEditor
                     if let metadata {
                         HStack(alignment: .top, spacing: 18) {
-                            cover(metadata.coverURL)
-                                .frame(width: 150, height: 225)
                             VStack(alignment: .leading, spacing: 10) {
                                 Text(metadata.originalTitle).foregroundStyle(.secondary)
                                 Text([metadata.developer, metadata.releaseDate]
@@ -153,17 +156,28 @@ struct LibraryGameSheet: View {
                         }
                     }
                 }
+                .modifier(LibraryDetailReadingPanel(enabled: usesDetailBackground))
             }
             if let error {
                 Text(error).foregroundStyle(.red).textSelection(.enabled)
+                    .modifier(LibraryDetailReadingPanel(enabled: usesDetailBackground))
             }
         }
         .padding(24)
         .frame(width: 720, height: 620)
+        .background {
+            if usesDetailBackground {
+                LibraryMetadataArtwork(url: selectedCoverURL, directory: item.metadataDirectory, backgroundOnly: true)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .clipped()
         .task(id: item.id) {
             query = item.source == .folder ? FolderGameMatching.query(item.name) : item.name
             do {
                 metadata = try await store.load(for: item.metadataIdentity)
+                coverSettings = try await store.loadCoverSettings(for: item.metadataIdentity)
             } catch {
                 self.error = error.localizedDescription
             }
@@ -218,6 +232,87 @@ struct LibraryGameSheet: View {
     }
 }
 
+extension LibraryGameSheet {
+    private var coverEditor: some View {
+        HStack(alignment: .top, spacing: 18) {
+            LibraryMetadataArtwork(url: selectedCoverURL, directory: item.metadataDirectory, settings: coverSettings)
+                .frame(width: 150, height: 225)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 10) {
+                Text("library.cover.title").font(.headline)
+                Toggle("library.details.blurredBackground", isOn: $blurredDetailBackground)
+                    .help("library.details.blurredBackground.help")
+                Toggle("library.cover.custom", isOn: $coverSettings.useCustomCover)
+                    .disabled(store.customCoverURL(for: coverSettings) == nil)
+                    .onChange(of: coverSettings.useCustomCover) { persistCoverSettings() }
+                Button("library.cover.choose") { chooseCover() }
+                    .disabled(saving)
+                Text("library.cover.zoom").font(.caption)
+                Slider(value: $coverSettings.zoom, in: 1 ... 1.3, onEditingChanged: { editing in
+                    if !editing { persistCoverSettings() }
+                })
+                .accessibilityLabel(Text("library.cover.zoom"))
+                if coverSettings.zoom > 1 {
+                    Text("library.cover.horizontal").font(.caption)
+                    Slider(value: $coverSettings.horizontalPosition, in: 0 ... 1, onEditingChanged: { editing in
+                        if !editing { persistCoverSettings() }
+                    })
+                    .accessibilityLabel(Text("library.cover.horizontal"))
+                    Text("library.cover.vertical").font(.caption)
+                    Slider(value: $coverSettings.verticalPosition, in: 0 ... 1, onEditingChanged: { editing in
+                        if !editing { persistCoverSettings() }
+                    })
+                    .accessibilityLabel(Text("library.cover.vertical"))
+                }
+                Button("library.cover.reset") {
+                    coverSettings.zoom = 1
+                    coverSettings.horizontalPosition = 0.5
+                    coverSettings.verticalPosition = 0.5
+                    persistCoverSettings()
+                }
+            }
+        }
+    }
+
+    private var usesDetailBackground: Bool {
+        blurredDetailBackground && selectedCoverURL != nil
+    }
+
+    private var selectedCoverURL: URL? {
+        if coverSettings.useCustomCover, let url = store.customCoverURL(for: coverSettings) { return url }
+        return metadata?.coverURL
+    }
+
+    private func persistCoverSettings() {
+        let settings = coverSettings
+        Task {
+            do {
+                try await store.saveCoverSettings(settings, for: item.metadataIdentity)
+                didSave()
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    private func chooseCover() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .heic, .tiff, .webP]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            saving = true
+            Task {
+                defer { saving = false }
+                do {
+                    let data = try await Task.detached { try Data(contentsOf: url, options: .mappedIfSafe) }.value
+                    coverSettings = try await store.importCover(data, for: item.metadataIdentity)
+                    didSave()
+                } catch { self.error = error.localizedDescription }
+            }
+        }
+    }
+}
+
 struct LibraryCoverCard: View {
     let item: LibraryEntry
     let metadata: GameMetadata?
@@ -225,59 +320,96 @@ struct LibraryCoverCard: View {
     let state: LibraryEntryState
     let details: () -> Void
     let launch: () -> Void
+    var coverHeight: CGFloat?
+    var adaptToFrame = false
+    var coverAspectRatioDidLoad: (Double) -> Void = { _ in }
+    var coverRevision = 0
+    @AppStorage("librarySingleLineTitles") private var singleLineTitles = false
+    @AppStorage("libraryCenterWideCoverText") private var centerCaption = false
+    @State private var coverSettings = GameCoverSettings()
+
+    private var coverURL: URL? {
+        let store = GameMetadataStore(directory: item.metadataDirectory)
+        if coverSettings.useCustomCover, let url = store.customCoverURL(for: coverSettings) { return url }
+        return metadata?.coverURL
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Button(action: details) {
-                Rectangle().fill(.quaternary)
-                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
-                    .overlay {
-                        if let url = metadata?.coverURL {
-                            LibraryMetadataArtwork(url: url, directory: item.metadataDirectory)
-                        } else {
-                            placeholder
-                        }
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(metadata?.title ?? item.name)
-            .accessibilityHint(Text("library.metadata.details"))
-            HStack(alignment: .top) {
+        VStack(alignment: .leading, spacing: 8) {
+            coverButton
+            VStack(alignment: centerCaption ? .center : .leading, spacing: 4) {
                 Text(metadata?.title ?? item.name)
                     .font(.headline)
-                    .lineLimit(2, reservesSpace: true)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                Spacer(minLength: 0)
-                Button(action: launch) {
-                    Image(systemName: "play.fill")
-                }
-                .buttonStyle(.borderless)
-                .disabled(state != .idle)
-                .accessibilityLabel(Text("button.run"))
+                    .lineLimit(singleLineTitles ? 1 : 2)
+                    .truncationMode(.tail)
+                    .multilineTextAlignment(centerCaption ? .center : .leading)
+                    .frame(maxWidth: .infinity, alignment: centerCaption ? .top : .topLeading)
+                    .help(metadata?.title ?? item.name)
+                status
             }
-            ZStack(alignment: .leading) {
-                Color.clear.frame(height: 18)
-                if state == .running {
-                    Label("library.card.running", systemImage: "circle.fill")
-                        .font(.caption).foregroundStyle(.green)
-                } else if state.isPending {
-                    HStack(spacing: 5) {
-                        ProgressView().controlSize(.mini)
-                        Text(state.phaseLabel).font(.caption).lineLimit(1)
+            .frame(height: singleLineTitles ? 40 : 58, alignment: centerCaption ? .top : .topLeading)
+        }
+        .task(id: "\(item.id):\(coverRevision)") {
+            coverSettings = await (try? GameMetadataStore(directory: item.metadataDirectory)
+                .loadCoverSettings(for: item.metadataIdentity)) ?? GameCoverSettings()
+        }
+    }
+
+    private var coverButton: some View {
+        Button(action: details) {
+            LibraryCoverSurface(height: coverHeight)
+                .overlay {
+                    if let url = coverURL {
+                        LibraryMetadataArtwork(
+                            url: url, directory: item.metadataDirectory, settings: coverSettings,
+                            adaptToFrame: adaptToFrame, imageDidLoad: coverAspectRatioDidLoad
+                        )
+                    } else {
+                        placeholder
                     }
-                } else {
-                    HStack(spacing: 4) {
-                        Text(item.source == .steam ? "library.source.steam" : "library.source.local")
-                        if let bottleName {
-                            Text("·")
-                            Text(bottleName)
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel(metadata?.title ?? item.name)
+        .accessibilityHint(Text("library.metadata.details"))
+        .overlay(alignment: .bottomTrailing) {
+            Button(action: launch) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 12))
+                    .frame(width: 30, height: 30)
+                    .background(.thinMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(state != .idle)
+            .accessibilityLabel(Text("button.run"))
+            .padding(8)
+        }
+    }
+
+    private var status: some View {
+        ZStack(alignment: centerCaption ? .center : .leading) {
+            Color.clear.frame(height: 18)
+            if state == .running {
+                Label("library.card.running", systemImage: "circle.fill")
+                    .font(.caption).foregroundStyle(.green)
+            } else if state.isPending {
+                HStack(spacing: 5) {
+                    ProgressView().controlSize(.mini)
+                    Text(state.phaseLabel).font(.caption).lineLimit(1)
+                }
+            } else {
+                HStack(spacing: 4) {
+                    Text(item.source == .steam ? "library.source.steam" : "library.source.local")
+                    if let bottleName {
+                        Text("·")
+                        Text(bottleName)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             }
         }
     }
@@ -288,6 +420,22 @@ struct LibraryCoverCard: View {
             Text(item.name).font(.caption).multilineTextAlignment(.center)
         }
         .foregroundStyle(.secondary).padding()
+    }
+}
+
+/// An explicit height uses the whole column span; portrait mode keeps its ratio.
+private struct LibraryCoverSurface: View {
+    var height: CGFloat?
+
+    var body: some View {
+        if let height {
+            Rectangle().fill(.quaternary)
+                .frame(maxWidth: .infinity)
+                .frame(height: height)
+        } else {
+            Rectangle().fill(.quaternary)
+                .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        }
     }
 }
 
@@ -415,32 +563,150 @@ struct LibrarySteamSettingsSheet: View {
 private struct LibraryMetadataArtwork: View {
     let url: URL?
     let directory: URL
+    var settings = GameCoverSettings()
+    var backgroundOnly = false
+    var adaptToFrame = false
+    var imageDidLoad: (Double) -> Void = { _ in }
+    @AppStorage("libraryCoverFillStyle") private var fillStyle = "blurred"
+    @AppStorage("libraryBlurredCoverFill") private var blurredCoverFill = true
     @State private var cachedImage: NSImage?
+    @State private var palette: IconPalette = .neutral
 
     private var localURL: URL? {
         guard let url else { return nil }
+        if url.isFileURL { return url }
         return GameMetadataStore(directory: directory).cachedCoverURL(for: url)
     }
 
     var body: some View {
         Group {
-            if let cachedImage {
-                Image(nsImage: cachedImage).resizable().scaledToFit()
-            } else if localURL != nil {
-                Rectangle().fill(.quaternary).overlay { Image(systemName: "photo") }
+            if backgroundOnly {
+                LibraryDetailBackdrop(image: cachedImage)
+            } else if let cachedImage {
+                artwork(cachedImage)
             } else {
-                AsyncImage(url: url) { image in
-                    image.resizable().scaledToFit()
-                } placeholder: {
-                    Rectangle().fill(.quaternary).overlay { Image(systemName: "photo") }
-                }
+                Rectangle().fill(.quaternary).overlay { Image(systemName: "photo") }
+            }
+        }
+        .onChange(of: cachedImage) {
+            if let cachedImage, cachedImage.size.height > 0 {
+                imageDidLoad(cachedImage.size.width / cachedImage.size.height)
             }
         }
         .task(id: localURL ?? url) {
             cachedImage = nil
             if let local = localURL {
-                cachedImage = await Task.detached { NSImage(contentsOf: local) }.value
+                let image = await Task.detached { NSImage(contentsOf: local) }.value
+                guard !Task.isCancelled else { return }
+                cachedImage = image
+                if let image { palette = IconPalette.palette(for: image) }
+            } else if let url {
+                do {
+                    let (data, response) = try await URLSession.shared.data(from: url)
+                    guard !Task.isCancelled,
+                          let response = response as? HTTPURLResponse,
+                          (200 ..< 300).contains(response.statusCode)
+                    else { return }
+                    cachedImage = NSImage(data: data)
+                    if let cachedImage { palette = IconPalette.palette(for: cachedImage) }
+                } catch {
+                    // Keep the placeholder visible until the next load.
+                }
             }
         }
+    }
+
+    private func artwork(_ image: NSImage) -> some View {
+        GeometryReader { geometry in
+            let size = geometry.size
+            let fit = min(size.width / max(image.size.width, 1), size.height / max(image.size.height, 1))
+            let fill = max(size.width / max(image.size.width, 1), size.height / max(image.size.height, 1))
+            let scale = adaptToFrame ? fill : fit
+            let stretch = adaptToFrame && LibraryCoverGrid.shouldStretch(
+                imageAspect: image.size.width / max(image.size.height, 1),
+                targetAspect: size.width / max(size.height, 1)
+            )
+            let zoom = min(max(settings.zoom, 1), 1.3)
+            let width = (stretch ? size.width : image.size.width * scale) * zoom
+            let height = (stretch ? size.height : image.size.height * scale) * zoom
+            ZStack {
+                if blurredCoverFill, image.size.width > image.size.height {
+                    if fillStyle == "theme" {
+                        LinearGradient(
+                            colors: [Color(palette), Color(palette.deepened())],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    } else {
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: size.width, height: size.height)
+                            .blur(radius: 20)
+                            .overlay { Color.black.opacity(0.2) }
+                    }
+                }
+                Image(nsImage: image)
+                    .resizable()
+                    .frame(width: width, height: height)
+                    .position(
+                        x: position(length: width, available: size.width, fraction: settings.horizontalPosition),
+                        y: position(length: height, available: size.height, fraction: settings.verticalPosition)
+                    )
+            }
+            .frame(width: size.width, height: size.height)
+            .clipped()
+        }
+    }
+
+    private func position(length: CGFloat, available: CGFloat, fraction: Double) -> CGFloat {
+        length / 2 + (available - length) * min(max(fraction, 0), 1)
+    }
+}
+
+/// A semantic scrim preserves the system's text palette in both appearances.
+private struct LibraryDetailBackdrop: View {
+    let image: NSImage?
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        Color(nsColor: .windowBackgroundColor)
+            .overlay {
+                if let image, !reduceTransparency {
+                    GeometryReader { geometry in
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geometry.size.width + 80, height: geometry.size.height + 80)
+                            .blur(radius: 32)
+                            .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                    }
+                    .clipped()
+                    .overlay {
+                        Color(nsColor: .windowBackgroundColor)
+                            .opacity(contrast == .increased ? 0.92 : (colorScheme == .dark ? 0.7 : 0.78))
+                    }
+                }
+            }
+    }
+}
+
+private struct LibraryDetailReadingPanel: ViewModifier {
+    let enabled: Bool
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        content
+            .padding(enabled ? 14 : 0)
+            .background {
+                if enabled {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(nsColor: .textBackgroundColor)
+                            .opacity(reduceTransparency || contrast == .increased ? 1 : 0.86))
+                }
+            }
     }
 }

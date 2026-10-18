@@ -40,7 +40,11 @@ struct LibraryView: View {
     /// left the button spinning without rebuilding anything.
     @Binding var refresh: Bool
 
+    @AppStorage("libraryShowHiddenGames") private var showHiddenGames = false
     @AppStorage("librarySort") private var sort: LibrarySort = .recent
+    @AppStorage("librarySingleLineTitles") private var singleLineTitles = false
+    @AppStorage("libraryCenterWideCoverText") private var centerCoverText = false
+    @AppStorage("libraryMixedCoverLayout") private var mixedCoverLayout = false
     @AppStorage("libraryCoverMode") private var coverMode = false
 
     @StateObject private var model = LibraryModel()
@@ -50,6 +54,7 @@ struct LibraryView: View {
     @State private var steamSettingsRow: LibraryRow?
     @State private var metadata: [String: GameMetadata] = [:]
     @State private var metadataRevision = 0
+    @State private var coverAspectRatios: [String: Double] = [:]
     @State private var metadataError: String?
     @State private var showScanSettings = false
     @State private var manualSync = false
@@ -61,8 +66,9 @@ struct LibraryView: View {
     }
 
     private var visible: [LibraryRow] {
-        guard !search.isEmpty else { return model.rows }
-        return model.rows.filter { row in
+        let rows = model.rows.filter { showHiddenGames || !model.isHidden($0.item) }
+        guard !search.isEmpty else { return rows }
+        return rows.filter { row in
             row.item.name.localizedCaseInsensitiveContains(search)
                 || metadata[row.id]?.matchingTitles.contains {
                     $0.localizedCaseInsensitiveContains(search)
@@ -79,6 +85,8 @@ struct LibraryView: View {
         Group {
             if model.rows.isEmpty {
                 emptyState
+            } else if visible.isEmpty {
+                filteredEmptyState
             } else {
                 grid
             }
@@ -189,6 +197,14 @@ struct LibraryView: View {
             .accessibilityIdentifier("library.view.toggle")
         }
         ToolbarItem(placement: .primaryAction) {
+            Toggle(isOn: $showHiddenGames) {
+                Label("library.visibility.showAll", systemImage: showHiddenGames ? "eye" : "eye.slash")
+            }
+            .toggleStyle(.button)
+            .help(showHiddenGames ? "library.visibility.hideMarked" : "library.visibility.showAll")
+            .accessibilityIdentifier("library.visibility.toggle")
+        }
+        ToolbarItem(placement: .primaryAction) {
             Menu {
                 Picker("library.sort", selection: $sort) {
                     ForEach(LibrarySort.allCases) { option in
@@ -196,6 +212,12 @@ struct LibraryView: View {
                     }
                 }
                 .pickerStyle(.inline)
+                if coverMode {
+                    Divider()
+                    Toggle("settings.library.mixedCoverLayout", isOn: $mixedCoverLayout)
+                    Toggle("settings.library.singleLineTitles", isOn: $singleLineTitles)
+                    Toggle("settings.library.centerWideCoverText", isOn: $centerCoverText)
+                }
             } label: {
                 Label("library.sort", systemImage: "arrow.up.arrow.down")
             }
@@ -203,7 +225,53 @@ struct LibraryView: View {
         }
     }
 
+    @ViewBuilder
     private var grid: some View {
+        if coverMode, mixedCoverLayout {
+            mixedCoverGrid
+        } else {
+            uniformGrid
+        }
+    }
+
+    private var mixedCoverGrid: some View {
+        GeometryReader { geometry in
+            let entries = visible
+            let layout = LibraryCoverGrid(
+                width: max(geometry.size.width - 36, 1),
+                landscape: entries.map { (coverAspectRatios[$0.id] ?? 0) > 1 }
+            )
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    ForEach(Array(layout.rows.enumerated()), id: \.offset) { _, indices in
+                        HStack(alignment: .top, spacing: 22) {
+                            ForEach(indices, id: \.self) { index in
+                                let row = entries[index]
+                                LibraryCoverCard(
+                                    item: row.item, metadata: metadata[row.id],
+                                    bottleName: row.bottleName, state: model.state(for: row.item),
+                                    details: { detailRow = row }, launch: { model.launch(row, bottles: bottles) },
+                                    coverHeight: layout.coverHeight,
+                                    adaptToFrame: true,
+                                    coverAspectRatioDidLoad: { aspect in
+                                        if coverAspectRatios[row.id] != aspect { coverAspectRatios[row.id] = aspect }
+                                    },
+                                    coverRevision: metadataRevision
+                                )
+                                .frame(width: layout.width(for: index))
+                                .modifier(LibraryHiddenBadge(hidden: model.isHidden(row.item)))
+                                .contextMenu { menu(for: row) }
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(18)
+            }
+        }
+    }
+
+    private var uniformGrid: some View {
         ScrollView {
             LazyVGrid(
                 // 180 rather than 220 so two columns fit at the window's own
@@ -222,7 +290,8 @@ struct LibraryView: View {
                                 item: row.item, metadata: metadata[row.id],
                                 bottleName: row.bottleName,
                                 state: model.state(for: row.item), details: { detailRow = row },
-                                launch: { model.launch(row, bottles: bottles) }
+                                launch: { model.launch(row, bottles: bottles) },
+                                coverRevision: metadataRevision
                             )
                         } else {
                             LibraryCard(
@@ -234,6 +303,7 @@ struct LibraryView: View {
                             )
                         }
                     }
+                    .modifier(LibraryHiddenBadge(hidden: model.isHidden(row.item)))
                     .contextMenu { menu(for: row) }
                 }
             }
@@ -253,8 +323,13 @@ struct LibraryView: View {
             Button("library.card.stop") { model.stop(row, bottles: bottles) }
         }
         Divider()
-        Button("library.remove", role: .destructive) {
-            model.removeFromLibrary(row.item, bottles: bottles)
+        Button {
+            model.setHidden(!model.isHidden(row.item), for: row.item)
+        } label: {
+            Label(
+                model.isHidden(row.item) ? "library.visibility.unhide" : "library.visibility.hide",
+                systemImage: model.isHidden(row.item) ? "eye" : "eye.slash"
+            )
         }
         if !row.item.isLauncher {
             Button("library.metadata.details") { detailRow = row }
@@ -334,9 +409,14 @@ struct LibraryView: View {
                     return created
                 }()
                 loaded[row.id] = try await store.load(for: row.item.metadataIdentity)
+                let aspect = try await store.coverAspectRatio(
+                    for: row.item.metadataIdentity, metadataCoverURL: loaded[row.id]?.coverURL
+                )
                 if !Task.isCancelled {
+                    coverAspectRatios[row.id] = aspect
                     metadata[row.id] = loaded[row.id]
                 }
+                if model.isHidden(row.item) { continue }
                 let bottleURL = row.item.bottleURL
                 let library = try libraries[bottleURL] ?? {
                     let loadedLibrary = try FolderGameLibrary.load(bottleURL: bottleURL)
@@ -366,7 +446,11 @@ struct LibraryView: View {
                             if let cover = details.coverURL {
                                 try? await store.cacheCover(from: cover)
                             }
+                            let aspect = try await store.coverAspectRatio(
+                                for: row.item.metadataIdentity, metadataCoverURL: loaded[row.id]?.coverURL
+                            )
                             if !Task.isCancelled {
+                                coverAspectRatios[row.id] = aspect
                                 metadata[row.id] = loaded[row.id]
                             }
                         }
@@ -398,6 +482,21 @@ struct LibraryView: View {
         libraries[bottleURL] = library
     }
 
+    private var filteredEmptyState: some View {
+        ContentUnavailableView {
+            Label("library.visibility.empty", systemImage: search.isEmpty ? "eye.slash" : "magnifyingglass")
+        } description: {
+            Text(search.isEmpty ? "library.visibility.empty.hidden" : "library.visibility.empty.search")
+        } actions: {
+            if !search.isEmpty {
+                Button("library.visibility.clearSearch") { search = "" }
+            }
+            if !showHiddenGames {
+                Button("library.visibility.showAll") { showHiddenGames = true }
+            }
+        }
+    }
+
     private var emptyState: some View {
         ContentUnavailableView {
             Label("library.empty.title", systemImage: "square.grid.2x2")
@@ -413,6 +512,24 @@ struct LibraryView: View {
 }
 
 // swiftlint:enable type_body_length
+
+private struct LibraryHiddenBadge: ViewModifier {
+    let hidden: Bool
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .topLeading) {
+            if hidden {
+                Label("library.visibility.hidden", systemImage: "eye.slash")
+                    .font(.caption2)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(8)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+}
 
 private struct LibraryFolderSettings: View {
     let bottles: [Bottle]
