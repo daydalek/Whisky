@@ -134,7 +134,7 @@ enum Telemetry {
     static func setConsent(granted: Bool) {
         let state: ConsentState = granted ? .granted : .denied
         UserDefaults.standard.set(state.rawValue, forKey: consentDefaultsKey)
-        if granted {
+        if granted, !NetworkSettings.isOffline {
             if started {
                 PostHogSDK.shared.optIn()
             } else {
@@ -143,6 +143,16 @@ enum Telemetry {
         } else if started {
             PostHogSDK.shared.optOut()
             PostHogSDK.shared.reset()
+        }
+    }
+
+    @MainActor
+    static func networkSettingsChanged() {
+        if NetworkSettings.isOffline {
+            if started { PostHogSDK.shared.close() }
+            started = false
+        } else {
+            startIfConsented()
         }
     }
 
@@ -156,7 +166,7 @@ enum Telemetry {
 
     @MainActor
     static func capture(_ event: Event) {
-        guard consent == .granted else { return }
+        guard consent == .granted, !NetworkSettings.isOffline else { return }
         start()
         guard started else { return }
         if event.oncePerInstall {
@@ -175,7 +185,7 @@ enum Telemetry {
     /// re-check them on a package bump.
     @MainActor
     private static func start() {
-        guard !started else { return }
+        guard !NetworkSettings.isOffline, !started else { return }
         guard !projectToken.isEmpty else {
             if consent == .granted {
                 Logger.telemetry.warning("Telemetry consented but disabled: no PostHogProjectToken in Info.plist")

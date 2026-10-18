@@ -163,6 +163,11 @@ extension Winetricks {
         timeout: TimeInterval,
         continuation: AsyncStream<WinetricksInstallProgress>.Continuation
     ) async {
+        guard !NetworkSettings.isOffline else {
+            continuation.yield(.failed(String(localized: "settings.offline.networkRequired")))
+            continuation.finish()
+            return
+        }
         continuation.yield(.preparing)
 
         let bottleURL = await MainActor.run { bottle.url }

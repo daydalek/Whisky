@@ -334,11 +334,16 @@ public class WhiskyWineInstaller {
     /// - Returns: A tuple containing:
     ///   - A boolean indicating whether an update is available.
     ///   - The remote version if an update is available, or `0.0.0` otherwise.
-    public static func shouldUpdateWhiskyWine() async -> (Bool, SemanticVersion) {
+    public static func shouldUpdateWhiskyWine(
+        defaults: UserDefaults = .standard, session: URLSession = .shared
+    ) async -> (Bool, SemanticVersion) {
+        guard NetworkSettings.shouldCheckWineUpdates(defaults: defaults) else {
+            return (false, SemanticVersion(0, 0, 0))
+        }
         let localVersion = whiskyWineVersion()
         var remoteVersion: SemanticVersion?
         do {
-            remoteVersion = try await DistributionConfig.fetchWineManifest().version
+            remoteVersion = try await DistributionConfig.fetchWineManifest(session: session).version
         } catch {
             logger.warning("Failed to fetch Wine release: \(error.localizedDescription)")
         }

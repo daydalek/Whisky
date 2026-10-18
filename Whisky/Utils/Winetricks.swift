@@ -47,6 +47,13 @@ struct WinetricksCategory {
 class Winetricks {
     @MainActor
     static func runCommand(command: String, bottle: Bottle) async {
+        guard !NetworkSettings.isOffline else {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "settings.toggle.offlineMode")
+            alert.informativeText = String(localized: "settings.offline.networkRequired")
+            alert.runModal()
+            return
+        }
         await runCommandInternal(command: command, bottle: bottle, isRetryAfterRepair: false)
     }
 

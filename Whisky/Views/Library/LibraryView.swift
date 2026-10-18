@@ -39,13 +39,13 @@ struct LibraryView: View {
     /// because the bottle list is unchanged by a refresh, so watching only that
     /// left the button spinning without rebuilding anything.
     @Binding var refresh: Bool
+    @Binding var coverMode: Bool
 
     @AppStorage("libraryShowHiddenGames") private var showHiddenGames = false
     @AppStorage("librarySort") private var sort: LibrarySort = .recent
     @AppStorage("librarySingleLineTitles") private var singleLineTitles = false
     @AppStorage("libraryCenterWideCoverText") private var centerCoverText = false
     @AppStorage("libraryMixedCoverLayout") private var mixedCoverLayout = false
-    @AppStorage("libraryCoverMode") private var coverMode = false
 
     @StateObject private var model = LibraryModel()
     @State private var search: String = ""
@@ -186,6 +186,7 @@ struct LibraryView: View {
             Button { showScanSettings = true } label: {
                 Label("library.scan.folders", systemImage: "folder.badge.plus")
             }
+            .help("library.scan.folders")
         }
         ToolbarItem(placement: .primaryAction) {
             Button { coverMode.toggle() } label: {
@@ -194,6 +195,7 @@ struct LibraryView: View {
                     systemImage: coverMode ? "rectangle.grid.2x2" : "books.vertical"
                 )
             }
+            .help(LocalizedStringKey(coverMode ? "library.view.switchToClassic" : "library.view.switchToCovers"))
             .accessibilityIdentifier("library.view.toggle")
         }
         ToolbarItem(placement: .primaryAction) {
@@ -201,7 +203,7 @@ struct LibraryView: View {
                 Label("library.visibility.showAll", systemImage: showHiddenGames ? "eye" : "eye.slash")
             }
             .toggleStyle(.button)
-            .help(showHiddenGames ? "library.visibility.hideMarked" : "library.visibility.showAll")
+            .help(LocalizedStringKey(showHiddenGames ? "library.visibility.hideMarked" : "library.visibility.showAll"))
             .accessibilityIdentifier("library.visibility.toggle")
         }
         ToolbarItem(placement: .primaryAction) {
@@ -221,6 +223,7 @@ struct LibraryView: View {
             } label: {
                 Label("library.sort", systemImage: "arrow.up.arrow.down")
             }
+            .help("library.sort.help")
             .accessibilityIdentifier("library.sort")
         }
     }
@@ -416,7 +419,7 @@ struct LibraryView: View {
                     coverAspectRatios[row.id] = aspect
                     metadata[row.id] = loaded[row.id]
                 }
-                if model.isHidden(row.item) { continue }
+                if model.isHidden(row.item) || NetworkSettings.isOffline { continue }
                 let bottleURL = row.item.bottleURL
                 let library = try libraries[bottleURL] ?? {
                     let loadedLibrary = try FolderGameLibrary.load(bottleURL: bottleURL)

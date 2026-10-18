@@ -140,6 +140,7 @@ final class LibraryModel: ObservableObject {
             }
         }
         let available = Set(bottles.map(\.url))
+        GameActivityTracker.shared.retainBottles(available)
         rows.removeAll { !available.contains($0.item.bottleURL) }
         discoveredEntries = discoveredEntries.filter { available.contains($0.key) }
         // Publish pins immediately; slow filesystem discovery must not delay a
@@ -181,7 +182,14 @@ final class LibraryModel: ObservableObject {
             // pin removed while discovery was running.
             updateEntries(in: bottle, settings: bottle.settings, showBottleName: showBottleName)
             trackSteam(in: bottle)
+            await trackActivity(in: bottle)
         }
+    }
+
+    private func trackActivity(in bottle: Bottle) async {
+        await GameActivityTracker.shared.configure(
+            entries: rows.filter { $0.item.bottleURL == bottle.url }.map(\.item), bottle: bottle
+        )
     }
 
     private func updateEntries(in bottle: Bottle, settings: BottleSettings, showBottleName: Bool) {
@@ -211,7 +219,10 @@ final class LibraryModel: ObservableObject {
     private func lastPlayed(
         for item: LibraryEntry, routed: [Int: Date]
     ) -> Date? {
-        switch item.launch {
+        if let recorded = try? GameActivityStore.shared.load(for: item).lastPlayed {
+            return recorded
+        }
+        return switch item.launch {
         case let .program(url):
             RunLogStore.load(for: url.lastPathComponent, in: item.bottleURL)
                 .entries.map(\.startTime).max()
@@ -317,6 +328,7 @@ extension LibraryModel {
                 to: targetStore,
                 targetIdentity: targetEntry.metadataIdentity
             )
+            try GameActivityStore.shared.copy(from: item, to: targetEntry)
             var visibility = try LibraryVisibility.load(bottleURL: targetBottle.url)
             visibility.setHidden(wasHidden, for: targetEntry)
             try visibility.save(bottleURL: targetBottle.url)
@@ -340,10 +352,10 @@ extension LibraryModel {
         case let .program(url):
             if row.item.source == .folder {
                 if let executable = folderExecutable(row.item) {
-                    launchProgram(at: executable, in: bottle)
+                    launchProgram(at: executable, in: bottle, entry: row.item)
                 }
             } else {
-                launchProgram(at: url, in: bottle)
+                launchProgram(at: url, in: bottle, entry: row.item)
             }
         case let .steam(appID):
             let games = SteamLibrary.enumerate(bottleURL: bottle.url)
@@ -351,6 +363,7 @@ extension LibraryModel {
                 launchError = String(localized: "library.launch.steamGameMissing")
                 return
             }
+            GameActivityTracker.shared.select(row.item)
             orchestrator(for: bottle).launch(game)
         }
     }
@@ -392,7 +405,8 @@ extension LibraryModel {
         Task { await orchestrator(for: bottle).stop(game) }
     }
 
-    private func launchProgram(at url: URL, in bottle: Bottle) {
+    private func launchProgram(at url: URL, in bottle: Bottle, entry: LibraryEntry) {
+        GameActivityTracker.shared.track(entry, executable: url, bottle: bottle)
         // Through the bottle's own program list where possible, so the launch
         // picks up that program's overrides rather than only the bottle's.
         guard let program = bottle.programs.first(where: { $0.url == url }) else {

@@ -20,7 +20,7 @@ import SwiftUI
 import WhiskyKit
 
 struct SettingsView: View {
-    @AppStorage("SUEnableAutomaticChecks") var whiskyUpdate = true
+    @AppStorage(NetworkSettings.offlineModeKey) private var offlineMode = false
     @AppStorage("killOnTerminate") var killOnTerminate = true
     @AppStorage("showMenuBarExtra") var showMenuBarExtra = false
     @AppStorage("checkWhiskyWineUpdates") var checkWhiskyWineUpdates = true
@@ -93,8 +93,14 @@ struct SettingsView: View {
                 .disabled(!blurredCoverFill)
             }
             Section("settings.updates") {
-                Toggle("settings.toggle.whisky.updates", isOn: $whiskyUpdate)
+                Toggle("settings.toggle.offlineMode", isOn: $offlineMode)
+                    .help("settings.toggle.offlineMode.help")
+                    .onChange(of: offlineMode) { _, _ in Telemetry.networkSettingsChanged() }
+                Text("settings.toggle.offlineMode.help")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("settings.toggle.whiskywine.updates", isOn: $checkWhiskyWineUpdates)
+                    .disabled(offlineMode)
             }
             GPTKSettingsSection()
             if Telemetry.isConfigured {

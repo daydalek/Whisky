@@ -131,6 +131,7 @@ public actor GameMetadataStore {
 
     public func cacheCover(from url: URL, session: URLSession = .shared) async throws {
         guard cachedCoverURL(for: url) == nil else { return }
+        try NetworkSettings.requireNetwork()
         guard url.scheme == "https" else { throw URLError(.unsupportedURL) }
         var request = URLRequest(url: url, timeoutInterval: 20)
         request.setValue("Whisky/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")

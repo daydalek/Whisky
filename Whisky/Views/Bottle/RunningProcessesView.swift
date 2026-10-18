@@ -309,6 +309,7 @@ extension RunningProcessesView {
             } label: {
                 Label("process.action.refresh", systemImage: "arrow.clockwise")
             }
+            .help("process.action.refresh")
             .keyboardShortcut("r", modifiers: .command)
 
             Button {
@@ -316,6 +317,7 @@ extension RunningProcessesView {
             } label: {
                 Label("process.action.stopBottle", systemImage: "stop.circle")
             }
+            .help("process.action.stopBottle")
             .disabled(viewModel.shutdownState != .idle)
             .keyboardShortcut(.delete, modifiers: .command)
 
@@ -324,6 +326,7 @@ extension RunningProcessesView {
             } label: {
                 Label("process.action.forceStop", systemImage: "stop.circle.fill")
             }
+            .help("process.action.forceStop")
             .disabled(viewModel.shutdownState != .idle)
         }
     }

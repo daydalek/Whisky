@@ -33,6 +33,7 @@ struct ContentView: View {
     @State var newlyCreatedBottleURL: URL?
     @State var openedFileURL: URL?
     @State var triggerRefresh: Bool = false
+    @State var libraryCoverMode: Bool = true
     @State var refreshAnimation: Angle = .degrees(0)
 
     @State var toast: ToastData?
@@ -133,8 +134,8 @@ struct ContentView: View {
                     showBottleCreation.toggle()
                 } label: {
                     Image(systemName: "plus")
-                        .help("button.createBottle")
                 }
+                .help("button.createBottle")
                 .accessibilityIdentifier("toolbar.createBottle")
             }
             ToolbarItem(placement: .primaryAction) {
@@ -151,9 +152,9 @@ struct ContentView: View {
                     }
                 } label: {
                     Image(systemName: "arrow.triangle.2.circlepath")
-                        .help("button.refresh")
                         .rotationEffect(refreshAnimation)
                 }
+                .help("button.refresh")
             }
         }
         .sheet(isPresented: $showBottleCreation) {
@@ -232,11 +233,12 @@ struct ContentView: View {
                 showSetup = true
                 return
             }
+            guard NetworkSettings.shouldCheckWineUpdates() else { return }
             let task = Task.detached {
                 await WhiskyWineInstaller.shouldUpdateWhiskyWine()
             }
             let updateInfo = await task.value
-            if updateInfo.0 {
+            if updateInfo.0, NetworkSettings.shouldCheckWineUpdates() {
                 let alert = NSAlert()
                 alert.messageText = String(localized: "update.whiskywine.title")
                 alert.informativeText = String(

@@ -32,6 +32,8 @@ struct LibraryGameSheet: View {
     @AppStorage("libraryDetailBlurredBackground") private var blurredDetailBackground = true
     @Environment(\.dismiss) private var dismiss
     @State private var metadata: GameMetadata?
+    @State private var activity = GameActivity()
+    @ObservedObject private var activityTracker = GameActivityTracker.shared
     @State private var coverSettings = GameCoverSettings()
     @State private var query = ""
     @State private var results: [GameMetadataSearchResult] = []
@@ -81,77 +83,63 @@ struct LibraryGameSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     coverEditor
-                    if let metadata {
-                        HStack(alignment: .top, spacing: 18) {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(metadata.originalTitle).foregroundStyle(.secondary)
-                                Text([metadata.developer, metadata.releaseDate]
-                                    .filter { !$0.isEmpty }.joined(separator: " · "))
-                                if let url = metadata.pageURL {
-                                    Link(metadata.source.title, destination: url)
-                                }
-                                Button("button.run") { launch()
-                                    dismiss()
-                                }
-                                .buttonStyle(.borderedProminent)
-                                Button("library.metadata.unlink", role: .destructive) {
-                                    Task { await unlink() }
-                                }
-                            }
-                        }
+                    activityCard
+                    if let metadata, !metadata.summary.isEmpty {
                         Text(metadata.summary).textSelection(.enabled)
-                        Divider()
+                            .lineSpacing(4)
                     }
-                    Text("library.metadata.search").font(.headline)
-                    HStack {
-                        TextField("library.metadata.query", text: $query)
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit { startSearch() }
-                        Button("library.metadata.search") { startSearch() }
-                            .disabled(searching || enabled.isEmpty
-                                || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        if searching {
-                            ProgressView().controlSize(.small)
-                            Button("button.cancel") { searchTask?.cancel()
-                                searching = false
+                    DisclosureGroup("library.metadata.search") {
+                        Text("library.metadata.search").font(.headline)
+                        HStack {
+                            TextField("library.metadata.query", text: $query)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit { startSearch() }
+                            Button("library.metadata.search") { startSearch() }
+                                .disabled(searching || enabled.isEmpty
+                                    || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            if searching {
+                                ProgressView().controlSize(.small)
+                                Button("button.cancel") { searchTask?.cancel()
+                                    searching = false
+                                }
                             }
                         }
-                    }
-                    HStack {
-                        ForEach(GameMetadataSource.allCases.filter { $0 != .hikarinagi }) { source in
-                            Toggle(source.title, isOn: Binding(
-                                get: { enabled.contains(source) },
-                                set: {
-                                    if $0 {
-                                        enabled.insert(source)
-                                    } else {
-                                        enabled.remove(source)
+                        HStack {
+                            ForEach(GameMetadataSource.allCases.filter { $0 != .hikarinagi }) { source in
+                                Toggle(source.title, isOn: Binding(
+                                    get: { enabled.contains(source) },
+                                    set: {
+                                        if $0 {
+                                            enabled.insert(source)
+                                        } else {
+                                            enabled.remove(source)
+                                        }
                                     }
-                                }
-                            ))
-                            .toggleStyle(.checkbox)
+                                ))
+                                .toggleStyle(.checkbox)
+                            }
                         }
-                    }
-                    ForEach(results, id: \.source) { result in
-                        Text(result.source.title).font(.headline)
-                        if let error = result.error {
-                            Text(error).foregroundStyle(.secondary)
-                        } else if result.games.isEmpty {
-                            Text("library.metadata.empty").foregroundStyle(.secondary)
-                        }
-                        ForEach(FolderGameMatching.ranked(query: query, games: result.games)) { candidate in
-                            HStack(alignment: .top) {
-                                cover(candidate.thumbnailURL ?? candidate.coverURL).frame(width: 52, height: 78)
-                                VStack(alignment: .leading) {
-                                    Text(candidate.title).bold()
-                                    Text(candidate.originalTitle).font(.caption)
-                                    Text(candidate.releaseDate).font(.caption).foregroundStyle(.secondary)
+                        ForEach(results, id: \.source) { result in
+                            Text(result.source.title).font(.headline)
+                            if let error = result.error {
+                                Text(error).foregroundStyle(.secondary)
+                            } else if result.games.isEmpty {
+                                Text("library.metadata.empty").foregroundStyle(.secondary)
+                            }
+                            ForEach(FolderGameMatching.ranked(query: query, games: result.games)) { candidate in
+                                HStack(alignment: .top) {
+                                    cover(candidate.thumbnailURL ?? candidate.coverURL).frame(width: 52, height: 78)
+                                    VStack(alignment: .leading) {
+                                        Text(candidate.title).bold()
+                                        Text(candidate.originalTitle).font(.caption)
+                                        Text(candidate.releaseDate).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Button("library.metadata.use") {
+                                        Task { await save(candidate) }
+                                    }
+                                    .disabled(saving)
                                 }
-                                Spacer()
-                                Button("library.metadata.use") {
-                                    Task { await save(candidate) }
-                                }
-                                .disabled(saving)
                             }
                         }
                     }
@@ -178,8 +166,20 @@ struct LibraryGameSheet: View {
             do {
                 metadata = try await store.load(for: item.metadataIdentity)
                 coverSettings = try await store.loadCoverSettings(for: item.metadataIdentity)
+                activity = try GameActivityStore.shared.load(for: item)
             } catch {
                 self.error = error.localizedDescription
+            }
+        }
+        .task(id: "activity:\(item.id)") {
+            while !Task.isCancelled {
+                do {
+                    activity = try GameActivityStore.shared.load(for: item)
+                    try await Task.sleep(for: .seconds(10))
+                } catch is CancellationError { return } catch {
+                    self.error = error.localizedDescription
+                    return
+                }
             }
         }
         .onDisappear { searchTask?.cancel() }
@@ -239,39 +239,131 @@ extension LibraryGameSheet {
                 .frame(width: 150, height: 225)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 10) {
-                Text("library.cover.title").font(.headline)
-                Toggle("library.details.blurredBackground", isOn: $blurredDetailBackground)
-                    .help("library.details.blurredBackground.help")
-                Toggle("library.cover.custom", isOn: $coverSettings.useCustomCover)
-                    .disabled(store.customCoverURL(for: coverSettings) == nil)
-                    .onChange(of: coverSettings.useCustomCover) { persistCoverSettings() }
-                Button("library.cover.choose") { chooseCover() }
-                    .disabled(saving)
-                Text("library.cover.zoom").font(.caption)
-                Slider(value: $coverSettings.zoom, in: 1 ... 1.3, onEditingChanged: { editing in
-                    if !editing { persistCoverSettings() }
-                })
-                .accessibilityLabel(Text("library.cover.zoom"))
-                if coverSettings.zoom > 1 {
-                    Text("library.cover.horizontal").font(.caption)
-                    Slider(value: $coverSettings.horizontalPosition, in: 0 ... 1, onEditingChanged: { editing in
-                        if !editing { persistCoverSettings() }
-                    })
-                    .accessibilityLabel(Text("library.cover.horizontal"))
-                    Text("library.cover.vertical").font(.caption)
-                    Slider(value: $coverSettings.verticalPosition, in: 0 ... 1, onEditingChanged: { editing in
-                        if !editing { persistCoverSettings() }
-                    })
-                    .accessibilityLabel(Text("library.cover.vertical"))
+                if let metadata {
+                    Text(metadata.originalTitle).font(.headline).textSelection(.enabled)
+                    Text([metadata.developer, metadata.releaseDate]
+                        .filter { !$0.isEmpty }.joined(separator: " · "))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    if let url = metadata.pageURL {
+                        Link(metadata.source.title, destination: url).font(.caption)
+                    }
                 }
-                Button("library.cover.reset") {
-                    coverSettings.zoom = 1
-                    coverSettings.horizontalPosition = 0.5
-                    coverSettings.verticalPosition = 0.5
-                    persistCoverSettings()
+                Button("button.run") {
+                    launch()
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                DisclosureGroup("library.cover.title") {
+                    Toggle("library.details.blurredBackground", isOn: $blurredDetailBackground)
+                        .help("library.details.blurredBackground.help")
+                    Toggle("library.cover.custom", isOn: $coverSettings.useCustomCover)
+                        .disabled(store.customCoverURL(for: coverSettings) == nil)
+                        .onChange(of: coverSettings.useCustomCover) { persistCoverSettings() }
+                    Button("library.cover.choose") { chooseCover() }
+                        .disabled(saving)
+                    Text("library.cover.zoom").font(.caption)
+                    Slider(value: $coverSettings.zoom, in: 1 ... 1.3, onEditingChanged: { editing in
+                        if !editing {
+                            persistCoverSettings()
+                        }
+                    })
+                    .accessibilityLabel(Text("library.cover.zoom"))
+                    if coverSettings.zoom > 1 {
+                        Text("library.cover.horizontal").font(.caption)
+                        Slider(value: $coverSettings.horizontalPosition, in: 0 ... 1, onEditingChanged: { editing in
+                            if !editing {
+                                persistCoverSettings()
+                            }
+                        })
+                        .accessibilityLabel(Text("library.cover.horizontal"))
+                        Text("library.cover.vertical").font(.caption)
+                        Slider(value: $coverSettings.verticalPosition, in: 0 ... 1, onEditingChanged: { editing in
+                            if !editing {
+                                persistCoverSettings()
+                            }
+                        })
+                        .accessibilityLabel(Text("library.cover.vertical"))
+                    }
+                    Button("library.cover.reset") {
+                        coverSettings.zoom = 1
+                        coverSettings.horizontalPosition = 0.5
+                        coverSettings.verticalPosition = 0.5
+                        persistCoverSettings()
+                    }
+                }
+                if metadata != nil {
+                    Button("library.metadata.unlink", role: .destructive) {
+                        Task { await unlink() }
+                    }
+                    .font(.caption)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private var activityCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("library.activity.playTime", systemImage: "clock")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text(Duration.seconds(activity.playTime).formatted(.units(
+                        allowed: [.hours, .minutes], width: .abbreviated
+                    )))
+                    .font(.title3.weight(.semibold)).monospacedDigit()
+                }
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("library.activity.rating", systemImage: "star")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Menu {
+                        Button("library.activity.unrated") { setRating(nil) }
+                        ForEach(1 ... 10, id: \.self) { score in
+                            Button {
+                                setRating(score)
+                            } label: {
+                                if activity.rating == score {
+                                    Label("\(score) / 10", systemImage: "checkmark")
+                                } else {
+                                    Text("\(score) / 10")
+                                }
+                            }
+                        }
+                    } label: {
+                        if let rating = activity.rating {
+                            Text("\(rating) / 10").font(.title3.weight(.semibold))
+                        } else {
+                            Text("library.activity.unrated").font(.headline)
+                        }
+                    }
+                    .fixedSize()
+                    .accessibilityLabel(Text("library.activity.rating"))
+                }
+                Spacer(minLength: 0)
+                if let lastPlayed = activity.lastPlayed {
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Text("library.activity.lastPlayed").font(.caption).foregroundStyle(.secondary)
+                        Text(lastPlayed, style: .date).font(.subheadline)
+                    }
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            Text("library.activity.trackingHint").font(.caption2).foregroundStyle(.secondary)
+            if let error = activityTracker.error {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
+        }
+        .padding(16)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func setRating(_ rating: Int?) {
+        do {
+            try GameActivityStore.shared.setRating(rating, for: item)
+            activity = try GameActivityStore.shared.load(for: item)
+        } catch { self.error = error.localizedDescription }
     }
 
     private var usesDetailBackground: Bool {
@@ -279,7 +371,9 @@ extension LibraryGameSheet {
     }
 
     private var selectedCoverURL: URL? {
-        if coverSettings.useCustomCover, let url = store.customCoverURL(for: coverSettings) { return url }
+        if coverSettings.useCustomCover, let url = store.customCoverURL(for: coverSettings) {
+            return url
+        }
         return metadata?.coverURL
     }
 
@@ -330,7 +424,9 @@ struct LibraryCoverCard: View {
 
     private var coverURL: URL? {
         let store = GameMetadataStore(directory: item.metadataDirectory)
-        if coverSettings.useCustomCover, let url = store.customCoverURL(for: coverSettings) { return url }
+        if coverSettings.useCustomCover, let url = store.customCoverURL(for: coverSettings) {
+            return url
+        }
         return metadata?.coverURL
     }
 
@@ -574,7 +670,9 @@ private struct LibraryMetadataArtwork: View {
 
     private var localURL: URL? {
         guard let url else { return nil }
-        if url.isFileURL { return url }
+        if url.isFileURL {
+            return url
+        }
         return GameMetadataStore(directory: directory).cachedCoverURL(for: url)
     }
 
@@ -599,16 +697,21 @@ private struct LibraryMetadataArtwork: View {
                 let image = await Task.detached { NSImage(contentsOf: local) }.value
                 guard !Task.isCancelled else { return }
                 cachedImage = image
-                if let image { palette = IconPalette.palette(for: image) }
+                if let image {
+                    palette = IconPalette.palette(for: image)
+                }
             } else if let url {
                 do {
+                    try NetworkSettings.requireNetwork()
                     let (data, response) = try await URLSession.shared.data(from: url)
                     guard !Task.isCancelled,
                           let response = response as? HTTPURLResponse,
                           (200 ..< 300).contains(response.statusCode)
                     else { return }
                     cachedImage = NSImage(data: data)
-                    if let cachedImage { palette = IconPalette.palette(for: cachedImage) }
+                    if let cachedImage {
+                        palette = IconPalette.palette(for: cachedImage)
+                    }
                 } catch {
                     // Keep the placeholder visible until the next load.
                 }

@@ -66,6 +66,7 @@ public enum DistributionConfig {
     public static func fetchWineManifest(
         session: URLSession = .shared, useCache: Bool = true
     ) async throws -> WhiskyWineVersion {
+        try NetworkSettings.requireNetwork()
         let data = try await manifestCache.fetch(session: session, useCache: useCache)
         return try PropertyListDecoder().decode(WhiskyWineVersion.self, from: data)
     }
@@ -95,6 +96,7 @@ private actor WineManifestCache {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadRevalidatingCacheData
         request.timeoutInterval = 30
+        try NetworkSettings.requireNetwork()
         let (fresh, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
             throw DistributionConfig.WineManifestError.httpStatus(http.statusCode)

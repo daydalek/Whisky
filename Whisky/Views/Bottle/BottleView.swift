@@ -114,6 +114,7 @@ struct BottleView: View {
                     Button("button.duplicateBottle", systemImage: "doc.on.doc") {
                         showDuplicate = true
                     }
+                    .help("button.duplicateBottle")
                     .disabled(bottle.inFlight)
                 }
             }

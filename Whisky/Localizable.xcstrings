@@ -990,6 +990,75 @@
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "未找到可配置的 exe，请通过 Steam 管理此游戏。" } }
       }
     },
+    "library.sort.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sort and layout"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排序与布局"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排序與版面"
+          }
+        }
+      }
+    },
+    "library.view.switchToClassic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch to classic cards"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换为经典卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換為經典卡片"
+          }
+        }
+      }
+    },
+    "library.view.switchToCovers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch to bookshelf"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换为书架"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換為書架"
+          }
+        }
+      }
+    },
     "library.view.classic" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -75198,154 +75267,6 @@
         }
       }
     },
-    "settings.toggle.whisky.updates" : {
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "التحقق تلقائيا من تحديثات Whisky"
-          }
-        },
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automaticky kontrolovat Whisky aktualizace"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Søg automatisk efter Whisky-opdateringer"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automatisch nach Updates für Whisky suchen"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automatically check for Whisky updates"
-          }
-        },
-        "en-GB" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automatically check for Whisky updates"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Buscar actualizaciones de Whiskey automáticamente"
-          }
-        },
-        "fi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automaattisesti tarkista Whisky päivityksien varalta"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rechercher automatiquement les mises à jour de Whisky"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Controlla automaticamente aggiornamenti di Whisky"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Whisky のアップデートを自動的に確認する"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Whisky 업데이트를 자동으로 확인"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automatisch controleren op Whisky updates"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automatycznie sprawdzaj aktualizacje Whisky"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verificar automaticamente atualizações do Whisky"
-          }
-        },
-        "pt-PT" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verifique automaticamente para atualizações do Whisky"
-          }
-        },
-        "ro" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verifică automat pentru actualizări Whisky"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Автоматически проверять на наличие обновлений Whisky"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sök automatiskt efter uppdateringar till Whisky"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Whisky güncellemelerini otomatik olarak kontrol et"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Автоматична перевірка оновлень Whisky"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tự động kiểm tra bản cập nhật của Whisky"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动检查Whisky更新"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自動檢查 Whisky 更新"
-          }
-        }
-      }
-    },
     "settings.toggle.whiskywine.updates" : {
       "localizations" : {
         "ar" : {
@@ -75490,6 +75411,75 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自動檢查 Wine 核心 更新"
+          }
+        }
+      }
+    },
+    "settings.toggle.offlineMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline mode"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線模式"
+          }
+        }
+      }
+    },
+    "settings.toggle.offlineMode.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use installed Wine and local games offline. Pauses update checks, online game metadata, cover downloads, telemetry, and dependency downloads. Games manage their own network access."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用已安装的 Wine 和本地游戏离线运行。暂停更新检查、在线游戏资料、封面下载、遥测与依赖下载。游戏自身的联网行为由游戏管理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用已安裝的 Wine 和本機遊戲離線執行。暫停更新檢查、線上遊戲資料、封面下載、遙測與相依項目下載。遊戲自身的連線行為由遊戲管理。"
+          }
+        }
+      }
+    },
+    "settings.offline.networkRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn off Offline mode in Settings to download components."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在设置中关闭离线模式后下载组件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在設定中關閉離線模式後下載元件。"
           }
         }
       }
@@ -114521,6 +114511,91 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已安裝的 Wine 執行階段未包含 DXMT。請在 Whisky 的設定流程中更新執行階段後重試。"
+          }
+        }
+      }
+    },
+    "library.activity.playTime": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play time"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "累计游玩"
+          }
+        }
+      }
+    },
+    "library.activity.rating": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My rating"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的评分"
+          }
+        }
+      }
+    },
+    "library.activity.unrated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unrated"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未评分"
+          }
+        }
+      }
+    },
+    "library.activity.lastPlayed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last played"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近游玩"
+          }
+        }
+      }
+    },
+    "library.activity.trackingHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Counts game process time while Whisky is open. Updates every 10 seconds."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whisky 运行期间自动记录游戏进程时长，每 10 秒更新。"
           }
         }
       }

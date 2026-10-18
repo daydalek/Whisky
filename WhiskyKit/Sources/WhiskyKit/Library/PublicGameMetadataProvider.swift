@@ -35,6 +35,7 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
     }
 
     public func search(_ query: String) async throws -> [GameMetadata] {
+        try NetworkSettings.requireNetwork()
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return [] }
         let cacheKey = Self.cacheKey(for: query)
@@ -55,6 +56,7 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
     /// Steam's search endpoint only returns identity and thumbnails. Fetch the
     /// selected item's details, rather than issuing ten extra requests per search.
     public func details(for candidate: GameMetadata) async throws -> GameMetadata {
+        try NetworkSettings.requireNetwork()
         guard candidate.source == source else { throw URLError(.badURL) }
         if source == .ymgal {
             return try await ymgalClient.details(candidate)
@@ -100,6 +102,7 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
+        try NetworkSettings.requireNetwork()
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         guard (200 ..< 300).contains(response.statusCode) else {
@@ -578,6 +581,7 @@ private actor YMGalClient {
             request.setValue("1", forHTTPHeaderField: "version")
         }
         defer { lastRequestAt = Date() }
+        try NetworkSettings.requireNetwork()
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         guard (200 ..< 300).contains(http.statusCode) else {

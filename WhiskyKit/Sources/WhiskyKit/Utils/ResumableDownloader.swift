@@ -101,6 +101,7 @@ public final class ResumableDownloader: @unchecked Sendable {
         onEvent: @escaping @Sendable (String) -> Void = { _ in },
         progress: @escaping @Sendable (ResumableDownloadProgress) -> Void = { _ in }
     ) async throws {
+        try NetworkSettings.requireNetwork()
         var attempt = 1
         while true {
             do {
@@ -213,6 +214,7 @@ public final class ResumableDownloader: @unchecked Sendable {
         let delegate = HTTPStreamDelegate()
         let session = URLSession(configuration: sessionConfiguration, delegate: delegate, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
+        try NetworkSettings.requireNetwork()
         let task = session.dataTask(with: request)
 
         try await withTaskCancellationHandler {

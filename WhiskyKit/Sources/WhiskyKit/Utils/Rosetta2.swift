@@ -25,6 +25,7 @@ public class Rosetta2 {
     public static let isRosettaInstalled: Bool = FileManager.default.fileExists(atPath: rosetta2RuntimeBin)
 
     public static func installRosetta() async throws -> Bool {
+        try NetworkSettings.requireNetwork()
         let process = Process()
         let fileHandle = try Wine.makeFileHandle()
 
