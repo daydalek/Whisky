@@ -1532,12 +1532,15 @@ struct LibraryTimelineRow<MenuContent: View>: View {
             dateColumn
 
             timelineAxisColumn
+                .zIndex(1)
+
+            timelineConnectorSlot
+                .zIndex(0)
 
             cardContainer
-                .padding(.leading, 38)
                 .padding(.vertical, 6)
         }
-        .frame(maxWidth: 1140, alignment: .leading)
+        .frame(maxWidth: 1160, alignment: .leading)
         .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
@@ -1550,42 +1553,6 @@ struct LibraryTimelineRow<MenuContent: View>: View {
                 .loadCoverSettings(for: item.metadataIdentity)) ?? GameCoverSettings()
             activity = (try? GameActivityStore.shared.load(for: item)) ?? GameActivity()
         }
-    }
-
-    private var cardContainer: some View {
-        HStack(alignment: .center, spacing: 20) {
-            coverShowcaseSlot
-
-            editorialColumn
-
-            Spacer(minLength: 20)
-
-            actionColumn
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(
-                    Color.primary.opacity(
-                        colorScheme == .dark
-                            ? (isHovered ? 0.08 : 0.035)
-                            : (isHovered ? 0.05 : 0.02)
-                    )
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(
-                    Color.primary.opacity(
-                        colorScheme == .dark
-                            ? (isHovered ? 0.16 : 0.07)
-                            : (isHovered ? 0.10 : 0.05)
-                    ),
-                    lineWidth: 0.5
-                )
-        )
     }
 
     private var dateColumn: some View {
@@ -1668,6 +1635,7 @@ struct LibraryTimelineRow<MenuContent: View>: View {
                 Circle()
                     .fill(Color.accentColor)
                     .frame(width: 8, height: 8)
+                    .shadow(color: Color.accentColor.opacity(0.55), radius: 3)
             } else if showsDateHeader {
                 Circle()
                     .strokeBorder(
@@ -1751,6 +1719,68 @@ struct LibraryTimelineRow<MenuContent: View>: View {
 }
 
 extension LibraryTimelineRow {
+    var timelineConnectorSlot: some View {
+        let connectorWidth: CGFloat = 54
+        let lineColor = colorScheme == .dark
+            ? Color.white.opacity(0.24)
+            : Color.black.opacity(0.14)
+        return ZStack(alignment: .leading) {
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        stops: [
+                            .init(color: Color.accentColor.opacity(colorScheme == .dark ? 0.65 : 0.50), location: 0.0),
+                            .init(color: lineColor, location: 0.55),
+                            .init(color: lineColor.opacity(0.7), location: 1.0)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(width: connectorWidth + 12, height: 1.5)
+                .offset(x: -12)
+                .opacity(isHovered ? 1.0 : 0.0)
+                .animation(.easeInOut(duration: 0.22), value: isHovered)
+        }
+        .frame(width: connectorWidth)
+    }
+
+    var cardContainer: some View {
+        HStack(alignment: .center, spacing: 20) {
+            coverShowcaseSlot
+
+            editorialColumn
+
+            Spacer(minLength: 20)
+
+            actionColumn
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
+                    Color.primary.opacity(
+                        colorScheme == .dark
+                            ? (isHovered ? 0.08 : 0.035)
+                            : (isHovered ? 0.05 : 0.02)
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(
+                    Color.primary.opacity(
+                        colorScheme == .dark
+                            ? (isHovered ? 0.16 : 0.07)
+                            : (isHovered ? 0.10 : 0.05)
+                    ),
+                    lineWidth: 0.5
+                )
+        )
+    }
+
     var editorialColumn: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
