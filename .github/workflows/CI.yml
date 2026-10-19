@@ -82,6 +82,8 @@ jobs:
             echo "Run ./scripts/british-english.py locally and commit the result."
             exit 1
           }
+      - name: Verify third-party notices and source inventory
+        run: python3 scripts/check-third-party.py
 
   # All three schemes build in one job: they share WhiskyKit and most compiled
   # sources through a common DerivedData, so sequential scheme builds are mostly
@@ -162,6 +164,7 @@ jobs:
           # strings render as raw identifiers (#291). The "Fill Missing
           # Translations" build phase does the filling; this asserts it ran.
           python3 scripts/fill-missing-translations.py --check "$app/Contents/Resources"
+          python3 scripts/check-third-party.py --resources "$app/Contents/Resources"
 
   # Test job for WhiskyKit - always runs to ensure coverage is uploaded
   test:

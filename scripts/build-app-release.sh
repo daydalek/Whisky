@@ -13,6 +13,7 @@ assets="$output/assets"
 test ! -e "$assets" || { echo 'Release assets directory must be fresh' >&2; exit 1; }
 mkdir -p "$output"
 cd "$project"
+python3 scripts/check-third-party.py
 
 xcodebuild -project Whisky.xcodeproj -scheme Whisky -configuration Release \
   -destination 'generic/platform=macOS' -derivedDataPath "$output/DerivedData" \
@@ -27,6 +28,7 @@ for resource in WhiskyCmd winetricks verbs.txt cabextract; do
   test -f "$app/Contents/Resources/$resource" || { echo "Missing app resource: $resource" >&2; exit 1; }
 done
 python3 scripts/fill-missing-translations.py --check "$app/Contents/Resources"
+python3 scripts/check-third-party.py --resources "$app/Contents/Resources"
 mkdir -p "$assets"
 
 python3 - "$app" "$project" "$assets" "$version" <<'PY'
@@ -65,6 +67,9 @@ ditto -c -k --sequesterRsrc --keepParent "$app" "$assets/$archive"
 check_dir="$(mktemp -d "$output/zip-check.XXXXXX")"
 ditto -x -k "$assets/$archive" "$check_dir"
 codesign --verify --deep --strict "$check_dir/Whisky.app"
+python3 scripts/check-third-party.py --resources "$check_dir/Whisky.app/Contents/Resources"
+python3 scripts/build-app-source.py "$output/DerivedData/SourcePackages/checkouts" \
+  "$assets/Whisky-$version-sources.tar.gz"
 
 cat > "$assets/RELEASE-NOTES.md" <<EOF
 Whisky $version for Apple Silicon.
@@ -72,8 +77,11 @@ Whisky $version for Apple Silicon.
 Download $archive, extract Whisky.app and drag it into Applications.
 The app downloads CrossOver-based GE Wine Libraries separately on first setup.
 The current Wine runtime requires macOS 27+ and Rosetta 2.
+Source code and locked Swift package sources are included in Whisky-$version-sources.tar.gz.
+Third-party licenses, source attribution, and cabextract source are included in
+Whisky.app/Contents/Resources/ThirdParty/.
 
 This build uses an ad-hoc signature. Apple notarization is pending; macOS Gatekeeper may require additional approval on first launch.
 EOF
-(cd "$assets" && shasum -a 256 "$archive" build-info.json RELEASE-NOTES.md > SHA256SUMS)
+(cd "$assets" && shasum -a 256 "$archive" "Whisky-$version-sources.tar.gz" build-info.json RELEASE-NOTES.md > SHA256SUMS)
 echo "Release assets: $assets"

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A0C031010000000000000001 /* ThirdParty in Resources */ = {isa = PBXBuildFile; fileRef = A0C031010000000000000002 /* ThirdParty */; };
 		12DEDCF97DB77E9F6714B8F1 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61747C7BF48347DA75C30397 /* Cocoa.framework */; };
 		160B41C4006351293AAEEF27 /* LauncherConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D27C1F7764AE4F0AED2FD03D /* LauncherConfigSection.swift */; };
 		1A2B3C4D2E0107F000AABBCC /* TextTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4E2E0107F000AABBCC /* TextTable.swift */; };
@@ -205,6 +206,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A0C031010000000000000002 /* ThirdParty */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ThirdParty; sourceTree = SOURCE_ROOT; };
 		000C327847E981AEF33EFB61 /* InputConfigSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InputConfigSection.swift; sourceTree = "<group>"; };
 		1A2B3C4E2E0107F000AABBCC /* TextTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextTable.swift; sourceTree = "<group>"; };
 		1C3B8A506869998F3FE0FC74 /* WhiskyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WhiskyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -491,6 +493,7 @@
 		6E40494929CCA19C006E3F1B = {
 			isa = PBXGroup;
 			children = (
+				A0C031010000000000000002 /* ThirdParty */,
 				6E40495429CCA19C006E3F1B /* Whisky */,
 				6E70A4992A9A2197007799E9 /* WhiskyCmd */,
 				6EFDF64F2AAE2DA800EF622F /* WhiskyThumbnail */,
@@ -924,6 +927,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0C031010000000000000001 /* ThirdParty in Resources */,
 				6E40495D29CCA19C006E3F1B /* Preview Assets.xcassets in Resources */,
 				6EB58AC92AEACE5E00B1ED3F /* Localizable.xcstrings in Resources */,
 				C1A2B3C4E5F60601A9B0E1D8 /* WhiskyAudioTest.exe in Resources */,

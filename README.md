@@ -126,6 +126,8 @@ rm -f  ~/Library/Preferences/com.franke.Whisky.plist
 
 ### 开源许可证与源代码来源 (License & Upstream Sources)
 
+完整第三方来源清单见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)，许可证原文与固定版本记录见 [ThirdParty](ThirdParty/)。应用包在 `Contents/Resources/ThirdParty/` 携带这些材料、cabextract 对应源码及重建说明；Release 另附应用和固定版本 Swift 依赖的源码归档。
+
 - **许可证 (License)**：本项目遵循 **[GNU General Public License v3.0 (GPL-3.0-or-later)](./LICENSE)** 开源许可证发布。
 - **应用源代码来源 (Application Source Attribution)**：
   - 本仓库（[daydalek/Whisky](https://github.com/daydalek/Whisky)）fork 自 **[frankea/Whisky](https://github.com/frankea/Whisky)**。
@@ -151,6 +153,9 @@ Whisky is possible thanks to the magic of several projects:
 - [Sparkle](https://github.com/sparkle-project/Sparkle) by sparkle-project
 - [SemanticVersion](https://github.com/SwiftPackageIndex/SemanticVersion) by SwiftPackageIndex
 - [swift-argument-parser](https://github.com/apple/swift-argument-parser) by Apple
+- [PostHog](https://github.com/PostHog/posthog-ios) and its bundled component authors (linked SDK; telemetry disabled in this fork)
+- [Winetricks](https://github.com/Winetricks/winetricks) by Dan Kegel, Austin English, and contributors
+- [cabextract / libmspack](https://www.cabextract.org.uk/) by Stuart Caie
 - [CrossOver](https://www.codeweavers.com/crossover) by CodeWeavers and WineHQ
 - [GE-Proton](https://github.com/GloriousEggroll/proton-ge-custom) by GloriousEggroll
 - D3DMetal by Apple

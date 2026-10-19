@@ -50,7 +50,15 @@ every install through a normal app update, with no runtime re-download.
 |-----------|----------------|-----------------|-------|
 | **winetricks** | `20260125` | [Winetricks/winetricks](https://github.com/Winetricks/winetricks/releases/tag/20260125) | Self-contained POSIX shell script (LGPL-2.1+). Drives dependency installs (VC++, .NET, DirectX, fonts) and verb queries. Invoked as `bash winetricks <verb>` with the bundled `cabextract` and the runtime's `Wine/bin` on `PATH`. Bump by re-fetching `src/winetricks` at a newer release tag and regenerating `verbs.txt`. |
 | **verbs.txt** | generated from winetricks `20260125` | produced by `winetricks list-all` | Verb catalog shown in the Winetricks browser. Regenerate whenever winetricks is bumped: `sh Libraries/winetricks list-all` (drop the leading platform-warning line so the file starts at the first `=====` category header). |
-| **cabextract** | prebuilt arm64 binary | [cabextract.org.uk](https://www.cabextract.org.uk/) | Extracts Microsoft `.cab` archives; a hard dependency of many winetricks verbs. Committed as a code-signed-on-copy Mach-O executable. |
+| **cabextract** | `1.11`, arm64, rebuilt from official source | [cabextract.org.uk](https://www.cabextract.org.uk/) | GPL-2.0-or-later (distributed using GPLv3), with bundled LGPL-2.1 libmspack. [Preserved source and build provenance](../ThirdParty/cabextract-BUILD.md); upstream tests: 12 passed. Committed as a code-signed-on-copy Mach-O executable. |
+
+All application dependency licenses and resolved revisions are recorded in
+[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) and
+[ThirdParty/manifest.json](../ThirdParty/manifest.json). The application embeds
+the `ThirdParty` directory. `python3 scripts/check-third-party.py` validates the
+inventory and package lock revisions; `--resources PATH` also checks a built or
+extracted application's `Contents/Resources`. Each application release includes
+a source archive with the application and locked Swift package sources.
 
 ## Tracking cadence
 

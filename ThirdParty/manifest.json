@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "identity": "semanticversion",
+      "revision": "ea8eea9d89842a29af1b8e6c7677f1c86e72fa42",
+      "license_file": "licenses/SemanticVersion.txt",
+      "upstream_file": "LICENSE",
+      "version": "0.4.0",
+      "source": "https://github.com/SwiftPackageIndex/SemanticVersion"
+    },
+    {
+      "identity": "sparkle",
+      "revision": "5581748cef2bae787496fe6d61139aebe0a451f6",
+      "license_file": "licenses/Sparkle.txt",
+      "upstream_file": "LICENSE",
+      "version": "2.8.1",
+      "source": "https://github.com/sparkle-project/Sparkle"
+    },
+    {
+      "identity": "posthog-ios",
+      "revision": "179438b8e0c9a357ab0caf453577f766ffddbcb3",
+      "license_file": "licenses/posthog-ios.txt",
+      "upstream_file": "LICENSE",
+      "version": "3.59.3",
+      "source": "https://github.com/PostHog/posthog-ios.git"
+    },
+    {
+      "identity": "swift-argument-parser",
+      "revision": "41982a3656a71c768319979febd796c6fd111d5c",
+      "license_file": "licenses/swift-argument-parser.txt",
+      "upstream_file": "LICENSE.txt",
+      "version": "1.5.0",
+      "source": "https://github.com/apple/swift-argument-parser.git"
+    },
+    {
+      "identity": "swift-docc-plugin",
+      "revision": "3e4f133a77e644a5812911a0513aeb7288b07d06",
+      "license_file": "licenses/swift-docc-plugin.txt",
+      "upstream_file": "LICENSE.txt",
+      "version": "1.4.5",
+      "source": "https://github.com/swiftlang/swift-docc-plugin"
+    },
+    {
+      "identity": "swift-docc-symbolkit",
+      "revision": "b45d1f2ed151d057b54504d653e0da5552844e34",
+      "license_file": "licenses/swift-docc-symbolkit.txt",
+      "upstream_file": "LICENSE.txt",
+      "version": "1.0.0",
+      "source": "https://github.com/swiftlang/swift-docc-symbolkit"
+    }
+  ],
+  "files": {
+    "THIRD-PARTY-NOTICES.md": "49d001d96e549981607525ea1ff01f072ddb3e9fe5c3d3ca27fff59ccb498482",
+    "cabextract-BUILD.md": "9c4874855a932273e8ae22e1c47e1498869c1526a5d2c5ccc8ec3a20c2c13403",
+    "licenses/GCC-Runtime-Exception.txt": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74",
+    "licenses/PostHog-PLCrashReporter.txt": "45f57308a5f95039a6478cf1e47449aa11e28427777d81497bd654c1f41ef5af",
+    "licenses/PostHog-libwebp-COPYING.txt": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
+    "licenses/PostHog-libwebp-PATENTS.txt": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
+    "licenses/PostHog-protobuf-c.txt": "e8185daf5bcd355692052fbdc990ea2d8acef9b4c3a41a32f189f272667e9d6b",
+    "licenses/PotatoVN.txt": "a4d6d2731384bcc56f385b7cea4447023230c6d884a53d4973df6639f162dc94",
+    "licenses/SemanticVersion.txt": "cc4d4de0920b0d3912203b5d9aa76728ac4a11087f55da9ea00576db7d1e34e2",
+    "licenses/Sparkle.txt": "389a4e4e9a32f059775b13a06e25a591445ba229d2838d26dd3e7c0c45127cfe",
+    "licenses/Whisky-GPL-3.0.txt": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+    "licenses/Winetricks-LGPL-2.1.txt": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551",
+    "licenses/cabextract-AUTHORS.txt": "9dcb5d61c87aac78c27f966d320695cfc218bf06c7a51ea79c7003803aab1891",
+    "licenses/cabextract-COPYING.txt": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+    "licenses/mingw-w64-AUTHORS.txt": "8f308316e7a94b8410f871868bd3948f126526dc1775aeee97a0e365f9a0fd9f",
+    "licenses/mingw-w64-COPYING.txt": "99a69660981156c21336fdb5661f89341b013c94e4bf9e1c7467b4745718397f",
+    "licenses/mingw-w64-runtime.txt": "1db8da07b436c68833c0673ffee3d9fcb2526047f3820b81661865dfedc79a1f",
+    "licenses/posthog-ios.txt": "113042ff4d3dd178c90515446b18475562e868a6ab6d77a07ffaa62dc798db8b",
+    "licenses/swift-argument-parser.txt": "770af8291f708538d8ff885a0bbc4e045cd700531741c4f99528d435c14d7f55",
+    "licenses/swift-docc-plugin.txt": "11875c32f8de06e40b25b9e1dc78776baad9810032601c5325db6234c86d71e9",
+    "licenses/swift-docc-symbolkit.txt": "11875c32f8de06e40b25b9e1dc78776baad9810032601c5325db6234c86d71e9",
+    "sources/cabextract-1.11.tar.gz": "b5546db1155e4c718ff3d4b278573604f30dd64c3c5bfd4657cd089b823a3ac6"
+  },
+  "repository_files": {
+    "Libraries/cabextract": "28aa6f9a89db20a42e6482dcdf592f5e0370bb86042d91da2bb44cc4c4568371",
+    "Libraries/winetricks": "431f82fc74000e6c864409f1d8fb495d696c03928808e3e8acffc45179312a7b",
+    "Libraries/verbs.txt": "0e74e55349b6035256e06085e2ac7a4a84baeed7b497d879ee9016fc466160cf"
+  }
+}
