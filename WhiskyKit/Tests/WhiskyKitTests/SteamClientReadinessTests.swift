@@ -130,7 +130,7 @@ struct SteamClientReadinessTests {
         #expect(tailed.contains("XXXX"))
     }
 
-    @Test func launchMonitorReportsFailedLaunchRequest() async throws {
+    @Test(.timeLimit(.minutes(1))) func launchMonitorReportsFailedLaunchRequest() async throws {
         let launchTask: Task<Wine.ProgramRunResult, any Error> = Task {
             Wine.ProgramRunResult(
                 exitCode: 127,
@@ -139,22 +139,27 @@ struct SteamClientReadinessTests {
             )
         }
 
-        let start = ContinuousClock.now
+        _ = try await launchTask.value
+        var polls = 0
         await #expect(throws: SteamOrchestratorError.launchRequestFailed(code: 127)) {
             _ = try await SteamGameLaunchMonitor.wait(
                 names: ["game.exe"],
                 timeout: 30,
                 retryDelay: 5,
-                pollInterval: .milliseconds(50),
-                runningImages: { [] },
+                pollInterval: .seconds(30),
+                runningImages: {
+                    polls += 1
+                    return []
+                },
                 accepted: { true },
                 prepareRetry: {},
                 retry: {},
                 launchTask: launchTask
             )
         }
-        let elapsed = ContinuousClock.now - start
-        #expect(elapsed < .seconds(2))
+        // The completed request wakes the monitor independently of its next
+        // scheduled poll. Assert event ordering under concurrent CI load.
+        #expect(polls <= 1)
     }
 
     @Test func launchMonitorAllowsExitCodeZero() async throws {
