@@ -34,13 +34,15 @@ public actor IconCache {
     /// The shared icon cache instance.
     public static let shared = IconCache()
 
-    /// A decoded image and the palette sampled from it.
+    /// A decoded image, a pre-blurred ambient thumbnail, and the palette sampled from it.
     public struct Sampled: Sendable {
         public let image: NSImage
+        public let ambient: NSImage
         public let palette: IconPalette
 
-        public init(image: NSImage, palette: IconPalette) {
+        public init(image: NSImage, ambient: NSImage? = nil, palette: IconPalette) {
             self.image = image
+            self.ambient = ambient ?? image
             self.palette = palette
         }
     }
@@ -59,10 +61,15 @@ public actor IconCache {
     private init() {
         memoryCache.countLimit = 100
         memoryCache.totalCostLimit = 50 * 1_024 * 1_024 // 50MB limit
-        // Fewer, because these are store banners rather than 44pt icons: a
-        // library header is around 600x290 and there is one per game on screen.
-        artworkCache.countLimit = 60
-        artworkCache.totalCostLimit = 80 * 1_024 * 1_024
+        // Keep enough cover images and palettes cached across scrolling and
+        // view-mode switches so neither disk I/O nor colour sampling repeats.
+        artworkCache.countLimit = 250
+        artworkCache.totalCostLimit = 160 * 1_024 * 1_024
+    }
+
+    /// Returns an already-cached sampled artwork entry without touching disk.
+    public func cachedSampledArtwork(for url: URL) -> Sampled? {
+        artworkCache.object(forKey: url as NSURL)?.sampled
     }
 
     /// Loads artwork from disk and samples its palette, caching both.
@@ -81,7 +88,27 @@ public actor IconCache {
         }
 
         guard let image = NSImage(contentsOf: url) else { return nil }
-        let sampled = Sampled(image: image, palette: IconPalette.palette(for: image))
+        let sampled = Sampled(
+            image: image,
+            ambient: IconPalette.blurredAmbient(for: image),
+            palette: IconPalette.palette(for: image)
+        )
+        artworkCache.setObject(SampledBox(sampled), forKey: url as NSURL)
+        return sampled
+    }
+
+    /// Decodes raw image data, samples its palette, and caches both under `url`.
+    public func storeSampledArtwork(data: Data, for url: URL) -> Sampled? {
+        if let cached = artworkCache.object(forKey: url as NSURL) {
+            return cached.sampled
+        }
+
+        guard let image = NSImage(data: data) else { return nil }
+        let sampled = Sampled(
+            image: image,
+            ambient: IconPalette.blurredAmbient(for: image),
+            palette: IconPalette.palette(for: image)
+        )
         artworkCache.setObject(SampledBox(sampled), forKey: url as NSURL)
         return sampled
     }

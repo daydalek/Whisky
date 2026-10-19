@@ -38,17 +38,21 @@ extension ContentView {
                         Group {
                             if bottle.inFlight {
                                 HStack {
-                                    Text(bottle.settings.name)
+                                    Label(bottle.settings.name, systemImage: "shippingbox")
+                                        .lineLimit(1)
                                     Spacer()
                                     ProgressView().controlSize(.small)
                                 }
                                 .opacity(0.5)
                             } else if !bottle.isAvailable {
                                 HStack {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundStyle(.orange)
-                                        .font(.caption)
-                                    Text(bottle.settings.name)
+                                    Label {
+                                        Text(bottle.settings.name)
+                                            .lineLimit(1)
+                                    } icon: {
+                                        Image(systemName: "exclamationmark.triangle.fill")
+                                            .foregroundStyle(.orange)
+                                    }
                                     Spacer()
                                     Button {
                                         Task { await bottle.remove(delete: false) }
@@ -92,6 +96,13 @@ extension ContentView {
         }
     }
 
+    private var totalLibraryProgramCount: Int {
+        _ = triggerRefresh
+        return bottleVM.bottles
+            .filter(\.isAvailable)
+            .reduce(0) { $0 + BottleListEntry.libraryProgramCount(for: $1) }
+    }
+
     /// Selecting nothing means the library, not an empty pane: the library is
     /// the home screen, and a person who has not picked a bottle has not made a
     /// mistake.
@@ -104,6 +115,7 @@ extension ContentView {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .badge(totalLibraryProgramCount)
         .listRowBackground(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(selected == nil ? AnyShapeStyle(.selection) : AnyShapeStyle(.clear))

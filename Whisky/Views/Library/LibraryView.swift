@@ -22,6 +22,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WhiskyKit
 
+enum LibraryDisplayMode: String, CaseIterable, Identifiable {
+    case covers
+    case timeline
+    case classic
+
+    var id: String { rawValue }
+}
+
 // swiftlint:disable type_body_length
 /// Everything worth launching, across every bottle, most recently played first.
 ///
@@ -41,11 +49,11 @@ struct LibraryView: View {
     @Binding var refresh: Bool
     @Binding var coverMode: Bool
 
+    @AppStorage("libraryDisplayMode") private var displayMode: LibraryDisplayMode = .covers
     @AppStorage("libraryShowHiddenGames") private var showHiddenGames = false
     @AppStorage("librarySort") private var sort: LibrarySort = .recent
     @AppStorage("librarySingleLineTitles") private var singleLineTitles = false
-    @AppStorage("libraryCenterWideCoverText") private var centerCoverText = false
-    @AppStorage("libraryMixedCoverLayout") private var mixedCoverLayout = false
+    @AppStorage("libraryMixedCoverLayout") private var mixedCoverLayout = true
 
     @StateObject private var model = LibraryModel()
     @State private var search: String = ""
@@ -59,6 +67,7 @@ struct LibraryView: View {
     @State private var showScanSettings = false
     @State private var manualSync = false
     @State private var syncing = false
+    @State private var ambientController = LibraryAmbientController()
     @AppStorage("libraryMetadataEnabledSources") private var enabledSourceIDs = "bangumi,vndb,steam,ymgal"
 
     private var bottles: [Bottle] {
@@ -90,6 +99,9 @@ struct LibraryView: View {
             } else {
                 grid
             }
+        }
+        .background {
+            LibraryAmbientBackdrop(controller: ambientController)
         }
         .navigationTitle("library.title")
         .searchable(text: $search, prompt: Text("library.search"))
@@ -142,6 +154,16 @@ struct LibraryView: View {
         .onChange(of: sort, initial: true) {
             model.sort = sort
         }
+        .onChange(of: displayMode, initial: true) {
+            coverMode = displayMode != .classic
+        }
+        .onChange(of: coverMode) {
+            if !coverMode, displayMode != .classic {
+                displayMode = .classic
+            } else if coverMode, displayMode == .classic {
+                displayMode = .covers
+            }
+        }
         .onDisappear {
             model.stopTracking()
         }
@@ -167,46 +189,22 @@ struct LibraryView: View {
 
     @ToolbarContentBuilder
     private var sortMenu: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                syncing = true
-                Task {
-                    await model.reload(bottles: bottles)
-                    manualSync = true
-                    metadataRevision += 1
-                }
-            } label: {
-                Label("library.sync.manual", systemImage: "text.magnifyingglass")
+        ToolbarItem(placement: .automatic) {
+            Picker("library.view.covers", selection: $displayMode) {
+                Image(systemName: "books.vertical")
+                    .help(LocalizedStringKey("library.view.switchToCovers"))
+                    .tag(LibraryDisplayMode.covers)
+                Image(systemName: "book.pages")
+                    .help(LocalizedStringKey("library.view.switchToTimeline"))
+                    .tag(LibraryDisplayMode.timeline)
+                Image(systemName: "rectangle.grid.2x2")
+                    .help(LocalizedStringKey("library.view.switchToClassic"))
+                    .tag(LibraryDisplayMode.classic)
             }
-            .help("library.sync.manual")
-            .accessibilityIdentifier("library.scanAndSync")
-            .disabled(syncing)
-        }
-        ToolbarItem(placement: .primaryAction) {
-            Button { showScanSettings = true } label: {
-                Label("library.scan.folders", systemImage: "folder.badge.plus")
-            }
-            .help("library.scan.folders")
-        }
-        ToolbarItem(placement: .primaryAction) {
-            Button { coverMode.toggle() } label: {
-                Label(
-                    coverMode ? "library.view.classic" : "library.view.covers",
-                    systemImage: coverMode ? "rectangle.grid.2x2" : "books.vertical"
-                )
-            }
-            .help(LocalizedStringKey(coverMode ? "library.view.switchToClassic" : "library.view.switchToCovers"))
+            .pickerStyle(.segmented)
             .accessibilityIdentifier("library.view.toggle")
         }
-        ToolbarItem(placement: .primaryAction) {
-            Toggle(isOn: $showHiddenGames) {
-                Label("library.visibility.showAll", systemImage: showHiddenGames ? "eye" : "eye.slash")
-            }
-            .toggleStyle(.button)
-            .help(LocalizedStringKey(showHiddenGames ? "library.visibility.hideMarked" : "library.visibility.showAll"))
-            .accessibilityIdentifier("library.visibility.toggle")
-        }
-        ToolbarItem(placement: .primaryAction) {
+        ToolbarItem(placement: .automatic) {
             Menu {
                 Picker("library.sort", selection: $sort) {
                     ForEach(LibrarySort.allCases) { option in
@@ -214,14 +212,43 @@ struct LibraryView: View {
                     }
                 }
                 .pickerStyle(.inline)
-                if coverMode {
+                if displayMode == .covers {
                     Divider()
                     Toggle("settings.library.mixedCoverLayout", isOn: $mixedCoverLayout)
                     Toggle("settings.library.singleLineTitles", isOn: $singleLineTitles)
-                    Toggle("settings.library.centerWideCoverText", isOn: $centerCoverText)
+                }
+                Divider()
+                Button {
+                    syncing = true
+                    Task {
+                        await model.reload(bottles: bottles)
+                        manualSync = true
+                        metadataRevision += 1
+                    }
+                } label: {
+                    Label("library.sync.manual", systemImage: "text.magnifyingglass")
+                }
+                .disabled(syncing)
+                .accessibilityIdentifier("library.scanAndSync")
+
+                Button { showScanSettings = true } label: {
+                    Label("library.scan.folders", systemImage: "folder.badge.plus")
+                }
+
+                Toggle(isOn: $showHiddenGames) {
+                    Label("library.visibility.showAll", systemImage: showHiddenGames ? "eye" : "eye.slash")
+                }
+                .accessibilityIdentifier("library.visibility.toggle")
+
+                Divider()
+                Button {
+                    bottleVM.loadBottles()
+                    refresh.toggle()
+                } label: {
+                    Label("button.refresh", systemImage: "arrow.triangle.2.circlepath")
                 }
             } label: {
-                Label("library.sort", systemImage: "arrow.up.arrow.down")
+                Label("library.sort", systemImage: "ellipsis.circle")
             }
             .help("library.sort.help")
             .accessibilityIdentifier("library.sort")
@@ -230,10 +257,48 @@ struct LibraryView: View {
 
     @ViewBuilder
     private var grid: some View {
-        if coverMode, mixedCoverLayout {
-            mixedCoverGrid
-        } else {
+        switch displayMode {
+        case .timeline:
+            timelineView
+        case .covers:
+            if mixedCoverLayout {
+                mixedCoverGrid
+            } else {
+                uniformGrid
+            }
+        case .classic:
             uniformGrid
+        }
+    }
+
+    private var timelineView: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(visible) { row in
+                    LibraryTimelineRow(
+                        item: row.item,
+                        metadata: metadata[row.id],
+                        bottleName: row.bottleName,
+                        lastPlayed: row.lastPlayed,
+                        state: model.state(for: row.item),
+                        details: { detailRow = row },
+                        launch: { model.launch(row, bottles: bottles) },
+                        coverAspectRatio: coverAspectRatios[row.id],
+                        coverAspectRatioDidLoad: { aspect in
+                            if coverAspectRatios[row.id] != aspect { coverAspectRatios[row.id] = aspect }
+                        },
+                        onHoverCoverChanged: { hovering, url, dir in
+                            updateHoveredCover(hovering: hovering, row: row, url: url, directory: dir)
+                        },
+                        coverRevision: metadataRevision,
+                        menuContent: { menu(for: row) }
+                    )
+                    .modifier(LibraryHiddenBadge(hidden: model.isHidden(row.item)))
+                    .contextMenu { menu(for: row) }
+                }
+            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 16)
         }
     }
 
@@ -245,9 +310,9 @@ struct LibraryView: View {
                 landscape: entries.map { (coverAspectRatios[$0.id] ?? 0) > 1 }
             )
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 20) {
+                LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(Array(layout.rows.enumerated()), id: \.offset) { _, indices in
-                        HStack(alignment: .top, spacing: 22) {
+                        HStack(alignment: .top, spacing: 12) {
                             ForEach(indices, id: \.self) { index in
                                 let row = entries[index]
                                 LibraryCoverCard(
@@ -258,6 +323,9 @@ struct LibraryView: View {
                                     adaptToFrame: true,
                                     coverAspectRatioDidLoad: { aspect in
                                         if coverAspectRatios[row.id] != aspect { coverAspectRatios[row.id] = aspect }
+                                    },
+                                    onHoverCoverChanged: { hovering, url, dir in
+                                        updateHoveredCover(hovering: hovering, row: row, url: url, directory: dir)
                                     },
                                     coverRevision: metadataRevision
                                 )
@@ -282,9 +350,9 @@ struct LibraryView: View {
                 // column of landscape cards is a list with wasted space.
                 columns: [GridItem(.adaptive(
                     minimum: coverMode ? 140 : 180, maximum: coverMode ? 200 : 320
-                ), spacing: coverMode ? 22 : 14, alignment: .top)],
+                ), spacing: coverMode ? 12 : 14, alignment: .top)],
                 alignment: .leading,
-                spacing: coverMode ? 28 : 14
+                spacing: coverMode ? 12 : 14
             ) {
                 ForEach(visible) { row in
                     Group {
@@ -294,6 +362,9 @@ struct LibraryView: View {
                                 bottleName: row.bottleName,
                                 state: model.state(for: row.item), details: { detailRow = row },
                                 launch: { model.launch(row, bottles: bottles) },
+                                onHoverCoverChanged: { hovering, url, dir in
+                                    updateHoveredCover(hovering: hovering, row: row, url: url, directory: dir)
+                                },
                                 coverRevision: metadataRevision
                             )
                         } else {
@@ -312,6 +383,15 @@ struct LibraryView: View {
             }
             .padding(18)
         }
+    }
+
+    private func updateHoveredCover(hovering: Bool, row: LibraryRow, url: URL?, directory: URL) {
+        ambientController.updateHover(
+            hovering: hovering,
+            id: row.id,
+            url: url ?? metadata[row.id]?.coverURL,
+            directory: directory
+        )
     }
 
     @ViewBuilder

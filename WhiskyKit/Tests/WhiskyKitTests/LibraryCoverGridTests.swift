@@ -50,13 +50,29 @@ struct LibraryCoverGridTests {
         let layout = LibraryCoverGrid(width: 464, landscape: [true, false, true])
         #expect(layout.columns == 3)
         #expect(layout.rows == [[0, 1], [2]])
-        #expect(layout.width(for: 0) == 2 * layout.columnWidth + 22)
-        #expect(layout.coverHeight == layout.columnWidth * 4 / 3)
+        #expect(layout.width(for: 0) == 2 * layout.columnWidth + 12)
+        #expect(layout.coverHeight == layout.columnWidth * 3 / 2)
         let portraitAspect = layout.columnWidth / layout.coverHeight
         let landscapeAspect = layout.width(for: 0) / layout.coverHeight
         #expect(LibraryCoverGrid.shouldStretch(imageAspect: 2.0 / 3, targetAspect: portraitAspect))
-        #expect(LibraryCoverGrid.shouldStretch(imageAspect: 16.0 / 9, targetAspect: landscapeAspect))
+        #expect(LibraryCoverGrid.shouldStretch(imageAspect: 4.0 / 3, targetAspect: landscapeAspect))
         #expect(LibraryCoverGrid(width: 300, landscape: []).rows.isEmpty)
+    }
+
+    @Test func staggersConsecutiveRowLandscapeColumns() {
+        // Two 6-column rows each with 4 portraits and 1 landscape at the tail:
+        // Row 0 places the wide cover at column 4; Row 1 shifts its wide cover away from column 4.
+        let landscape = [
+            false, false, false, false, true,
+            false, false, false, false, true
+        ]
+        let layout = LibraryCoverGrid(width: 900, landscape: landscape)
+        #expect(layout.columns == 6)
+        #expect(layout.rows.count == 2)
+        #expect(layout.rows[0] == [0, 1, 2, 3, 4])
+        #expect(layout.rows[1].first == 5)
+        #expect(layout.rows[1].last != 9)
+        #expect(Set(layout.rows[1]) == Set(5 ... 9))
     }
 
     @Test func fillsScreenshotGapWithNearbyPortrait() {
@@ -101,31 +117,25 @@ struct LibraryCoverGridTests {
         #expect(bounded.rows.flatMap { $0 } == Array(distant.indices))
     }
 
-    @Test func dynamicProgrammingMatchesExhaustiveRowScores() throws {
+    @Test func dynamicProgrammingMaximizesRowFill() throws {
         for pattern in 0 ..< 128 {
             let landscape = (0 ..< 7).map { pattern & (1 << $0) != 0 }
             for columns in 1 ... 4 {
-                let layout = LibraryCoverGrid(width: Double(columns * 162 - 22), landscape: landscape)
+                let layout = LibraryCoverGrid(width: Double(columns * 152 - 12), landscape: landscape)
                 var pending = Array(landscape.indices)
                 for row in layout.rows {
                     let window = Array(pending.prefix(min(12, max(columns + 2, 4))))
                     var bestUsed = 0
-                    var bestInversions = Int.max
                     for mask in 1 ..< (1 << window.count) where mask & 1 == 1 {
                         let positions = window.indices.filter { mask & (1 << $0) != 0 }
                         let used = positions.reduce(0) { $0 + layout.spans[window[$1]] }
                         guard used <= columns else { continue }
-                        let inversions = positions.enumerated().reduce(0) { $0 + $1.element - $1.offset }
-                        if used > bestUsed || (used == bestUsed && inversions < bestInversions) {
+                        if used > bestUsed {
                             bestUsed = used
-                            bestInversions = inversions
                         }
                     }
-                    let positions = try row.map { try #require(window.firstIndex(of: $0)) }
                     let used = row.reduce(0) { $0 + layout.spans[$1] }
-                    let inversions = positions.enumerated().reduce(0) { $0 + $1.element - $1.offset }
                     #expect(used == bestUsed)
-                    #expect(inversions == bestInversions)
                     pending.removeAll { row.contains($0) }
                 }
             }

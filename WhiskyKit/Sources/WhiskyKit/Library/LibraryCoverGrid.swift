@@ -24,22 +24,22 @@ public struct LibraryCoverGrid: Sendable {
     public let columnWidth: Double
     public let rows: [[Int]]
     public let spans: [Int]
-    public let spacing: Double = 22
+    public let spacing: Double = 12
 
-    public var coverHeight: Double { columnWidth * 4 / 3 }
+    public var coverHeight: Double { columnWidth * 3 / 2 }
 
     public init(width: Double, landscape: [Bool]) {
         let available = max(width.isFinite ? width : 1, 1)
-        let columnCount = max(1, Int((available + 22) / 162))
+        let columnCount = max(1, Int((available + spacing) / (140 + spacing)))
         columns = columnCount
-        columnWidth = (available - Double(columnCount - 1) * 22) / Double(columnCount)
+        columnWidth = (available - Double(columnCount - 1) * spacing) / Double(columnCount)
         spans = landscape.map { $0 ? min(2, columnCount) : 1 }
         rows = Self.pack(spans: spans, columns: columnCount)
     }
 
     private struct Choice {
         let positions: [Int]
-        let inversions: Int
+        let cost: Int
     }
 
     private struct Capacity: Hashable {
@@ -48,12 +48,13 @@ public struct LibraryCoverGrid: Sendable {
     }
 
     /// Each row includes the oldest pending item. A small knapsack DP then
-    /// fills the row with nearby entries, minimizing inversions among equally
-    /// full choices. A full sorted prefix has zero inversions and wins ties.
+    /// fills the row with nearby entries, minimizing inversions and adjacent-row
+    /// landscape alignment among equally full choices.
     private static func pack(spans: [Int], columns: Int) -> [[Int]] {
         var consumed = [Bool](repeating: false, count: spans.count)
         var head = 0
         var rows: [[Int]] = []
+        var previousLandscapeOffsets = Set<Int>()
         let window = min(12, max(columns + 2, 4))
         while head < spans.count {
             var candidates: [Int] = []
@@ -62,8 +63,19 @@ public struct LibraryCoverGrid: Sendable {
                 if !consumed[cursor] { candidates.append(cursor) }
                 cursor += 1
             }
-            let row = selectRow(candidates: candidates, spans: spans, columns: columns)
+            let selected = selectRow(
+                candidates: candidates,
+                spans: spans,
+                columns: columns,
+                previousLandscapeOffsets: previousLandscapeOffsets
+            )
+            let row = staggerRow(
+                selected,
+                spans: spans,
+                previousLandscapeOffsets: previousLandscapeOffsets
+            )
             rows.append(row)
+            previousLandscapeOffsets = landscapeOffsets(in: row, spans: spans)
             for index in row {
                 consumed[index] = true
             }
@@ -74,18 +86,28 @@ public struct LibraryCoverGrid: Sendable {
         return rows
     }
 
-    private static func selectRow(candidates: [Int], spans: [Int], columns: Int) -> [Int] {
-        let first = Capacity(used: spans[candidates[0]], count: 1)
-        var choices = [first: Choice(positions: [0], inversions: 0)]
+    private static func selectRow(
+        candidates: [Int],
+        spans: [Int],
+        columns: Int,
+        previousLandscapeOffsets: Set<Int>
+    ) -> [Int] {
+        let firstSpan = spans[candidates[0]]
+        let firstPenalty = (firstSpan > 1 && previousLandscapeOffsets.contains(0)) ? 2 : 0
+        let first = Capacity(used: firstSpan, count: 1)
+        var choices = [first: Choice(positions: [0], cost: firstPenalty)]
         for position in candidates.indices.dropFirst() {
             var updated = choices
+            let span = spans[candidates[position]]
             for (capacity, choice) in choices {
-                let used = capacity.used + spans[candidates[position]]
+                let startColumn = capacity.used
+                let used = startColumn + span
                 guard used <= columns else { continue }
                 let key = Capacity(used: used, count: capacity.count + 1)
+                let overlapPenalty = (span > 1 && previousLandscapeOffsets.contains(startColumn)) ? 2 : 0
                 let proposal = Choice(
                     positions: choice.positions + [position],
-                    inversions: choice.inversions + position - capacity.count
+                    cost: choice.cost + (position - capacity.count) + overlapPenalty
                 )
                 if let existing = updated[key] {
                     if precedes(proposal, existing) { updated[key] = proposal }
@@ -96,7 +118,7 @@ public struct LibraryCoverGrid: Sendable {
             choices = updated
         }
         var bestCapacity = first
-        var best = choices[first] ?? Choice(positions: [0], inversions: 0)
+        var best = choices[first] ?? Choice(positions: [0], cost: firstPenalty)
         for (capacity, choice) in choices {
             if capacity.used > bestCapacity.used
                 || (capacity.used == bestCapacity.used && precedes(choice, best)) {
@@ -107,9 +129,54 @@ public struct LibraryCoverGrid: Sendable {
         return best.positions.map { candidates[$0] }
     }
 
+    /// Shifts a wide card within `row[1...]` when it would land on the exact same
+    /// column index as a wide card in the preceding row, staggering visual weight.
+    private static func staggerRow(
+        _ row: [Int],
+        spans: [Int],
+        previousLandscapeOffsets: Set<Int>
+    ) -> [Int] {
+        guard row.count > 2, !previousLandscapeOffsets.isEmpty else { return row }
+        let currentOffsets = landscapeOffsets(in: row, spans: spans)
+        guard !currentOffsets.isDisjoint(with: previousLandscapeOffsets) else { return row }
+        guard let widePosition = row.indices.dropFirst().first(where: { spans[row[$0]] > 1 }) else {
+            return row
+        }
+        var bestOrder = row
+        var bestClearance = -1
+        for target in row.indices.dropFirst() where target != widePosition {
+            var candidate = row
+            let item = candidate.remove(at: widePosition)
+            candidate.insert(item, at: target)
+            let offsets = landscapeOffsets(in: candidate, spans: spans)
+            guard offsets.isDisjoint(with: previousLandscapeOffsets) else { continue }
+            let clearance = offsets.map { offset in
+                previousLandscapeOffsets.map { abs(offset - $0) }.min() ?? 0
+            }.min() ?? 0
+            if clearance > bestClearance {
+                bestClearance = clearance
+                bestOrder = candidate
+            }
+        }
+        return bestOrder
+    }
+
+    private static func landscapeOffsets(in row: [Int], spans: [Int]) -> Set<Int> {
+        var offsets = Set<Int>()
+        var column = 0
+        for index in row {
+            let span = spans[index]
+            if span > 1 {
+                offsets.insert(column)
+            }
+            column += span
+        }
+        return offsets
+    }
+
     private static func precedes(_ lhs: Choice, _ rhs: Choice) -> Bool {
-        lhs.inversions < rhs.inversions
-            || (lhs.inversions == rhs.inversions && lhs.positions.lexicographicallyPrecedes(rhs.positions))
+        lhs.cost < rhs.cost
+            || (lhs.cost == rhs.cost && lhs.positions.lexicographicallyPrecedes(rhs.positions))
     }
 
     public func width(for index: Int) -> Double {

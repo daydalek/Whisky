@@ -75,6 +75,8 @@ public struct IconPalette: Equatable, Sendable {
 }
 
 public extension IconPalette {
+    private static let sRGBSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+
     /// Samples `image` and returns the colour it is built around.
     ///
     /// Grey and near-transparent pixels are dropped before anything is averaged.
@@ -82,39 +84,47 @@ public extension IconPalette {
     /// field, so averaging everything returns off-white for almost every program
     /// and every card comes out the same colour. What survives the filter is the
     /// mark itself, which is the part a person recognises.
-    static func palette(for image: NSImage, sampleSize: Int = 32) -> IconPalette {
-        guard let pixels = samples(of: image, size: sampleSize), !pixels.isEmpty else { return .neutral }
+    static func palette(for image: NSImage, sampleSize: Int = 24) -> IconPalette {
+        guard let raw = rasterize(image, size: sampleSize) else { return .neutral }
 
-        var coloured: [WeightedColour] = []
+        var coloured = (red: 0.0, green: 0.0, blue: 0.0, weight: 0.0)
         var greyTotal = (red: 0.0, green: 0.0, blue: 0.0, weight: 0.0)
 
-        for pixel in pixels where pixel.alpha > 0.4 {
-            let highest = max(pixel.red, pixel.green, pixel.blue)
-            let lowest = min(pixel.red, pixel.green, pixel.blue)
+        for index in stride(from: 0, to: raw.count, by: 4) {
+            let alphaByte = raw[index + 3]
+            // alpha > 0.4 corresponds to alphaByte > 102 (102 / 255 == 0.4)
+            guard alphaByte > 102 else { continue }
+            let invAlpha = 1.0 / Double(alphaByte)
+            let red = Double(raw[index]) * invAlpha
+            let green = Double(raw[index + 1]) * invAlpha
+            let blue = Double(raw[index + 2]) * invAlpha
+
+            let highest = max(red, green, blue)
+            let lowest = min(red, green, blue)
             let saturation = highest > 0 ? (highest - lowest) / highest : 0
 
             // Weighted towards saturated mid-tones: a colour that is nearly
             // black or nearly white carries no identity even when it is the
             // most common pixel in the icon.
             if saturation > 0.25, highest > 0.15 {
-                let weight = saturation * (1 - abs(highest - 0.6))
-                coloured.append(
-                    WeightedColour(red: pixel.red, green: pixel.green, blue: pixel.blue, weight: max(weight, 0.05))
-                )
+                let weight = max(saturation * (1 - abs(highest - 0.6)), 0.05)
+                coloured.red += red * weight
+                coloured.green += green * weight
+                coloured.blue += blue * weight
+                coloured.weight += weight
             } else {
-                greyTotal.red += pixel.red
-                greyTotal.green += pixel.green
-                greyTotal.blue += pixel.blue
+                greyTotal.red += red
+                greyTotal.green += green
+                greyTotal.blue += blue
                 greyTotal.weight += 1
             }
         }
 
-        if !coloured.isEmpty {
-            let total = coloured.reduce(0) { $0 + $1.weight }
+        if coloured.weight > 0 {
             return IconPalette(
-                red: coloured.reduce(0) { $0 + $1.red * $1.weight } / total,
-                green: coloured.reduce(0) { $0 + $1.green * $1.weight } / total,
-                blue: coloured.reduce(0) { $0 + $1.blue * $1.weight } / total
+                red: coloured.red / coloured.weight,
+                green: coloured.green / coloured.weight,
+                blue: coloured.blue / coloured.weight
             )
         }
 
@@ -128,25 +138,77 @@ public extension IconPalette {
         )
     }
 
-    /// A pixel that survived the filter, and how much it counts.
-    private struct WeightedColour {
-        let red: Double
-        let green: Double
-        let blue: Double
-        let weight: Double
-    }
-
-    private struct Sample {
-        let red: Double
-        let green: Double
-        let blue: Double
-        let alpha: Double
-    }
-
-    private static func samples(of image: NSImage, size: Int) -> [Sample]? {
-        guard size > 0, let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            return nil
+    /// Pre-renders a compact, edge-clamped blurred bitmap (3-pass separable box blur,
+    /// which converges to a Gaussian kernel) so views can display multi-hue cover
+    /// ambiance with a plain texture draw instead of a live GPU `.blur(...)` pass.
+    static func blurredAmbient(for image: NSImage, size: Int = 64, radius: Int = 6) -> NSImage? {
+        guard var pixels = rasterize(image, size: size) else { return nil }
+        var scratch = pixels
+        for _ in 0 ..< 3 {
+            boxBlurHorizontal(src: pixels, dst: &scratch, size: size, radius: radius)
+            boxBlurVertical(src: scratch, dst: &pixels, size: size, radius: radius)
         }
+        guard let context = CGContext(
+            data: &pixels,
+            width: size,
+            height: size,
+            bitsPerComponent: 8,
+            bytesPerRow: size * 4,
+            space: sRGBSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ),
+            let cgImage = context.makeImage()
+        else { return nil }
+        return NSImage(cgImage: cgImage, size: NSSize(width: size, height: size))
+    }
+
+    private static func boxBlurHorizontal(src: [UInt8], dst: inout [UInt8], size: Int, radius: Int) {
+        let span = radius * 2 + 1
+        for row in 0 ..< size {
+            let rowOffset = row * size * 4
+            for col in 0 ..< size {
+                var rSum = 0, gSum = 0, bSum = 0
+                for delta in -radius ... radius {
+                    let clampedX = min(max(col + delta, 0), size - 1)
+                    let idx = rowOffset + clampedX * 4
+                    rSum += Int(src[idx])
+                    gSum += Int(src[idx + 1])
+                    bSum += Int(src[idx + 2])
+                }
+                let outIdx = rowOffset + col * 4
+                dst[outIdx] = UInt8(rSum / span)
+                dst[outIdx + 1] = UInt8(gSum / span)
+                dst[outIdx + 2] = UInt8(bSum / span)
+                dst[outIdx + 3] = 255
+            }
+        }
+    }
+
+    private static func boxBlurVertical(src: [UInt8], dst: inout [UInt8], size: Int, radius: Int) {
+        let span = radius * 2 + 1
+        for row in 0 ..< size {
+            for col in 0 ..< size {
+                var rSum = 0, gSum = 0, bSum = 0
+                for delta in -radius ... radius {
+                    let clampedY = min(max(row + delta, 0), size - 1)
+                    let idx = (clampedY * size + col) * 4
+                    rSum += Int(src[idx])
+                    gSum += Int(src[idx + 1])
+                    bSum += Int(src[idx + 2])
+                }
+                let outIdx = (row * size + col) * 4
+                dst[outIdx] = UInt8(rSum / span)
+                dst[outIdx + 1] = UInt8(gSum / span)
+                dst[outIdx + 2] = UInt8(bSum / span)
+                dst[outIdx + 3] = 255
+            }
+        }
+    }
+
+    private static func rasterize(_ image: NSImage, size: Int) -> [UInt8]? {
+        guard size > 0,
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        else { return nil }
 
         var raw = [UInt8](repeating: 0, count: size * size * 4)
         guard let context = CGContext(
@@ -155,24 +217,13 @@ public extension IconPalette {
             height: size,
             bitsPerComponent: 8,
             bytesPerRow: size * 4,
-            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+            space: sRGBSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )
         else { return nil }
 
+        context.interpolationQuality = .low
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: size, height: size))
-
-        return stride(from: 0, to: raw.count, by: 4).map { index in
-            let alpha = Double(raw[index + 3]) / 255
-            // Premultiplied, so the colour channels have to be divided back out
-            // or every translucent edge pixel reads as darker than it is.
-            let scale = alpha > 0 ? alpha : 1
-            return Sample(
-                red: Double(raw[index]) / 255 / scale,
-                green: Double(raw[index + 1]) / 255 / scale,
-                blue: Double(raw[index + 2]) / 255 / scale,
-                alpha: alpha
-            )
-        }
+        return raw
     }
 }

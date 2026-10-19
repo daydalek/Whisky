@@ -346,6 +346,190 @@
         }
       }
     },
+    "library.detail.layout" : {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detail Layout"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detail Layout"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "详情布局"
+          }
+        }
+      }
+    },
+    "library.detail.layout.hero" : {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hero"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hero"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沉浸"
+          }
+        }
+      }
+    },
+    "library.detail.layout.split" : {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分栏"
+          }
+        }
+      }
+    },
+    "library.detail.tab.overview" : {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overview"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overview"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "概览"
+          }
+        }
+      }
+    },
+    "library.detail.tab.cover" : {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cover"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cover"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "封面外观"
+          }
+        }
+      }
+    },
+    "library.detail.tab.metadata" : {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metadata"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metadata"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "资料匹配"
+          }
+        }
+      }
+    },
+    "library.detail.about" : {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "故事梗概"
+          }
+        }
+      }
+    },
+    "library.detail.tuneCover" : {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjust cover"
+          }
+        },
+        "en-GB": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjust cover"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "微调封面"
+          }
+        }
+      }
+    },
     "settings.library.mixedCoverLayout" : {
       "extractionState": "manual",
       "localizations": {
@@ -1096,6 +1280,46 @@
           }
         },
         "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "封面书架" } }
+      }
+    },
+    "library.view.timeline" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Chronicle timeline" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "时间线视图" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "時間線檢視" } }
+      }
+    },
+    "library.view.switchToTimeline" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Switch to timeline" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "切换为时间线" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "切換為時間線" } }
+      }
+    },
+    "library.timeline.playNow" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Play" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "立即游玩" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "立即遊玩" } }
+      }
+    },
+    "library.timeline.continuePlay" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Continue" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "继续游玩" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "繼續遊玩" } }
+      }
+    },
+    "library.timeline.unplayed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unplayed" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "尚未游玩" } },
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "尚未遊玩" } }
       }
     },
     "library.program.settings" : {

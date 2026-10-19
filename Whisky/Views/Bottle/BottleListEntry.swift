@@ -30,19 +30,21 @@ struct BottleListEntry: View {
     @State private var showBottleDuplicate: Bool = false
     @State private var name: String = ""
     @State private var runningCount: Int = 0
+    @State private var programCount: Int = 0
     @State private var hasOrphanProcesses: Bool = false
     @State private var probeTask: Task<Void, Never>?
     @State private var duplicationPhase: DuplicationPhase?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text(name)
+            HStack(spacing: 6) {
+                Label(name, systemImage: "shippingbox")
                     // The sidebar truncates at its default width, and a bottle
                     // named for its contents loses exactly the part that
                     // identifies it.
+                    .lineLimit(1)
                     .help(name)
-                Spacer()
+                Spacer(minLength: 4)
                 if runningCount > 0 {
                     Text("\(runningCount)")
                         .font(.caption2)
@@ -71,8 +73,11 @@ struct BottleListEntry: View {
                 duplicationProgressRow(phase: phase)
             }
         }
+        .badge(programCount)
         .opacity(bottle.isAvailable ? 1.0 : 0.5)
         .onAppear {
+            name = bottle.settings.name
+            programCount = Self.libraryProgramCount(for: bottle)
             Task { await probeRunningState() }
             probeTask = Task {
                 while !Task.isCancelled {
@@ -87,7 +92,11 @@ struct BottleListEntry: View {
         }
         .onChange(of: refresh, initial: true) {
             name = bottle.settings.name
+            programCount = Self.libraryProgramCount(for: bottle)
             Task { await probeRunningState() }
+        }
+        .onChange(of: bottle.settings.pins) {
+            programCount = Self.libraryProgramCount(for: bottle)
         }
         .sheet(isPresented: $showBottleRename) {
             RenameView("rename.bottle.title", name: name) { newName in
@@ -243,6 +252,7 @@ struct BottleListEntry: View {
 
     @MainActor
     private func probeRunningState() async {
+        programCount = Self.libraryProgramCount(for: bottle)
         let trackedCount = ProcessRegistry.shared.getProcessCount(for: bottle)
         runningCount = trackedCount
 
@@ -252,6 +262,29 @@ struct BottleListEntry: View {
         } else {
             hasOrphanProcesses = false
         }
+    }
+
+    static func libraryProgramCount(for bottle: Bottle) -> Int {
+        guard bottle.isAvailable else { return 0 }
+        let folders = (try? FolderGameLibrary.load(bottleURL: bottle.url)) ?? FolderGameLibrary()
+        let visibility = (try? LibraryVisibility.load(bottleURL: bottle.url)) ?? LibraryVisibility()
+        let pinned = PinnedLibrarySource.items(inBottleAt: bottle.url, settings: bottle.settings)
+        let folderEntries = folders.knownFolders
+            .filter { !folders.excludedFolders.contains($0) }
+            .map { key in
+                let folder = FolderGameLibrary.url(for: key, bottleURL: bottle.url)
+                return LibraryEntry(
+                    id: "folder:\(bottle.url.path):\(key)",
+                    name: folder.lastPathComponent,
+                    iconURL: nil,
+                    bottleURL: bottle.url,
+                    source: .folder,
+                    launch: .program(folder)
+                )
+            }
+        return LibraryCatalogue.merge([pinned, folderEntries])
+            .filter { visibility.includes($0, showHidden: false) }
+            .count
     }
 }
 

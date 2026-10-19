@@ -129,6 +129,26 @@ struct ContentView: View {
             ))
         }
         .toolbar {
+            if selected != nil {
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        bottleVM.loadBottles()
+                        if let bottle = bottleVM.bottles.first(where: { $0.url == selected }) {
+                            Task { await bottle.updateInstalledPrograms() }
+                        }
+                        triggerRefresh.toggle()
+                        withAnimation(.default) {
+                            refreshAnimation = .degrees(360)
+                        } completion: {
+                            refreshAnimation = .degrees(0)
+                        }
+                    } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .rotationEffect(refreshAnimation)
+                    }
+                    .help("button.refresh")
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     showBottleCreation.toggle()
@@ -137,24 +157,6 @@ struct ContentView: View {
                 }
                 .help("button.createBottle")
                 .accessibilityIdentifier("toolbar.createBottle")
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    bottleVM.loadBottles()
-                    if let bottle = bottleVM.bottles.first(where: { $0.url == selected }) {
-                        Task { await bottle.updateInstalledPrograms() }
-                    }
-                    triggerRefresh.toggle()
-                    withAnimation(.default) {
-                        refreshAnimation = .degrees(360)
-                    } completion: {
-                        refreshAnimation = .degrees(0)
-                    }
-                } label: {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .rotationEffect(refreshAnimation)
-                }
-                .help("button.refresh")
             }
         }
         .sheet(isPresented: $showBottleCreation) {

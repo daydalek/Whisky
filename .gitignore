@@ -116,3 +116,8 @@ scripts/WhiskyAudioTest.exe
 # A build's Discord application id. The id belongs to whoever owns the
 # application users see, so it is supplied per build rather than committed.
 WhiskyKit/Sources/WhiskyKit/Discord/Local/client-id.txt
+.agents
+
+# Wine process helper build outputs; generate with make -C scripts/wine-process-helper install.
+/scripts/wine-process-helper/WhiskyProcessHelper.exe
+/WhiskyKit/Sources/WhiskyKit/Wine/Resources/WhiskyProcessHelper.exe
