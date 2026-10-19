@@ -1456,7 +1456,19 @@ struct LibraryAmbientBackdrop: View {
                         .interpolation(.high)
                         .scaledToFill()
                         .frame(width: geometry.size.width, height: geometry.size.height)
-                        .opacity(0.15)
+                        .opacity(0.14)
+                        .mask {
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .clear, location: 0),
+                                    .init(color: .black, location: 0.12),
+                                    .init(color: .black, location: 0.88),
+                                    .init(color: .clear, location: 1.0)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
                         .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
                 }
                 .clipped()
@@ -1472,11 +1484,16 @@ struct LibraryAmbientBackdrop: View {
 /// date axis with a fixed-width (`200pt`) cover showcase slot so portrait (`2:3`)
 /// and landscape (`16:9` / `4:3`) covers align on a single editorial text axis.
 struct LibraryTimelineRow<MenuContent: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let item: LibraryEntry
     let metadata: GameMetadata?
     let bottleName: String?
     let lastPlayed: Date?
     let state: LibraryEntryState
+    var showsDateHeader: Bool = true
+    var isFirstEntry: Bool = false
+    var isLastEntry: Bool = false
     let details: () -> Void
     let launch: () -> Void
     var coverAspectRatio: Double?
@@ -1519,25 +1536,23 @@ struct LibraryTimelineRow<MenuContent: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 0) {
+        HStack(alignment: .top, spacing: 0) {
             dateColumn
-                .frame(width: 86, alignment: .trailing)
+                .frame(width: 76, alignment: .trailing)
                 .padding(.trailing, 10)
+                .padding(.top, 22)
 
             timelineAxisColumn
-                .frame(width: 28)
+                .frame(width: 20)
 
-            coverShowcaseSlot
-                .frame(width: 200)
-                .padding(.leading, 18)
-                .padding(.trailing, 28)
-                .padding(.vertical, 22)
-
-            editorialColumn
-                .padding(.vertical, 22)
+            contentCard
+                .padding(.leading, 12)
+                .padding(.trailing, 16)
+                .padding(.vertical, 6)
 
             Spacer(minLength: 0)
         }
+        .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
@@ -1554,61 +1569,121 @@ struct LibraryTimelineRow<MenuContent: View>: View {
 
     @ViewBuilder
     private var dateColumn: some View {
-        if let date = effectiveDate {
-            let currentYear = Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year)
-            VStack(alignment: .trailing, spacing: 2) {
-                if !currentYear {
-                    Text(date.formatted(.dateTime.year()))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+        if showsDateHeader {
+            if let date = effectiveDate {
+                let currentYear = Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year)
+                VStack(alignment: .trailing, spacing: 2) {
+                    if !currentYear {
+                        Text(date.formatted(.dateTime.year()))
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(.tertiary)
+                            .monospacedDigit()
+                    }
+                    Text(date.formatted(.dateTime.month().day()))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
-                Text(date.formatted(.dateTime.month().day()))
-                    .font(.system(size: 13, weight: isHovered ? .semibold : .medium))
-                    .foregroundStyle(isHovered ? .primary : .secondary)
-                    .monospacedDigit()
-            }
-        } else {
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("library.timeline.unplayed")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.tertiary)
-                if let release = metadata?.releaseDate, !release.isEmpty {
-                    Text(release)
-                        .font(.caption2)
-                        .foregroundStyle(.quaternary)
-                        .lineLimit(1)
+            } else {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("library.timeline.unplayed")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                    if let release = metadata?.releaseDate, !release.isEmpty {
+                        Text(release)
+                            .font(.system(size: 10, weight: .regular))
+                            .foregroundStyle(.quaternary)
+                            .lineLimit(1)
+                    }
                 }
             }
         }
     }
 
     private var timelineAxisColumn: some View {
-        ZStack {
-            Rectangle()
-                .fill(.white.opacity(0.14))
-                .frame(width: 1)
-                .frame(maxHeight: .infinity)
-
-            Circle()
-                .fill(Color(nsColor: .windowBackgroundColor))
-                .frame(width: 16, height: 16)
-
-            if state == .running {
-                Circle()
-                    .fill(.green)
-                    .frame(width: 9, height: 9)
-                    .shadow(color: .green.opacity(0.6), radius: 4)
-            } else if isHovered {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 9, height: 9)
+        let trackColor = Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.12)
+        return VStack(spacing: 0) {
+            if isFirstEntry {
+                Color.clear.frame(height: 22)
             } else {
-                Circle()
-                    .strokeBorder(.white.opacity(0.42), lineWidth: 1.5)
-                    .frame(width: 9, height: 9)
+                Rectangle()
+                    .fill(trackColor)
+                    .frame(width: 1.5, height: 22)
+            }
+
+            nodeView
+
+            if isLastEntry {
+                Color.clear.frame(maxHeight: .infinity)
+            } else {
+                Rectangle()
+                    .fill(trackColor)
+                    .frame(width: 1.5)
+                    .frame(maxHeight: .infinity)
             }
         }
+    }
+
+    @ViewBuilder
+    private var nodeView: some View {
+        let nodeColor: Color = {
+            if state == .running {
+                return .green
+            } else if isHovered {
+                return Color.accentColor
+            } else if showsDateHeader {
+                return Color.primary.opacity(colorScheme == .dark ? 0.8 : 0.65)
+            } else {
+                return Color.primary.opacity(colorScheme == .dark ? 0.35 : 0.25)
+            }
+        }()
+
+        let nodeSize: CGFloat = (showsDateHeader || state == .running) ? 8 : 6
+
+        ZStack {
+            Circle()
+                .fill(Color(nsColor: .windowBackgroundColor))
+                .frame(width: 14, height: 14)
+
+            Circle()
+                .fill(nodeColor)
+                .frame(width: nodeSize, height: nodeSize)
+                .shadow(color: state == .running ? .green.opacity(0.6) : .clear, radius: 4)
+        }
+        .frame(width: 14, height: 14)
+    }
+
+    private var contentCard: some View {
+        HStack(alignment: .top, spacing: 20) {
+            coverShowcaseSlot
+
+            editorialColumn
+
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: 860, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
+                    Color.primary.opacity(
+                        colorScheme == .dark
+                            ? (isHovered ? 0.08 : 0.03)
+                            : (isHovered ? 0.05 : 0.02)
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(
+                    Color.primary.opacity(
+                        colorScheme == .dark
+                            ? (isHovered ? 0.14 : 0.06)
+                            : (isHovered ? 0.10 : 0.04)
+                    ),
+                    lineWidth: 1
+                )
+        )
     }
 
     private var coverShowcaseSlot: some View {
@@ -1679,84 +1754,98 @@ struct LibraryTimelineRow<MenuContent: View>: View {
 extension LibraryTimelineRow {
     var editorialColumn: some View {
         VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 4) {
                 Button(action: details) {
                     Text(metadata?.title ?? item.name)
-                        .font(.system(size: 20, weight: .bold))
+                        .font(.system(size: 19, weight: .bold))
                         .foregroundStyle(.primary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
                 .buttonStyle(.plain)
 
-                subtitleMetadataRow
+                if let dev = metadata?.developer, !dev.isEmpty {
+                    Text(dev)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(item.source == .steam ? "library.source.steam" : "library.source.local")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
+
+            badgeRow
 
             if let summary = metadata?.summary, !summary.isEmpty {
                 Text(summary)
                     .font(.system(size: 12.5))
                     .foregroundStyle(.secondary.opacity(0.85))
-                    .lineLimit(2)
+                    .lineLimit(3)
                     .lineSpacing(3)
-                    .frame(maxWidth: 520, alignment: .leading)
+                    .frame(maxWidth: 640, alignment: .leading)
             }
 
-            primaryActionPill
-                .padding(.top, 2)
-
-            Spacer(minLength: 8)
-
-            secondaryActionRow
+            actionGroupRow
+                .padding(.top, 4)
         }
-        .frame(minHeight: isLandscape ? 164 : 212, alignment: .leading)
     }
 
-    var subtitleMetadataRow: some View {
+    @ViewBuilder
+    var badgeRow: some View {
         HStack(spacing: 8) {
-            if let dev = metadata?.developer, !dev.isEmpty {
-                Text(dev)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            } else {
-                Text(item.source == .steam ? "library.source.steam" : "library.source.local")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
             if let bottleName {
-                Text(bottleName)
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(.quaternary.opacity(0.6), in: Capsule())
+                HStack(spacing: 4) {
+                    Image(systemName: "shippingbox")
+                        .font(.system(size: 9.5))
+                    Text(bottleName)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.05), in: Capsule())
             }
 
             if activity.playTime >= 60 {
-                HStack(spacing: 3) {
+                HStack(spacing: 4) {
                     Image(systemName: "clock")
-                        .font(.system(size: 10))
+                        .font(.system(size: 9.5))
                     Text(Duration.seconds(activity.playTime).formatted(.units(
                         allowed: [.hours, .minutes], width: .abbreviated
                     )))
                     .monospacedDigit()
                 }
-                .font(.caption)
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.05), in: Capsule())
             }
 
             if let rating = activity.rating {
-                HStack(spacing: 2) {
+                HStack(spacing: 3) {
                     Image(systemName: "star.fill")
-                        .font(.system(size: 10))
+                        .font(.system(size: 9.5))
                         .foregroundStyle(.yellow)
                     Text("\(rating)/10")
                         .monospacedDigit()
                 }
-                .font(.caption.weight(.medium))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.05), in: Capsule())
             }
+        }
+    }
+
+    var actionGroupRow: some View {
+        HStack(spacing: 12) {
+            primaryActionPill
+
+            secondaryActionGroup
         }
     }
 
@@ -1769,8 +1858,8 @@ extension LibraryTimelineRow {
             }
             .font(.system(size: 12.5, weight: .semibold))
             .foregroundStyle(.green)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
             .background(.green.opacity(0.14), in: Capsule())
             .overlay {
                 Capsule().strokeBorder(.green.opacity(0.35), lineWidth: 1)
@@ -1783,47 +1872,69 @@ extension LibraryTimelineRow {
             .font(.system(size: 12.5, weight: .medium))
             .foregroundStyle(.primary)
             .padding(.horizontal, 16)
-            .padding(.vertical, 7)
+            .padding(.vertical, 6)
             .background(.ultraThinMaterial, in: Capsule())
         } else {
             Button(action: launch) {
-                Text(
-                    (effectiveDate != nil || activity.playTime > 0)
-                        ? LocalizedStringKey("library.timeline.continuePlay")
-                        : LocalizedStringKey("library.timeline.playNow")
-                )
-                .font(.system(size: 12.5, weight: .bold))
-                .foregroundStyle(.black)
-                .padding(.horizontal, 22)
-                .padding(.vertical, 7)
-                .background(Color.white, in: Capsule())
-                .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 2)
+                HStack(spacing: 6) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 10, weight: .bold))
+                    Text(
+                        (effectiveDate != nil || activity.playTime > 0)
+                            ? LocalizedStringKey("library.timeline.continuePlay")
+                            : LocalizedStringKey("library.timeline.playNow")
+                    )
+                    .font(.system(size: 12.5, weight: .semibold))
+                }
+                .foregroundStyle(Color.white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 6)
+                .background(Color.accentColor, in: Capsule())
+                .shadow(color: Color.accentColor.opacity(0.32), radius: 5, x: 0, y: 2)
             }
             .buttonStyle(.plain)
         }
     }
 
-    var secondaryActionRow: some View {
-        HStack(spacing: 14) {
+    var secondaryActionGroup: some View {
+        HStack(spacing: 6) {
             Menu {
                 menuContent()
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 26, height: 22)
-                    .contentShape(Rectangle())
+                    .frame(width: 28, height: 28)
+                    .contentShape(Circle())
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            .background(
+                Circle()
+                    .fill(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.05))
+            )
+            .overlay(
+                Circle()
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            )
 
             Button(action: details) {
-                Image(systemName: "info.circle")
-                    .font(.system(size: 13.5))
+                Image(systemName: "info")
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .background(
+                Circle()
+                    .fill(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.05))
+            )
+            .overlay(
+                Circle()
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            )
             .help("library.metadata.details")
         }
     }

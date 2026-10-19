@@ -274,13 +274,17 @@ struct LibraryView: View {
     private var timelineView: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(visible) { row in
+                ForEach(Array(visible.enumerated()), id: \.element.id) { index, row in
+                    let showsDate = shouldShowDateHeader(at: index, in: visible)
                     LibraryTimelineRow(
                         item: row.item,
                         metadata: metadata[row.id],
                         bottleName: row.bottleName,
                         lastPlayed: row.lastPlayed,
                         state: model.state(for: row.item),
+                        showsDateHeader: showsDate,
+                        isFirstEntry: index == 0,
+                        isLastEntry: index == visible.count - 1,
                         details: { detailRow = row },
                         launch: { model.launch(row, bottles: bottles) },
                         coverAspectRatio: coverAspectRatios[row.id],
@@ -297,8 +301,22 @@ struct LibraryView: View {
                     .contextMenu { menu(for: row) }
                 }
             }
-            .padding(.horizontal, 28)
-            .padding(.vertical, 16)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+        }
+    }
+
+    private func shouldShowDateHeader(at index: Int, in list: [LibraryRow]) -> Bool {
+        guard index > 0 else { return true }
+        let current = list[index].lastPlayed
+        let previous = list[index - 1].lastPlayed
+        switch (current, previous) {
+        case let (.some(currentDate), .some(previousDate)):
+            return !Calendar.current.isDate(currentDate, inSameDayAs: previousDate)
+        case (.none, .none):
+            return false
+        default:
+            return true
         }
     }
 
