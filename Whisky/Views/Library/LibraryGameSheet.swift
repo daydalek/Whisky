@@ -1519,16 +1519,8 @@ struct LibraryTimelineRow<MenuContent: View>: View {
         loadedAspect ?? coverAspectRatio ?? (2.0 / 3.0)
     }
 
-    private var isLandscape: Bool {
-        effectiveAspect > 1.05
-    }
-
     private var coverSize: CGSize {
-        if isLandscape {
-            let clampedHeight = min(max(200.0 / max(effectiveAspect, 1.1), 112), 146)
-            return CGSize(width: 200, height: clampedHeight)
-        }
-        return CGSize(width: 148, height: 218)
+        CGSize(width: 148, height: 218)
     }
 
     private var effectiveDate: Date? {
@@ -1536,23 +1528,34 @@ struct LibraryTimelineRow<MenuContent: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
+        HStack(alignment: .center, spacing: 0) {
             dateColumn
                 .frame(width: 76, alignment: .trailing)
-                .padding(.trailing, 10)
-                .padding(.top, 22)
+                .padding(.trailing, 12)
 
             timelineAxisColumn
-                .frame(width: 20)
 
-            contentCard
-                .padding(.leading, 12)
-                .padding(.trailing, 16)
-                .padding(.vertical, 6)
+            HStack(alignment: .center, spacing: 26) {
+                coverShowcaseSlot
+
+                editorialColumn
+
+                Spacer(minLength: 28)
+
+                actionColumn
+            }
+            .padding(.leading, 20)
+            .padding(.trailing, 28)
+            .padding(.vertical, 18)
+            .frame(maxWidth: 1080, alignment: .leading)
 
             Spacer(minLength: 0)
         }
         .fixedSize(horizontal: false, vertical: true)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(isHovered ? Color.primary.opacity(colorScheme == .dark ? 0.045 : 0.025) : Color.clear)
+        )
         .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
@@ -1604,11 +1607,12 @@ struct LibraryTimelineRow<MenuContent: View>: View {
         let trackColor = Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.12)
         return VStack(spacing: 0) {
             if isFirstEntry {
-                Color.clear.frame(height: 22)
+                Color.clear.frame(maxHeight: .infinity)
             } else {
                 Rectangle()
                     .fill(trackColor)
-                    .frame(width: 1.5, height: 22)
+                    .frame(width: 1.5)
+                    .frame(maxHeight: .infinity)
             }
 
             nodeView
@@ -1622,73 +1626,47 @@ struct LibraryTimelineRow<MenuContent: View>: View {
                     .frame(maxHeight: .infinity)
             }
         }
+        .frame(width: 24)
     }
 
     @ViewBuilder
     private var nodeView: some View {
-        let nodeColor: Color = {
-            if state == .running {
-                return .green
-            } else if isHovered {
-                return Color.accentColor
-            } else if showsDateHeader {
-                return Color.primary.opacity(colorScheme == .dark ? 0.8 : 0.65)
-            } else {
-                return Color.primary.opacity(colorScheme == .dark ? 0.35 : 0.25)
-            }
-        }()
-
-        let nodeSize: CGFloat = (showsDateHeader || state == .running) ? 8 : 6
-
         ZStack {
             Circle()
                 .fill(Color(nsColor: .windowBackgroundColor))
                 .frame(width: 14, height: 14)
 
-            Circle()
-                .fill(nodeColor)
-                .frame(width: nodeSize, height: nodeSize)
-                .shadow(color: state == .running ? .green.opacity(0.6) : .clear, radius: 4)
+            if state == .running {
+                Circle()
+                    .fill(.green)
+                    .frame(width: 8, height: 8)
+                    .shadow(color: .green.opacity(0.6), radius: 4)
+            } else if isHovered {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 8, height: 8)
+            } else if showsDateHeader {
+                Circle()
+                    .strokeBorder(
+                        Color.primary.opacity(colorScheme == .dark ? 0.45 : 0.35),
+                        lineWidth: 1.5
+                    )
+                    .frame(width: 8, height: 8)
+            } else {
+                Circle()
+                    .strokeBorder(
+                        Color.primary.opacity(colorScheme == .dark ? 0.28 : 0.20),
+                        lineWidth: 1.2
+                    )
+                    .frame(width: 6, height: 6)
+            }
         }
         .frame(width: 14, height: 14)
     }
 
-    private var contentCard: some View {
-        HStack(alignment: .top, spacing: 20) {
-            coverShowcaseSlot
-
-            editorialColumn
-
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .frame(maxWidth: 860, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(
-                    Color.primary.opacity(
-                        colorScheme == .dark
-                            ? (isHovered ? 0.08 : 0.03)
-                            : (isHovered ? 0.05 : 0.02)
-                    )
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(
-                    Color.primary.opacity(
-                        colorScheme == .dark
-                            ? (isHovered ? 0.14 : 0.06)
-                            : (isHovered ? 0.10 : 0.04)
-                    ),
-                    lineWidth: 1
-                )
-        )
-    }
-
     private var coverShowcaseSlot: some View {
         let size = coverSize
-        let shape = RoundedRectangle(cornerRadius: isLandscape ? 8 : 6, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         return Button(action: details) {
             ZStack {
                 Rectangle()
@@ -1715,9 +1693,7 @@ struct LibraryTimelineRow<MenuContent: View>: View {
             }
             .frame(width: size.width, height: size.height)
             .overlay(alignment: .leading) {
-                if !isLandscape {
-                    bookSpineCrease
-                }
+                bookSpineCrease
             }
             .clipShape(shape)
             .overlay {
@@ -1783,12 +1759,9 @@ extension LibraryTimelineRow {
                     .font(.system(size: 12.5))
                     .foregroundStyle(.secondary.opacity(0.85))
                     .lineLimit(3)
-                    .lineSpacing(3)
-                    .frame(maxWidth: 640, alignment: .leading)
+                    .lineSpacing(3.5)
+                    .frame(maxWidth: 620, alignment: .leading)
             }
-
-            actionGroupRow
-                .padding(.top, 4)
         }
     }
 
@@ -1841,8 +1814,8 @@ extension LibraryTimelineRow {
         }
     }
 
-    var actionGroupRow: some View {
-        HStack(spacing: 12) {
+    var actionColumn: some View {
+        VStack(alignment: .trailing, spacing: 12) {
             primaryActionPill
 
             secondaryActionGroup
@@ -1859,7 +1832,7 @@ extension LibraryTimelineRow {
             .font(.system(size: 12.5, weight: .semibold))
             .foregroundStyle(.green)
             .padding(.horizontal, 16)
-            .padding(.vertical, 6)
+            .padding(.vertical, 6.5)
             .background(.green.opacity(0.14), in: Capsule())
             .overlay {
                 Capsule().strokeBorder(.green.opacity(0.35), lineWidth: 1)
@@ -1872,7 +1845,7 @@ extension LibraryTimelineRow {
             .font(.system(size: 12.5, weight: .medium))
             .foregroundStyle(.primary)
             .padding(.horizontal, 16)
-            .padding(.vertical, 6)
+            .padding(.vertical, 6.5)
             .background(.ultraThinMaterial, in: Capsule())
         } else {
             Button(action: launch) {
@@ -1888,7 +1861,7 @@ extension LibraryTimelineRow {
                 }
                 .foregroundStyle(Color.white)
                 .padding(.horizontal, 18)
-                .padding(.vertical, 6)
+                .padding(.vertical, 6.5)
                 .background(Color.accentColor, in: Capsule())
                 .shadow(color: Color.accentColor.opacity(0.32), radius: 5, x: 0, y: 2)
             }
