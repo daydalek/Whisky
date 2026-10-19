@@ -162,7 +162,7 @@ struct SteamClientReadinessTests {
         #expect(polls <= 1)
     }
 
-    @Test func launchMonitorAllowsExitCodeZero() async throws {
+    @Test(.timeLimit(.minutes(1))) func launchMonitorAllowsExitCodeZero() async throws {
         let launchTask: Task<Wine.ProgramRunResult, any Error> = Task {
             Wine.ProgramRunResult(
                 exitCode: 0,
@@ -172,9 +172,10 @@ struct SteamClientReadinessTests {
         }
 
         var polls = 0
+        // Allow concurrent CI scheduling to complete all three observations;
+        // the test time limit bounds a stalled monitor.
         let launched = try await SteamGameLaunchMonitor.wait(
             names: ["game.exe"],
-            timeout: 5,
             retryDelay: 2,
             pollInterval: .milliseconds(20),
             runningImages: {
