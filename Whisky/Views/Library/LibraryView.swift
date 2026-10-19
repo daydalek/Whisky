@@ -302,7 +302,7 @@ struct LibraryView: View {
                     .contextMenu { menu(for: row) }
                 }
             }
-            .frame(maxWidth: isSidebarCollapsed ? 1040 : .infinity, alignment: isSidebarCollapsed ? .center : .leading)
+            .frame(maxWidth: isSidebarCollapsed ? 1080 : .infinity, alignment: isSidebarCollapsed ? .center : .leading)
             .padding(.horizontal, isSidebarCollapsed ? 32 : 20)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: isSidebarCollapsed ? .center : .leading)

@@ -1534,10 +1534,10 @@ struct LibraryTimelineRow<MenuContent: View>: View {
             timelineAxisColumn
 
             cardContainer
-                .padding(.leading, 18)
+                .padding(.leading, 38)
                 .padding(.vertical, 6)
         }
-        .frame(maxWidth: 1100, alignment: .leading)
+        .frame(maxWidth: 1140, alignment: .leading)
         .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
