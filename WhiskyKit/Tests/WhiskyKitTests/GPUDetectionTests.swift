@@ -103,11 +103,28 @@ final class GPUDetectionTests: XCTestCase {
         }
     }
 
-    func testNoHardcodedVulkanICDPath() {
-        let env = GPUDetection.spoofGPU(vendor: .nvidia)
+    func testPCIVendorAndDeviceIDIntegers() {
+        XCTAssertEqual(GPUVendor.nvidia.pciVendorIDInt, 0x10DE)
+        XCTAssertEqual(GPUVendor.nvidia.pciDeviceIDInt, 0x2684)
 
-        // The old value pointed at /usr/local/share, which exists on no user
-        // machine; the runtime carries its own MoltenVK configuration.
-        XCTAssertNil(env["VK_ICD_FILENAMES"])
+        XCTAssertEqual(GPUVendor.amd.pciVendorIDInt, 0x1002)
+        XCTAssertEqual(GPUVendor.amd.pciDeviceIDInt, 0x73FF)
+
+        XCTAssertEqual(GPUVendor.intel.pciVendorIDInt, 0x8086)
+        XCTAssertEqual(GPUVendor.intel.pciDeviceIDInt, 0x9BC5)
+    }
+
+    func testGPURegistryStateMarkerPersistence() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        XCTAssertNil(GPURegistryState.load(from: tempDir))
+
+        let state = GPURegistryState(spoofingEnabled: true, vendor: GPUVendor.nvidia.rawValue)
+        try state.save(to: tempDir)
+
+        let loaded = GPURegistryState.load(from: tempDir)
+        XCTAssertEqual(loaded, state)
     }
 }

@@ -124,66 +124,82 @@ public enum SteamClientReadiness {
         return date
     }
 
-    private static func tail(_ url: URL) -> String {
+    static func tail(_ url: URL) -> String {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
         defer { try? handle.close() }
         do {
             let end = try handle.seekToEnd()
             try handle.seek(toOffset: end > 524_288 ? end - 524_288 : 0)
             guard let data = try handle.readToEnd() else { return "" }
-            return String(data: data, encoding: .utf8) ?? ""
+            // A log-tail boundary can split a code point; retain the remaining lines.
+            // swiftlint:disable:next optional_data_string_conversion
+            return String(decoding: data, as: UTF8.self)
         } catch { return "" }
-    }
-}
-
-/// New bytes only: an old GameAction must not suppress a retry or masquerade as
-/// this launch's success. Missing/rotated logs suppress automatic retries.
-public struct SteamLaunchReceipt: Sendable {
-    public enum Status: Sendable, Equatable { case waiting, accepted, unavailable }
-    private let url: URL
-    private let offset: UInt64
-    private let inode: UInt64?
-
-    public init(steamRoot: URL) {
-        url = steamRoot.appendingPathComponent("logs/console_log.txt")
-        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-        offset = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
-        inode = (attributes?[.systemFileNumber] as? NSNumber)?.uint64Value
-    }
-
-    public func wasAccepted(appID: Int) -> Bool {
-        status(appID: appID) == .accepted
-    }
-
-    public func status(appID: Int) -> Status {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return .unavailable }
-        defer { try? handle.close() }
-        do {
-            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-            let currentInode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
-            let end = try handle.seekToEnd()
-            // If continuity is lost, automatic retries are unsafe: the request
-            // may already have been handled in the rotated/unavailable log.
-            guard inode != nil, currentInode == inode, end >= offset else { return .unavailable }
-            let beginning = offset
-            try handle.seek(toOffset: max(beginning, end > 524_288 ? end - 524_288 : 0))
-            guard let data = try handle.readToEnd() else { return .waiting }
-            let text = String(data: data, encoding: .utf8) ?? ""
-            let accepted = text.contains("GameAction [AppID \(appID),")
-                || text.contains("Game process added : AppID \(appID) ")
-            return accepted ? .accepted : .waiting
-        } catch { return .unavailable }
     }
 }
 
 /// Shared GUI/CLI confirmation and conservative one-retry policy.
 public enum SteamGameLaunchMonitor {
+    private enum Event: Sendable {
+        case poll
+        case requestFinished(Result<Wine.ProgramRunResult, any Error>)
+
+        func isPoll() throws -> Bool {
+            guard case let .requestFinished(result) = self else { return true }
+            let runResult = try result.get()
+            if runResult.exitCode != 0 {
+                throw SteamOrchestratorError.launchRequestFailed(code: runResult.exitCode)
+            }
+            return false
+        }
+    }
+
+    @MainActor
+    private final class EventSource {
+        let stream: AsyncStream<Event>
+        private let continuation: AsyncStream<Event>.Continuation
+        private let polling: Task<Void, Never>
+        private var observers: [Task<Void, Never>] = []
+
+        init(deadline: ContinuousClock.Instant, pollInterval: Duration) {
+            let (stream, continuation) = AsyncStream<Event>.makeStream()
+            self.stream = stream
+            self.continuation = continuation
+            polling = Task {
+                repeat {
+                    continuation.yield(.poll)
+                    let remaining = ContinuousClock.now.duration(to: deadline)
+                    guard remaining > .zero else { return }
+                    do {
+                        try await Task.sleep(for: min(max(pollInterval, .milliseconds(1)), remaining))
+                    } catch { return }
+                } while !Task.isCancelled
+            }
+        }
+
+        func observe(_ task: Task<Wine.ProgramRunResult, any Error>?) {
+            guard let task else { return }
+            let continuation = continuation
+            // Observers wait independently; stopping confirmation releases its
+            // event stream immediately while the Steam request can keep running.
+            observers.append(Task { _ = await continuation.yield(.requestFinished(task.result)) })
+        }
+
+        func stop() {
+            polling.cancel()
+            observers.forEach { $0.cancel() }
+            continuation.finish()
+        }
+    }
+
     @MainActor
     public static func wait(
         names: Set<String>, timeout: TimeInterval = 120, retryDelay: TimeInterval = 10,
         pollInterval: Duration = .seconds(2),
         runningImages: () async -> Set<String>, accepted: () -> Bool,
-        prepareRetry: () async throws -> Void, retry: () async throws -> Void
+        prepareRetry: () async throws -> Void, retry: () async throws -> Void,
+        launchTask: Task<Wine.ProgramRunResult, any Error>? = nil,
+        retryLaunch: (() async throws -> Task<Wine.ProgramRunResult, any Error>?)? = nil
     ) async throws -> Bool {
         try Task.checkCancellation()
         guard !names.isEmpty else { return false }
@@ -192,8 +208,13 @@ public enum SteamGameLaunchMonitor {
         let deadline = start.advanced(by: .seconds(timeout))
         var retried = false
         var received = false
-        repeat {
+        let events = EventSource(deadline: deadline, pollInterval: pollInterval)
+        events.observe(launchTask)
+        defer { events.stop() }
+
+        for await event in events.stream {
             try Task.checkCancellation()
+            guard try event.isPoll() else { continue }
             let running = await runningImages()
             try Task.checkCancellation()
             if !running.isDisjoint(with: names) {
@@ -216,10 +237,15 @@ public enum SteamGameLaunchMonitor {
                     return false
                 }
                 if !accepted() {
-                    try await retry()
+                    if let retryLaunch {
+                        try await events.observe(retryLaunch())
+                    } else {
+                        try await retry()
+                    }
                 }
             }
-            try await Task.sleep(for: pollInterval)
-        } while true
+        }
+        try Task.checkCancellation()
+        return false
     }
 }

@@ -51,7 +51,7 @@ final class LauncherPresetTests: XCTestCase {
     func testSteamPresetIncludesNetworkFixes() {
         let env = LauncherType.steam.environmentOverrides()
 
-        // Network timeouts are now configured via bottle.settings.networkTimeout
+        // Legacy timeout variables have no Wine consumer.
         // instead of directly in launcher presets. This allows user customization.
         // Verify Steam preset doesn't set them (they're set by BottleSettings)
         XCTAssertNil(env["WINHTTP_CONNECT_TIMEOUT"])

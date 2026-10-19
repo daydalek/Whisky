@@ -84,6 +84,15 @@ final class LibraryModel: ObservableObject {
         }
     }
 
+    /// Cover and card views keep storefront clients after the games.
+    /// Timeline views follow the selected ordering across all entries.
+    var groupsLaunchers = true {
+        didSet {
+            guard groupsLaunchers != oldValue else { return }
+            rows = sorted(rows)
+        }
+    }
+
     private var orchestrators: [URL: SteamClientOrchestrator] = [:]
     private var cancellables: Set<AnyCancellable> = []
     private var settingsSubscriptions: [AnyCancellable] = []
@@ -231,12 +240,10 @@ final class LibraryModel: ObservableObject {
         }
     }
 
-    /// Launchers last whatever the sort is. A storefront client is how you reach
-    /// a game, not one of them, and it would otherwise take the top of the grid
-    /// on recency because every game launch runs it.
+    /// Presentation may group launchers after games; timelines use a single order.
     private func sorted(_ rows: [LibraryRow]) -> [LibraryRow] {
         rows.sorted { first, second in
-            if first.item.isLauncher != second.item.isLauncher {
+            if groupsLaunchers, first.item.isLauncher != second.item.isLauncher {
                 return second.item.isLauncher
             }
             return switch sort {
@@ -249,7 +256,7 @@ final class LibraryModel: ObservableObject {
 
     private func byRecency(_ first: LibraryRow, _ second: LibraryRow) -> Bool {
         switch (first.lastPlayed, second.lastPlayed) {
-        case let (lhs?, rhs?): lhs > rhs
+        case let (lhs?, rhs?): lhs == rhs ? byName(first, second) : lhs > rhs
         case (_?, nil): true
         case (nil, _?): false
         case (nil, nil): byName(first, second)
@@ -257,13 +264,30 @@ final class LibraryModel: ObservableObject {
     }
 
     private func byName(_ first: LibraryRow, _ second: LibraryRow) -> Bool {
-        first.item.name.localizedStandardCompare(second.item.name) == .orderedAscending
+        let comparison = first.item.name.localizedStandardCompare(second.item.name)
+        if comparison != .orderedSame {
+            return comparison == .orderedAscending
+        }
+        let lhs = first.item.bottleURL.absoluteString
+        let rhs = second.item.bottleURL.absoluteString
+        if lhs != rhs {
+            return lhs < rhs
+        }
+        return first.id < second.id
     }
 
     private func byBottle(_ first: LibraryRow, _ second: LibraryRow) -> Bool {
         let lhs = first.bottleName ?? ""
         let rhs = second.bottleName ?? ""
-        guard lhs == rhs else { return lhs.localizedStandardCompare(rhs) == .orderedAscending }
+        let comparison = lhs.localizedStandardCompare(rhs)
+        if comparison != .orderedSame {
+            return comparison == .orderedAscending
+        }
+        let lhsURL = first.item.bottleURL.absoluteString
+        let rhsURL = second.item.bottleURL.absoluteString
+        if lhsURL != rhsURL {
+            return lhsURL < rhsURL
+        }
         return byName(first, second)
     }
 }
@@ -328,7 +352,7 @@ extension LibraryModel {
                 to: targetStore,
                 targetIdentity: targetEntry.metadataIdentity
             )
-            try GameActivityStore.shared.copy(from: item, to: targetEntry)
+            try await GameActivityStore.shared.perform { try $0.copy(from: item, to: targetEntry) }
             var visibility = try LibraryVisibility.load(bottleURL: targetBottle.url)
             visibility.setHidden(wasHidden, for: targetEntry)
             try visibility.save(bottleURL: targetBottle.url)

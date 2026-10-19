@@ -53,7 +53,7 @@ struct Whisky: AsyncParsableCommand {
             List.self,
             Create.self,
             Add.self,
-//                      Export.self,
+            Export.self,
             Delete.self,
             Remove.self,
             Run.self,
@@ -130,23 +130,107 @@ extension Whisky {
     struct Add: ParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Add an existing bottle.")
 
-        @Argument var path: String
+        @Argument(help: "Path to the bottle directory or its Metadata.plist.")
+        var path: String
 
         mutating func run() throws {
-            // Should be sanitised
-            let bottleURL = URL(filePath: path)
-            let settings = try BottleSettings.decode(from: bottleURL)
+            let inputURL = URL(filePath: path).standardizedFileURL
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: inputURL.path(percentEncoded: false), isDirectory: &isDir)
+            else {
+                throw ValidationError("Path does not exist: \(inputURL.path(percentEncoded: false))")
+            }
+
+            let bottleURL: URL
+            let metadataURL: URL
+            if isDir.boolValue {
+                bottleURL = inputURL
+                metadataURL = bottleURL.appending(path: "Metadata.plist")
+            } else {
+                guard inputURL.lastPathComponent == "Metadata.plist" else {
+                    throw ValidationError("Specified file is not Metadata.plist: \(inputURL.lastPathComponent)")
+                }
+                bottleURL = inputURL.deletingLastPathComponent().standardizedFileURL
+                metadataURL = inputURL
+            }
+
+            guard FileManager.default.fileExists(atPath: metadataURL.path(percentEncoded: false)) else {
+                throw ValidationError(
+                    "Bottle does not contain Metadata.plist at: \(metadataURL.path(percentEncoded: false))"
+                )
+            }
+
+            let settings = try BottleSettings.decode(from: metadataURL)
             var bottlesList = BottleData()
-            bottlesList.paths.append(bottleURL)
+            if !bottlesList.paths.contains(bottleURL) {
+                bottlesList.paths.append(bottleURL)
+            }
             print("Bottle \"\(settings.name)\" added.")
         }
     }
 
-    struct Export: ParsableCommand {
+    struct Export: AsyncParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Export an existing bottle.")
 
-        mutating func run() throws {
-//            print("Create a bottle")
+        @Argument(help: "The name of the bottle to export.")
+        var name: String
+
+        @Option(name: .shortAndLong, help: "Destination archive file path (.tar).")
+        var destination: String?
+
+        @MainActor
+        mutating func run() async throws {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                throw ValidationError("Bottle name cannot be empty.")
+            }
+
+            var bottlesList = BottleData()
+            let bottles = bottlesList.loadBottles()
+            guard let bottle = bottles.first(where: { $0.settings.name == trimmed }) else {
+                throw DomainError("No bottle called \"\(trimmed)\" found.")
+            }
+
+            bottle.inFlight = true
+            defer { bottle.inFlight = false }
+
+            let destURL: URL
+            if let destination {
+                let rawURL = URL(filePath: destination).standardizedFileURL
+                var isDir: ObjCBool = false
+                let exists = FileManager.default.fileExists(
+                    atPath: rawURL.path(percentEncoded: false),
+                    isDirectory: &isDir
+                )
+                if (exists && isDir.boolValue) || destination.hasSuffix("/") {
+                    destURL = rawURL.appending(path: "\(trimmed).tar")
+                } else {
+                    destURL = rawURL
+                }
+            } else {
+                let defaultFilename = "\(trimmed).tar"
+                destURL = URL(filePath: FileManager.default.currentDirectoryPath)
+                    .appending(path: defaultFilename)
+                    .standardizedFileURL
+            }
+
+            let destDir = destURL.deletingLastPathComponent()
+            do {
+                try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+            } catch {
+                throw DomainError("Failed to create destination directory: \(error.localizedDescription)")
+            }
+
+            print("Exporting bottle \"\(trimmed)\" to \(destURL.path(percentEncoded: false))...")
+            let sourceURL = bottle.url
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try Tar.tar(folder: sourceURL, toURL: destURL)
+                }.value
+                print("Exported bottle \"\(trimmed)\" successfully.")
+            } catch {
+                throw DomainError("Failed to export bottle \"\(trimmed)\": \(error.localizedDescription)")
+            }
         }
     }
 
@@ -508,7 +592,8 @@ extension Whisky {
             var bottlesList = BottleData()
             let bottles = bottlesList.loadBottles()
 
-            guard let bottle = bottles.first(where: { $0.settings.name == bottleName }) else {
+            let matches = bottles.filter { $0.settings.name == bottleName }
+            guard matches.count == 1, let bottle = matches.first else {
                 throw DomainError("A bottle with that name doesn't exist.")
             }
 
@@ -566,7 +651,7 @@ extension Whisky {
         var json: Bool = false
 
         @MainActor
-        // swiftlint:disable:next function_body_length
+        // swiftlint:disable:next function_body_length cyclomatic_complexity
         mutating func run() async throws {
             var bottlesList = BottleData()
             let bottles = bottlesList.loadBottles()
@@ -596,6 +681,7 @@ extension Whisky {
             }
             var receipt = SteamLaunchReceipt(steamRoot: steamRoot)
             var lastClientState: SteamClientReadiness.State?
+            var requestSubmitted = false
             let launch = try SteamLauncher.launch(
                 appId: appId,
                 bottle: target,
@@ -605,6 +691,7 @@ extension Whisky {
                     }
                     lastClientState = state
                 },
+                onRequest: { requestSubmitted = true },
                 onOutput: { output in
                     if case .started = output {
                         FileHandle.standardError
@@ -612,40 +699,45 @@ extension Whisky {
                     }
                 }
             )
-            let result = try await launch.value
-
-            if result.exitCode != 0 {
-                // The confirmation is out already, so say why this still fails.
-                let log = result.logFileURL.path(percentEncoded: false)
-                FileHandle.standardError.write(Data("Steam exited with code \(result.exitCode). Log: \(log)\n".utf8))
-                throw ExitCode(result.exitCode)
-            }
-            let names = SteamLibrary.executableNames(under: game.installURL)
-            let driver = WineSteamClientDriver(bottle: target)
-            let appeared = try await SteamGameLaunchMonitor.wait(
-                names: names,
-                runningImages: {
-                    guard await !driver.hostWineImageNames().isEmpty else { return [] }
-                    return await Set(driver.processList().map { $0.imageName.lowercased() })
-                },
-                accepted: { receipt.status(appID: appId) != .waiting },
-                prepareRetry: {
-                    try await SteamClientReadiness.wait(
-                        steamRoot: steamRoot,
-                        showClient: { SteamLauncher.showClient(steamRoot: steamRoot, bottle: target) }
-                    )
-                },
-                retry: {
-                    receipt = SteamLaunchReceipt(steamRoot: steamRoot)
-                    let retry = try SteamLauncher.launch(
-                        appId: appId, bottle: target, installURL: game.installURL, clientIsRunning: true
-                    )
-                    let result = try await retry.value
-                    if result.exitCode != 0 {
-                        throw ExitCode(result.exitCode)
-                    }
+            // A submitted request may legitimately outlive confirmation; preparation ends with this invocation.
+            defer {
+                if !requestSubmitted {
+                    launch.cancel()
                 }
+            }
+            let selected = try? SteamGameProgram.selectedURL(
+                appID: appId, installURL: game.installURL, bottleURL: target.url
             )
+            let names = SteamLibrary.executableNames(under: game.installURL, selectedURL: selected)
+            let driver = WineSteamClientDriver(bottle: target)
+            let appeared: Bool
+            do {
+                appeared = try await SteamGameLaunchMonitor.wait(
+                    names: names,
+                    runningImages: {
+                        guard await !driver.hostWineImageNames().isEmpty else { return [] }
+                        return await Set(driver.processList().map { $0.imageName.lowercased() })
+                    },
+                    accepted: { receipt.status(appID: appId) != .waiting },
+                    prepareRetry: {
+                        try await SteamClientReadiness.wait(
+                            steamRoot: steamRoot,
+                            showClient: { SteamLauncher.showClient(steamRoot: steamRoot, bottle: target) }
+                        )
+                    },
+                    retry: {},
+                    launchTask: launch,
+                    retryLaunch: {
+                        guard requestSubmitted else { return nil }
+                        receipt = SteamLaunchReceipt(steamRoot: steamRoot)
+                        return try SteamLauncher.launch(
+                            appId: appId, bottle: target, installURL: game.installURL, clientIsRunning: true
+                        )
+                    }
+                )
+            } catch let SteamOrchestratorError.launchRequestFailed(code) {
+                throw ExitCode(code)
+            }
             guard appeared else {
                 try Task.checkCancellation()
                 throw DomainError(

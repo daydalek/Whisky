@@ -112,7 +112,8 @@ public enum SteamLibrary {
             let steamapps = library.appending(path: "steamapps")
             let modified = try? steamapps.resourceValues(forKeys: [.contentModificationDateKey])
                 .contentModificationDate
-            return "\(steamapps.path(percentEncoded: false))@\(modified?.timeIntervalSince1970 ?? 0)"
+            let resolvedPath = steamapps.resolvingSymlinksInPath().path(percentEncoded: false)
+            return "\(resolvedPath)@\(modified?.timeIntervalSince1970 ?? 0)"
         }
     }
 
@@ -138,44 +139,76 @@ public enum SteamLibrary {
         }
     }
 
-    /// The Steam root plus every existing library folder referenced by
-    /// `libraryfolders.vdf` (checked in its current `config/` home and its
-    /// legacy `steamapps/` location).
-    static func libraryRoots(steamRoot: URL, bottleURL: URL) -> [URL] {
-        var roots = [steamRoot]
-        var seen: Set<String> = [steamRoot.standardizedFileURL.path]
+    private static let libraryPathsCache = LibraryPathsCache()
 
-        let vdfCandidates = [
-            steamRoot.appending(path: "config").appending(path: "libraryfolders.vdf"),
-            steamRoot.appending(path: "steamapps").appending(path: "libraryfolders.vdf")
-        ]
+    private struct LibraryFileStamp: Equatable {
+        let modified: Date
+        let size: UInt64
+        let inode: UInt64
+    }
 
-        for vdfURL in vdfCandidates {
-            guard let text = try? String(contentsOf: vdfURL, encoding: .utf8),
+    /// Caches VDF contents while drive mappings and mounted volumes remain live inputs.
+    private final class LibraryPathsCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [URL: (stamp: LibraryFileStamp, paths: [String])] = [:]
+
+        func paths(in url: URL) -> [String] {
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  let modified = attributes[.modificationDate] as? Date,
+                  let size = attributes[.size] as? UInt64,
+                  let inode = attributes[.systemFileNumber] as? UInt64
+            else { return [] }
+            let stamp = LibraryFileStamp(modified: modified, size: size, inode: inode)
+            lock.lock()
+            let cached = entries[url]
+            lock.unlock()
+            if let cached, cached.stamp == stamp { return cached.paths }
+            guard let text = try? String(contentsOf: url, encoding: .utf8),
                   let root = try? VDFParser.parse(text),
                   let folders = root["libraryfolders"]?.objectValue
-            else { continue }
+            else { return [] }
+            let paths = folders.values.compactMap { $0.objectValue?["path"]?.stringValue }
+            lock.lock()
+            entries[url] = (stamp, paths)
+            lock.unlock()
+            return paths
+        }
+    }
 
-            for value in folders.values {
-                guard let windowsPath = value.objectValue?["path"]?.stringValue,
-                      let mapped = mapWindowsPath(windowsPath, bottleURL: bottleURL)
-                else { continue }
-
-                let standardized = mapped.standardizedFileURL.path
+    /// The Steam root plus each currently accessible configured library.
+    /// VDF parsing is cached; existence checks and drive symlinks are resolved on every call.
+    public static func libraryRoots(steamRoot: URL, bottleURL: URL) -> [URL] {
+        let vdfCandidates = [
+            steamRoot.appending(path: "config/libraryfolders.vdf"),
+            steamRoot.appending(path: "steamapps/libraryfolders.vdf")
+        ]
+        var roots = [steamRoot]
+        var seen = Set([steamRoot.resolvingSymlinksInPath().standardizedFileURL.path])
+        for vdfURL in vdfCandidates {
+            for windowsPath in libraryPathsCache.paths(in: vdfURL) {
+                guard let mapped = mapWindowsPath(windowsPath, bottleURL: bottleURL) else { continue }
+                let resolved = mapped.resolvingSymlinksInPath().standardizedFileURL.path
                 var isDirectory: ObjCBool = false
-                if !seen.contains(standardized),
-                   FileManager.default.fileExists(
-                       atPath: mapped.path(percentEncoded: false),
-                       isDirectory: &isDirectory
-                   ),
+                if !seen.contains(resolved),
+                   FileManager.default.fileExists(atPath: mapped.path, isDirectory: &isDirectory),
                    isDirectory.boolValue {
-                    seen.insert(standardized)
+                    seen.insert(resolved)
                     roots.append(mapped)
                 }
             }
         }
-
         return roots
+    }
+
+    /// Discovers library roots for a bottle by first locating its Steam install.
+    public static func libraryRoots(bottleURL: URL) -> [URL] {
+        guard let steamRoot = detectInstall(bottleURL: bottleURL) else { return [] }
+        return libraryRoots(steamRoot: steamRoot, bottleURL: bottleURL)
+    }
+
+    /// Discovers library roots for a bottle.
+    public static func libraryRoots(in bottle: Bottle) -> [URL] {
+        libraryRoots(bottleURL: bottle.url)
     }
 
     /// Whether `component` is a plain name safe to join onto a trusted root.
@@ -276,9 +309,13 @@ public enum SteamLibrary {
     }
 
     /// Lowercased executable names at the install root and one directory
-    /// deep. Used to match a game's processes in the bottle's task list.
-    public static func executableNames(under installURL: URL) -> Set<String> {
-        Set(executableURLs(under: installURL).map { $0.lastPathComponent.lowercased() })
+    /// deep, plus any user-selected program binary. Used to match a game's processes in the bottle's task list.
+    public static func executableNames(under installURL: URL, selectedURL: URL? = nil) -> Set<String> {
+        var names = Set(executableURLs(under: installURL).map { $0.lastPathComponent.lowercased() })
+        if let selected = selectedURL {
+            names.insert(selected.lastPathComponent.lowercased())
+        }
+        return names
     }
 
     /// Picks the overrides a library launch should carry from the game's

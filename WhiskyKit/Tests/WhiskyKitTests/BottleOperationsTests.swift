@@ -311,6 +311,29 @@ final class BottleOperationsDuplicateTests: BottleOperationsTestCase {
     }
 
     @MainActor
+    func testDuplicateRollsBackWhenTransientCleanupFails() async throws {
+        let registry = RegistryFixture()
+        let bottle = makeRegisteredBottle(in: registry)
+        let logs = bottleURL.appending(path: "logs")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        let log = logs.appending(path: "old-run.log")
+        try Data("source log".utf8).write(to: log)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: logs.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: logs.path) }
+
+        do {
+            _ = try await BottleOperations.duplicate(bottleAt: bottleURL, newName: "Copy", registry: registry)
+            XCTFail("Expected transient cleanup to report its write error")
+        } catch {
+            XCTAssertEqual(try String(contentsOf: log, encoding: .utf8), "source log")
+        }
+        XCTAssertEqual(registry.bottlePaths, [bottleURL])
+        XCTAssertEqual(registry.loadCount, 0)
+        XCTAssertFalse(bottle.inFlight)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: tempDir.path), ["Original"])
+    }
+
+    @MainActor
     func testDuplicateThrowsWhenBottleIsNotRegistered() async {
         let registry = RegistryFixture()
 

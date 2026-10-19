@@ -203,6 +203,12 @@ public class Wine {
         /// Use this to correlate the run result with the run log history
         /// entry, e.g., to open the correct log entry in the console UI.
         public let runLogEntryId: UUID
+
+        public init(exitCode: Int32, logFileURL: URL, runLogEntryId: UUID) {
+            self.exitCode = exitCode
+            self.logFileURL = logFileURL
+            self.runLogEntryId = runLogEntryId
+        }
     }
 
     /// What a program launch runs once its bottle has been prepared for it.
@@ -327,7 +333,9 @@ public class Wine {
             }
         }
 
+        try Task.checkCancellation()
         let launch = try await prepare()
+        try Task.checkCancellation()
 
         // Opened after preparation, not before: the registry imports during
         // preparation open logs of their own, and this way the program's log

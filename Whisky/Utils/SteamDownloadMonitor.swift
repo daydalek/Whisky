@@ -44,7 +44,7 @@ class SteamDownloadMonitor: ObservableObject {
 
     private let stallThreshold: TimeInterval = 180
     private let samplingInterval: TimeInterval = 45
-    private var lastSnapshot: [String: (size: UInt64, mtime: Date)] = [:]
+    private var lastSnapshot: SteamDownloadSnapshot?
     private var stallStartTime: Date?
     private var alertedThisSession: Set<String> = []
     private var monitoringTask: Task<Void, Never>?
@@ -56,7 +56,7 @@ class SteamDownloadMonitor: ObservableObject {
         guard detectedLauncher == .steam, !isMonitoring else { return }
 
         isMonitoring = true
-        lastSnapshot = [:]
+        lastSnapshot = nil
         stallStartTime = nil
         status = .noDownloads
         logger.info("Starting Steam download monitoring for bottle")
@@ -75,7 +75,7 @@ class SteamDownloadMonitor: ObservableObject {
         monitoringTask?.cancel()
         monitoringTask = nil
         isMonitoring = false
-        lastSnapshot = [:]
+        lastSnapshot = nil
         stallStartTime = nil
         status = .noDownloads
     }
@@ -87,29 +87,35 @@ class SteamDownloadMonitor: ObservableObject {
 
     // MARK: - Sampling
 
-    /// Samples the Steam download directory and updates stall status.
+    /// Samples the Steam download directory and updates stall status across all library roots.
     private func sample(bottleURL: URL) async {
-        let downloadDir = bottleURL
-            .appending(path: "drive_c/Program Files (x86)/Steam/steamapps/downloading")
-
-        guard FileManager.default.fileExists(atPath: downloadDir.path(percentEncoded: false)) else {
-            if status != .noDownloads {
-                status = .noDownloads
-                stallStartTime = nil
+        let roots = SteamLibrary.libraryRoots(bottleURL: bottleURL)
+        let scan = Task.detached(priority: .utility) {
+            try SteamDownloadSnapshot.capture(libraryRoots: roots)
+        }
+        let currentSnapshot: SteamDownloadSnapshot
+        do {
+            currentSnapshot = try await withTaskCancellationHandler {
+                try await scan.value
+            } onCancel: {
+                scan.cancel()
             }
+        } catch {
+            guard !Task.isCancelled else { return }
+            stallStartTime = nil
+            logger.debug("Steam download sampling deferred: \(error.localizedDescription)")
             return
         }
-
-        let currentSnapshot = buildSnapshot(at: downloadDir)
+        guard !Task.isCancelled else { return }
 
         if currentSnapshot.isEmpty {
             status = .noDownloads
             stallStartTime = nil
-            lastSnapshot = [:]
+            lastSnapshot = nil
             return
         }
 
-        let hasProgress = detectProgress(current: currentSnapshot, previous: lastSnapshot)
+        let hasProgress = lastSnapshot.map { currentSnapshot != $0 } ?? true
         lastSnapshot = currentSnapshot
 
         if hasProgress {
@@ -133,76 +139,6 @@ class SteamDownloadMonitor: ObservableObject {
                 status = .downloading
             }
         }
-    }
-
-    // MARK: - Snapshot
-
-    /// Builds a snapshot of download subdirectory sizes and modification times.
-    private func buildSnapshot(at directory: URL) -> [String: (size: UInt64, mtime: Date)] {
-        var snapshot: [String: (size: UInt64, mtime: Date)] = [:]
-
-        guard let subdirs = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        )
-        else { return snapshot }
-
-        for subdir in subdirs {
-            guard let isDir = try? subdir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory,
-                  isDir
-            else { continue }
-            let (totalSize, newestMtime) = measureDirectory(at: subdir)
-            snapshot[subdir.lastPathComponent] = (size: totalSize, mtime: newestMtime)
-        }
-        return snapshot
-    }
-
-    /// Recursively measures total size and newest mtime in a directory.
-    private func measureDirectory(at directory: URL) -> (UInt64, Date) {
-        var totalSize: UInt64 = 0
-        var newestMtime = Date.distantPast
-
-        guard let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        )
-        else { return (totalSize, newestMtime) }
-
-        for case let fileURL as URL in enumerator {
-            guard let values = try? fileURL.resourceValues(
-                forKeys: [.fileSizeKey, .contentModificationDateKey]
-            )
-            else { continue }
-            if let size = values.fileSize {
-                totalSize += UInt64(size)
-            }
-            if let mtime = values.contentModificationDate, mtime > newestMtime {
-                newestMtime = mtime
-            }
-        }
-        return (totalSize, newestMtime)
-    }
-
-    // MARK: - Progress Detection
-
-    /// Returns `true` if any subdirectory grew in size or has a newer mtime.
-    private func detectProgress(
-        current: [String: (size: UInt64, mtime: Date)],
-        previous: [String: (size: UInt64, mtime: Date)]
-    ) -> Bool {
-        guard !previous.isEmpty else { return true }
-        for key in current.keys where previous[key] == nil {
-            return true
-        }
-        for (key, cur) in current {
-            guard let prev = previous[key] else { continue }
-            if cur.size > prev.size || cur.mtime > prev.mtime {
-                return true
-            }
-        }
-        return false
     }
 
     // MARK: - Log Evidence

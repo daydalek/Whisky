@@ -216,4 +216,32 @@ struct GameRoutingTests {
         routing.record(appId: 5, bottleURL: URL(fileURLWithPath: "/tmp/bottles/five"))
         #expect(routing.bottleURL(forAppId: 5) != nil)
     }
+
+    @Test("Concurrent readers and writers synchronize via locking without corruption")
+    func concurrentReadsAndWritesDoNotCorrupt() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let url = tempDir.appending(path: "GameRouting.plist")
+        let routing = GameRouting(url: url)
+
+        await withTaskGroup(of: Void.self) { group in
+            for index in 0 ..< 30 {
+                group.addTask {
+                    let writer = GameRouting(url: url)
+                    let bottle = URL(fileURLWithPath: "/tmp/bottles/bottle_\(index % 5)")
+                    writer.record(appId: index, bottleURL: bottle)
+                    _ = writer.bottleURL(forAppId: index)
+                    _ = writer.routes()
+                }
+            }
+        }
+
+        let finalRoutes = routing.routes()
+        #expect(finalRoutes.count == 30)
+        for index in 0 ..< 30 {
+            #expect(finalRoutes[index] == URL(fileURLWithPath: "/tmp/bottles/bottle_\(index % 5)"))
+        }
+    }
 }

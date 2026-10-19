@@ -17,6 +17,7 @@
 //
 
 import Foundation
+import os.log
 
 /// Errors thrown when launching a Steam game.
 public enum SteamLaunchError: LocalizedError, Equatable {
@@ -75,6 +76,7 @@ public enum SteamLauncher {
         appId: Int, bottle: Bottle, installURL: URL? = nil, record: Bool = true,
         clientIsRunning: Bool = false,
         onClientState: (@MainActor (SteamClientReadiness.State) -> Void)? = nil,
+        onRequest: (@MainActor () -> Void)? = nil,
         onOutput: (@MainActor (ProcessOutput) -> Void)? = nil
     ) throws -> Task<Wine.ProgramRunResult, any Error> {
         guard let steamRoot = SteamLibrary.detectInstall(bottleURL: bottle.url) else {
@@ -101,12 +103,15 @@ public enum SteamLauncher {
                 ?? installURL.flatMap { userOverrides(forInstallURL: $0, bottle: bottle) }
         )
         let steamExe = steamRoot.appending(path: "steam.exe")
-        let gameExecutables = gameExecutables(installURL: installURL, plan: plan)
+        let gameExecutables = gameExecutables(installURL: installURL, selectedURL: selectedURL, plan: plan)
 
         return Task {
+            let clientStartup = SteamClientStartup()
+            defer { clientStartup.cancel() }
             try Task.checkCancellation()
             try await Wine.prepareBottlePrefix(bottle: bottle)
             await Wine.syncAudioRegistry(bottle: bottle)
+            await Wine.syncGPURegistry(bottle: bottle)
             try Task.checkCancellation()
             if !clientIsRunning {
                 let running = await hostSteamPIDs()
@@ -114,8 +119,13 @@ public enum SteamLauncher {
                 let previousSession = SteamClientReadiness.snapshot(steamRoot: steamRoot).session
                 let started = await startClientIfNeeded(
                     isRunning: { alreadyRunning },
-                    start: { startClient(steamExe: steamExe, bottle: bottle) },
-                    hasStarted: { await !hostSteamPIDs().subtracting(running).isEmpty }
+                    start: {
+                        clientStartup.start { onHandoff in
+                            startClient(steamExe: steamExe, bottle: bottle, onHandoff: onHandoff)
+                        }
+                    },
+                    hasStarted: { await !hostSteamPIDs().subtracting(running).isEmpty },
+                    startup: clientStartup
                 )
                 try Task.checkCancellation()
                 guard started else { throw SteamOrchestratorError.clientTimeout }
@@ -127,6 +137,7 @@ public enum SteamLauncher {
                 )
             }
             try Task.checkCancellation()
+            onRequest?()
             return try await Wine.runProgram(
                 at: steamExe, args: ["-applaunch", String(appId)], bottle: bottle,
                 programOverrides: plan.overrides,
@@ -158,21 +169,56 @@ public enum SteamLauncher {
     /// game launch writes for it. Runs for the whole session, so it is never
     /// awaited.
     @MainActor
-    static func startClient(steamExe: URL, bottle: Bottle) {
+    @discardableResult
+    static func startClient(
+        steamExe: URL, bottle: Bottle,
+        preparePrefix: @escaping @MainActor (Bottle) async throws
+            -> Void = { try await Wine.prepareBottlePrefix(bottle: $0) },
+        gpuImporter: @escaping Wine.RegistryImporter = { try await Wine.importRegistry(document: $0, bottle: $1) },
+        run: @escaping @MainActor (URL, Bottle, ProgramOverrides?, @escaping @MainActor () -> Void) async throws
+            -> Void = { url, bottle, overrides, onHandoff in
+                _ = try await Wine.runProgram(at: url, bottle: bottle, programSettings: nil, onOutput: nil) {
+                    let launch = try await Wine.prepareProgramLaunch(
+                        at: url, args: ["-silent"], bottle: bottle, programOverrides: overrides
+                    )
+                    try Task.checkCancellation()
+                    onHandoff()
+                    return launch
+                }
+            },
+        onHandoff: @escaping @MainActor () -> Void = {}
+    ) -> Task<Void, Never> {
         let overrides = Program.persistedOverrides(for: steamExe, bottleURL: bottle.url)
-        Task {
-            _ = try? await Wine.runProgram(
-                at: steamExe, args: ["-silent"], bottle: bottle, programOverrides: overrides
-            )
+        return Task {
+            do {
+                try Task.checkCancellation()
+                try await preparePrefix(bottle)
+                try Task.checkCancellation()
+                await Wine.syncAudioRegistry(bottle: bottle)
+                try Task.checkCancellation()
+                try await Wine.syncGPURegistry(bottle: bottle, importer: gpuImporter)
+                try Task.checkCancellation()
+                try await run(steamExe, bottle, overrides, onHandoff)
+            } catch is CancellationError {
+                return
+            } catch {
+                Logger.wineKit.error("Steam client startup failed: \(error.localizedDescription)")
+            }
         }
     }
 
     /// The executable names a game launch scopes the game's plan to: what the
-    /// install folder holds, then what the GameDB lists, each name once.
-    static func gameExecutables(installURL: URL?, plan: LaunchPlan) -> [String] {
+    /// install folder holds, then what the GameDB lists, plus any user-selected
+    /// program binary, each name once.
+    public static func gameExecutables(
+        installURL: URL?,
+        selectedURL: URL? = nil,
+        plan: LaunchPlan
+    ) -> [String] {
         let found = installURL.map { SteamLibrary.executableURLs(under: $0).map(\.lastPathComponent) } ?? []
+        let selected = selectedURL.map { [$0.lastPathComponent] } ?? []
         var seen = Set<String>()
-        return (found + plan.gameExecutables).filter { seen.insert($0.lowercased()).inserted }
+        return (selected + found + plan.gameExecutables).filter { seen.insert($0.lowercased()).inserted }
     }
 
     /// Starts the client when it isn't running, then waits until it is.
@@ -198,10 +244,14 @@ public enum SteamLauncher {
         start: @MainActor () -> Void,
         hasStarted: @MainActor () async -> Bool,
         timeout: Duration = .seconds(150),
-        pollInterval: Duration = .seconds(2)
+        pollInterval: Duration = .seconds(2),
+        startup: SteamClientStartup? = nil
     ) async -> Bool {
+        var started = false
+        defer { if !started { startup?.cancel() } }
         if await isRunning() {
-            return !Task.isCancelled
+            started = !Task.isCancelled
+            return started
         }
         guard !Task.isCancelled else { return false }
         start()
@@ -210,6 +260,7 @@ public enum SteamLauncher {
             try? await Task.sleep(for: pollInterval)
             guard !Task.isCancelled else { return false }
             if await hasStarted() {
+                started = true
                 return true
             }
         }

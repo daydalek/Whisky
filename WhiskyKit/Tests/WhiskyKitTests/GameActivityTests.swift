@@ -101,4 +101,79 @@ struct GameActivityTests {
         clock = GameActivityClock()
         #expect(clock.sample(running: ["b"], at: time(310)) == ["b": 0])
     }
+
+    enum ObservationEnd: CaseIterable, Sendable {
+        case gameExit, wineserverStop, processListFailure
+    }
+
+    @Test(arguments: ObservationEnd.allCases) @MainActor
+    func trackerReleasesLeaseAfterObservedExit(_ end: ObservationEnd) async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let game = entry(bottle: url)
+        let bottle = Bottle(bottleUrl: url)
+        let tracker = GameActivityTracker()
+        tracker.automaticallyPolls = false
+        var serverRunning = true
+        var processFailure = false
+        var processes = [WineProcess(imageName: "game.exe", winePID: 10, memoryUsage: "0 K", kind: .app)]
+        var processCalls = 0
+        tracker.wineserverProbe = { _ in serverRunning }
+        tracker.processProbe = { _ in
+            processCalls += 1
+            if processFailure { throw CocoaError(.fileReadUnknown) }
+            return processes
+        }
+        tracker.track(game, executable: url.appendingPathComponent("drive_c/game.exe"), bottle: bottle)
+
+        await tracker.poll()
+        let store = GameActivityStore.shared
+        let owner = try #require(store.load(for: game).owner)
+        #expect(owner.source == .gui)
+        #expect(processCalls == 1)
+
+        switch end {
+        case .gameExit: processes = []
+        case .wineserverStop: serverRunning = false
+        case .processListFailure: processFailure = true
+        }
+        await tracker.poll()
+
+        #expect(try store.load(for: game).owner == nil)
+        #expect(processCalls == (end == .wineserverStop ? 1 : 2))
+        let nextOwner = try store.acquireOwnership(for: game, source: .gui, ownerID: UUID())
+        #expect(nextOwner.generation > owner.generation)
+        try store.releaseOwnership(for: game, ownerID: nextOwner.ownerID, generation: nextOwner.generation)
+    }
+
+    @Test @MainActor
+    func trackerSkipsEmptyTargetsAndProcessListsForStoppedWineserver() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let bottle = Bottle(bottleUrl: url)
+        let tracker = GameActivityTracker()
+        tracker.automaticallyPolls = false
+        var serverProbes = 0
+        var processProbes = 0
+        tracker.wineserverProbe = { _ in
+            serverProbes += 1
+            return false
+        }
+        tracker.processProbe = { _ in
+            processProbes += 1
+            return []
+        }
+
+        await tracker.configure(entries: [], bottle: bottle)
+        await tracker.poll()
+        #expect(serverProbes == 0)
+        #expect(processProbes == 0)
+
+        let game = entry(bottle: url)
+        tracker.track(game, executable: url.appendingPathComponent("drive_c/game.exe"), bottle: bottle)
+        await tracker.poll()
+        #expect(serverProbes == 1)
+        #expect(processProbes == 0)
+        #expect(try GameActivityStore.shared.load(for: game).owner == nil)
+    }
 }

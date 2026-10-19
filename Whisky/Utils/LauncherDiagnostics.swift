@@ -149,7 +149,6 @@ enum LauncherDiagnostics {
         if bottle.settings.gpuSpoofing {
             config += "GPU Vendor: \(bottle.settings.gpuVendor.rawValue)\n"
         }
-        config += "Network Timeout: \(bottle.settings.networkTimeout)ms\n"
         config += "DXVK for Rockstar: \(bottle.settings.autoEnableDXVK ? "✅ Yes" : "❌ No")\n\n"
 
         // Graphics Settings
@@ -161,8 +160,7 @@ enum LauncherDiagnostics {
         }
         config += "Metal HUD: \(bottle.settings.metalHud ? "✅ Enabled" : "❌ Disabled")\n"
         config += "DXR Support: \(bottle.settings.dxrEnabled ? "✅ Enabled" : "❌ Disabled")\n"
-        config += "Metal Validation: \(bottle.settings.metalValidation ? "✅ Enabled" : "❌ Disabled")\n"
-        config += "Sequoia Compat Mode: \(bottle.settings.sequoiaCompatMode ? "✅ Enabled" : "❌ Disabled")\n\n"
+        config += "Metal Validation: \(bottle.settings.metalValidation ? "✅ Enabled" : "❌ Disabled")\n\n"
 
         // Performance Settings
         config += "--- Performance Configuration ---\n"
@@ -241,7 +239,6 @@ enum LauncherDiagnostics {
 
     /// Generates recommendations section.
     @MainActor
-    // swiftlint:disable:next cyclomatic_complexity
     private static func generateRecommendations(for bottle: Bottle) -> String {
         var recommendations = """
         [RECOMMENDATIONS]
@@ -256,28 +253,9 @@ enum LauncherDiagnostics {
             hasRecommendations = true
         }
 
-        // macOS version specific
-        let version = MacOSVersion.current
-        if version >= .sequoia15_4 {
-            if !bottle.settings.sequoiaCompatMode {
-                recommendations += "💡 Enable Sequoia Compatibility Mode for macOS 15.4+ stability\n"
-                hasRecommendations = true
-            }
-        }
-
         // Launcher-specific recommendations
         if let launcher = bottle.settings.detectedLauncher {
             switch launcher {
-            case .steam:
-                if !bottle.settings.dxvk {
-                    recommendations += "💡 Enable DXVK for better Steam performance\n"
-                    hasRecommendations = true
-                }
-                if bottle.settings.networkTimeout < 90_000 {
-                    recommendations += "💡 Increase network timeout to 90000ms for Steam downloads\n"
-                    hasRecommendations = true
-                }
-
             case .rockstar:
                 if !bottle.settings.dxvk {
                     recommendations += "❗️ CRITICAL: Enable DXVK (required for Rockstar Launcher)\n"

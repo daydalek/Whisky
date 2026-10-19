@@ -219,4 +219,44 @@ struct VDFParserTests {
                 == "Unexpected end of document inside an unclosed object"
         )
     }
+
+    @Test("Scanner optimization equivalence on complex structures")
+    func scannerOptimizationEquivalence() throws {
+        let complexVdf = """
+        "AppState"
+        {
+            "appid"        "1245620"
+            "Universe"        "1"
+            "name"        "ELDEN RING / 艾尔登法环 \\"Deluxe\\""
+            "installdir"        "ELDEN RING\\\\Game"
+            "LastUpdated"        "1672531199"
+            "SizeOnDisk"        "49061246523"
+            "UserConfig"
+            {
+                "language"        "schinese"
+                "BetaKey"        "public"
+            }
+            "MountedDepots"
+            {
+                "1245621"        "891234567890"
+                "1245624"        "123456789012"
+            }
+        }
+        """
+
+        let root = try VDFParser.parse(complexVdf)
+        let appState = try #require(root["appstate"]?.objectValue)
+        #expect(appState["appid"]?.intValue == 1_245_620)
+        #expect(appState["name"]?.stringValue == "ELDEN RING / 艾尔登法环 \"Deluxe\"")
+        #expect(appState["installdir"]?.stringValue == "ELDEN RING\\Game")
+        #expect(appState["sizeondisk"]?.intValue == 49_061_246_523)
+
+        let userConfig = try #require(appState["userconfig"]?.objectValue)
+        #expect(userConfig["language"]?.stringValue == "schinese")
+        #expect(userConfig["betakey"]?.stringValue == "public")
+
+        let depots = try #require(appState["mounteddepots"]?.objectValue)
+        #expect(depots["1245621"]?.stringValue == "891234567890")
+        #expect(depots["1245624"]?.stringValue == "123456789012")
+    }
 }

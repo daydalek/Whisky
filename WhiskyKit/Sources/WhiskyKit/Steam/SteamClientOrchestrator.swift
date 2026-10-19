@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 //
 //  SteamClientOrchestrator.swift
 //  WhiskyKit
@@ -25,6 +26,8 @@ public enum SteamOrchestratorError: LocalizedError, Equatable {
     /// The bottle no longer contains a Steam installation.
     case steamNotInstalled
     case clientNotReady
+    /// The launch command exited early with a non-zero exit code.
+    case launchRequestFailed(code: Int32)
 
     public var errorDescription: String? {
         switch self {
@@ -34,6 +37,8 @@ public enum SteamOrchestratorError: LocalizedError, Equatable {
             String(localized: "steam.client.missing")
         case .clientNotReady:
             String(localized: "steam.client.notReady")
+        case let .launchRequestFailed(code):
+            "Steam launch request failed with code \(code)"
         }
     }
 }
@@ -105,6 +110,8 @@ public final class SteamClientOrchestrator: ObservableObject {
 
     private var trackingTask: Task<Void, Never>?
     private var executableNamesByAppId: [Int: Set<String>] = [:]
+    private var installedExecutableNamesByAppId: [Int: Set<String>] = [:]
+    private var trackedGames: [SteamGame] = []
     /// The in-flight client startup, shared by every concurrent launch.
     private var clientStartup: Task<Void, Error>?
     private var startupID: UUID?
@@ -147,6 +154,7 @@ public final class SteamClientOrchestrator: ObservableObject {
         phases[appID] = nil
         if launchTasks.isEmpty {
             clientStartup?.cancel()
+            driver.cancelClientStartup()
         }
     }
 
@@ -154,9 +162,12 @@ public final class SteamClientOrchestrator: ObservableObject {
     /// are running, including ones started outside Whisky.
     public func startTracking(games: [SteamGame]) {
         trackingTask?.cancel()
-        for game in games where executableNamesByAppId[game.appId] == nil {
-            executableNamesByAppId[game.appId] = SteamLibrary.executableNames(under: game.installURL)
+        trackedGames = games
+        installedExecutableNamesByAppId = [:]
+        for game in games {
+            installedExecutableNamesByAppId[game.appId] = SteamLibrary.executableNames(under: game.installURL)
         }
+        refreshExecutableNames()
         trackingTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refreshRunningState()
@@ -166,10 +177,20 @@ public final class SteamClientOrchestrator: ObservableObject {
         }
     }
 
+    private func refreshExecutableNames() {
+        executableNamesByAppId = installedExecutableNamesByAppId
+        for game in trackedGames {
+            if let selected = try? SteamGameProgram.selectedURL(
+                appID: game.appId, installURL: game.installURL, bottleURL: bottle.url
+            ) {
+                executableNamesByAppId[game.appId, default: []].insert(selected.lastPathComponent.lowercased())
+            }
+        }
+    }
+
     /// Asks the game's processes to close, then refreshes the running state.
     public func stop(_ game: SteamGame) async {
-        let names = executableNamesByAppId[game.appId]
-            ?? SteamLibrary.executableNames(under: game.installURL)
+        let names = executableNames(for: game)
 
         for process in await runningProcesses()
             where names.contains(process.imageName.lowercased()) {
@@ -194,6 +215,7 @@ public final class SteamClientOrchestrator: ObservableObject {
         clientStartup?.cancel()
         clientStartup = nil
         startupID = nil
+        driver.cancelClientStartup()
         driver.shutdown()
     }
 
@@ -241,15 +263,16 @@ public final class SteamClientOrchestrator: ObservableObject {
         }
 
         phases[game.appId] = .launching
+        let launchTask: Task<Wine.ProgramRunResult, any Error>?
         do {
-            try driver.launchGame(game)
+            launchTask = try driver.launchGame(game)
         } catch {
             launchError = error.localizedDescription
             return
         }
 
         do {
-            let appeared = try await waitForLaunchedGame(game)
+            let appeared = try await waitForLaunchedGame(game, launchTask: launchTask)
             if appeared {
                 runningAppIds.insert(game.appId)
             } else {
@@ -272,22 +295,27 @@ public final class SteamClientOrchestrator: ObservableObject {
         let startup = Task { try await startClient(steamExe: steamExe) }
         startupID = id
         clientStartup = startup
+        var completed = false
         defer {
             if startupID == id {
+                if !completed { driver.cancelClientStartup() }
                 clientStartup = nil
                 startupID = nil
             }
         }
         try await startup.value
+        completed = true
     }
 
     private func startClient(steamExe: URL) async throws {
+        try Task.checkCancellation()
         if await isClientRunning() {
             try await waitForClientReadiness()
             try Task.checkCancellation()
             driver.clientDidBecomeReady()
             return
         }
+        try Task.checkCancellation()
 
         if Self.shouldApplyLauncherFixes(settings: bottle.settings) {
             driver.applyLauncherFixes()
@@ -313,8 +341,11 @@ public final class SteamClientOrchestrator: ObservableObject {
         }
     }
 
-    private func waitForLaunchedGame(_ game: SteamGame) async throws -> Bool {
-        let names = SteamLibrary.executableNames(under: game.installURL)
+    private func waitForLaunchedGame(
+        _ game: SteamGame,
+        launchTask: Task<Wine.ProgramRunResult, any Error>? = nil
+    ) async throws -> Bool {
+        let names = executableNames(for: game)
         return try await SteamGameLaunchMonitor.wait(
             names: names, timeout: timing.launchGrace, retryDelay: timing.retryDelay,
             pollInterval: timing.pollInterval,
@@ -326,7 +357,9 @@ public final class SteamClientOrchestrator: ObservableObject {
                     self.phases[game.appId] = state.canLaunch ? .launching : .waitingForClient
                 }
             },
-            retry: { try self.driver.launchGame(game) }
+            retry: {},
+            launchTask: launchTask,
+            retryLaunch: { try self.driver.launchGame(game) }
         )
     }
 
@@ -338,6 +371,7 @@ public final class SteamClientOrchestrator: ObservableObject {
         // Tracking must not create tasklist.exe during client preparation, even
         // though Wine's background services already show up in the host list.
         guard clientStartup == nil else { return }
+        refreshExecutableNames()
         runningAppIds = await watch.runningKeys(byExecutables: executableNamesByAppId)
     }
 }
@@ -345,6 +379,14 @@ public final class SteamClientOrchestrator: ObservableObject {
 // MARK: - Process snapshot
 
 extension SteamClientOrchestrator {
+    /// Helper to get executable names including any selectedURL
+    private func executableNames(for game: SteamGame) -> Set<String> {
+        let selected = try? SteamGameProgram.selectedURL(
+            appID: game.appId, installURL: game.installURL, bottleURL: bottle.url
+        )
+        return SteamLibrary.executableNames(under: game.installURL, selectedURL: selected)
+    }
+
     func runningImageNames() async -> Set<String> {
         let hostNames = await driver.hostWineImageNames()
         let relevantNames = executableNamesByAppId.values.reduce(into: Set(["steam.exe"])) { $0.formUnion($1) }

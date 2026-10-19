@@ -104,7 +104,7 @@ final class LauncherDiagnosticsTests: XCTestCase {
         XCTAssertNotNil(env["STEAM_DISABLE_CEF_SANDBOX"])
         XCTAssertNotNil(env["LC_ALL"])
         XCTAssertNotNil(env["MESA_GL_VERSION_OVERRIDE"])
-        XCTAssertNotNil(env["WINHTTP_CONNECT_TIMEOUT"])
+        XCTAssertNil(env["WINHTTP_CONNECT_TIMEOUT"])
     }
 
     func testEnvironmentVariablesWithoutLauncherCompatibility() throws {
@@ -139,31 +139,6 @@ final class LauncherDiagnosticsTests: XCTestCase {
 
         // Should handle nil launcher gracefully without crashing
         XCTAssertTrue(true, "Should not crash with nil launcher")
-    }
-
-    func testDiagnosticsWithExtremeTimeout() throws {
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempURL) }
-
-        let bottle = Bottle(bottleUrl: tempURL, inFlight: false, isAvailable: true)
-        bottle.settings.launcherCompatibilityMode = true
-
-        // Test extreme timeout values
-        bottle.settings.networkTimeout = 30_000 // Minimum
-        var env1: [String: String] = [:]
-        bottle.settings.environmentVariables(wineEnv: &env1)
-        XCTAssertEqual(env1["WINHTTP_CONNECT_TIMEOUT"], "30000")
-
-        bottle.settings.networkTimeout = 180_000 // Maximum
-        var env2: [String: String] = [:]
-        bottle.settings.environmentVariables(wineEnv: &env2)
-        XCTAssertEqual(env2["WINHTTP_CONNECT_TIMEOUT"], "180000")
-
-        bottle.settings.networkTimeout = 60_000 // Default (should not set)
-        var env3: [String: String] = [:]
-        bottle.settings.environmentVariables(wineEnv: &env3)
-        XCTAssertNil(env3["WINHTTP_CONNECT_TIMEOUT"], "Default timeout should not set environment variable")
     }
 
     func testDiagnosticsWithAllGPUVendors() throws {
@@ -340,39 +315,6 @@ final class LauncherDiagnosticsTests: XCTestCase {
     }
 
     // MARK: - Network Timeout Tests
-
-    func testNetworkTimeoutOnlyAppliedWhenNonDefault() throws {
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempURL) }
-
-        let bottle = Bottle(bottleUrl: tempURL, inFlight: false, isAvailable: true)
-        bottle.settings.launcherCompatibilityMode = true
-        bottle.settings.networkTimeout = 60_000 // Default
-
-        var env: [String: String] = [:]
-        bottle.settings.environmentVariables(wineEnv: &env)
-
-        // Default timeout should not set environment variables
-        XCTAssertNil(env["WINHTTP_CONNECT_TIMEOUT"], "Default timeout should not set environment variable")
-    }
-
-    func testCustomNetworkTimeoutApplied() throws {
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempURL) }
-
-        let bottle = Bottle(bottleUrl: tempURL, inFlight: false, isAvailable: true)
-        bottle.settings.launcherCompatibilityMode = true
-        bottle.settings.networkTimeout = 120_000 // Custom
-
-        var env: [String: String] = [:]
-        bottle.settings.environmentVariables(wineEnv: &env)
-
-        // Custom timeout should be applied
-        XCTAssertEqual(env["WINHTTP_CONNECT_TIMEOUT"], "120000")
-        XCTAssertEqual(env["WINHTTP_RECEIVE_TIMEOUT"], "240000") // 2x connect timeout
-    }
 
     // MARK: - Auto-Enable DXVK Tests
 
@@ -605,7 +547,7 @@ final class LauncherDiagnosticsTests: XCTestCase {
         )
         XCTAssertEqual(steamEnv["LC_ALL"], "en_US.UTF-8")
         XCTAssertEqual(steamEnv["MESA_GL_VERSION_OVERRIDE"], "4.6")
-        XCTAssertEqual(steamEnv["WINHTTP_CONNECT_TIMEOUT"], "90000")
+        XCTAssertNil(steamEnv["WINHTTP_CONNECT_TIMEOUT"])
 
         // Manual mode forces the launcher layer even for non-launcher executables
         bottle.settings.launcherMode = .manual

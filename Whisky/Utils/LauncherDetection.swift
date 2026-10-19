@@ -139,7 +139,7 @@ enum LauncherDetection {
             ? "✅ Enabled (\(bottle.settings.gpuVendor.rawValue))"
             : "❌ Disabled"
         summary += "GPU Spoofing: \(gpuStatus)\n"
-        summary += "Network Timeout: \(bottle.settings.networkTimeout)ms\n\n"
+        summary += "\n"
 
         summary += "Fixes Applied:\n\(launcher.fixesDescription)\n\n"
 

@@ -268,4 +268,87 @@ final class BottleDataTests: XCTestCase {
         XCTAssertEqual(reloaded.paths, [bottle])
         XCTAssertNil(reloaded.corruptRegistryBackupURL)
     }
+
+    // MARK: - Bottle Path Resolution (whisky add)
+
+    func testBottlePathResolutionHandlesDirectoryAndMetadataPlist() throws {
+        let bottleDir = try makeBottleDir(named: "ResolvableBottle", in: tempDir)
+        let metadataURL = bottleDir.appendingPathComponent("Metadata.plist")
+
+        // 1. When given directory URL:
+        var isDir: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: bottleDir.path(percentEncoded: false),
+            isDirectory: &isDir
+        ))
+        XCTAssertTrue(isDir.boolValue)
+        let resolvedFromDir = bottleDir.standardizedFileURL
+        let metaFromDir = resolvedFromDir.appending(path: "Metadata.plist")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: metaFromDir.path(percentEncoded: false)))
+        let settingsFromDir = try BottleSettings.decode(from: metaFromDir)
+        XCTAssertEqual(settingsFromDir.name, "ResolvableBottle")
+
+        // 2. When given direct Metadata.plist URL:
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: metadataURL.path(percentEncoded: false),
+            isDirectory: &isDir
+        ))
+        XCTAssertFalse(isDir.boolValue)
+        let resolvedFromMeta = metadataURL.deletingLastPathComponent().standardizedFileURL
+        XCTAssertEqual(resolvedFromMeta, resolvedFromDir)
+        let settingsFromMeta = try BottleSettings.decode(from: metadataURL)
+        XCTAssertEqual(settingsFromMeta.name, "ResolvableBottle")
+
+        // Ensure registering only stores the directory URL, never the Metadata.plist URL
+        var data = BottleData(entriesFile: entriesFile)
+        XCTAssertTrue(data.registerBottlePath(resolvedFromDir))
+        XCTAssertEqual(data.paths, [resolvedFromDir])
+    }
+
+    // MARK: - Bottle Export Destination Resolution (whisky export)
+
+    func testExportDestinationResolution() throws {
+        let trimmed = "MyBottle"
+        let resolveDestination: (String?) -> URL = { destination in
+            if let destination {
+                let rawURL = URL(filePath: destination).standardizedFileURL
+                var isDir: ObjCBool = false
+                let exists = FileManager.default.fileExists(
+                    atPath: rawURL.path(percentEncoded: false),
+                    isDirectory: &isDir
+                )
+                if (exists && isDir.boolValue) || destination.hasSuffix("/") {
+                    return rawURL.appending(path: "\(trimmed).tar")
+                } else {
+                    return rawURL
+                }
+            } else {
+                let defaultFilename = "\(trimmed).tar"
+                return URL(filePath: FileManager.default.currentDirectoryPath)
+                    .appending(path: defaultFilename)
+                    .standardizedFileURL
+            }
+        }
+
+        // 1. Default destination (no argument)
+        let defaultDest = resolveDestination(nil)
+        XCTAssertEqual(defaultDest.lastPathComponent, "MyBottle.tar")
+        XCTAssertEqual(defaultDest.deletingLastPathComponent().path, FileManager.default.currentDirectoryPath)
+
+        // 2. Directory destination (existing temp dir)
+        let dirDest = resolveDestination(tempDir.path)
+        XCTAssertEqual(dirDest.lastPathComponent, "MyBottle.tar")
+        XCTAssertEqual(dirDest.deletingLastPathComponent().standardizedFileURL, tempDir.standardizedFileURL)
+
+        // 3. Trailing slash destination
+        let slashDest = resolveDestination(tempDir.path + "/")
+        XCTAssertEqual(slashDest.lastPathComponent, "MyBottle.tar")
+        XCTAssertEqual(slashDest.deletingLastPathComponent().standardizedFileURL, tempDir.standardizedFileURL)
+
+        // 4. Explicit tar file destination
+        let explicitFile = tempDir.appendingPathComponent("custom_archive.tar").path
+        let explicitDest = resolveDestination(explicitFile)
+        XCTAssertEqual(explicitDest.lastPathComponent, "custom_archive.tar")
+        XCTAssertEqual(explicitDest.deletingLastPathComponent().standardizedFileURL, tempDir.standardizedFileURL)
+    }
 }

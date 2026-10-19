@@ -65,6 +65,16 @@ public enum GPUVendor: String, Codable, CaseIterable, Sendable {
             "Intel UHD Graphics 730"
         }
     }
+
+    /// Integer value of PCI vendor ID (e.g. 0x10DE)
+    public var pciVendorIDInt: Int {
+        Int(vendorID.dropFirst(2), radix: 16) ?? 0x10DE
+    }
+
+    /// Integer value of PCI device ID (e.g. 0x2684)
+    public var pciDeviceIDInt: Int {
+        Int(deviceID.dropFirst(2), radix: 16) ?? 0x2684
+    }
 }
 
 /// Utilities for GPU capability detection and spoofing.

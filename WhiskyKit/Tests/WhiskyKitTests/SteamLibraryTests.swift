@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 //
 //  SteamLibraryTests.swift
 //  WhiskyKitTests
@@ -38,6 +39,7 @@ private func acf(
 }
 
 @Suite("SteamLibrary Tests")
+// swiftlint:disable:next type_body_length
 struct SteamLibraryTests {
     /// Builds a fixture bottle: a default Steam install with one installed
     /// game, one downloading game, one manifest whose install dir is missing,
@@ -303,5 +305,113 @@ struct SteamLibraryTests {
 
         #expect(SteamLibrary.preferredOverrides(among: candidates) == nil)
         #expect(SteamLibrary.preferredOverrides(among: []) == nil)
+    }
+
+    @Test("Collects executable names and includes selectedURL")
+    func collectsExecutableNamesWithSelectedURL() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let deep = tempDir.appending(path: "bin/sub/sub2")
+        try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
+
+        try Data().write(to: tempDir.appending(path: "Launcher.exe"))
+        let selected = deep.appending(path: "ActualGame_shipping.exe")
+        try Data().write(to: selected)
+
+        let namesWithoutSelected = SteamLibrary.executableNames(under: tempDir)
+        #expect(namesWithoutSelected == ["launcher.exe"])
+
+        let namesWithSelected = SteamLibrary.executableNames(under: tempDir, selectedURL: selected)
+        #expect(namesWithSelected.contains("launcher.exe"))
+        #expect(namesWithSelected.contains("actualgame_shipping.exe"))
+    }
+
+    @Test("Caches library roots keyed by libraryfolders.vdf modification date")
+    func libraryRootsCachingByModificationDate() throws {
+        let (bottle, tempRoot) = try makeFixtureBottle()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let rootsFirst = SteamLibrary.libraryRoots(bottleURL: bottle)
+        #expect(rootsFirst.count == 2)
+
+        // Read again without modifying libraryfolders.vdf - hits cache
+        let rootsSecond = SteamLibrary.libraryRoots(bottleURL: bottle)
+        #expect(rootsSecond == rootsFirst)
+
+        // Update libraryfolders.vdf with a 3rd library
+        let steamRoot = bottle.appending(path: "drive_c")
+            .appending(path: "Program Files (x86)").appending(path: "Steam")
+        let config = steamRoot.appending(path: "config")
+        let vdfPath = config.appending(path: "libraryfolders.vdf")
+
+        let thirdLibrary = tempRoot.appending(path: "third-library")
+        try FileManager.default.createDirectory(at: thirdLibrary, withIntermediateDirectories: true)
+        let dosDevices = bottle.appending(path: "dosdevices")
+        try FileManager.default.createSymbolicLink(
+            at: dosDevices.appending(path: "e:"),
+            withDestinationURL: thirdLibrary
+        )
+
+        let updatedVdf = """
+        "libraryfolders"
+        {
+            "0"
+            {
+                "path"        "C:\\\\Program Files (x86)\\\\Steam"
+            }
+            "1"
+            {
+                "path"        "D:\\\\"
+            }
+            "2"
+            {
+                "path"        "E:\\\\"
+            }
+        }
+        """
+        try Data(updatedVdf.utf8).write(to: vdfPath)
+        let futureDate = Date().addingTimeInterval(5)
+        try FileManager.default.setAttributes([.modificationDate: futureDate], ofItemAtPath: vdfPath.path)
+
+        let rootsThird = SteamLibrary.libraryRoots(bottleURL: bottle)
+        #expect(rootsThird.count == 3)
+    }
+
+    @Test("Cached VDF paths discover a library after it becomes available")
+    func availableVolumesAreCheckedOnEveryLookup() throws {
+        let (bottle, tempRoot) = try makeFixtureBottle()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        let secondary = tempRoot.appending(path: "second-library")
+        #expect(SteamLibrary.libraryRoots(bottleURL: bottle).count == 2)
+        try FileManager.default.removeItem(at: secondary)
+        #expect(SteamLibrary.libraryRoots(bottleURL: bottle).count == 1)
+        try FileManager.default.createDirectory(at: secondary, withIntermediateDirectories: true)
+        #expect(SteamLibrary.libraryRoots(bottleURL: bottle).count == 2)
+    }
+
+    @Test("Retargeting a drive symlink invalidates enumeration with unchanged VDF and directory dates")
+    func changedDriveMappingRefreshesEnumeratedGames() throws {
+        let (bottle, tempRoot) = try makeFixtureBottle()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        #expect(SteamLibrary.enumerate(bottleURL: bottle).contains { $0.appId == 1_245_620 })
+        let oldApps = tempRoot.appending(path: "second-library/steamapps")
+        let date = try FileManager.default.attributesOfItem(atPath: oldApps.path)[.modificationDate] as? Date
+        let replacement = tempRoot.appending(path: "replacement-library")
+        let apps = replacement.appending(path: "steamapps")
+        try FileManager.default.createDirectory(
+            at: apps.appending(path: "common/Replacement"),
+            withIntermediateDirectories: true
+        )
+        try acf(appId: 123, name: "Replacement", installDir: "Replacement", stateFlags: 4)
+            .write(to: apps.appending(path: "appmanifest_123.acf"), atomically: true, encoding: .utf8)
+        if let date {
+            try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: apps.path)
+        }
+        let link = bottle.appending(path: "dosdevices/d:")
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: replacement)
+        let games = SteamLibrary.enumerate(bottleURL: bottle)
+        #expect(games.contains { $0.appId == 123 })
+        #expect(!games.contains { $0.appId == 1_245_620 })
     }
 }

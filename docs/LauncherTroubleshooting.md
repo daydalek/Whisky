@@ -39,16 +39,16 @@ If problems persist, see launcher-specific sections below.
    - Toggle "Launcher Compatibility Mode" ON
 
 2. **Verify Locale Setting:**
-   - Check "Locale Override" is set to **English (en_US.UTF-8)**
-   - This fixes ICU parsing errors in steamwebhelper
+   - By default, Launcher Compatibility sets `LC_TIME=C` and `LC_NUMERIC=C` while preserving your macOS system language, preventing ICU crashes in steamwebhelper.
+   - If desired, "Locale Override" can explicitly force a specific locale (such as **English (en_US.UTF-8)**).
 
 3. **Check Configuration:**
    - Click "Generate Diagnostics Report"
-   - Verify `LC_ALL=en_US.UTF-8` in environment variables
+   - Verify `LC_TIME=C` and `LC_NUMERIC=C` (or `LC_ALL=<locale>` if override enabled)
    - Verify `STEAM_DISABLE_CEF_SANDBOX=1`
 
 **Why This Happens:**
-Steam's Chromium-based web helper crashes when parsing dates/times in certain locales. The `.UTF-8` suffix is critical for proper Unicode handling.
+Steam's Chromium-based web helper crashes when parsing non-standard date and number formats in certain locales. Setting `LC_TIME=C` and `LC_NUMERIC=C` standardizes formatting without destroying user interface language localization.
 
 **Related Upstream Issues:**
 - whisky-app/whisky#946 (steamwebhelper crash)
@@ -67,23 +67,12 @@ Steam's Chromium-based web helper crashes when parsing dates/times in certain lo
 
 **Solution:**
 
-1. **Increase Network Timeout:**
-   - Open bottle → Config → Launcher Compatibility
-   - Enable Launcher Compatibility Mode
-   - Adjust "Network Timeout" slider to **90 seconds** or higher
+1. In Steam → Settings → Downloads, change the download region.
+2. Pause and resume the download; clear Steam's download cache if the stall persists.
+3. Check disk activity and available space, particularly during unpacking.
+4. Review Steam and Whisky logs for connection or storage errors.
 
-2. **Verify Network Settings:**
-   - Generate diagnostics report
-   - Check `WINHTTP_CONNECT_TIMEOUT=90000`
-   - Check `WINE_FORCE_HTTP11=1`
-
-3. **Force Download Region:**
-   - In Steam, Settings → Downloads
-   - Change download region to one geographically close
-   - Pause and resume download
-
-**Why This Happens:**
-Wine's HTTP/2 implementation has issues. Forcing HTTP/1.1 and increasing timeouts resolves connection stability problems.
+Whisky checks file metadata throughout each library's download tree on a background task. Stall notifications combine unchanged samples with log evidence.
 
 **Related Upstream Issues:**
 - whisky-app/whisky#1148 (Downloads stall)
@@ -201,12 +190,9 @@ Epic's Chromium Embedded Framework conflicts with Wine's threading model. Disabl
    - Enable DXVK
    - Toggle "DXVK Async" ON
 
-2. **Increase Network Timeout:**
-   - Config → Launcher Compatibility
-   - Adjust timeout to **90 seconds**
-
-**Why This Happens:**
-Ubisoft's servers can be slow, requiring higher timeouts.
+2. **Check Ubisoft Connectivity:**
+   - Check service availability and compare a stable network connection.
+   - Restart Ubisoft Connect after clearing any pending update or login prompt.
 
 **Related Upstream Issues:**
 - whisky-app/whisky#1004 (Beta update issues)
@@ -264,8 +250,8 @@ workaround earlier versions set is read by no shipped runtime, so it was removed
 
 **Solution:**
 
-1. **Enable Sequoia Compatibility Mode:**
-   - Config → Metal → "Sequoia Compat Mode" ON
+1. **macOS 15 Sequoia Compatibility:**
+   - Handled automatically at the platform layer; no manual configuration toggle is required.
 
 2. **Verify macOS Fixes Applied:**
    - Generate diagnostics report
@@ -273,7 +259,7 @@ workaround earlier versions set is read by no shipped runtime, so it was removed
    - Check `WINEFSYNC=0`
 
 **Why This Happens:**
-Apple changed threading and mach port behavior in macOS 15.4. The compatibility mode applies Wine environment fixes for these changes.
+Apple changed threading and mach port behavior in macOS 15.4. Whisky applies Wine environment fixes automatically at the platform layer for these changes.
 
 **Related Upstream Issues:**
 - whisky-app/whisky#1372 (macOS 15.4.1 breaks Steam)
@@ -319,10 +305,9 @@ GPU Spoofing: ✅ Enabled (NVIDIA)
 
 **Environment Variables:**
 Look for:
-- `LC_ALL=en_US.UTF-8` (locale fix)
+- `LC_TIME=C` and `LC_NUMERIC=C` (or `LC_ALL=<locale>` if override enabled)
 - `STEAM_DISABLE_CEF_SANDBOX=1` (CEF fix)
 - `MESA_GL_VERSION_OVERRIDE=4.6` (GPU spoofing)
-- `WINHTTP_CONNECT_TIMEOUT=90000` (network timeout)
 
 **Validation Results:**
 - ✅ Configuration is optimal
@@ -332,17 +317,12 @@ Look for:
 
 ## Configuration Warnings Explained
 
-### ⚠️ "DXVK should be enabled for Steam"
-**Impact:** Steam UI may stutter  
-**Solution:** Enable DXVK in Config → DXVK
+### ℹ️ Direct3D Backend & Scoped DXVK for Steam
+**Architecture:** Global DXVK is no longer advised for Steam bottles. Whisky automatically provisions scoped DXVK overrides for `steam.exe` and `steamwebhelper.exe` so the Chromium UI renders smoothly while allowing game executables to use D3DMetal (Apple GPTK) for Direct3D 11/12.
 
 ### ❌ "DXVK REQUIRED for Rockstar Launcher"
 **Impact:** Logo won't display, launcher unusable  
 **Solution:** Enable DXVK immediately (critical)
-
-### ⚠️ "Steam may crash without en_US locale"
-**Impact:** steamwebhelper crashes likely  
-**Solution:** Set Locale Override to English
 
 ### ❌ "GPU spoofing REQUIRED for EA App"
 **Impact:** Black screen, "GPU not supported"  
@@ -421,14 +401,13 @@ Isolate launcher issues:
 ### Steam
 **Must Have:**
 - ✅ Launcher Compatibility Mode
-- ✅ Locale: English (en_US.UTF-8)
+- ✅ Safe Locale handling (default `LC_TIME=C` / `LC_NUMERIC=C`, or configured Locale Override)
 
 **Recommended:**
-- ✅ DXVK (improves UI performance)
-- ✅ Network timeout: 90s
+- ✅ Recommended backend (D3DMetal) (Steam UI automatically receives scoped DXVK)
 
 **Critical Settings:**
-- `LC_ALL=en_US.UTF-8` (prevents steamwebhelper crash)
+- `LC_TIME=C` and `LC_NUMERIC=C` (prevents steamwebhelper ICU crash while preserving system language)
 - `STEAM_DISABLE_CEF_SANDBOX=1` (Wine compatibility)
 
 ---
@@ -482,7 +461,6 @@ Use `LauncherPatcher.exe` instead of `Launcher.exe`
 
 **Recommended:**
 - ✅ DXVK + DXVK Async
-- ✅ Network timeout: 90s
 
 **Critical Settings:**
 - `DXVK_ASYNC=1` (game compatibility)

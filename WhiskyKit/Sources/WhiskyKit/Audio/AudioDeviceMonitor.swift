@@ -231,16 +231,16 @@ public final class AudioDeviceMonitor: @unchecked Sendable {
             mElement: kAudioObjectPropertyElementMain
         )
 
-        var name: CFString = "" as CFString
-        var size = UInt32(MemoryLayout<CFString>.size)
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
         let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &name)
 
-        guard status == noErr else {
+        guard status == noErr, let name else {
             logger.error("Failed to query device name for \(deviceID): \(status)")
             return nil
         }
 
-        return name as String
+        return name.takeRetainedValue() as String
     }
 
     /// Queries the transport type of an audio device.

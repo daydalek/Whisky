@@ -75,10 +75,7 @@ public struct BottleLauncherConfig: Codable, Equatable {
     /// GPU vendor to spoof when `gpuSpoofing` is enabled.
     var gpuVendor: GPUVendor = .nvidia
 
-    /// Network timeout in milliseconds for launcher downloads.
-    ///
-    /// Addresses Steam download stalls at 99% and connection timeouts.
-    /// Default: 60000ms (60 seconds)
+    /// Legacy stored timeout, retained for configuration compatibility.
     var networkTimeout: Int = 60_000
 
     /// Whether to automatically apply DXVK when launcher requires it.

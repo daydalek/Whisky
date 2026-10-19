@@ -110,4 +110,78 @@ struct SteamClientReadinessTests {
         try Data("New log".utf8).write(to: log)
         #expect(receipt.status(appID: 1) == .unavailable)
     }
+
+    @Test func resilientTailDecodingSplittingMultiByteCodepoint() throws {
+        let root = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let log = root.appendingPathComponent("split_log.txt")
+
+        // Construct 524,290 bytes where offset 2 splits a 3-byte character (0xE6 0x97 0xA5)
+        var splitData = Data([0xE6, 0x97, 0xA5])
+        splitData.append(contentsOf: Array(repeating: UInt8(ascii: "X"), count: 524_287))
+        try splitData.write(to: log)
+
+        let chunk = try Data(contentsOf: log).suffix(524_288)
+        #expect(String(data: chunk, encoding: .utf8) == nil, "Standard utf8 initializer fails on split boundary")
+
+        let tailed = SteamClientReadiness.tail(log)
+        #expect(!tailed.isEmpty)
+        #expect(tailed.contains("XXXX"))
+    }
+
+    @Test func launchMonitorReportsFailedLaunchRequest() async throws {
+        let launchTask: Task<Wine.ProgramRunResult, any Error> = Task {
+            Wine.ProgramRunResult(
+                exitCode: 127,
+                logFileURL: URL(fileURLWithPath: "/tmp/crash.log"),
+                runLogEntryId: UUID()
+            )
+        }
+
+        let start = ContinuousClock.now
+        await #expect(throws: SteamOrchestratorError.launchRequestFailed(code: 127)) {
+            _ = try await SteamGameLaunchMonitor.wait(
+                names: ["game.exe"],
+                timeout: 30,
+                retryDelay: 5,
+                pollInterval: .milliseconds(50),
+                runningImages: { [] },
+                accepted: { true },
+                prepareRetry: {},
+                retry: {},
+                launchTask: launchTask
+            )
+        }
+        let elapsed = ContinuousClock.now - start
+        #expect(elapsed < .seconds(2))
+    }
+
+    @Test func launchMonitorAllowsExitCodeZero() async throws {
+        let launchTask: Task<Wine.ProgramRunResult, any Error> = Task {
+            Wine.ProgramRunResult(
+                exitCode: 0,
+                logFileURL: URL(fileURLWithPath: "/tmp/success.log"),
+                runLogEntryId: UUID()
+            )
+        }
+
+        var polls = 0
+        let launched = try await SteamGameLaunchMonitor.wait(
+            names: ["game.exe"],
+            timeout: 5,
+            retryDelay: 2,
+            pollInterval: .milliseconds(20),
+            runningImages: {
+                polls += 1
+                return polls >= 3 ? ["game.exe"] : []
+            },
+            accepted: { true },
+            prepareRetry: {},
+            retry: {},
+            launchTask: launchTask
+        )
+        #expect(launched)
+        #expect(polls >= 3)
+    }
 }

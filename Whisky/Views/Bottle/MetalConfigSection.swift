@@ -42,15 +42,6 @@ struct MetalConfigSection: View {
                     }
                 }
             }
-            // Sequoia compatibility mode - helps with macOS 15.x issues
-            Toggle(isOn: $bottle.settings.sequoiaCompatMode) {
-                VStack(alignment: .leading) {
-                    Text("config.sequoiaCompat")
-                    Text("config.sequoiaCompat.info")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
         }
     }
 }

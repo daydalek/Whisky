@@ -134,17 +134,18 @@ final class BottleLauncherConfigTests: XCTestCase {
         // GPU spoofing should not be applied if launcher compat is off
     }
 
-    func testNetworkTimeoutConfiguration() {
-        var settings = BottleSettings()
-        settings.launcherCompatibilityMode = true
-        settings.networkTimeout = 45_000
-
-        var env: [String: String] = [:]
-        settings.environmentVariables(wineEnv: &env)
-
-        // Should include custom network timeout
-        XCTAssertEqual(env["WINHTTP_CONNECT_TIMEOUT"], "45000")
-        XCTAssertEqual(env["WINHTTP_RECEIVE_TIMEOUT"], "90000") // 2x connect timeout
+    func testLegacyTimeoutRemainsStoredWithoutRuntimeOverrides() {
+        for timeout in [0, 45_000, 60_000, 90_000, Int.max] {
+            var settings = BottleSettings()
+            settings.launcherCompatibilityMode = true
+            settings.detectedLauncher = .steam
+            settings.networkTimeout = timeout
+            var env: [String: String] = [:]
+            settings.environmentVariables(wineEnv: &env)
+            XCTAssertEqual(settings.networkTimeout, timeout)
+            XCTAssertNil(env["WINHTTP_CONNECT_TIMEOUT"])
+            XCTAssertNil(env["WINHTTP_RECEIVE_TIMEOUT"])
+        }
     }
 
     func testAutoEnableDXVKForRockstar() {

@@ -62,11 +62,7 @@ Steam is the most widely used game launcher in Whisky, but also has the most com
    - Setting the whole bottle to DXVK turns d3d12 off for every game when the
      payload is deployed; only do it for a bottle whose games all want DXVK.
 
-2. **Adjust Network Timeout:**
-   - Config → Launcher Compatibility
-   - Set timeout to **90 seconds** (recommended for Steam)
-
-3. **Enable GPU Spoofing:**
+2. **Configure GPU Reporting:**
    - Config → Launcher Compatibility
    - GPU Spoofing: **ON**
    - Vendor: **NVIDIA** (best compatibility)
@@ -79,10 +75,11 @@ Steam is the most widely used game launcher in Whisky, but also has the most com
 
 2. **Check Critical Settings:**
    ```
-   LC_ALL = en_US.UTF-8          ✅ (prevents steamwebhelper crash)
+   LC_TIME = C                    ✅ (safe date/time parsing)
+   LC_NUMERIC = C                 ✅ (safe number parsing)
    STEAM_DISABLE_CEF_SANDBOX = 1  ✅ (Wine compatibility)
    STEAM_RUNTIME = 0              ✅ (Wine compatibility)
-   DXVK_ASYNC = 1                 ✅ (UI performance)
+   DXVK_ASYNC = 1                 ✅ (UI performance for Steam CEF)
    ```
 
 3. **Look for Warnings:**
@@ -111,18 +108,10 @@ Steam's Chromium Embedded Framework (CEF) crashes when:
 
 #### Solution:
 
-**Critical Fix - Locale:**
+**Locale Configuration:**
 1. Config → Launcher Compatibility → Enable
-2. Locale Override → **English**
-3. Generate diagnostics → Verify `LC_ALL=en_US.UTF-8`
-
-**Important:** The `.UTF-8` suffix is CRITICAL. `en_US` alone will still crash!
-
-#### Verification:
-```
-✅ LC_ALL=en_US.UTF-8 (correct)
-❌ LC_ALL=en_US (missing .UTF-8 - will crash!)
-```
+2. By default (`Auto`), Whisky injects fine-grained `LC_TIME=C` and `LC_NUMERIC=C` to prevent CEF parser crashes while inheriting your host language from `LANG`.
+3. If steamwebhelper crashes persist with custom locales, manually set Locale Override to **English (en_US.UTF-8)** in Launcher Compatibility.
 
 #### If Still Crashes:
 1. Delete Steam installation
@@ -147,33 +136,18 @@ Steam's Chromium Embedded Framework (CEF) crashes when:
 - Happens with multiple games
 
 #### Root Cause:
-Wine's HTTP/2 implementation has connection pooling issues. Downloads use persistent connections that timeout incorrectly.
+Steam CDN availability, local connectivity, disk activity, and client state can each affect downloads. Check Steam logs and download activity to identify the cause.
 
 #### Solution:
 
-**Primary Fix:**
-1. Config → Launcher Compatibility
-2. Network Timeout → **90 seconds** (or higher)
-3. Restart Steam
-
-**In-Steam Workaround:**
+**In-Steam Checks:**
 1. Steam → Settings → Downloads
-2. Change "Download Region" to different location
-3. Pause and resume download
-4. Clear download cache
+2. Change the download region
+3. Pause and resume the download
+4. Clear the download cache if the stall persists
+5. Check disk activity and available space before treating a long unpacking phase as a network stall
 
-**Verify Environment:**
-```
-WINHTTP_CONNECT_TIMEOUT = 90000
-WINHTTP_RECEIVE_TIMEOUT = 180000
-WINE_FORCE_HTTP11 = 1
-WINE_MAX_CONNECTIONS_PER_SERVER = 10
-```
-
-**Why This Works:**
-- Longer timeouts prevent premature connection closure
-- HTTP/1.1 fallback avoids Wine's HTTP/2 bugs
-- Connection pooling limits prevent resource exhaustion
+Whisky samples download-file metadata at every depth on a background task. An unchanged sample is a stall hint; Steam's logs provide additional evidence.
 
 **Related Issues:**
 - whisky-app/whisky#1148 (Downloads stall)
@@ -196,15 +170,10 @@ Network keepalive timeouts and SSL handshake issues.
 
 #### Solution:
 
-1. **Increase Timeout:**
-   - Network Timeout → 120 seconds or higher
+1. **Verify Network Connectivity:**
+   - Check if download server or Steam network is responsive
 
-2. **Verify SSL Settings:**
-   - Generate diagnostics
-   - Check `WINE_ENABLE_SSL=1`
-   - Check `WINE_SSL_VERSION_MIN=TLS1.2`
-
-3. **Check macOS Network:**
+2. **Check macOS Network:**
    - System Settings → Network
    - Verify stable connection
    - Disable any VPN temporarily (test)
@@ -225,17 +194,15 @@ Network keepalive timeouts and SSL handshake issues.
 
 #### Solution:
 
-**Enable DXVK:**
-1. Config → DXVK → Toggle ON
-2. Enable "DXVK Async"
-3. Restart Steam
+**Modern Rendering Architecture (D3DMetal + Scoped DXVK):**
+Whisky isolates Steam's UI rendering from your games.
+- **Steam Client:** Automatically uses per-executable DXVK overrides for `steam.exe` and `steamwebhelper.exe` so the CEF UI renders smoothly without black screens or freezes.
+- **Games:** Use the bottle's global backend (default **Recommended / D3DMetal**), ensuring modern DirectX 11 and DirectX 12 games run with Apple's Metal Performance Shaders / GPTK.
+- **Do NOT enable global DXVK for the entire bottle** unless all games in the bottle specifically require DXVK (e.g., pure D3D9/D3D10 titles), as global DXVK disables D3DMetal and prevents Direct3D 12 games from launching.
 
 **Adjust DPI (if blurry):**
 1. Config → Wine → DPI Configuration
 2. Try 96 DPI (standard) or 192 DPI (Retina)
-
-**Why This Helps:**
-DXVK provides better GPU acceleration for Steam's UI rendering, reducing stuttering and improving visual quality.
 
 **Related Issues:**
 - whisky-app/whisky#1256 (Blurry text and stuttering)
@@ -260,9 +227,8 @@ DXVK provides better GPU acceleration for Steam's UI rendering, reducing stutter
    - If not already enabled
 
 3. **Check Graphics Settings:**
-   - Enable DXVK
+   - Keep backend on Recommended (D3DMetal) — Steam client automatically receives scoped DXVK
    - Disable Metal Validation (if enabled)
-   - Enable Sequoia Compat Mode (macOS 15+)
 
 4. **Verify CEF Sandbox:**
    - Generate diagnostics
@@ -293,8 +259,8 @@ Apple changed mach port and threading behavior in macOS 15.4, breaking Wine's pr
 
 #### Solution:
 
-1. **Enable Sequoia Compatibility:**
-   - Config → Metal → "Sequoia Compat Mode" ON
+1. **macOS 15 Sequoia Compatibility:**
+   - Handled automatically at the platform layer; no manual configuration toggle is required.
 
 2. **Verify macOS Fixes:**
    - Generate diagnostics
@@ -343,8 +309,7 @@ For specific games launched through Steam:
 **Status:** Generally works with compatibility mode
 
 **Tips:**
-- Enable DXVK for better performance
-- Use controller before launching Big Picture
+- Use controller before launching Big Picture (Steam client UI already uses scoped DXVK)
 - Exit via Steam menu, not force quit
 
 ### Steam Workshop
@@ -352,7 +317,7 @@ For specific games launched through Steam:
 **Status:** Should work with compatibility mode
 
 **If Workshop Fails:**
-- Increase network timeout to 180s
+- Check Steam download region and CDN availability
 - Check firewall isn't blocking downloads
 - Try manual mod installation as fallback
 
@@ -370,10 +335,11 @@ For specific games launched through Steam:
 
 ### For Best Frame Rates
 
-1. **DXVK Settings:**
-   - DXVK: ON
-   - DXVK Async: ON
+1. **Rendering Backend & DXVK Settings:**
+   - Keep bottle backend on Recommended (D3DMetal) for Direct3D 11/12 game support
+   - DXVK Async: ON (applies to scoped Steam UI and any DXVK-configured games)
    - DXVK HUD: OFF (unless debugging)
+   - Only switch bottle backend to DXVK if running exclusively DX9–DX11 titles without D3D12
 
 2. **Shader Cache:**
    - Enable shader cache (after first run)
@@ -392,10 +358,9 @@ For specific games launched through Steam:
 
 ### For Best Download Speed
 
-1. **Network Timeout:** 120-180 seconds
-2. **Download Region:** Choose geographically close server
-3. **Clear Download Cache:** Steam → Settings → Downloads → Clear Cache
-4. **Wired Connection:** Wi-Fi can cause issues
+1. **Download Region:** Choose a nearby server and compare another region when transfers stall
+2. **Download Cache:** Steam → Settings → Downloads → Clear Cache
+3. **Connection:** Compare a stable wired connection when diagnosing wireless interruptions
 
 ---
 
@@ -404,10 +369,8 @@ For specific games launched through Steam:
 Before reporting Steam issues, verify:
 
 - [ ] Launcher Compatibility Mode enabled
-- [ ] Locale set to English (en_US.UTF-8)
-- [ ] DXVK enabled
-- [ ] Network timeout at least 90 seconds
-- [ ] Sequoia Compat Mode (macOS 15+)
+- [ ] Auto locale, or an explicitly chosen locale override
+- [ ] Recommended backend (D3DMetal) selected (scoped DXVK applies to Steam)
 - [ ] Generated diagnostic report
 - [ ] Checked configuration warnings
 - [ ] Tested in clean bottle
@@ -506,8 +469,7 @@ Before reporting Steam issues, verify:
 
 **Configuration:**
 - Launcher Compatibility: Enabled
-- Network Timeout: 60 seconds
-- DXVK: Enabled
+- Backend: Recommended (D3DMetal)
 
 **Steps to Reproduce:**
 1. Queue game download (Cyberpunk 2077, 70GB)
@@ -519,7 +481,7 @@ Before reporting Steam issues, verify:
 
 **Attempted Fixes:**
 - Changed download region - no change
-- Increased timeout to 90s - still stalls
+- Changed the Steam download region - stall persists
 - Cleared download cache - no change
 ```
 
@@ -596,7 +558,7 @@ Before reporting Steam issues, verify:
 **A:** No, Steam reports you as playing on Windows via Wine.
 
 ### Q: Can I use Steam Workshop?
-**A:** Yes, generally works. Increase network timeout for large workshop items.
+**A:** Workshop transfers use Steam download settings. Check download region, cache, connectivity, and free disk space when an item stalls.
 
 ### Q: Does Steam overlay work in games?
 **A:** Game-dependent. Many games support it, some don't render correctly.
@@ -633,9 +595,8 @@ Windows Version: Windows 10
 ```
 Mode: Enabled
 Detection: Automatic
-Locale: English (en_US.UTF-8)
+Locale: Auto (host language with C time/numeric formatting)
 GPU Spoofing: Enabled (NVIDIA)
-Network Timeout: 90 seconds
 DXVK for Rockstar: Yes
 ```
 
@@ -658,7 +619,6 @@ AVX: Enabled (Apple Silicon if game requires)
 
 **Metal:**
 ```
-Sequoia Compat Mode: ON (macOS 15+)
 Metal HUD: OFF
 Validation: OFF
 ```
@@ -739,7 +699,7 @@ Based on upstream issue resolution:
 
 **Expected Success Rate with Launcher Compatibility:**
 - ✅ Steam Client: ~95% (steamwebhelper fix is very effective)
-- ✅ Downloads: ~90% (timeout fixes resolve most issues)
+- Downloads: check Steam client logs, transfer progress, and disk activity
 - ✅ Games: Varies by game (check ProtonDB)
 - ⚠️ Special Features: 50-70% (overlay, streaming, etc.)
 

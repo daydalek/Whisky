@@ -25,19 +25,21 @@ enum LibraryDetailLayoutStyle: String, CaseIterable, Identifiable {
     case hero
     case split
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     var label: LocalizedStringKey {
         switch self {
-        case .hero: return "library.detail.layout.hero"
-        case .split: return "library.detail.layout.split"
+        case .hero: "library.detail.layout.hero"
+        case .split: "library.detail.layout.split"
         }
     }
 
     var icon: String {
         switch self {
-        case .hero: return "sparkles"
-        case .split: return "sidebar.left"
+        case .hero: "sparkles"
+        case .split: "sidebar.left"
         }
     }
 }
@@ -47,21 +49,23 @@ enum SplitDetailTab: String, CaseIterable, Identifiable {
     case cover
     case metadata
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     var label: LocalizedStringKey {
         switch self {
-        case .overview: return "library.detail.tab.overview"
-        case .cover: return "library.detail.tab.cover"
-        case .metadata: return "library.detail.tab.metadata"
+        case .overview: "library.detail.tab.overview"
+        case .cover: "library.detail.tab.cover"
+        case .metadata: "library.detail.tab.metadata"
         }
     }
 
     var icon: String {
         switch self {
-        case .overview: return "text.alignleft"
-        case .cover: return "photo.artframe"
-        case .metadata: return "magnifyingglass"
+        case .overview: "text.alignleft"
+        case .cover: "photo.artframe"
+        case .metadata: "magnifyingglass"
         }
     }
 }
@@ -147,7 +151,7 @@ struct LibraryGameSheet: View {
             do {
                 metadata = try await store.load(for: item.metadataIdentity)
                 coverSettings = try await store.loadCoverSettings(for: item.metadataIdentity)
-                activity = try GameActivityStore.shared.load(for: item)
+                activity = try await GameActivityStore.shared.perform { [item] in try $0.load(for: item) }
             } catch {
                 self.error = error.localizedDescription
             }
@@ -155,7 +159,7 @@ struct LibraryGameSheet: View {
         .task(id: "activity:\(item.id)") {
             while !Task.isCancelled {
                 do {
-                    activity = try GameActivityStore.shared.load(for: item)
+                    activity = try await GameActivityStore.shared.perform { [item] in try $0.load(for: item) }
                     try await Task.sleep(for: .seconds(10))
                 } catch is CancellationError { return } catch {
                     self.error = error.localizedDescription
@@ -663,7 +667,9 @@ extension LibraryGameSheet {
                     Text(String(format: "%.1fx", coverSettings.zoom)).font(.caption).monospacedDigit()
                 }
                 Slider(value: $coverSettings.zoom, in: 1 ... 1.3, onEditingChanged: { editing in
-                    if !editing { persistCoverSettings() }
+                    if !editing {
+                        persistCoverSettings()
+                    }
                 })
                 .accessibilityLabel(Text("library.cover.zoom"))
             }
@@ -672,13 +678,17 @@ extension LibraryGameSheet {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("library.cover.horizontal").font(.caption)
                     Slider(value: $coverSettings.horizontalPosition, in: 0 ... 1, onEditingChanged: { editing in
-                        if !editing { persistCoverSettings() }
+                        if !editing {
+                            persistCoverSettings()
+                        }
                     })
                     .accessibilityLabel(Text("library.cover.horizontal"))
 
                     Text("library.cover.vertical").font(.caption)
                     Slider(value: $coverSettings.verticalPosition, in: 0 ... 1, onEditingChanged: { editing in
-                        if !editing { persistCoverSettings() }
+                        if !editing {
+                            persistCoverSettings()
+                        }
                     })
                     .accessibilityLabel(Text("library.cover.vertical"))
                 }
@@ -817,10 +827,14 @@ extension LibraryGameSheet {
     }
 
     func setRating(_ rating: Int?) {
-        do {
-            try GameActivityStore.shared.setRating(rating, for: item)
-            activity = try GameActivityStore.shared.load(for: item)
-        } catch { self.error = error.localizedDescription }
+        Task {
+            do {
+                activity = try await GameActivityStore.shared.perform { [item] store in
+                    try store.setRating(rating, for: item)
+                    return try store.load(for: item)
+                }
+            } catch { self.error = error.localizedDescription }
+        }
     }
 
     var usesDetailBackground: Bool {
@@ -977,7 +991,6 @@ struct LibraryCoverCard: View {
         .allowsHitTesting(false)
     }
 
-    @ViewBuilder
     private var statusPillRow: some View {
         HStack(spacing: 5) {
             if state == .running {
@@ -1229,7 +1242,8 @@ private struct LibraryMetadataArtwork: View {
         .task(id: localURL ?? url) {
             if let local = localURL {
                 guard let sampled = await IconCache.shared.sampledArtwork(for: local),
-                      !Task.isCancelled else { return }
+                      !Task.isCancelled
+                else { return }
                 cachedImage = sampled.image
                 cachedAmbient = sampled.ambient
                 palette = sampled.palette
@@ -1492,6 +1506,7 @@ struct LibraryTimelineRow<MenuContent: View>: View {
     let lastPlayed: Date?
     let state: LibraryEntryState
     var showsDateHeader: Bool = true
+    var groupTitle: String?
     var isFirstEntry: Bool = false
     var isLastEntry: Bool = false
     let details: () -> Void
@@ -1540,7 +1555,7 @@ struct LibraryTimelineRow<MenuContent: View>: View {
             cardContainer
                 .padding(.vertical, 6)
         }
-        .frame(maxWidth: 1160, alignment: .leading)
+        .frame(maxWidth: 1_160, alignment: .leading)
         .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
@@ -1551,13 +1566,22 @@ struct LibraryTimelineRow<MenuContent: View>: View {
         .task(id: "\(item.id):\(coverRevision)") {
             coverSettings = await (try? GameMetadataStore(directory: item.metadataDirectory)
                 .loadCoverSettings(for: item.metadataIdentity)) ?? GameCoverSettings()
-            activity = (try? GameActivityStore.shared.load(for: item)) ?? GameActivity()
+            let currentItem = item
+            activity = await (try? GameActivityStore.shared.perform {
+                try $0.load(for: currentItem)
+            }) ?? GameActivity()
         }
     }
 
     private var dateColumn: some View {
         Group {
-            if showsDateHeader {
+            if let groupTitle {
+                Text(groupTitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .help(groupTitle)
+            } else if showsDateHeader {
                 if let date = effectiveDate {
                     let currentYear = Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year)
                     VStack(alignment: .trailing, spacing: 2) {
@@ -1619,7 +1643,6 @@ struct LibraryTimelineRow<MenuContent: View>: View {
         .frame(width: 24)
     }
 
-    @ViewBuilder
     private var nodeView: some View {
         ZStack {
             Circle()
@@ -1636,7 +1659,7 @@ struct LibraryTimelineRow<MenuContent: View>: View {
                     .fill(Color.accentColor)
                     .frame(width: 8, height: 8)
                     .shadow(color: Color.accentColor.opacity(0.55), radius: 3)
-            } else if showsDateHeader {
+            } else if showsDateHeader || groupTitle != nil {
                 Circle()
                     .strokeBorder(
                         Color.primary.opacity(colorScheme == .dark ? 0.45 : 0.35),
@@ -1818,7 +1841,6 @@ extension LibraryTimelineRow {
         }
     }
 
-    @ViewBuilder
     var badgeRow: some View {
         HStack(spacing: 8) {
             if let bottleName {

@@ -97,7 +97,7 @@ public struct LibraryEntry: Identifiable, Hashable, Sendable {
 ///
 /// Deliberately takes a bottle URL and its settings rather than a ``Bottle``,
 /// so a source can run off the main actor and be tested without building one.
-public protocol LibrarySource {
+public protocol LibrarySource: Sendable {
     static var id: LibrarySourceID { get }
     static func items(inBottleAt url: URL, settings: BottleSettings) -> [LibraryEntry]
 }
@@ -107,7 +107,11 @@ public enum PinnedLibrarySource: LibrarySource {
     public static let id = LibrarySourceID.pinned
 
     public static func items(inBottleAt url: URL, settings: BottleSettings) -> [LibraryEntry] {
-        settings.pins.compactMap { pin in
+        items(inBottleAt: url, pins: settings.pins)
+    }
+
+    public static func items(inBottleAt url: URL, pins: [PinnedProgram]) -> [LibraryEntry] {
+        pins.compactMap { pin in
             guard let programURL = pin.url else { return nil }
             return LibraryEntry(
                 id: "pinned:\(programURL.path(percentEncoded: false))",
@@ -116,9 +120,6 @@ public enum PinnedLibrarySource: LibrarySource {
                 bottleURL: url,
                 source: id,
                 launch: .program(programURL),
-                // The app's existing definition of a launcher, reused rather
-                // than re-guessed: it is a pure string match, so this stays a
-                // settings read with nothing touching disk.
                 launcher: LauncherType.detect(from: programURL)
             )
         }
@@ -214,7 +215,7 @@ public enum SteamLibrarySource: LibrarySource {
 public enum LibraryCatalogue {
     /// Registered sources, in the order their entries are produced. Adding a
     /// launcher is this line plus the type.
-    public static let sources: [any LibrarySource.Type] = [
+    public static let sources: [any (LibrarySource & Sendable).Type] = [
         PinnedLibrarySource.self,
         SteamLibrarySource.self
     ]

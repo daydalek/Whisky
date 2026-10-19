@@ -38,13 +38,16 @@ public protocol SteamClientDriver: AnyObject {
     /// Starts the Steam client silently. Must return promptly: the client runs
     /// for the whole session and the orchestrator watches for it separately.
     func startClient(steamExe: URL)
+    /// Cancels preparation while preserving a client already handed off to Wine.
+    func cancelClientStartup()
 
     /// Applies Steam's launcher fixes to the bottle. Only called when
     /// ``SteamClientOrchestrator/shouldApplyLauncherFixes(settings:)`` says so.
     func applyLauncherFixes()
 
     /// Hands `-applaunch` for the game to the running client.
-    func launchGame(_ game: SteamGame) throws
+    @discardableResult
+    func launchGame(_ game: SteamGame) throws -> Task<Wine.ProgramRunResult, any Error>?
 
     /// Asks one of the bottle's processes to close.
     func killProcess(winePID: Int32) async
@@ -63,6 +66,13 @@ public protocol SteamClientDriver: AnyObject {
 }
 
 public extension SteamClientDriver {
+    func cancelClientStartup() {}
+
+    @discardableResult
+    func launchGame(_ game: SteamGame) throws -> Task<Wine.ProgramRunResult, any Error>? {
+        nil
+    }
+
     /// Non-Wine drivers (including test doubles) may have an intrinsically ready
     /// client. The production Wine driver always implements the log/session gate.
     func waitUntilReady(onState: @escaping @MainActor (SteamClientReadiness.State) -> Void) async throws {
@@ -95,13 +105,23 @@ public extension SteamClientDriver {
 /// hooks (download monitoring) without the kit knowing about it.
 @MainActor
 open class WineSteamClientDriver: SteamClientDriver {
+    typealias ClientStarter = @MainActor (URL, Bottle, @escaping @MainActor () -> Void) -> Task<Void, Never>
+
     public let bottle: Bottle
+    private let clientStarter: ClientStarter
+    private let clientStartup = SteamClientStartup()
     private var previousSession: String?
     private var startedClient = false
     private var receipts: [Int: SteamLaunchReceipt] = [:]
 
     public init(bottle: Bottle) {
         self.bottle = bottle
+        clientStarter = { SteamLauncher.startClient(steamExe: $0, bottle: $1, onHandoff: $2) }
+    }
+
+    init(bottle: Bottle, clientStarter: @escaping ClientStarter) {
+        self.bottle = bottle
+        self.clientStarter = clientStarter
     }
 
     /// Reads `ps` rather than spawning `tasklist.exe`, which is a whole Wine
@@ -149,7 +169,11 @@ open class WineSteamClientDriver: SteamClientDriver {
     open func startClient(steamExe: URL) {
         previousSession = SteamClientReadiness.snapshot(steamRoot: steamExe.deletingLastPathComponent()).session
         startedClient = true
-        SteamLauncher.startClient(steamExe: steamExe, bottle: bottle)
+        clientStartup.start { onHandoff in clientStarter(steamExe, bottle, onHandoff) }
+    }
+
+    open func cancelClientStartup() {
+        clientStartup.cancel()
     }
 
     open func waitUntilReady(
@@ -200,14 +224,16 @@ open class WineSteamClientDriver: SteamClientDriver {
 
     /// Shared with `whisky launch`: resolves the GameDB profile and the user's
     /// overrides, records the bottle for this App ID, and hands `-applaunch`
-    /// to the client. The returned task can outlive the game, so it is never
-    /// awaited. The install URL is already known, which saves a library rescan.
-    open func launchGame(_ game: SteamGame) throws {
+    /// to the client. The task reports request delivery; game appearance is
+    /// confirmed separately through process polling. The install URL is known,
+    /// which saves a library rescan.
+    @discardableResult
+    open func launchGame(_ game: SteamGame) throws -> Task<Wine.ProgramRunResult, any Error>? {
         if let root = SteamLibrary.detectInstall(bottleURL: bottle.url) {
             receipts[game.appId] = SteamLaunchReceipt(steamRoot: root)
         }
         // The orchestrator has started the client or found it running already.
-        _ = try SteamLauncher.launch(
+        return try SteamLauncher.launch(
             appId: game.appId, bottle: bottle, installURL: game.installURL, clientIsRunning: true
         )
     }
@@ -218,5 +244,32 @@ open class WineSteamClientDriver: SteamClientDriver {
 
     open func clientDidBecomeReady() {}
 
-    open func shutdown() {}
+    open func shutdown() {
+        cancelClientStartup()
+    }
+}
+
+/// Owns only pre-launch preparation. Handoff releases cancellation ownership
+/// so cancelling a waiting request preserves a client that has started.
+@MainActor
+final class SteamClientStartup {
+    private var task: Task<Void, Never>?
+    private var id: UUID?
+
+    func start(_ makeTask: (@escaping @MainActor () -> Void) -> Task<Void, Never>) {
+        cancel()
+        let id = UUID()
+        self.id = id
+        task = makeTask { [weak self] in
+            guard self?.id == id else { return }
+            self?.task = nil
+            self?.id = nil
+        }
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+        id = nil
+    }
 }

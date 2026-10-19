@@ -16,6 +16,7 @@
 //  If not, see https://www.gnu.org/licenses/.
 //
 
+import Darwin
 import Foundation
 import os.log
 
@@ -51,6 +52,7 @@ public struct GameRouting {
     }
 
     private let url: URL
+    private static let inProcessLock = NSRecursiveLock()
 
     /// Creates a routing store.
     ///
@@ -59,26 +61,52 @@ public struct GameRouting {
         self.url = url
     }
 
+    private func withFileLock<T>(exclusive: Bool, _ body: () throws -> T) rethrows -> T {
+        Self.inProcessLock.lock()
+        defer { Self.inProcessLock.unlock() }
+
+        let lockPath = url.path(percentEncoded: false) + ".lock"
+        let parentDir = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
+        let descriptor = open(lockPath, O_CREAT | O_RDWR, 0o666)
+        if descriptor >= 0 {
+            flock(descriptor, exclusive ? LOCK_EX : LOCK_SH)
+            defer {
+                flock(descriptor, LOCK_UN)
+                close(descriptor)
+            }
+            return try body()
+        } else {
+            return try body()
+        }
+    }
+
     /// The bottle a game was last launched from.
     public func bottleURL(forAppId appId: Int) -> URL? {
-        entries()[String(appId)]?.bottleURL
+        withFileLock(exclusive: false) {
+            entries()[String(appId)]?.bottleURL
+        }
     }
 
     /// When a game was last launched, if it has been since launch times were
     /// recorded.
     public func lastLaunched(forAppId appId: Int) -> Date? {
-        entries()[String(appId)]?.lastLaunched
+        withFileLock(exclusive: false) {
+            entries()[String(appId)]?.lastLaunched
+        }
     }
 
     /// All known routes, keyed by App ID.
     public func routes() -> [Int: URL] {
-        var result: [Int: URL] = [:]
-        for (key, route) in entries() {
-            if let appId = Int(key) {
-                result[appId] = route.bottleURL
+        withFileLock(exclusive: false) {
+            var result: [Int: URL] = [:]
+            for (key, route) in entries() {
+                if let appId = Int(key) {
+                    result[appId] = route.bottleURL
+                }
             }
+            return result
         }
-        return result
     }
 
     /// Every recorded launch time, keyed by App ID.
@@ -87,21 +115,25 @@ public struct GameRouting {
     /// store is a single plist: asking per game would re-read and re-parse it
     /// once per card.
     public func lastLaunches() -> [Int: Date] {
-        var result: [Int: Date] = [:]
-        for (key, route) in entries() {
-            if let appId = Int(key), let date = route.lastLaunched {
-                result[appId] = date
+        withFileLock(exclusive: false) {
+            var result: [Int: Date] = [:]
+            for (key, route) in entries() {
+                if let appId = Int(key), let date = route.lastLaunched {
+                    result[appId] = date
+                }
             }
+            return result
         }
-        return result
     }
 
     /// Records the bottle a game was launched from and when, replacing any
     /// previous route for that App ID (last launch wins).
     public func record(appId: Int, bottleURL: URL, at date: Date = Date()) {
-        var current = entries()
-        current[String(appId)] = Route(bottleURL: bottleURL, lastLaunched: date)
-        write(current)
+        withFileLock(exclusive: true) {
+            var current = entries()
+            current[String(appId)] = Route(bottleURL: bottleURL, lastLaunched: date)
+            write(current)
+        }
     }
 
     /// Forgets every route pointing at a bottle, e.g. when the bottle is
@@ -112,11 +144,13 @@ public struct GameRouting {
     /// routes that would have named this bottle are the ones removed. When
     /// nothing matches the store is left untouched (and never created).
     public func removeRoutes(toBottle bottleURL: URL) {
-        let target = Self.storedPath(for: bottleURL)
-        let current = entries()
-        let remaining = current.filter { Self.storedPath(for: $0.value.bottleURL) != target }
-        guard remaining.count != current.count else { return }
-        write(remaining)
+        withFileLock(exclusive: true) {
+            let target = Self.storedPath(for: bottleURL)
+            let current = entries()
+            let remaining = current.filter { Self.storedPath(for: $0.value.bottleURL) != target }
+            guard remaining.count != current.count else { return }
+            write(remaining)
+        }
     }
 
     /// The path a bottle is stored and compared under.

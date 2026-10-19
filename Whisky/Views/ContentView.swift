@@ -176,25 +176,6 @@ struct ContentView: View {
                 toast: $toast
             )
         }
-        .onChange(of: selected) { oldValue, _ in
-            // Check if previous bottle had running processes
-            guard let oldURL = oldValue,
-                  let oldBottle = bottleVM.bottles.first(where: { $0.url == oldURL })
-            else { return }
-
-            let count = ProcessRegistry.shared.getProcessCount(for: oldBottle)
-            guard count > 0 else { return }
-
-            switch oldBottle.settings.closeWithProcessesPolicy {
-            case .alwaysKeepRunning:
-                break
-            case .alwaysStop:
-                Wine.killBottle(bottle: oldBottle)
-                ProcessRegistry.shared.clearRegistry(for: oldBottle.url)
-            case .ask:
-                showProcessCloseAlert(for: oldBottle)
-            }
-        }
         .handlesExternalEvents(preferring: [], allowing: ["*"])
         .onOpenURL { url in
             if QuickLaunch.handle(url) {

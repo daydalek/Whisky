@@ -85,8 +85,7 @@ struct ConfigView: View {
             )
             LauncherConfigSection(
                 bottle: bottle,
-                isExpanded: $launcherSectionExpanded,
-                onViewDiagnostics: loadLatestDiagnosisAndView
+                isExpanded: $launcherSectionExpanded
             )
             InputConfigSection(bottle: bottle, isExpanded: $inputSectionExpanded)
             GraphicsConfigSection(bottle: bottle)

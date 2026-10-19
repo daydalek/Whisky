@@ -27,7 +27,9 @@ enum LibraryDisplayMode: String, CaseIterable, Identifiable {
     case timeline
     case classic
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 }
 
 // swiftlint:disable type_body_length
@@ -153,9 +155,11 @@ struct LibraryView: View {
             }
         }
         .onChange(of: sort, initial: true) {
-            model.sort = sort
+            model.sort = displayMode == .timeline ? sort : .name
         }
         .onChange(of: displayMode, initial: true) {
+            model.groupsLaunchers = displayMode != .timeline
+            model.sort = displayMode == .timeline ? sort : .name
             coverMode = displayMode != .classic
         }
         .onChange(of: coverMode) {
@@ -207,18 +211,20 @@ struct LibraryView: View {
         }
         ToolbarItem(placement: .automatic) {
             Menu {
-                Picker("library.sort", selection: $sort) {
-                    ForEach(LibrarySort.allCases) { option in
-                        Text(option.label).tag(option)
+                if displayMode == .timeline {
+                    Picker("library.sort", selection: $sort) {
+                        ForEach(LibrarySort.allCases) { option in
+                            Text(option.label).tag(option)
+                        }
                     }
-                }
-                .pickerStyle(.inline)
-                if displayMode == .covers {
+                    .pickerStyle(.inline)
                     Divider()
+                }
+                if displayMode == .covers {
                     Toggle("settings.library.mixedCoverLayout", isOn: $mixedCoverLayout)
                     Toggle("settings.library.singleLineTitles", isOn: $singleLineTitles)
+                    Divider()
                 }
-                Divider()
                 Button {
                     syncing = true
                     Task {
@@ -249,9 +255,9 @@ struct LibraryView: View {
                     Label("button.refresh", systemImage: "arrow.triangle.2.circlepath")
                 }
             } label: {
-                Label("library.sort", systemImage: "ellipsis.circle")
+                Label("library.options", systemImage: "ellipsis.circle")
             }
-            .help("library.sort.help")
+            .help("library.options")
             .accessibilityIdentifier("library.sort")
         }
     }
@@ -276,7 +282,7 @@ struct LibraryView: View {
         ScrollView {
             LazyVStack(alignment: isSidebarCollapsed ? .center : .leading, spacing: 0) {
                 ForEach(Array(visible.enumerated()), id: \.element.id) { index, row in
-                    let showsDate = shouldShowDateHeader(at: index, in: visible)
+                    let showsDate = sort == .recent && shouldShowDateHeader(at: index, in: visible)
                     LibraryTimelineRow(
                         item: row.item,
                         metadata: metadata[row.id],
@@ -284,13 +290,19 @@ struct LibraryView: View {
                         lastPlayed: row.lastPlayed,
                         state: model.state(for: row.item),
                         showsDateHeader: showsDate,
+                        groupTitle: sort == .bottle && (index == 0
+                            || visible[index - 1].item.bottleURL != row.item.bottleURL)
+                            ? (row.bottleName ?? bottles.first { $0.url == row.item.bottleURL }?.settings.name
+                                ?? row.item.bottleURL.lastPathComponent) : nil,
                         isFirstEntry: index == 0,
                         isLastEntry: index == visible.count - 1,
                         details: { detailRow = row },
                         launch: { model.launch(row, bottles: bottles) },
                         coverAspectRatio: coverAspectRatios[row.id],
                         coverAspectRatioDidLoad: { aspect in
-                            if coverAspectRatios[row.id] != aspect { coverAspectRatios[row.id] = aspect }
+                            if coverAspectRatios[row.id] != aspect {
+                                coverAspectRatios[row.id] = aspect
+                            }
                         },
                         onHoverCoverChanged: { hovering, url, dir in
                             updateHoveredCover(hovering: hovering, row: row, url: url, directory: dir)
@@ -302,7 +314,7 @@ struct LibraryView: View {
                     .contextMenu { menu(for: row) }
                 }
             }
-            .frame(maxWidth: isSidebarCollapsed ? 1120 : .infinity, alignment: isSidebarCollapsed ? .center : .leading)
+            .frame(maxWidth: isSidebarCollapsed ? 1_120 : .infinity, alignment: isSidebarCollapsed ? .center : .leading)
             .padding(.horizontal, isSidebarCollapsed ? 32 : 20)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: isSidebarCollapsed ? .center : .leading)
@@ -344,7 +356,9 @@ struct LibraryView: View {
                                     coverHeight: layout.coverHeight,
                                     adaptToFrame: true,
                                     coverAspectRatioDidLoad: { aspect in
-                                        if coverAspectRatios[row.id] != aspect { coverAspectRatios[row.id] = aspect }
+                                        if coverAspectRatios[row.id] != aspect {
+                                            coverAspectRatios[row.id] = aspect
+                                        }
                                     },
                                     onHoverCoverChanged: { hovering, url, dir in
                                         updateHoveredCover(hovering: hovering, row: row, url: url, directory: dir)
@@ -521,7 +535,9 @@ struct LibraryView: View {
                     coverAspectRatios[row.id] = aspect
                     metadata[row.id] = loaded[row.id]
                 }
-                if model.isHidden(row.item) || NetworkSettings.isOffline { continue }
+                if model.isHidden(row.item) || NetworkSettings.isOffline {
+                    continue
+                }
                 let bottleURL = row.item.bottleURL
                 let library = try libraries[bottleURL] ?? {
                     let loadedLibrary = try FolderGameLibrary.load(bottleURL: bottleURL)

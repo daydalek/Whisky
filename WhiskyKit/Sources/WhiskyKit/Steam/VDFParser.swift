@@ -96,25 +96,31 @@ public enum VDFParser {
     }
 
     private struct Scanner {
-        let characters: [Character]
-        var index = 0
+        let text: String
+        var index: String.Index
         var line = 1
 
         init(text: String) {
-            self.characters = Array(text)
+            self.text = text
+            self.index = text.startIndex
         }
 
         mutating func skipWhitespaceAndComments() {
-            while index < characters.count {
-                let character = characters[index]
+            while index < text.endIndex {
+                let character = text[index]
                 if character == "\n" {
                     line += 1
-                    index += 1
+                    index = text.index(after: index)
                 } else if character.isWhitespace {
-                    index += 1
-                } else if character == "/", index + 1 < characters.count, characters[index + 1] == "/" {
-                    while index < characters.count, characters[index] != "\n" {
-                        index += 1
+                    index = text.index(after: index)
+                } else if character == "/" {
+                    let nextIndex = text.index(after: index)
+                    if nextIndex < text.endIndex, text[nextIndex] == "/" {
+                        while index < text.endIndex, text[index] != "\n" {
+                            index = text.index(after: index)
+                        }
+                    } else {
+                        break
                     }
                 } else {
                     break
@@ -125,14 +131,14 @@ public enum VDFParser {
         /// Returns the next token, or `nil` at end of document.
         mutating func nextToken() throws -> Token? {
             skipWhitespaceAndComments()
-            guard index < characters.count else { return nil }
+            guard index < text.endIndex else { return nil }
 
-            switch characters[index] {
+            switch text[index] {
             case "{":
-                index += 1
+                index = text.index(after: index)
                 return .openBrace
             case "}":
-                index += 1
+                index = text.index(after: index)
                 return .closeBrace
             case "\"":
                 return try .string(scanQuotedString())
@@ -143,28 +149,27 @@ public enum VDFParser {
 
         private mutating func scanQuotedString() throws -> String {
             let startLine = line
-            index += 1 // consume the opening quote
+            index = text.index(after: index) // consume the opening quote
             var value = ""
 
-            while index < characters.count {
-                let character = characters[index]
+            while index < text.endIndex {
+                let character = text[index]
                 switch character {
                 case "\"":
-                    index += 1
+                    index = text.index(after: index)
                     return value
                 case "\\":
-                    // Escape: append the next character literally. This maps
-                    // \\ to \ and \" to " — the two escapes Valve emits.
-                    guard index + 1 < characters.count else {
+                    let nextIndex = text.index(after: index)
+                    guard nextIndex < text.endIndex else {
                         throw VDFParseError.unterminatedString(line: startLine)
                     }
-                    value.append(characters[index + 1])
-                    index += 2
+                    value.append(text[nextIndex])
+                    index = text.index(after: nextIndex)
                 case "\n":
                     throw VDFParseError.unterminatedString(line: startLine)
                 default:
                     value.append(character)
-                    index += 1
+                    index = text.index(after: index)
                 }
             }
             throw VDFParseError.unterminatedString(line: startLine)

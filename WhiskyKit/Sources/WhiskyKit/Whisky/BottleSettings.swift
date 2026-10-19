@@ -26,7 +26,7 @@ import SemanticVersion
 /// Pinned programs appear in a prominent location in the UI for fast access.
 /// The pin tracks whether the program is on a removable volume so it can
 /// handle disconnected drives gracefully.
-public struct PinnedProgram: Codable, Hashable, Equatable {
+public struct PinnedProgram: Codable, Hashable, Equatable, Sendable {
     /// The display name for the pinned program.
     public var name: String
     /// The URL to the program's executable file.
@@ -328,10 +328,11 @@ public struct BottleSettings: Codable, Equatable {
         set { metalConfig.metalValidation = newValue }
     }
 
-    /// Whether macOS Sequoia (15.x) compatibility mode is enabled.
+    /// Whether macOS Sequoia (15.x) compatibility mode was recorded.
     ///
-    /// Applies additional fixes for graphics and launcher issues
-    /// specific to macOS 15.x. Enable if experiencing problems.
+    /// - Note: Obsolete/placebo. Platform-layer fixes for macOS 15 Sequoia (such as
+    ///   `MTL_DEBUG_LAYER` and `WINEFSYNC`) are now applied natively at the platform layer.
+    ///   Retained for backward compatibility with existing configuration plists.
     public var sequoiaCompatMode: Bool {
         get { metalConfig.sequoiaCompatMode }
         set { metalConfig.sequoiaCompatMode = newValue }
@@ -594,9 +595,7 @@ public struct BottleSettings: Codable, Equatable {
         set { launcherConfig.gpuVendor = newValue }
     }
 
-    /// Network timeout in milliseconds for launcher downloads.
-    ///
-    /// Addresses Steam download stalls and connection timeouts.
+    /// Legacy stored timeout, retained for configuration compatibility.
     public var networkTimeout: Int {
         get { launcherConfig.networkTimeout }
         set { launcherConfig.networkTimeout = newValue }
@@ -1013,7 +1012,6 @@ public struct BottleSettings: Codable, Equatable {
     /// - Merges launcher-specific environment overrides
     /// - Applies locale fixes for steamwebhelper crashes
     /// - Configures GPU spoofing for launcher checks
-    /// - Sets network timeouts for download reliability
     ///
     /// - Parameters:
     ///   - builder: The environment builder to populate.
@@ -1091,19 +1089,6 @@ public struct BottleSettings: Codable, Equatable {
                 }
             }
         }
-
-        // Network timeout configuration
-        // Applied if user customized timeout (including launcher-set values)
-        // Launcher-specific timeouts are set via bottle.settings.networkTimeout by
-        // LauncherFixes.apply(), giving users control via UI slider
-        if networkTimeout != 60_000 { // If not default (60s)
-            builder.set("WINHTTP_CONNECT_TIMEOUT", String(networkTimeout), layer: .launcherManaged)
-            builder.set("WINHTTP_RECEIVE_TIMEOUT", String(networkTimeout * 2), layer: .launcherManaged)
-        }
-
-        // The connection-pooling and SSL variables that used to be set here
-        // (WINE_MAX_CONNECTIONS_PER_SERVER and friends) exist in no Wine or
-        // WineCX source; nothing ever read them.
 
         return launcherDLLOverrides
     }

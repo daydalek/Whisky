@@ -89,17 +89,21 @@ public struct FolderGameLibrary: Codable, Sendable { // swiftlint:disable:this t
     // swiftlint:disable cyclomatic_complexity function_body_length
     /// Only direct child folders, never executable discovery or recursive walks.
     /// An unavailable root keeps its last known entries rather than deleting them.
-    public mutating func scan(bottleURL: URL, steamDirectories: [URL]) -> [LibraryEntry] {
+    public mutating func scan(
+        bottleURL: URL, steamDirectories: [URL],
+        onScanFailure: (URL, any Error) -> Void = { _, _ in }
+    ) -> [LibraryEntry] {
         let fileManager = FileManager.default
         var found = Set<String>()
         for rootKey in roots {
             let firstScan = !initializedRoots.contains(rootKey)
             let root = Self.url(for: rootKey, bottleURL: bottleURL)
-            guard let children = try? fileManager.contentsOfDirectory(
+            let children: [URL]
+            do { children = try fileManager.contentsOfDirectory(
                 at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
                 options: [.skipsHiddenFiles]
-            )
-            else {
+            ) } catch {
+                onScanFailure(root, error)
                 found.formUnion(knownFolders.filter {
                     let childURL = Self.url(for: $0, bottleURL: bottleURL)
                     return childURL.deletingLastPathComponent().standardizedFileURL.path
@@ -109,9 +113,16 @@ public struct FolderGameLibrary: Codable, Sendable { // swiftlint:disable:this t
                 continue
             }
             for child in children {
-                guard let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
-                      values.isDirectory == true, values.isSymbolicLink != true
-                else { continue }
+                let values: URLResourceValues
+                do { values = try child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) } catch {
+                    onScanFailure(child, error)
+                    let key = Self.key(for: child, bottleURL: bottleURL)
+                    if knownFolders.contains(key), !isExcluded(child, key: key, bottleURL: bottleURL) {
+                        found.insert(key)
+                    }
+                    continue
+                }
+                guard values.isDirectory == true, values.isSymbolicLink != true else { continue }
                 let canonical = child.resolvingSymlinksInPath().standardizedFileURL.path
                 // Do not treat a Steam install, its libraries, or an installed
                 // Steam game as a second direct-executable launch path.
@@ -134,8 +145,11 @@ public struct FolderGameLibrary: Codable, Sendable { // swiftlint:disable:this t
                 let canonical = folder.resolvingSymlinksInPath().standardizedFileURL.path
                 guard !isSteamDirectory(canonical, steamDirectories: steamDirectories) else { continue }
                 found.insert(normalizedKey)
-            } else if knownFolders.contains(normalizedKey) || knownFolders.contains(assignedKey) {
-                found.insert(normalizedKey)
+            } else {
+                onScanFailure(folder, CocoaError(.fileReadUnknown))
+                if knownFolders.contains(normalizedKey) || knownFolders.contains(assignedKey) {
+                    found.insert(normalizedKey)
+                }
             }
         }
         knownFolders = found.sorted()

@@ -29,9 +29,11 @@ private let launcherConfigLogger = Logger(
 struct LauncherConfigSection: View {
     @ObservedObject var bottle: Bottle
     @Binding var isExpanded: Bool
-    /// Opens the latest diagnosis; supplied by ConfigView, which owns that sheet.
-    var onViewDiagnostics: () -> Void = {}
+    var onViewDiagnostics: (() -> Void)?
     @State private var overridesExpanded: Bool = false
+    @State private var showingDiagnosticsSheet: Bool = false
+    @State private var diagnosticReport: String = ""
+    @State private var isGeneratingReport: Bool = false
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -50,6 +52,13 @@ struct LauncherConfigSection: View {
             .padding(.vertical, 8)
         } label: {
             launcherSectionLabel
+        }
+        .sheet(isPresented: $showingDiagnosticsSheet) {
+            DiagnosticsReportView(
+                title: "Launcher Diagnostics - \(bottle.settings.name)",
+                report: diagnosticReport,
+                defaultFilenamePrefix: "launcher-diagnostics-\(bottle.settings.name)"
+            )
         }
     }
 
@@ -98,9 +107,6 @@ extension LauncherConfigSection {
 
         Divider()
 
-        // Network configuration
-        networkControls
-
         // Rockstar is the only launcher that requires DXVK; every launcher
         // already resolves to DXVK under the Recommended backend
         Toggle("Use DXVK for Rockstar Games Launcher", isOn: $bottle.settings.autoEnableDXVK)
@@ -124,12 +130,27 @@ extension LauncherConfigSection {
         HStack {
             Spacer()
             Button {
-                onViewDiagnostics()
+                if let onViewDiagnostics {
+                    onViewDiagnostics()
+                } else {
+                    isGeneratingReport = true
+                    Task {
+                        diagnosticReport = await LauncherDiagnostics.generateDiagnosticReport(for: bottle)
+                        isGeneratingReport = false
+                        showingDiagnosticsSheet = true
+                    }
+                }
             } label: {
-                Label("View Diagnostics", systemImage: "stethoscope")
+                if isGeneratingReport {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Label("View Diagnostics", systemImage: "stethoscope")
+                }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .disabled(isGeneratingReport)
             Spacer()
         }
 
@@ -237,8 +258,8 @@ extension LauncherConfigSection {
     private var gpuSpoofingControls: some View {
         Toggle("GPU Spoofing", isOn: $bottle.settings.gpuSpoofing)
             .help("""
-            Reports high-end GPU to pass launcher compatibility checks. \
-            Fixes EA App black screen and "GPU not supported" errors.
+            Sets the PCI identity reported by WineD3D for launcher compatibility checks. \
+            The reported capabilities depend on the active graphics backend.
             """)
 
         if bottle.settings.gpuSpoofing {
@@ -247,31 +268,10 @@ extension LauncherConfigSection {
                     Text(vendor.modelName).tag(vendor)
                 }
             }
-            .help("NVIDIA (recommended) provides best compatibility across launchers")
-        }
-    }
-
-    private var networkControls: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Network Timeout:")
-                Spacer()
-                Text("\(bottle.settings.networkTimeout / 1_000)s")
-                    .foregroundColor(.secondary)
-            }
-
-            Slider(
-                value: Binding(
-                    get: { Double(bottle.settings.networkTimeout) },
-                    set: { bottle.settings.networkTimeout = Int($0) }
-                ),
-                in: 30_000 ... 180_000,
-                step: 15_000
-            )
-
-            Text("Fixes Steam download stalls and connection timeouts")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            .help("""
+            Reports the selected PCI vendor and device through WineD3D. \
+            Reopen the launcher after changing this setting.
+            """)
         }
     }
 

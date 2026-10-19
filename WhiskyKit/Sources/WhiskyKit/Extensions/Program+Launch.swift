@@ -85,6 +85,7 @@ extension Program {
     ) async throws -> Wine.PreparedLaunch {
         try await Wine.prepareBottlePrefix(bottle: bottle, bootstrapper: bootstrapper)
         await Wine.syncAudioRegistry(bottle: bottle)
+        await Wine.syncGPURegistry(bottle: bottle)
         return try await Wine.prepareProgramLaunch(
             at: url, args: args ?? settings.arguments.split { $0.isWhitespace }.map(String.init),
             bottle: bottle, environment: generateEnvironment(),

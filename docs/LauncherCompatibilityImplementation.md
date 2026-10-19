@@ -78,9 +78,8 @@ The implementation follows a layered architecture with clear separation of conce
 **Sample Environment Overrides:**
 ```swift
 Steam:
-- LC_ALL=en_US.UTF-8 (fixes steamwebhelper crashes)
+- LC_TIME=C / LC_NUMERIC=C (fixes steamwebhelper ICU crashes while preserving host LANG; LC_ALL when overridden)
 - STEAM_DISABLE_CEF_SANDBOX=1 (Wine compatibility)
-- WINHTTP_CONNECT_TIMEOUT=90000 (download reliability)
 
 Rockstar:
 - WINE_LARGE_ADDRESS_AWARE=1 (launcher initialization)
@@ -120,7 +119,7 @@ are read by no shipped runtime.
 - `launcherLocale: Locales` - Locale override
 - `gpuSpoofing: Bool` - GPU spoofing enable
 - `gpuVendor: GPUVendor` - Vendor selection
-- `networkTimeout: Int` - Connection timeout
+- `networkTimeout: Int` - Legacy serialized field retained for configuration compatibility
 - `autoEnableDXVK: Bool` - Force DXVK in a bottle whose launcher requires it (Rockstar only)
 
 **Serialization:** Fully Codable with PropertyListEncoder
@@ -285,12 +284,7 @@ Epic Games:
    - Model name display
    - Compatibility explanation
 
-7. **Network Configuration**
-   - Timeout slider (30-180 seconds)
-   - Current value display
-   - Download fix explanation
-
-8. **Use DXVK for Rockstar Games Launcher**
+7. **Use DXVK for Rockstar Games Launcher**
    - Rockstar is the only launcher with `requiresDXVK`; other launchers get DXVK from the Recommended backend
 
 9. **Diagnostics Button**
@@ -323,31 +317,31 @@ LauncherConfigSection(bottle: bottle, isExpanded: $launcherSectionExpanded)
 
 **Position:** Between WineConfigSection and DXVKConfigSection
 
-#### BottleView.swift (Modified)
-**Changes:** Auto-detect launchers on program run
+#### BottleActionBar.swift (Modified)
+**Changes:** Auto-detect and apply launcher fixes during bottle view load
 
 **Logic Added:**
 ```swift
-if bottle.settings.launcherCompatibilityMode &&
-   bottle.settings.launcherMode == .auto {
-    if let detectedLauncher = LauncherDetection.detectLauncher(from: url) {
-        if bottle.settings.detectedLauncher != detectedLauncher {
-            LauncherDetection.applyLauncherFixes(
-                for: bottle,
-                launcher: detectedLauncher
-            )
-        }
-    }
+.task {
+    LauncherFixes.detectAndApply(to: bottle)
 }
 ```
 
-**Timing:** Before Wine.runProgram() call
+**Timing:** On bottle action bar view appearance
 
 #### FileOpenView.swift (Modified)
 **Changes:** Auto-detect launchers on file open
 
-**Implementation:** Same detection logic as BottleView
+**Implementation:** Runs `LauncherFixes.detectAndApply(to: bottle)` on program launch
 **Context:** Task.detached with MainActor.run wrapper
+
+## Steam launch and library state
+
+- Launch confirmation monitors the game executable separately from the `steam.exe -applaunch` request. Request failures are reported promptly; successful requests continue to wait for the game. Timeout and cancellation remain effective while the request is running.
+- Download sampling captures recursive file metadata on a cancellable background task, including writes to existing files in deep asset directories. Failed scans preserve the last reliable sample and reset stall timing.
+- The library cache retains parsed Windows paths from VDF files. Each lookup checks current volume availability and drive mappings; enumeration revisions include resolved library paths.
+- Tracking refreshes the current selected executable each polling cycle and before stopping a game.
+- GPU synchronization imports the WineD3D PCI vendor/device IDs before standalone programs, Steam launch requests, and first Steam client startup. The checked registry import must succeed before a versioned marker is saved. Import failures retain the previous marker for a later retry. Actual adapter reporting depends on the active graphics backend.
 
 ## Testing Coverage
 
@@ -392,7 +386,7 @@ if bottle.settings.launcherCompatibilityMode &&
 ✅ `testBottleSettingsLauncherConfigModification`
 ✅ `testEnvironmentVariablesWithLauncherCompatibility`
 ✅ `testEnvironmentVariablesWithoutLauncherCompatibility`
-✅ `testNetworkTimeoutConfiguration`
+✅ `testLegacyTimeoutRemainsStoredWithoutRuntimeOverrides`
 ✅ `testAutoEnableDXVKForRockstar`
 ✅ `testSSLTLSConfiguration`
 
@@ -418,7 +412,7 @@ Total time: 0.523 seconds
 - [x] Auto-enable DXVK for Rockstar
 - [x] GPU spoofing environment validation
 - [x] Locale override application
-- [x] Network timeout slider behavior
+- [x] Legacy timeout configurations remain decodable
 - [x] Detection mode switching (Auto/Manual)
 
 ## Known Issues & Limitations
@@ -433,10 +427,8 @@ Total time: 0.523 seconds
 **Mitigation:** Clearly documented in help text  
 **Impact:** Low - launchers only check capabilities at startup
 
-### 3. Network Timeout Defaults
-**Issue:** Single timeout value for all operations  
-**Mitigation:** Configurable slider (30-180s)  
-**Future:** Per-operation timeout configuration
+### 3. Network Diagnostics
+Steam's client and the selected Wine networking APIs own transfer timeouts. Whisky retains the old serialized timeout field for compatibility and directs download troubleshooting to Steam's download settings and logs.
 
 ### 4. macOS Version Support
 **Issue:** Pre-15.0 systems get limited benefit  

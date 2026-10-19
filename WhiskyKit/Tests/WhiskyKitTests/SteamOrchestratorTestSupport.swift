@@ -40,6 +40,7 @@ final class FakeSteamClientDriver: SteamClientDriver {
     private(set) var listCalls = 0
     private(set) var hostCalls = 0
     private(set) var startClientCalls = 0
+    private(set) var cancelClientStartupCalls = 0
     private(set) var fixesCalls = 0
     private(set) var launched: [Int] = []
     private(set) var killed: [Int32] = []
@@ -75,16 +76,22 @@ final class FakeSteamClientDriver: SteamClientDriver {
         onStartClient?()
     }
 
+    func cancelClientStartup() {
+        cancelClientStartupCalls += 1
+    }
+
     func applyLauncherFixes() {
         fixesCalls += 1
     }
 
-    func launchGame(_ game: SteamGame) throws {
+    @discardableResult
+    func launchGame(_ game: SteamGame) throws -> Task<Wine.ProgramRunResult, any Error>? {
         if let launchFailure {
             throw launchFailure
         }
         launched.append(game.appId)
         onLaunchGame?(game)
+        return nil
     }
 
     func killProcess(winePID: Int32) async {

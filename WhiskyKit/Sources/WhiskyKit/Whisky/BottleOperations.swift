@@ -198,15 +198,15 @@ public enum BottleOperations {
             progress?(.copying(bytesCopied: 0, totalBytes: totalBytes))
             do {
                 try FileManager.default.copyItem(at: sourceURL, to: newBottleDir)
+                progress?(.copying(bytesCopied: totalBytes, totalBytes: totalBytes))
+
+                // Register a clone after transient artifact cleanup succeeds.
+                try Self.removeTransientArtifacts(in: newBottleDir)
             } catch {
                 // Clean up partial clone on failure
-                try? FileManager.default.removeItem(at: newBottleDir)
+                Self.removeFailedDuplicate(at: newBottleDir)
                 throw error
             }
-            progress?(.copying(bytesCopied: totalBytes, totalBytes: totalBytes))
-
-            // Remove transient artifacts from the clone
-            Self.removeTransientArtifacts(in: newBottleDir)
         }.value
 
         // Phase: updating metadata
@@ -350,7 +350,7 @@ public enum BottleOperations {
     ///
     /// Deletes old log files, diagnosis history sidecars, and temp files so the
     /// duplicate starts clean.
-    private static func removeTransientArtifacts(in bottleDir: URL) {
+    private static func removeTransientArtifacts(in bottleDir: URL) throws {
         let fileManager = FileManager.default
 
         // Remove .log files from the logs directory
@@ -361,7 +361,7 @@ public enum BottleOperations {
             options: [.skipsSubdirectoryDescendants]
         ) {
             for case let fileURL as URL in logEnumerator where fileURL.pathExtension == "log" {
-                try? fileManager.removeItem(at: fileURL)
+                try fileManager.removeItem(at: fileURL)
             }
         }
 
@@ -373,8 +373,25 @@ public enum BottleOperations {
         ) {
             for case let fileURL as URL in enumerator
                 where fileURL.lastPathComponent.hasSuffix(".diagnosis-history.plist") {
-                try? fileManager.removeItem(at: fileURL)
+                try fileManager.removeItem(at: fileURL)
             }
         }
+    }
+
+    /// Makes copied directories removable during rollback, including read-only source directories.
+    private static func removeFailedDuplicate(at directory: URL) {
+        let fileManager = FileManager.default
+        try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        if let enumerator = fileManager.enumerator(
+            at: directory, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        ) {
+            for case let url as URL in enumerator {
+                guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                      values.isDirectory == true, values.isSymbolicLink != true
+                else { continue }
+                try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+            }
+        }
+        try? fileManager.removeItem(at: directory)
     }
 }
