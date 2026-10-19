@@ -1530,32 +1530,14 @@ struct LibraryTimelineRow<MenuContent: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
             dateColumn
-                .frame(width: 76, alignment: .trailing)
-                .padding(.trailing, 12)
 
             timelineAxisColumn
 
-            HStack(alignment: .center, spacing: 26) {
-                coverShowcaseSlot
-
-                editorialColumn
-
-                Spacer(minLength: 28)
-
-                actionColumn
-            }
-            .padding(.leading, 20)
-            .padding(.trailing, 28)
-            .padding(.vertical, 18)
-            .frame(maxWidth: 1080, alignment: .leading)
-
-            Spacer(minLength: 0)
+            cardContainer
+                .padding(.leading, 18)
+                .padding(.vertical, 6)
         }
-        .fixedSize(horizontal: false, vertical: true)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(isHovered ? Color.primary.opacity(colorScheme == .dark ? 0.045 : 0.025) : Color.clear)
-        )
+        .frame(maxWidth: 1100, alignment: .leading)
         .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
@@ -1570,37 +1552,78 @@ struct LibraryTimelineRow<MenuContent: View>: View {
         }
     }
 
-    @ViewBuilder
+    private var cardContainer: some View {
+        HStack(alignment: .center, spacing: 20) {
+            coverShowcaseSlot
+
+            editorialColumn
+
+            Spacer(minLength: 20)
+
+            actionColumn
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(
+                    Color.primary.opacity(
+                        colorScheme == .dark
+                            ? (isHovered ? 0.08 : 0.035)
+                            : (isHovered ? 0.05 : 0.02)
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(
+                    Color.primary.opacity(
+                        colorScheme == .dark
+                            ? (isHovered ? 0.16 : 0.07)
+                            : (isHovered ? 0.10 : 0.05)
+                    ),
+                    lineWidth: 0.5
+                )
+        )
+    }
+
     private var dateColumn: some View {
-        if showsDateHeader {
-            if let date = effectiveDate {
-                let currentYear = Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year)
-                VStack(alignment: .trailing, spacing: 2) {
-                    if !currentYear {
-                        Text(date.formatted(.dateTime.year()))
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundStyle(.tertiary)
+        Group {
+            if showsDateHeader {
+                if let date = effectiveDate {
+                    let currentYear = Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        if !currentYear {
+                            Text(date.formatted(.dateTime.year()))
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundStyle(.tertiary)
+                                .monospacedDigit()
+                        }
+                        Text(date.formatted(.dateTime.month().day()))
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
-                    Text(date.formatted(.dateTime.month().day()))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-            } else {
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("library.timeline.unplayed")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                    if let release = metadata?.releaseDate, !release.isEmpty {
-                        Text(release)
-                            .font(.system(size: 10, weight: .regular))
-                            .foregroundStyle(.quaternary)
-                            .lineLimit(1)
+                } else {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("library.timeline.unplayed")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                        if let release = metadata?.releaseDate, !release.isEmpty {
+                            Text(release)
+                                .font(.system(size: 10, weight: .regular))
+                                .foregroundStyle(.quaternary)
+                                .lineLimit(1)
+                        }
                     }
                 }
+            } else {
+                Color.clear
             }
         }
+        .frame(width: 80, alignment: .trailing)
+        .padding(.trailing, 12)
     }
 
     private var timelineAxisColumn: some View {
@@ -1760,7 +1783,7 @@ extension LibraryTimelineRow {
                     .foregroundStyle(.secondary.opacity(0.85))
                     .lineLimit(3)
                     .lineSpacing(3.5)
-                    .frame(maxWidth: 620, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }

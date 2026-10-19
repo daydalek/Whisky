@@ -48,6 +48,7 @@ struct LibraryView: View {
     /// left the button spinning without rebuilding anything.
     @Binding var refresh: Bool
     @Binding var coverMode: Bool
+    var isSidebarCollapsed: Bool = false
 
     @AppStorage("libraryDisplayMode") private var displayMode: LibraryDisplayMode = .covers
     @AppStorage("libraryShowHiddenGames") private var showHiddenGames = false
@@ -273,7 +274,7 @@ struct LibraryView: View {
 
     private var timelineView: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: isSidebarCollapsed ? .center : .leading, spacing: 0) {
                 ForEach(Array(visible.enumerated()), id: \.element.id) { index, row in
                     let showsDate = shouldShowDateHeader(at: index, in: visible)
                     LibraryTimelineRow(
@@ -301,8 +302,11 @@ struct LibraryView: View {
                     .contextMenu { menu(for: row) }
                 }
             }
-            .padding(.horizontal, 16)
+            .frame(maxWidth: isSidebarCollapsed ? 1040 : .infinity, alignment: isSidebarCollapsed ? .center : .leading)
+            .padding(.horizontal, isSidebarCollapsed ? 32 : 20)
             .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: isSidebarCollapsed ? .center : .leading)
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isSidebarCollapsed)
         }
     }
 

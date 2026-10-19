@@ -39,9 +39,10 @@ struct ContentView: View {
     @State var toast: ToastData?
     @State var corruptRegistryBackupURL: URL?
     @State private var updateWine = false
+    @State var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
         } detail: {

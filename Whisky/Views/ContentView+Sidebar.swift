@@ -132,7 +132,12 @@ extension ContentView {
                     .id(bottle.url)
             }
         } else if bottleVM.countActive() > 0 {
-            LibraryView(selectedBottle: $selected, refresh: $triggerRefresh, coverMode: $libraryCoverMode)
+            LibraryView(
+                selectedBottle: $selected,
+                refresh: $triggerRefresh,
+                coverMode: $libraryCoverMode,
+                isSidebarCollapsed: columnVisibility == .detailOnly
+            )
         } else {
             if bottleVM.bottles.isEmpty || bottleVM.countActive() == 0, bottlesLoaded {
                 VStack {
