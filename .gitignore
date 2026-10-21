@@ -126,5 +126,9 @@ WhiskyKit/Sources/WhiskyKit/Discord/Local/client-id.txt
 # design reference for the Linux UI; it is not part of the shipped tree.
 /demos/
 
+# Rust build output for the tracked GPUI app. The demo's own .gitignore does not
+# apply once the sources live under apps/.
+/apps/whisky-gpui/target/
+
 # Worktree bootstrap payload (a packaged baseline tarball, ~14 MB).
 /.worktree-setup/

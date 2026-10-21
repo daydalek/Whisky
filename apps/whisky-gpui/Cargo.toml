@@ -1,0 +1,18 @@
+[package]
+name = "whisky-gpui"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+gpui-kit = "=0.8.0"
+
+[features]
+visual-test = ["gpui-kit/test-support"]
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+lto = "thin"
+
