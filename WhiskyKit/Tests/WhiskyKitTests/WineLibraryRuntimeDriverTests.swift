@@ -109,7 +109,7 @@ struct WineLibraryRuntimeDriverTests {
         runtime.stopTracking()
     }
 
-    @Test func folderLaunchRequiresAnExplicitExecutableAndUnknownContainersExposeNoCapabilities() async throws {
+    @Test func folderLaunchWithoutARecordedExecutableFailsAndUnknownContainersExposeNoCapabilities() async throws {
         let (bottle, _) = try SteamOrchestratorFixture.makeBottle()
         defer { try? FileManager.default.removeItem(at: bottle.url) }
         let folder = bottle.url.appendingPathComponent("Folder")
@@ -140,6 +140,48 @@ struct WineLibraryRuntimeDriverTests {
             launch: .program(folder)
         )
         #expect(driver.capabilities(for: unknown).isEmpty)
+        driver.stopTracking()
+    }
+
+    /// A folder entry names its folder, so the launch reads the executable the
+    /// user picked out of the folder library instead of failing.
+    @Test func folderLaunchRunsTheExecutableRecordedForIt() async throws {
+        let (bottle, _) = try SteamOrchestratorFixture.makeBottle()
+        defer { try? FileManager.default.removeItem(at: bottle.url) }
+        let folder = bottle.url.appendingPathComponent("Folder")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let executable = folder.appendingPathComponent("game.exe")
+        try Data().write(to: executable)
+        let folderKey = FolderGameLibrary.key(for: folder, bottleURL: bottle.url)
+        var library = FolderGameLibrary()
+        library.roots = [folderKey]
+        library.executables[folderKey] = FolderGameLibrary.key(for: executable, bottleURL: bottle.url)
+        try library.save(bottleURL: bottle.url)
+
+        let entry = LibraryEntry(
+            id: "folder",
+            name: "Folder",
+            iconURL: nil,
+            bottleURL: bottle.url,
+            source: .folder,
+            launch: .program(folder)
+        )
+        let tracker = GameActivityTracker()
+        tracker.automaticallyPolls = false
+        let driver = WineLibraryRuntimeDriver(bottleResolver: { $0 == bottle.url ? bottle : nil }, tracker: tracker)
+        var launched: URL?
+        driver.programRunner = { program, _, _ in
+            launched = program.url
+            return .launchedSuccessfully(programName: program.name)
+        }
+        let result = await driver.launchProgram(LibraryLaunchRequest(entry: entry), onStarted: {})
+        #expect(result.errorDescription == nil)
+        #expect(launched == executable)
+
+        // A recorded executable that has since been deleted is not a target.
+        try FileManager.default.removeItem(at: executable)
+        let stale = await driver.launchProgram(LibraryLaunchRequest(entry: entry), onStarted: {})
+        #expect(stale.errorDescription != nil)
         driver.stopTracking()
     }
 }

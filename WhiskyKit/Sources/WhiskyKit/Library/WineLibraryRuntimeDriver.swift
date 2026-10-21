@@ -141,7 +141,20 @@ public final class WineLibraryRuntimeDriver: LibraryRuntimeDriver {
         if let executable = request.executableURL {
             return executable
         }
-        guard case let .program(executable) = request.entry.launch, request.entry.source != .folder else { return nil }
+        guard case let .program(target) = request.entry.launch else { return nil }
+        guard request.entry.source == .folder else { return target }
+        // A folder entry names its folder, never a file: the executable is the
+        // one the user picked, recorded in the folder library.
+        return resolvedExecutable(for: target, in: request.entry.bottleURL)
+    }
+
+    /// Mirrors `GameActivityTracker.configure`, which tracks a folder game by
+    /// its recorded executable rather than by the folder itself.
+    private func resolvedExecutable(for folder: URL, in bottleURL: URL) -> URL? {
+        guard let library = try? FolderGameLibrary.load(bottleURL: bottleURL),
+              let executable = library.executable(for: folder, bottleURL: bottleURL),
+              FileManager.default.fileExists(atPath: executable.path)
+        else { return nil }
         return executable
     }
 
