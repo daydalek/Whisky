@@ -132,3 +132,6 @@ WhiskyKit/Sources/WhiskyKit/Discord/Local/client-id.txt
 
 # Worktree bootstrap payload (a packaged baseline tarball, ~14 MB).
 /.worktree-setup/
+
+# Screenshots produced by local UI runs; never committed.
+/apps/whisky-gpui/screenshots/

@@ -6,6 +6,7 @@ use gpui_kit::base::{Spring, spring, transition};
 use gpui_kit::component::{button::Button, menu::ContextMenuExt};
 use gpui_kit::{prelude::*, *};
 
+use crate::bridge::BridgeStatus;
 use crate::controls::*;
 use crate::library_layout::{CardRect, LibraryLayout};
 use crate::model::{ambient, art, demo_data};
@@ -109,18 +110,56 @@ impl WhiskyApp {
             .child(entries.px(px(5.)))
             .child(div().flex_1())
             .child(
-                row()
-                    .justify_between()
-                    .p(px(12.))
-                    .child(muted("Whisky").text_size(px(11.)))
+                col()
+                    .gap(px(2.))
+                    .px(px(8.))
+                    .pb(px(8.))
+                    .child(self.bridge_pill(cx))
                     .child(
-                        round_button("settings", "settings-2")
-                            .size(px(28.))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.settings = !this.settings;
-                                cx.notify();
-                            })),
+                        row()
+                            .justify_between()
+                            .px(px(4.))
+                            .py(px(4.))
+                            .child(muted("Whisky").text_size(px(11.)))
+                            .child(
+                                round_button("settings", "settings-2")
+                                    .size(px(28.))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.settings = !this.settings;
+                                        cx.notify();
+                                    })),
+                            ),
                     ),
+            )
+            .into_any_element()
+    }
+    fn bridge_pill(&self, cx: &mut Context<Self>) -> AnyElement {
+        let (dot, failed) = match &self.bridge_status {
+            BridgeStatus::Connected { .. } => (SUCCESS, false),
+            BridgeStatus::Failed { .. } => (DANGER, true),
+            BridgeStatus::Stopped => (DANGER, false),
+            BridgeStatus::Locating | BridgeStatus::Starting => (MUTED, false),
+        };
+        row()
+            .id("bridge-status")
+            .px(px(10.))
+            .py(px(6.))
+            .gap(px(7.))
+            .rounded(px(RADIUS_SM))
+            .when(failed, |d| {
+                d.cursor_pointer()
+                    .hover(|s| s.bg(rgba(HOVER)))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.bridge_dialog = true;
+                        cx.notify();
+                    }))
+            })
+            .child(div().size(px(6.)).rounded_full().bg(rgb(dot)))
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(rgb(MUTED))
+                    .child(self.bridge_status.label()),
             )
             .into_any_element()
     }

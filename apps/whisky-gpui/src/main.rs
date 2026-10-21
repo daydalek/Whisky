@@ -6,6 +6,7 @@ use gpui_kit::base::{Presence, Spring, spring};
 use gpui_kit::component::theme::{Theme, ThemeMode};
 use gpui_kit::{prelude::*, *};
 
+mod bridge;
 mod controls;
 mod library_layout;
 mod model;
@@ -117,6 +118,9 @@ impl Render for WhiskyApp {
         }
         if let Some(sheet) = self.preview.sheet {
             root = root.child(self.preview_sheet(sheet, ww, wh, cx));
+        }
+        if self.bridge_dialog {
+            root = root.child(self.bridge_status_dialog(ww, wh, cx));
         }
         if notification.should_render() {
             root = root.child(
@@ -234,6 +238,12 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
 }
 
 fn main() {
+    if std::env::args()
+        .skip(1)
+        .any(|argument| argument == "--print-bridge-status")
+    {
+        std::process::exit(bridge::print_status());
+    }
     gpui_kit::application()
         .with_assets(gpui_kit::assets::AllAssets)
         .run(|cx| {

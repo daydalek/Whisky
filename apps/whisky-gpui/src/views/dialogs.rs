@@ -5,9 +5,11 @@ use gpui_kit::component::input::Input;
 use gpui_kit::{prelude::*, *};
 
 use super::Command;
+use crate::bridge::BridgeStatus;
 use crate::controls::*;
 use crate::model::demo_data;
 use crate::state::{PreviewSheet, WhiskyApp};
+use crate::theme::{OVERLAY, RADIUS_LG, SURFACE, SURFACE_BORDER};
 
 impl WhiskyApp {
     fn run_settings(&self, index: usize, cx: &Context<Self>) -> AnyElement {
@@ -383,6 +385,131 @@ impl WhiskyApp {
                                         cx.notify();
                                     })),
                             ),
+                    ),
+            )
+            .into_any_element()
+    }
+    pub(crate) fn bridge_status_dialog(
+        &self,
+        width: f32,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let (title, detail) = match &self.bridge_status {
+            BridgeStatus::Failed { reason, retryable } => (
+                "Bridge unavailable",
+                if *retryable {
+                    reason.clone()
+                } else {
+                    format!("{reason}\n\nRetrying may not help until the helper is rebuilt.")
+                },
+            ),
+            BridgeStatus::Connected {
+                helper,
+                version,
+                methods,
+            } => (
+                "Bridge connected",
+                format!("{helper}\n{version} · {methods} methods"),
+            ),
+            BridgeStatus::Stopped => ("Bridge stopped", "The helper is no longer running.".into()),
+            BridgeStatus::Locating | BridgeStatus::Starting => (
+                "Connecting",
+                "The bridge helper is starting.".into(),
+            ),
+        };
+        let retry = matches!(self.bridge_status, BridgeStatus::Failed { .. });
+        let pw = 440_f32.min(width - 48.);
+        let ph = 210_f32.min(height - 48.);
+        div()
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .bg(rgba(OVERLAY))
+            .child(
+                div()
+                    .id("bridge-dialog-dismiss")
+                    .absolute()
+                    .inset_0()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.bridge_dialog = false;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                col()
+                    .absolute()
+                    .left(px((width - pw) / 2.))
+                    .top(px((height - ph) / 2.))
+                    .w(px(pw))
+                    .h(px(ph))
+                    .rounded(px(RADIUS_LG))
+                    .overflow_hidden()
+                    .bg(rgb(SURFACE))
+                    .border_1()
+                    .border_color(rgba(SURFACE_BORDER))
+                    .shadow_xl()
+                    .child(
+                        row()
+                            .flex_shrink_0()
+                            .h(px(46.))
+                            .px(px(16.))
+                            .gap(px(12.))
+                            .border_b_1()
+                            .border_color(rgba(SURFACE_BORDER))
+                            .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(title))
+                            .child(
+                                Button::new("bridge-dialog-close")
+                                    .label("×")
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.bridge_dialog = false;
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_h_0()
+                            .px(px(18.))
+                            .py(px(14.))
+                            .gap(px(10.))
+                            .child(
+                                muted(detail)
+                                    .line_height(relative(1.5))
+                                    .line_clamp(4),
+                            ),
+                    )
+                    .child(
+                        row()
+                            .flex_shrink_0()
+                            .justify_end()
+                            .gap(px(8.))
+                            .px(px(16.))
+                            .py(px(12.))
+                            .border_t_1()
+                            .border_color(rgba(SURFACE_BORDER))
+                            .child(
+                                Button::new("bridge-dialog-done")
+                                    .label("关闭")
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.bridge_dialog = false;
+                                        cx.notify();
+                                    })),
+                            )
+                            .when(retry, |d| {
+                                d.child(
+                                    Button::new("bridge-retry")
+                                        .label("Retry")
+                                        .primary()
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.bridge_retry(cx);
+                                        })),
+                                )
+                            }),
                     ),
             )
             .into_any_element()

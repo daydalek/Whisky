@@ -7,6 +7,7 @@ use gpui_kit::base::Transition;
 use gpui_kit::component::input::InputState;
 use gpui_kit::{prelude::*, *};
 
+use crate::bridge::{BridgeEvent, BridgeStatus, BridgeSupervisor};
 #[cfg(feature = "visual-test")]
 use crate::library_layout::CardRect;
 use crate::model::demo_data;
@@ -129,12 +130,36 @@ pub(crate) struct WhiskyApp {
     pub(crate) detail: Option<usize>,
     pub(crate) detail_open: bool,
     pub(crate) notice: bool,
+    pub(crate) bridge: BridgeSupervisor,
+    pub(crate) bridge_status: BridgeStatus,
+    pub(crate) bridge_dialog: bool,
     pub(crate) _subscriptions: Vec<Subscription>,
 }
 impl WhiskyApp {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search programs"));
         let subscription = cx.observe(&search, |_, _, cx| cx.notify());
+        let (bridge, bridge_events) = BridgeSupervisor::start();
+        cx.spawn(async move |this, cx| {
+            while let Ok(event) = bridge_events.recv().await {
+                let BridgeEvent::Status(status) = event;
+                if let BridgeStatus::Connected {
+                    helper,
+                    version,
+                    methods,
+                } = &status
+                {
+                    eprintln!(
+                        "whisky-bridge: connected to {helper} ({version}, {methods} methods)"
+                    );
+                }
+                let _ = this.update(cx, |this, cx| {
+                    this.bridge_status = status;
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
         Self {
             preview: PreviewState::new(window, cx),
             search,
@@ -156,8 +181,17 @@ impl WhiskyApp {
             detail: None,
             detail_open: false,
             notice: false,
+            bridge,
+            bridge_status: BridgeStatus::Locating,
+            bridge_dialog: false,
             _subscriptions: vec![subscription],
         }
+    }
+    pub(crate) fn bridge_retry(&mut self, cx: &mut Context<Self>) {
+        self.bridge.retry();
+        self.bridge_status = BridgeStatus::Locating;
+        self.bridge_dialog = false;
+        cx.notify();
     }
     pub(crate) fn timing(&self, ms: u64) -> Transition {
         Transition::new(Duration::from_millis(if self.motion { ms } else { 0 }))

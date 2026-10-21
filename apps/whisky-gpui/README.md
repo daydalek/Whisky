@@ -4,8 +4,10 @@ Tracked GPUI app for the Whisky desktop UI. This is the M0 seed: the sources wer
 copied mechanically from the local design demo at `demos/gpui-demo/`, which is
 gitignored and not part of the repository. The demo remains the visual reference.
 
-At this stage the app renders 32 hard-coded games with in-memory state. It does
-not start Wine, scan real containers, or talk to `whisky-bridge` yet. Later
+At this stage the app renders 32 hard-coded games with in-memory state. M1a
+adds a live `whisky-bridge` connection (handshake plus one container-catalogue
+read) but still renders `model::demo_data()`; real library data arrives in M1b.
+The bridge never starts Wine or mutates a container in this milestone. Later
 milestones replace the sample data with bridge-backed data; see
 [`docs/gpui-port/PLAN.md`](../../docs/gpui-port/PLAN.md).
 
@@ -35,6 +37,45 @@ env RUSTC_WRAPPER= cargo test  --offline --locked --manifest-path apps/whisky-gp
 ```
 
 The binary is `apps/whisky-gpui/target/debug/whisky-gpui`.
+
+## Bridge helper
+
+The helper is the SwiftPM executable product `whisky-bridge` from
+`WhiskyBridge/Package.swift`:
+
+```sh
+swift build --package-path WhiskyBridge -c release
+```
+
+The app resolves it in this order and uses the first regular file:
+
+1. `WHISKY_BRIDGE_HELPER` — must be an absolute path; if set but missing, the
+   app reports that path instead of falling through.
+2. `whisky-bridge` next to the running executable.
+3. `Contents/Resources/whisky-bridge` below the executable, plus the standard
+   `.app` layout (`../Resources/whisky-bridge`) for future bundling.
+4. `<repo>/WhiskyBridge/.build/release/whisky-bridge`, then
+   `…/.build/debug/whisky-bridge`. The repo root is found by walking up from
+   `CARGO_MANIFEST_DIR` until a directory contains `WhiskyBridge/Package.swift`.
+
+`PATH` is deliberately not consulted. If nothing is found the UI shows
+`Unavailable`; the supervisor retries with capped exponential backoff
+(0.5 s → 8 s) and the status dialog offers an immediate `Retry`.
+
+The bridge's container method is `workspace.containers` (the plan's
+`containers.list` name does not exist in `ApplicationService.methods`). M1a
+calls it once after the `bridge.describe` handshake and logs the count and names
+to stderr.
+
+To exercise the connection without opening a window:
+
+```sh
+apps/whisky-gpui/target/debug/whisky-gpui --print-bridge-status
+```
+
+This prints the `bridge.describe` payload as JSON and exits 0; helper
+resolution, handshake, allow-list, or container-call failures print to stderr
+and exit 1.
 
 ## Visual baseline capture
 
