@@ -72,6 +72,11 @@ public struct BottleData: Codable {
         }
     }
 
+    /// Explicit registry injection for isolated hosts and cross-frontend application services.
+    public init(registryURL: URL) {
+        self.init(entriesFile: registryURL)
+    }
+
     public init() {
         self.init(entriesFile: Self.bottleEntriesDir)
     }

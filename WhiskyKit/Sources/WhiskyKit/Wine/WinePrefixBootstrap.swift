@@ -140,4 +140,14 @@ public extension Wine {
         }
         BottleFontBootstrap.copySystemFonts(toPrefix: bottle.url)
     }
+
+    /// Configures a newly created Bottle using the same strict steps as the app's create flow.
+    /// The caller checks runtime availability before creating the Bottle directory.
+    @MainActor
+    static func configureNewBottlePrefix(bottle: Bottle) async throws {
+        try await changeWinVersion(bottle: bottle, win: bottle.settings.windowsVersion)
+        let version = try await wineVersion()
+        bottle.settings.wineVersion = SemanticVersion(version) ?? SemanticVersion(0, 0, 0)
+        BottleFontBootstrap.copySystemFonts(toPrefix: bottle.url)
+    }
 }

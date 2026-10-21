@@ -146,7 +146,9 @@ public final class Bottle: ObservableObject, Equatable, Hashable, Identifiable, 
     ///   - bottleUrl: The URL to the bottle's root directory.
     ///   - inFlight: Whether the bottle is currently being created. Defaults to `false`.
     ///   - isAvailable: Whether the bottle directory is accessible. Defaults to `false`.
-    public init(bottleUrl: URL, inFlight: Bool = false, isAvailable: Bool = false) {
+    ///   - cleanInvalidPins: Whether loading also removes invalid pins. Readers that
+    ///     preserve the metadata document can defer this cleanup to the native editor.
+    public init(bottleUrl: URL, inFlight: Bool = false, isAvailable: Bool = false, cleanInvalidPins: Bool = true) {
         let metadataURL = bottleUrl.appending(path: "Metadata").appendingPathExtension("plist")
         self.url = bottleUrl
         self.inFlight = inFlight
@@ -180,6 +182,7 @@ public final class Bottle: ObservableObject, Equatable, Hashable, Identifiable, 
             }
         }
 
+        guard cleanInvalidPins else { return }
         // Get rid of duplicates and pins that reference removed files
         var found: Set<URL> = []
         let validPins = self.settings.pins.filter { pin in
@@ -200,6 +203,7 @@ public final class Bottle: ObservableObject, Equatable, Hashable, Identifiable, 
         // load can overwrite a settings change the app wrote in the meantime.
         if validPins != self.settings.pins {
             self.settings.pins = validPins
+            SettingsPersistence.shared.flush(for: metadataURL)
         }
     }
 
@@ -214,12 +218,13 @@ public final class Bottle: ObservableObject, Equatable, Hashable, Identifiable, 
     ///   finishes or fails. Any save errors are logged but not thrown.
     public func saveBottleSettings() {
         saveSettings()
+        SettingsPersistence.shared.flush(for: metadataURL)
     }
 
     /// Encode and save the bottle settings
     private func saveSettings() {
         do {
-            try settings.encode(to: self.metadataURL)
+            try settings.scheduleSave(to: self.metadataURL)
         } catch {
             Logger.wineKit.error(
                 "Failed to encode settings for bottle `\(self.metadataURL.path(percentEncoded: false))`: \(error)"

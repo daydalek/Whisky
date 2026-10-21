@@ -158,6 +158,7 @@ extension FolderGameLibrary {
         from sourceBottleURL: URL,
         to targetBottleURL: URL
     ) {
+        SettingsPersistence.shared.flush()
         let fileManager = FileManager.default
         let sourceLocations = Program.settingsLocations(
             for: executableURL, bottleURL: sourceBottleURL, legacyName: executableURL.lastPathComponent

@@ -16,9 +16,9 @@
 //  If not, see https://www.gnu.org/licenses/.
 //
 
-import AppKit
 import Foundation
 import os.log
+import WhiskyCore
 
 // MARK: - Crash Diagnosis Notification
 
@@ -47,11 +47,11 @@ private let crashSignatures: Set<String> = [
 ]
 
 public extension Program {
-    func run() {
-        if NSEvent.modifierFlags.contains(.shift) {
-            self.runInTerminal()
+    func run(using interaction: any ProgramUserInteraction = MacOSProgramInteraction.shared) {
+        if interaction.launchMode == .terminal {
+            self.runInTerminal(using: interaction)
         } else {
-            self.runInWine()
+            self.runInWine(using: interaction)
         }
     }
 
@@ -63,36 +63,33 @@ public extension Program {
     ///
     /// - Returns: The clipboard check result after any user interaction.
     @MainActor
-    func performClipboardCheck() -> ClipboardCheckResult {
-        let policy = bottle.settings.clipboardPolicy
-        let threshold = bottle.settings.clipboardThreshold
-        let launcher = bottle.settings.detectedLauncher
-
-        let result = ClipboardManager.shared.checkBeforeLaunch(
-            launcher: launcher, policy: policy, threshold: threshold
+    func performClipboardCheck(
+        clipboard: any ClipboardAccess = ClipboardManager.shared,
+        interaction: any ProgramUserInteraction = MacOSProgramInteraction.shared
+    ) -> ClipboardCheckResult {
+        ClipboardPreflight.checkWithBlockingPrompt(
+            clipboard: clipboard, launcher: bottle.settings.detectedLauncher,
+            policy: bottle.settings.clipboardPolicy, threshold: bottle.settings.clipboardThreshold,
+            decide: { interaction.decideClipboard($0) }
         )
-
-        switch result {
-        case .safe, .autoCleared:
-            return result
-        case let .needsUserDecision(contentType, sizeBytes, textPreview):
-            return showClipboardAlert(
-                contentType: contentType, sizeBytes: sizeBytes, textPreview: textPreview
-            )
-        }
     }
 
     /// Launches the program respecting user's modifier key preference and returns the result.
     /// - Parameter useTerminal: Whether to launch in Terminal mode (e.g., Shift was held).
     ///   **Important:** Capture `NSEvent.modifierFlags.contains(.shift)` synchronously at the call site,
     ///   before entering any async context, to avoid race conditions with key state.
-    /// - Returns: LaunchResult indicating success, terminal launch, or failure
+    /// - Parameter onStarted: Called when the Wine subprocess starts or Terminal accepts the command.
+    /// - Returns: LaunchResult indicating request delivery, terminal handoff, or failure.
     @MainActor
-    func launchWithUserMode(useTerminal: Bool) async -> LaunchResult {
+    func launchWithUserMode(
+        useTerminal: Bool, onStarted: (@MainActor () -> Void)? = nil
+    ) async -> LaunchResult {
+        SettingsPersistence.shared.flush()
         // Check for terminal mode (typically shift-click)
         if useTerminal {
             do {
                 try await openInTerminal()
+                onStarted?()
                 return .launchedInTerminal(programName: self.name)
             } catch {
                 return .launchFailed(programName: self.name, errorDescription: error.localizedDescription)
@@ -103,7 +100,11 @@ public extension Program {
         let arguments = settings.arguments.split { $0.isWhitespace }.map(String.init)
 
         do {
-            let result = try await launch(args: arguments)
+            let result = try await launch(args: arguments) { event in
+                if case .started = event {
+                    onStarted?()
+                }
+            }
 
             // Track the log file URL for diagnostics
             settings.lastLogFileURL = result.logFileURL
@@ -121,6 +122,12 @@ public extension Program {
                 watchForLateCrash(logFileURL: result.logFileURL)
             }
 
+            if result.exitCode != 0 {
+                return .launchFailed(
+                    programName: self.name,
+                    errorDescription: "Wine launch request failed (\(result.exitCode))"
+                )
+            }
             return .launchedSuccessfully(programName: self.name)
         } catch {
             return .launchFailed(programName: self.name, errorDescription: error.localizedDescription)
@@ -258,64 +265,15 @@ public extension Program {
         )
     }
 
-    @MainActor internal func showRunError(message: String) {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "alert.message")
-        alert.informativeText = String(localized: "alert.info")
-            + " \(self.url.lastPathComponent): "
-            + message
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: String(localized: "button.ok"))
-        alert.runModal()
-    }
-
-    /// Shows a blocking alert when the clipboard contains large content that needs user decision.
-    ///
-    /// - Parameters:
-    ///   - contentType: The type of clipboard content ("text", "image", or "other")
-    ///   - sizeBytes: Size of the content in bytes
-    ///   - textPreview: Optional preview of text content (first 50 characters)
-    /// - Returns: `.autoCleared` if user chose to clear, `.safe` if user chose to keep
-    @MainActor private func showClipboardAlert(
-        contentType: String,
-        sizeBytes: Int,
-        textPreview: String?
-    ) -> ClipboardCheckResult {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "clipboard.large.title")
-
-        let sizeKB = String(format: "%.1f", Double(sizeBytes) / 1_024.0)
-        let message: String
-        switch contentType {
-        case "text":
-            let preview = textPreview ?? ""
-            message = String(localized: "clipboard.large.message.text")
-                .replacingOccurrences(of: "{size}", with: sizeKB)
-                .replacingOccurrences(of: "{preview}", with: preview)
-        case "image":
-            message = String(localized: "clipboard.large.message.image")
-                .replacingOccurrences(of: "{size}", with: sizeKB)
-        default:
-            message = String(localized: "clipboard.large.message.other")
-                .replacingOccurrences(of: "{size}", with: sizeKB)
-        }
-
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: String(localized: "clipboard.clear"))
-        alert.addButton(withTitle: String(localized: "clipboard.keep"))
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            ClipboardManager.shared.clear()
-            return .autoCleared(contentType: contentType, sizeBytes: sizeBytes)
-        }
-        return .safe
+    @MainActor internal func showRunError(
+        message: String, interaction: any ProgramUserInteraction = MacOSProgramInteraction.shared
+    ) {
+        interaction.showLaunchFailure(programName: url.lastPathComponent, message: message)
     }
 }
 
 extension Program {
-    func runInWine() {
+    func runInWine(using interaction: any ProgramUserInteraction = MacOSProgramInteraction.shared) {
         let arguments = settings.arguments.split { $0.isWhitespace }.map(String.init)
 
         Task {
@@ -333,7 +291,7 @@ extension Program {
                     )
                 }
             } catch {
-                self.showRunError(message: error.localizedDescription)
+                self.showRunError(message: error.localizedDescription, interaction: interaction)
             }
         }
     }

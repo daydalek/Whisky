@@ -202,6 +202,7 @@ public final class Program: ObservableObject, Equatable, Hashable, Identifiable 
     /// an unreadable plist (an unreadable plist reads as no overrides here).
     nonisolated static func persistedOverrides(for url: URL, bottleURL: URL) -> ProgramOverrides? {
         let locations = settingsLocations(for: url, bottleURL: bottleURL, legacyName: url.lastPathComponent)
+        SettingsPersistence.shared.flush(for: locations.identity)
         let settingsURL = FileManager.default.fileExists(atPath: locations.identity.path(percentEncoded: false))
             ? locations.identity
             : locations.legacy
@@ -282,7 +283,7 @@ public final class Program: ObservableObject, Equatable, Hashable, Identifiable 
     /// Save the settings to file
     private func saveSettings() {
         do {
-            try settings.encode(to: settingsURL)
+            try settings.scheduleSave(to: settingsURL)
         } catch {
             Logger.wineKit.error("Failed to save settings for `\(self.name)`: \(error)")
         }

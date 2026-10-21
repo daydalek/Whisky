@@ -59,6 +59,7 @@ struct WhiskyApp: App {
     private let updaterController: SPUStandardUpdaterController
 
     init() {
+        SettingsPersistence.shared.enableBackgroundWrites()
         updaterController = SPUStandardUpdaterController(
             startingUpdater: false,
             updaterDelegate: nil,
@@ -79,8 +80,7 @@ struct WhiskyApp: App {
     ///   this they would stay missing until it happened to reimport. Each step
     ///   is idempotent and a no-op on runtimes it does not apply to.
     private func updateGPTKPayloadIfNeeded() {
-        var data = BottleData()
-        let bottles = data.loadBottles().map(\.url)
+        let bottles = BottleData().paths
         Task.detached(priority: .background) {
             GPTKImporter.verifyStoredPayload()
             GPTKImporter.ensureMetalFXBridgeInstalled()

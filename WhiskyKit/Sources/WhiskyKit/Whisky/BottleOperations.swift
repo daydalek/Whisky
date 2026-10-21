@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 //
 //  BottleOperations.swift
 //  WhiskyKit
@@ -73,6 +74,7 @@ public enum BottleOperations {
     ///   - registry: The registry that owns the bottle list.
     @MainActor
     public static func move(bottleAt url: URL, to destination: URL, registry: BottleRegistry) {
+        SettingsPersistence.shared.flush()
         let bottle = registry.bottle(for: url)
         // The URL rewrite must happen before the move so the persisted settings
         // travel with the bottle, so keep a snapshot to restore on failure.
@@ -102,6 +104,7 @@ public enum BottleOperations {
                     )
                 }
             }
+            SettingsPersistence.shared.flush()
             try FileManager.default.moveItem(at: url, to: destination)
             if let path = registry.bottlePaths.firstIndex(of: url) {
                 registry.bottlePaths[path] = destination
@@ -118,6 +121,7 @@ public enum BottleOperations {
                     bottle.settings.blocklist = originalBlocklist
                 }
             }
+            SettingsPersistence.shared.flush()
             Logger.wineKit.error("Failed to move bottle: \(error.localizedDescription)")
         }
     }
@@ -141,6 +145,7 @@ public enum BottleOperations {
         guard let bottle = registry.bottle(for: url) else {
             throw bottleNotFoundError()
         }
+        SettingsPersistence.shared.flush()
         bottle.inFlight = true
         defer { bottle.inFlight = false }
 
@@ -180,6 +185,7 @@ public enum BottleOperations {
         guard let bottle = registry.bottle(for: url) else {
             throw bottleNotFoundError()
         }
+        SettingsPersistence.shared.flush()
         bottle.inFlight = true
         defer { bottle.inFlight = false }
 
@@ -296,6 +302,7 @@ public enum BottleOperations {
     ) {
         do {
             if let bottle = registry.bottle(for: url) {
+                SettingsPersistence.shared.flush()
                 bottle.inFlight = true
             }
 

@@ -274,6 +274,7 @@ public struct ProgramSettings: Codable {
     /// - Returns: The decoded settings, or `nil` if the file doesn't exist.
     /// - Throws: An error if the file exists but cannot be decoded.
     static func decodeIfPresent(from settingsURL: URL) throws -> ProgramSettings? {
+        SettingsPersistence.shared.flush(for: settingsURL)
         guard FileManager.default.fileExists(atPath: settingsURL.path(percentEncoded: false)) else {
             return nil
         }
@@ -286,7 +287,14 @@ public struct ProgramSettings: Codable {
     ///
     /// - Parameter settingsURL: The URL where settings should be saved.
     /// - Throws: An error if the settings cannot be encoded or written.
+    func scheduleSave(to url: URL) throws {
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .xml
+        try SettingsPersistence.shared.enqueue(encoder.encode(self), to: url)
+    }
+
     func encode(to settingsURL: URL) throws {
+        SettingsPersistence.shared.flush(for: settingsURL)
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .xml
         let data = try encoder.encode(self)

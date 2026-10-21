@@ -44,4 +44,5 @@ public typealias LaunchResult = WhiskyCore.LaunchResult
 public typealias GameActivityObservation = WhiskyCore.GameActivityObservation
 public typealias ClipboardPolicy = WhiskyCore.ClipboardPolicy
 public typealias ClipboardCheckResult = WhiskyCore.ClipboardCheckResult
+public typealias TerminalLaunchError = WhiskyCore.TerminalLaunchError
 public typealias IconPalette = WhiskyCore.IconPalette
