@@ -140,5 +140,6 @@ struct GameActivityTransactionTests {
         #expect(decoded.rating == 7)
         #expect(decoded.owner == nil)
         #expect(decoded.lastAppliedSample == nil)
+        #expect(decoded.lastSessionEndedAt == nil)
     }
 }
