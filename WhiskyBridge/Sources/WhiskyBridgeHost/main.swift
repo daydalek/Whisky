@@ -32,20 +32,58 @@ import WhiskyNativeBridge
 struct BridgeHost {
     @MainActor
     static func main() async {
-        // Keep inherited process I/O separate from protocol traffic.
-        let protocolInput = dup(STDIN_FILENO)
-        let protocolOutput = dup(STDOUT_FILENO)
-        guard protocolInput >= 0, protocolOutput >= 0 else { exit(1) }
-        _ = fcntl(protocolInput, F_SETFD, FD_CLOEXEC)
-        _ = fcntl(protocolOutput, F_SETFD, FD_CLOEXEC)
+        let (protocolInput, protocolOutput) = configureProtocolIO()
+        let service = makeService(arguments: CommandLine.arguments)
+        let wireOutput = FileHandle(fileDescriptor: protocolOutput, closeOnDealloc: true)
+        let input = makeInput(protocolInput: protocolInput)
+        do {
+            for try await frame in input {
+                let response: BridgeResponse
+                var shouldStop = false
+                do {
+                    let request = try JSONDecoder().decode(BridgeRequest.self, from: frame)
+                    response = await service.respond(request)
+                    shouldStop = request.method == "bridge.shutdown" && response.error == nil
+                } catch { response = BridgeResponse(
+                    id: nil,
+                    error: BridgeFailure("invalid_request", error.localizedDescription)
+                ) }
+                do { try write(response, to: wireOutput) } catch let failure as BridgeFailure {
+                    try write(BridgeResponse(id: response.id, error: failure), to: wireOutput)
+                }
+                if shouldStop {
+                    break
+                }
+            }
+            await service.shutdown()
+        } catch {
+            try? write(BridgeResponse(
+                id: nil,
+                error: error as? BridgeFailure ?? BridgeFailure("transport_failed", error.localizedDescription)
+            ), to: wireOutput)
+            await service.shutdown()
+            exit(1)
+        }
+    }
+
+    /// Keeps inherited process I/O separate from protocol traffic.
+    private static func configureProtocolIO() -> (input: Int32, output: Int32) {
+        let input = dup(STDIN_FILENO)
+        let output = dup(STDOUT_FILENO)
+        guard input >= 0, output >= 0 else { exit(1) }
+        _ = fcntl(input, F_SETFD, FD_CLOEXEC)
+        _ = fcntl(output, F_SETFD, FD_CLOEXEC)
         let nullInput = open("/dev/null", O_RDONLY)
         guard nullInput >= 0, dup2(nullInput, STDIN_FILENO) >= 0,
               dup2(STDERR_FILENO, STDOUT_FILENO) >= 0
         else { exit(1) }
         close(nullInput)
         signal(SIGPIPE, SIG_IGN)
-        let wireOutput = FileHandle(fileDescriptor: protocolOutput, closeOnDealloc: true)
-        let arguments = CommandLine.arguments
+        return (input, output)
+    }
+
+    @MainActor
+    private static func makeService(arguments: [String]) -> ApplicationService {
         func argument(_ name: String) -> String? {
             guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else { return nil }
             return arguments[index + 1]
@@ -62,7 +100,7 @@ struct BridgeHost {
         )
         let jobs = BridgeJobStore()
         #if os(macOS)
-        let service = ApplicationService(
+        return ApplicationService(
             workspace: workspace,
             native: MacOSApplicationServices(
                 wineEnabled: arguments.contains("--enable-wine"), preferencesDomain: preferencesDomain, jobs: jobs
@@ -70,10 +108,12 @@ struct BridgeHost {
             preferences: preferences, jobs: jobs
         )
         #else
-        let service = ApplicationService(workspace: workspace, preferences: preferences, jobs: jobs)
+        return ApplicationService(workspace: workspace, preferences: preferences, jobs: jobs)
         #endif
+    }
 
-        let input = AsyncThrowingStream<Data, any Error>(bufferingPolicy: .bufferingOldest(64)) { continuation in
+    private static func makeInput(protocolInput: Int32) -> AsyncThrowingStream<Data, any Error> {
+        AsyncThrowingStream<Data, any Error>(bufferingPolicy: .bufferingOldest(64)) { continuation in
             let task = Task.detached {
                 do {
                     var framer = BridgeFramer()
@@ -104,40 +144,14 @@ struct BridgeHost {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
-        func write(_ response: BridgeResponse) throws {
-            let data = try JSONEncoder().encode(response)
-            guard data.count <= BridgeFramer.maximumFrameBytes else { throw BridgeFailure(
-                "response_too_large",
-                "Response exceeds frame budget; narrow the query"
-            ) }
-            try wireOutput.write(contentsOf: data + Data([10]))
-        }
-        do {
-            for try await frame in input {
-                let response: BridgeResponse
-                var shouldStop = false
-                do {
-                    let request = try JSONDecoder().decode(BridgeRequest.self, from: frame)
-                    response = await service.respond(request)
-                    shouldStop = request.method == "bridge.shutdown" && response.error == nil
-                } catch { response = BridgeResponse(
-                    id: nil,
-                    error: BridgeFailure("invalid_request", error.localizedDescription)
-                ) }
-                do { try write(response) }
-                catch let failure as BridgeFailure { try write(BridgeResponse(id: response.id, error: failure)) }
-                if shouldStop {
-                    break
-                }
-            }
-            await service.shutdown()
-        } catch {
-            try? write(BridgeResponse(
-                id: nil,
-                error: error as? BridgeFailure ?? BridgeFailure("transport_failed", error.localizedDescription)
-            ))
-            await service.shutdown()
-            exit(1)
-        }
+    }
+
+    private static func write(_ response: BridgeResponse, to output: FileHandle) throws {
+        let data = try JSONEncoder().encode(response)
+        guard data.count <= BridgeFramer.maximumFrameBytes else { throw BridgeFailure(
+            "response_too_large",
+            "Response exceeds frame budget; narrow the query"
+        ) }
+        try output.write(contentsOf: data + Data([10]))
     }
 }

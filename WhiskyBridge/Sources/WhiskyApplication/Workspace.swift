@@ -68,6 +68,12 @@ public struct ContainerRecord: Codable, Sendable {
     public let available: Bool
 }
 
+/// Only the bottle name is read from a container's metadata during catalogue reads.
+private struct ContainerMetadata: Decodable {
+    struct Info: Decodable { let name: String }
+    let info: Info
+}
+
 public struct EntryRecord: Codable, Sendable {
     public let id: String
     public let name: String
@@ -147,14 +153,11 @@ public final class ApplicationWorkspace: Sendable {
     }
 
     public func catalogue() throws -> [ContainerRecord] {
-        struct Metadata: Decodable { struct Info: Decodable { let name: String }
-            let info: Info
-        }
         return try containers().map { url in
             let available = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
             let metadata = url.appendingPathComponent("Metadata.plist")
             let name: String = if available, FileManager.default.fileExists(atPath: metadata.path) {
-                try PropertyListDecoder().decode(Metadata.self, from: Self.read(metadata)).info.name
+                try PropertyListDecoder().decode(ContainerMetadata.self, from: Self.read(metadata)).info.name
             } else {
                 url.lastPathComponent
             }

@@ -28,16 +28,16 @@ public enum JSONValue: Codable, Equatable, Sendable {
         let value = try decoder.singleValueContainer()
         if value.decodeNil() {
             self = .null
-        } else if let v = try? value.decode(Bool.self) {
-            self = .bool(v)
-        } else if let v = try? value.decode(Int64.self) {
-            self = .integer(v)
-        } else if let v = try? value.decode(Double.self), v.isFinite {
-            self = .number(v)
-        } else if let v = try? value.decode(String.self) {
-            self = .string(v)
-        } else if let v = try? value.decode([JSONValue].self) {
-            self = .array(v)
+        } else if let boolean = try? value.decode(Bool.self) {
+            self = .bool(boolean)
+        } else if let integer = try? value.decode(Int64.self) {
+            self = .integer(integer)
+        } else if let number = try? value.decode(Double.self), number.isFinite {
+            self = .number(number)
+        } else if let string = try? value.decode(String.self) {
+            self = .string(string)
+        } else if let array = try? value.decode([JSONValue].self) {
+            self = .array(array)
         } else {
             self = try .object(value.decode([String: JSONValue].self))
         }
@@ -47,12 +47,12 @@ public enum JSONValue: Codable, Equatable, Sendable {
         var value = encoder.singleValueContainer()
         switch self {
         case .null: try value.encodeNil()
-        case let .bool(v): try value.encode(v)
-        case let .integer(v): try value.encode(v)
-        case let .number(v): try value.encode(v)
-        case let .string(v): try value.encode(v)
-        case let .array(v): try value.encode(v)
-        case let .object(v): try value.encode(v)
+        case let .bool(boolean): try value.encode(boolean)
+        case let .integer(integer): try value.encode(integer)
+        case let .number(number): try value.encode(number)
+        case let .string(string): try value.encode(string)
+        case let .array(array): try value.encode(array)
+        case let .object(object): try value.encode(object)
         }
     }
 
@@ -69,32 +69,32 @@ public enum JSONValue: Codable, Equatable, Sendable {
     }
 
     public var string: String? {
-        if case let .string(v) = self {
-            v
+        if case let .string(string) = self {
+            string
         } else {
             nil
         }
     }
 
     public var object: [String: Self]? {
-        if case let .object(v) = self {
-            v
+        if case let .object(object) = self {
+            object
         } else {
             nil
         }
     }
 
     public var bool: Bool? {
-        if case let .bool(v) = self {
-            v
+        if case let .bool(boolean) = self {
+            boolean
         } else {
             nil
         }
     }
 
     public var integer: Int64? {
-        if case let .integer(v) = self {
-            v
+        if case let .integer(integer) = self {
+            integer
         } else {
             nil
         }

@@ -295,7 +295,7 @@ private struct Fixture {
     #expect(entries.contains { $0.name == "Pinned" })
 }
 
-@Test @MainActor func applicationPreferencesUseTypedWhitelistedSharedKeys() throws {
+@Test @MainActor func applicationPreferencesUseTypedAllowlistedSharedKeys() throws {
     let name = "com.whisky.preferences.bridge.\(UUID())"
     let defaults = try #require(UserDefaults(suiteName: name))
     defer { defaults.removePersistentDomain(forName: name) }

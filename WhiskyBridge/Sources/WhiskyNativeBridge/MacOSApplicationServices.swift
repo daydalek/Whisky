@@ -95,24 +95,7 @@ public final class MacOSApplicationServices: NativeApplicationServices {
             var values = values
             values[field.id] = value
             if values["virtualDesktopEnabled"] == .boolean(true) {
-                let resolution: String
-                switch values["resolutionPreset"] {
-                case .text("custom"):
-                    guard case let .integer(width) = values["customResolutionWidth"],
-                          case let .integer(height) = values["customResolutionHeight"]
-                    else {
-                        throw BridgeFailure("invalid_params", "Custom resolution requires width and height")
-                    }
-                    resolution = "\(width)x\(height)"
-                case .text("matchDisplay"):
-                    guard let screen = NSScreen.main else { throw BridgeFailure(
-                        "display_unavailable",
-                        "Display dimensions are unavailable"
-                    ) }
-                    resolution = "\(Int(screen.frame.width * screen.backingScaleFactor))x\(Int(screen.frame.height * screen.backingScaleFactor))"
-                case let .text(preset): resolution = String(preset.dropFirst())
-                default: throw BridgeFailure("invalid_params", "Resolution preset is unavailable")
-                }
+                let resolution = try virtualDesktopResolution(values)
                 try await Wine.enableVirtualDesktop(bottle: bottle, resolution: resolution)
             } else if field.id == "virtualDesktopEnabled" {
                 try await Wine.disableVirtualDesktop(bottle: bottle)
@@ -128,165 +111,11 @@ public final class MacOSApplicationServices: NativeApplicationServices {
     ) async throws -> JSONValue {
         guard methods.contains(method)
         else { throw BridgeFailure("method_unavailable", "Native method is unavailable") }
-        switch method {
-        case "system.resources":
-            return .object([
-                "kitBundle": .string(WhiskyResources.kitBundleURL.path),
-                "tools": .object(Dictionary(uniqueKeysWithValues: ["cabextract", "winetricks", "verbs.txt"].map {
-                    ($0, WhiskyResources.tool($0).map { .string($0.path) } ?? .null)
-                }))
-            ])
-        case "system.reveal", "system.open":
-            let container = try workspace.resolve(params)
-            let path = params["path"] == nil ? container : try params.path("path")
-            guard FileManager.default.fileExists(atPath: path.path) else { throw BridgeFailure(
-                "file_missing",
-                "Selected file is unavailable"
-            ) }
-            if method == "system.reveal" {
-                NSWorkspace.shared.activateFileViewerSelecting([path])
-            } else if !NSWorkspace.shared.open(path) {
-                throw BridgeFailure(
-                    "host_failed",
-                    "macOS could not open the selected file"
-                )
-            }
-            return .object(["accepted": .bool(true)])
-        case "bottle.create":
-            _ = try workspace.containers()
-            let name = try params.text("name")
-            let parent = try params.path("parent")
-            guard let version = try WinVersion(rawValue: params.text("windowsVersion")) else {
-                throw BridgeFailure("invalid_params", "Unknown Windows version")
-            }
-            return try jobs.start(name: "bottle.create") { progress in
-                progress(.object(["stage": .string("initializing")]))
-                do {
-                    let result = try await BottleCreationService.create(
-                        name: name,
-                        windowsVersion: version,
-                        parentDirectory: parent,
-                        destinationDirectory: parent
-                            .appendingPathComponent(UUID().uuidString),
-                        registry: BottleData(registryURL: workspace
-                            .registry)
-                    )
-                    result.bottle.isAvailable = true
-                    result.bottle.inFlight = false
-                    return .object([
-                        "path": .string(result.bottle.url.path),
-                        "name": .string(result.bottle.settings.name)
-                    ])
-                } catch let error as BottleCreationServiceError {
-                    let code = switch error {
-                    case .emptyName: "invalid_params"
-                    case .runtimeMissing: "runtime_missing"
-                    case .locationUnsuitable: "location_unsuitable"
-                    case .directoryCreationFailed: "destination_unavailable"
-                    case .metadataCreationFailed: "metadata_write_failed"
-                    case .registrySaveFailed: "registry_write_failed"
-                    }
-                    throw BridgeFailure(code, "Bottle creation failed: \(code)")
-                }
-            }
-        case "runtime.configure":
-            let container = try workspace.resolve(params)
-            let entries = try await workspace.entries(in: container)
-            configured = configured.filter { $0.value.bottleURL != container }
-            for entry in entries {
-                configured[entry.id] = entry
-            }
-            try runtime.retainContainers(Set(workspace.containers()))
-            if observer == nil {
-                let stream = runtime.events()
-                observer = Task { [weak self] in
-                    for await event in stream {
-                        guard let self else { break }
-                        self.sequence &+= 1
-                        self.eventBuffer.append((self.sequence, self.event(event)))
-                        if self.eventBuffer.count > 128 {
-                            self.eventBuffer.removeFirst()
-                        }
-                    }
-                }
-            }
-            await runtime.configure(entries: entries, containerURL: container)
-            return snapshot()
-        case "runtime.snapshot": return snapshot()
-        case "runtime.events":
-            let after = try params.text("after")
-            guard let cursor = UInt64(after) else { throw BridgeFailure("invalid_params", "Invalid event sequence") }
-            return .object([
-                "sequence": .string(String(sequence)),
-                "resyncRequired": .bool(cursor > sequence ||
-                    (eventBuffer.first.map { cursor < $0.0 - 1 } ?? false)),
-                "events": .array(eventBuffer.filter { $0.0 > cursor }.map { .object([
-                    "sequence": .string(String($0.0)),
-                    "event": $0.1
-                ]) }),
-                "snapshot": snapshot()
-            ])
-        case "runtime.launch", "runtime.cancel", "runtime.stop":
-            let entry = try await workspace.entry(params)
-            guard configured[entry.id] != nil else { throw BridgeFailure(
-                "not_configured",
-                "Configure this library before launching"
-            ) }
-            let capabilities = runtime.capabilities(for: entry)
-            if method == "runtime.launch" {
-                guard capabilities.contains(.launch) else { throw BridgeFailure(
-                    "capability_unavailable",
-                    "Launch is unavailable for this entry"
-                ) }
-                let mode = params["mode"]?.string ?? "standard"
-                guard mode == "standard" || mode == "terminal" else { throw BridgeFailure(
-                    "invalid_params",
-                    "Unknown launch mode"
-                ) }
-                if mode == "terminal", !capabilities.contains(.terminal) {
-                    throw BridgeFailure(
-                        "capability_unavailable",
-                        "Terminal launch is unavailable"
-                    )
-                }
-                if let prompt = try clipboardPreflight(params, entry: entry) {
-                    return prompt
-                }
-                // Re-read program settings after edits performed through the portable service.
-                bottles[entry.bottleURL] = nil
-                let executable = params["executable"] == nil ? nil : try params.path("executable")
-                runtime.launch(.init(
-                    entry: entry,
-                    executableURL: executable,
-                    mode: mode == "terminal" ? .terminal : .standard
-                ))
-            } else if method == "runtime.cancel" {
-                guard capabilities.contains(.cancelLaunch) else { throw BridgeFailure(
-                    "capability_unavailable",
-                    "Cancellation is unavailable"
-                ) }
-                runtime.cancelLaunch(for: entry)
-            } else {
-                guard capabilities.contains(.stop) else { throw BridgeFailure(
-                    "capability_unavailable",
-                    "Stop is unavailable for this entry"
-                ) }
-                await runtime.stop(entry)
-            }
-            return .object(["accepted": .bool(true), "entryID": .string(entry.id)])
-        case "processes.list":
-            let container = try workspace.resolve(params)
-            guard let bottle = bottle(container) else { throw BridgeFailure(
-                "invalid_container",
-                "Wine settings are unreadable"
-            ) }
-            let processes = try await Wine.listProcesses(for: bottle)
-            return .array(processes.map { .object([
-                "pid": .integer(Int64($0.winePID)),
-                "name": .string($0.imageName),
-                "memory": .string($0.memoryUsage),
-                "kind": .string(String(describing: $0.kind))
-            ]) })
+        switch method.prefix(while: { $0 != "." }) {
+        case "system": return try systemCall(method, params: params, workspace: workspace)
+        case "bottle": return try await createBottle(params: params, workspace: workspace)
+        case "runtime": return try await runtimeCall(method, params: params, workspace: workspace)
+        case "processes": return try await listProcesses(params: params, workspace: workspace)
         default: throw BridgeFailure("method_unavailable", "Native method is unavailable")
         }
     }
@@ -300,6 +129,190 @@ public final class MacOSApplicationServices: NativeApplicationServices {
             let globalKill = WhiskyPreferences.userDefaults.object(forKey: "killOnTerminate") as? Bool ?? true
             ApplicationShutdownService.apply(to: bottles.values.map(\.1), globalKill: globalKill)
         }
+    }
+}
+
+// MARK: - Method dispatch
+
+extension MacOSApplicationServices {
+    private func createBottle(
+        params: [String: JSONValue],
+        workspace: ApplicationWorkspace
+    ) async throws -> JSONValue {
+        _ = try workspace.containers()
+        let name = try params.text("name")
+        let parent = try params.path("parent")
+        guard let version = try WinVersion(rawValue: params.text("windowsVersion")) else {
+            throw BridgeFailure("invalid_params", "Unknown Windows version")
+        }
+        return try jobs.start(name: "bottle.create") { progress in
+            progress(.object(["stage": .string("initializing")]))
+            do {
+                let result = try await BottleCreationService.create(
+                    name: name,
+                    windowsVersion: version,
+                    parentDirectory: parent,
+                    destinationDirectory: parent
+                        .appendingPathComponent(UUID().uuidString),
+                    registry: BottleData(registryURL: workspace
+                        .registry)
+                )
+                result.bottle.isAvailable = true
+                result.bottle.inFlight = false
+                return .object([
+                    "path": .string(result.bottle.url.path),
+                    "name": .string(result.bottle.settings.name)
+                ])
+            } catch let error as BottleCreationServiceError {
+                let code = switch error {
+                case .emptyName: "invalid_params"
+                case .runtimeMissing: "runtime_missing"
+                case .locationUnsuitable: "location_unsuitable"
+                case .directoryCreationFailed: "destination_unavailable"
+                case .metadataCreationFailed: "metadata_write_failed"
+                case .registrySaveFailed: "registry_write_failed"
+                }
+                throw BridgeFailure(code, "Bottle creation failed: \(code)")
+            }
+        }
+    }
+
+    private func runtimeCall(
+        _ method: String,
+        params: [String: JSONValue],
+        workspace: ApplicationWorkspace
+    ) async throws -> JSONValue {
+        switch method {
+        case "runtime.configure": return try await configureRuntime(params: params, workspace: workspace)
+        case "runtime.snapshot": return snapshot()
+        case "runtime.events": return try runtimeEvents(params)
+        default: return try await controlRuntime(method, params: params, workspace: workspace)
+        }
+    }
+
+    private func configureRuntime(
+        params: [String: JSONValue],
+        workspace: ApplicationWorkspace
+    ) async throws -> JSONValue {
+        let container = try workspace.resolve(params)
+        let entries = try await workspace.entries(in: container)
+        configured = configured.filter { $0.value.bottleURL != container }
+        for entry in entries {
+            configured[entry.id] = entry
+        }
+        try runtime.retainContainers(Set(workspace.containers()))
+        if observer == nil {
+            let stream = runtime.events()
+            observer = Task { [weak self] in
+                for await event in stream {
+                    guard let self else { break }
+                    self.sequence &+= 1
+                    self.eventBuffer.append((self.sequence, self.event(event)))
+                    if self.eventBuffer.count > 128 {
+                        self.eventBuffer.removeFirst()
+                    }
+                }
+            }
+        }
+        await runtime.configure(entries: entries, containerURL: container)
+        return snapshot()
+    }
+
+    private func runtimeEvents(_ params: [String: JSONValue]) throws -> JSONValue {
+        let after = try params.text("after")
+        guard let cursor = UInt64(after) else { throw BridgeFailure("invalid_params", "Invalid event sequence") }
+        return .object([
+            "sequence": .string(String(sequence)),
+            "resyncRequired": .bool(cursor > sequence ||
+                (eventBuffer.first.map { cursor < $0.0 - 1 } ?? false)),
+            "events": .array(eventBuffer.filter { $0.0 > cursor }.map { .object([
+                "sequence": .string(String($0.0)),
+                "event": $0.1
+            ]) }),
+            "snapshot": snapshot()
+        ])
+    }
+
+    private func controlRuntime(
+        _ method: String,
+        params: [String: JSONValue],
+        workspace: ApplicationWorkspace
+    ) async throws -> JSONValue {
+        let entry = try await workspace.entry(params)
+        guard configured[entry.id] != nil else { throw BridgeFailure(
+            "not_configured",
+            "Configure this library before launching"
+        ) }
+        let capabilities = runtime.capabilities(for: entry)
+        switch method {
+        case "runtime.launch":
+            return try await launch(entry: entry, capabilities: capabilities, params: params)
+        case "runtime.cancel":
+            guard capabilities.contains(.cancelLaunch) else { throw BridgeFailure(
+                "capability_unavailable",
+                "Cancellation is unavailable"
+            ) }
+            runtime.cancelLaunch(for: entry)
+        default:
+            guard capabilities.contains(.stop) else { throw BridgeFailure(
+                "capability_unavailable",
+                "Stop is unavailable for this entry"
+            ) }
+            await runtime.stop(entry)
+        }
+        return .object(["accepted": .bool(true), "entryID": .string(entry.id)])
+    }
+
+    private func launch(
+        entry: LibraryEntry,
+        capabilities: LibraryRuntimeCapabilities,
+        params: [String: JSONValue]
+    ) async throws -> JSONValue {
+        guard capabilities.contains(.launch) else { throw BridgeFailure(
+            "capability_unavailable",
+            "Launch is unavailable for this entry"
+        ) }
+        let mode = params["mode"]?.string ?? "standard"
+        guard mode == "standard" || mode == "terminal" else { throw BridgeFailure(
+            "invalid_params",
+            "Unknown launch mode"
+        ) }
+        if mode == "terminal", !capabilities.contains(.terminal) {
+            throw BridgeFailure(
+                "capability_unavailable",
+                "Terminal launch is unavailable"
+            )
+        }
+        if let prompt = try clipboardPreflight(params, entry: entry) {
+            return prompt
+        }
+        // Re-read program settings after edits performed through the portable service.
+        bottles[entry.bottleURL] = nil
+        let executable = params["executable"] == nil ? nil : try params.path("executable")
+        runtime.launch(.init(
+            entry: entry,
+            executableURL: executable,
+            mode: mode == "terminal" ? .terminal : .standard
+        ))
+        return .object(["accepted": .bool(true), "entryID": .string(entry.id)])
+    }
+
+    private func listProcesses(
+        params: [String: JSONValue],
+        workspace: ApplicationWorkspace
+    ) async throws -> JSONValue {
+        let container = try workspace.resolve(params)
+        guard let bottle = bottle(container) else { throw BridgeFailure(
+            "invalid_container",
+            "Wine settings are unreadable"
+        ) }
+        let processes = try await Wine.listProcesses(for: bottle)
+        return .array(processes.map { .object([
+            "pid": .integer(Int64($0.winePID)),
+            "name": .string($0.imageName),
+            "memory": .string($0.memoryUsage),
+            "kind": .string(String(describing: $0.kind))
+        ]) })
     }
 
     private func clipboardPreflight(_ params: [String: JSONValue], entry: LibraryEntry) throws -> JSONValue? {
@@ -348,9 +361,11 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         switch event {
         case let .state(state): return .object(["kind": .string("state"), "value": snapshot(state)])
         case let .launchResult(entryID, result):
-            let kind = switch result { case .launchedSuccessfully: "launched"
+            let kind = switch result {
+            case .launchedSuccessfully: "launched"
             case .launchedInTerminal: "terminal"
-            case .launchFailed: "failed" }
+            case .launchFailed: "failed"
+            }
             return .object([
                 "kind": .string("launchResult"),
                 "entryID": .string(entryID),
