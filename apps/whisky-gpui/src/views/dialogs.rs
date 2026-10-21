@@ -428,6 +428,62 @@ impl WhiskyApp {
         )
     }
 
+    /// Every `.exe` the helper found under the folder, newest section first.
+    /// Choosing one records it; Play opened the picker, so it also starts.
+    fn executable_picker(&self, cx: &Context<Self>) -> AnyElement {
+        let Some(picker) = self.executable_picker.as_ref() else {
+            return self.form(
+                "executable-scroll",
+                vec![self.section(
+                    "executable-empty",
+                    "启动程序",
+                    vec![self.info("没有找到可启动的程序", "该文件夹下没有 .exe")],
+                    cx,
+                )],
+            );
+        };
+        let folder = picker.folder.clone();
+        let mut rows: Vec<AnyElement> = Vec::new();
+        if picker.candidates.is_empty() {
+            rows.push(self.info("正在查找…", "递归扫描该文件夹"));
+        }
+        for candidate in &picker.candidates {
+            let path = candidate.path.clone();
+            let view = cx.entity().downgrade();
+            let location = candidate.location(&folder);
+            rows.push(
+                Button::new(SharedString::from(format!("exe:{}", candidate.path)))
+                    .ghost()
+                    .w_full()
+                    .justify_start()
+                    .child(
+                        col()
+                            .gap(px(3.))
+                            .child(candidate.name.clone())
+                            .child(muted(location).line_height(relative(1.3))),
+                    )
+                    .on_click(move |_, _, cx| {
+                        let _ = view.update(cx, |this, cx| {
+                            this.choose_executable(&path, cx);
+                        });
+                    })
+                    .into_any_element(),
+            );
+        }
+        self.form(
+            "executable-scroll",
+            vec![
+                self.section(
+                    "executable-folder",
+                    "文件夹",
+                    vec![self.info(&picker.title, &folder)],
+                    cx,
+                ),
+                self.section("executable-list", "可启动的程序", rows, cx),
+            ],
+        )
+    }
+
     pub(crate) fn preview_sheet(
         &mut self,
         sheet: PreviewSheet,
@@ -439,6 +495,7 @@ impl WhiskyApp {
         let title = match sheet {
             PreviewSheet::RunSettings(_) => "运行设置",
             PreviewSheet::Scan => "管理扫描文件夹",
+            PreviewSheet::Executable => "选择启动程序",
             PreviewSheet::Winetricks => "Winetricks",
             PreviewSheet::CreateBottle => "创建容器",
             PreviewSheet::Diagnostics => "故障排查",
@@ -449,6 +506,7 @@ impl WhiskyApp {
         let content = match sheet {
             PreviewSheet::RunSettings(i) => self.run_settings(i, cx),
             PreviewSheet::Scan => self.scan_settings(window, cx),
+            PreviewSheet::Executable => self.executable_picker(cx),
             PreviewSheet::Winetricks => self.form(
                 "winetricks-scroll",
                 vec![

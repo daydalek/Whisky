@@ -288,6 +288,39 @@ impl ProgramDto {
     }
 }
 
+/// `folders.candidates` reply: every `.exe` the helper found under a folder.
+/// The UI lists these instead of opening a platform file dialog, which cannot
+/// be pointed at the folder.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CandidatesDto {
+    #[serde(default)]
+    pub(crate) folder: String,
+    #[serde(default)]
+    pub(crate) candidates: Vec<CandidateDto>,
+}
+
+/// One candidate: the absolute path is what `folders.executable` stores.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CandidateDto {
+    pub(crate) path: String,
+    #[serde(default)]
+    pub(crate) name: String,
+}
+
+impl CandidateDto {
+    /// Where the file sits inside the folder, which is what distinguishes two
+    /// installs that both ship `game.exe`.
+    pub(crate) fn location(&self, folder: &str) -> String {
+        let path = std::path::Path::new(&self.path);
+        let base = std::path::Path::new(folder);
+        path.strip_prefix(base)
+            .map(|rest| rest.to_string_lossy().to_string())
+            .unwrap_or_else(|_| self.name.clone())
+    }
+}
+
 /// One `processes.list` row (`ProcessRecord` in `ProcessService.swift`).
 ///
 /// Every field the snapshot cannot compute honestly is optional and omitted by
@@ -874,6 +907,30 @@ mod tests {
         assert!(!legacy.needs_executable);
         // A pin names its own executable, so the card offers no choice.
         assert!(!legacy.is_folder);
+    }
+
+    /// The picker lists candidates by where they sit inside the folder, since
+    /// several installs ship a file with the same name.
+    #[test]
+    fn candidates_decode_with_a_location_relative_to_the_folder() {
+        let payload: CandidatesDto = serde_json::from_str(
+            r#"{"folder":"/Games/Sample","candidates":[
+                {"path":"/Games/Sample/sample.exe","name":"sample.exe"},
+                {"path":"/Games/Sample/Data/sample.exe","name":"sample.exe"}]}"#,
+        )
+        .expect("candidates payload");
+        assert_eq!(payload.folder, "/Games/Sample");
+        assert_eq!(payload.candidates.len(), 2);
+        assert_eq!(payload.candidates[0].location(&payload.folder), "sample.exe");
+        assert_eq!(
+            payload.candidates[1].location(&payload.folder),
+            "Data/sample.exe"
+        );
+        // Without a name the path still identifies the row.
+        let bare: CandidatesDto =
+            serde_json::from_str(r#"{"folder":"/f","candidates":[{"path":"/f/a.exe"}]}"#)
+                .expect("candidate without a name");
+        assert_eq!(bare.candidates[0].location("/f"), "a.exe");
     }
 
     #[test]

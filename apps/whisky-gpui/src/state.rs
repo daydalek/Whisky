@@ -9,7 +9,7 @@ use gpui_kit::component::input::InputState;
 use gpui_kit::{prelude::*, *};
 use serde_json::json;
 
-use crate::bridge::dto::{FoldersDto, ProgramDto};
+use crate::bridge::dto::{CandidateDto, FoldersDto, ProgramDto};
 use crate::bridge::{
     BridgeEvent, BridgeStatus, BridgeSupervisor, EntryMutation, FolderEdit, ProgramMutation,
     ScanUpdate,
@@ -67,6 +67,20 @@ pub(crate) struct ScanState {
     pub(crate) finished: bool,
 }
 
+/// What the in-app executable picker is for. `candidates` is filled in by the
+/// `folders.candidates` reply, so the sheet lists them as they arrive.
+#[derive(Clone)]
+pub(crate) struct ExecutablePickerState {
+    pub(crate) container: String,
+    pub(crate) entry_id: String,
+    pub(crate) title: String,
+    /// The folder entry's own path: a folder, never a file.
+    pub(crate) folder: String,
+    /// Play starts the game afterwards; the card menu only records the choice.
+    pub(crate) launch_after: bool,
+    pub(crate) candidates: Vec<CandidateDto>,
+}
+
 impl ScanState {
     pub(crate) fn running(&self) -> bool {
         self.status.is_some_and(|status| !status.is_terminal())
@@ -106,6 +120,8 @@ pub(crate) enum PreviewPage {
 pub(crate) enum PreviewSheet {
     RunSettings(usize),
     Scan,
+    /// The folder's `.exe` files, for picking what a folder entry starts.
+    Executable,
     Winetricks,
     CreateBottle,
     Diagnostics,
@@ -267,6 +283,9 @@ pub(crate) struct WhiskyApp {
     pub(crate) folders: BTreeMap<String, FoldersDto>,
     pub(crate) folders_pending: BTreeSet<String>,
     pub(crate) folders_error: BTreeMap<String, String>,
+    /// The card the in-app executable picker is open for, and whether choosing
+    /// one should start it (Play) or only record it (the card menu).
+    pub(crate) executable_picker: Option<ExecutablePickerState>,
     /// Container environment map keyed by container path.
     pub(crate) environments: BTreeMap<String, BTreeMap<String, String>>,
     pub(crate) environment_error: BTreeMap<String, String>,
@@ -361,6 +380,7 @@ impl WhiskyApp {
             folders: BTreeMap::new(),
             folders_pending: BTreeSet::new(),
             folders_error: BTreeMap::new(),
+            executable_picker: None,
             environments: BTreeMap::new(),
             environment_error: BTreeMap::new(),
             programs: None,
@@ -426,6 +446,7 @@ impl WhiskyApp {
         self.folders.clear();
         self.folders_pending.clear();
         self.folders_error.clear();
+        self.executable_picker = None;
         self.environments.clear();
         self.environment_error.clear();
         self.env_original = None;
@@ -729,6 +750,17 @@ impl WhiskyApp {
                         }
                     }
                     self.show_notice(reason, cx);
+                }
+            }
+            BridgeEvent::Candidates { candidates } => {
+                if let Some(picker) = self.executable_picker.as_mut() {
+                    // The helper echoes the folder it walked; the reply may
+                    // also be for a folder the user has since left, so both
+                    // come from the reply rather than from the request.
+                    if !candidates.folder.is_empty() {
+                        picker.folder = candidates.folder;
+                    }
+                    picker.candidates = candidates.candidates;
                 }
             }
             BridgeEvent::Folders { container, folders } => {
@@ -1320,8 +1352,8 @@ impl WhiskyApp {
             Command::Executable(i) => {
                 if self.demo {
                     self.show_notice(DEMO_NOTICE, cx);
-                } else if let Some(container) = self.bottle_path(i) {
-                    self.ask_for_executable(i, container, false, cx);
+                } else {
+                    self.open_executable_picker(i, false, cx);
                 }
             }
         }
@@ -2007,62 +2039,70 @@ impl WhiskyApp {
         self.game(index).is_some_and(|game| game.needs_executable)
     }
 
-    /// Ask for the executable and record it through `folders.executable`, the
-    /// way `LibraryModel` does before starting a folder game. `launch` runs it
-    /// straight away, which is what Play does; the card menu records only.
+    /// Open the in-app picker over a folder entry's `.exe` files.
     ///
     /// The helper resolves an already-recorded executable on its own, so Play
-    /// only reaches this for a folder that has none.
-    fn ask_for_executable(
-        &mut self,
-        index: usize,
-        container: String,
-        launch: bool,
-        cx: &mut Context<Self>,
-    ) {
-        let details = self
-            .game(index)
-            .map(|game| (game.executable.clone(), game.id.clone(), game.title.clone()));
-        let Some((Some(folder), entry_id, title)) = details else {
+    /// only reaches this for a folder that has none. `launch_after` starts the
+    /// game once a choice is made, which is what Play does; the card menu
+    /// records the choice only.
+    fn open_executable_picker(&mut self, index: usize, launch_after: bool, cx: &mut Context<Self>) {
+        let details = self.game(index).map(|game| {
+            (
+                game.container.clone(),
+                game.id.clone(),
+                game.title.clone(),
+                game.executable.clone(),
+            )
+        });
+        let Some((container, entry_id, title, Some(folder))) = details else {
             self.show_notice("该条目没有可指定的程序", cx);
             return;
         };
-        let prompt = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(format!("选择 {title} 启动的 .exe").into()),
+        if container.is_empty() {
+            return;
+        }
+        let folder = folder.to_string_lossy().to_string();
+        self.executable_picker = Some(ExecutablePickerState {
+            container: container.clone(),
+            entry_id,
+            title,
+            folder: folder.clone(),
+            launch_after,
+            candidates: Vec::new(),
         });
-        cx.spawn(async move |this, cx| {
-            // `Canceled`, a picker error, and a cancelled dialog all mean the
-            // same thing here: nothing was chosen, so nothing is launched.
-            let Ok(Ok(Some(paths))) = prompt.await else {
-                return;
-            };
-            let Some(executable) = paths.into_iter().next() else {
-                return;
-            };
-            let executable = executable.to_string_lossy().to_string();
-            let _ = this.update(cx, |this, cx| {
-                this.bridge.edit_folders(
-                    &container,
-                    FolderEdit::Executable {
-                        path: folder.to_string_lossy().to_string(),
-                        executable: Some(executable.clone()),
-                    },
-                );
-                this.update_entry(&container, &entry_id, |game| {
-                    game.needs_executable = false;
-                    game.executable = Some(std::path::PathBuf::from(&executable));
-                });
-                if launch {
-                    this.runtime.set_state(&entry_id, RuntimeState::Preparing);
-                    this.bridge.launch(&container, &entry_id, Some(&executable));
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+        self.bridge.load_candidates(&container, &folder);
+        self.open_preview_sheet(PreviewSheet::Executable, cx);
+    }
+
+    /// Record the picked executable through `folders.executable`, then honour
+    /// what opened the picker.
+    pub(crate) fn choose_executable(&mut self, path: &str, cx: &mut Context<Self>) {
+        let Some(picker) = self.executable_picker.take() else {
+            return;
+        };
+        self.bridge.edit_folders(
+            &picker.container,
+            FolderEdit::Executable {
+                path: picker.folder.clone(),
+                executable: Some(path.to_owned()),
+            },
+        );
+        self.update_entry(&picker.container, &picker.entry_id, |game| {
+            game.needs_executable = false;
+            game.executable = Some(std::path::PathBuf::from(path));
+        });
+        if picker.launch_after {
+            if self.configured.ensure(&picker.container) {
+                self.bridge.configure_runtime(&picker.container);
+            }
+            self.runtime
+                .set_state(&picker.entry_id, RuntimeState::Preparing);
+            self.bridge
+                .launch(&picker.container, &picker.entry_id, Some(path));
+        }
+        self.preview.sheet = None;
+        self.preview.sheet_history.clear();
+        cx.notify();
     }
 
     /// Kill one process. The row leaves the list at once; the reply either
@@ -2149,7 +2189,7 @@ impl WhiskyApp {
                     self.bridge.configure_runtime(&container);
                 }
                 if self.needs_executable(index) {
-                    self.ask_for_executable(index, container, true, cx);
+                    self.open_executable_picker(index, true, cx);
                     return;
                 }
                 self.runtime.set_state(&entry_id, RuntimeState::Preparing);
@@ -2298,6 +2338,8 @@ impl WhiskyApp {
     pub(crate) fn preview_dismiss(&mut self, cx: &mut Context<Self>) {
         self.preview.sheet = None;
         self.preview.sheet_history.clear();
+        // A dismissed picker chose nothing, so nothing is recorded or launched.
+        self.executable_picker = None;
         cx.notify();
     }
     /// Whether the `Hidden` filter currently includes hidden entries.

@@ -26,11 +26,11 @@ use whisky_bridge::Client;
 use super::{
     BridgeStatus,
     dto::{
-        ActivityDto, BridgeFailureDto, Container, ContainerList, DescribeResponse, EntryDto,
-        EntryList, FoldersDto, HiddenReplyDto, JobDto, JobStartDto, KillReplyDto, LaunchReplyDto,
-        LibraryPageDto, PreferencesSchemaDto, ProcessDto, ProgramDto, RUNTIME_METHODS,
-        RUNTIME_SESSION_METHODS, RuntimeEntryDto, RuntimeEventBatchDto, RuntimeEventPayloadDto,
-        RuntimeSnapshotDto, ScanResultDto,
+        ActivityDto, BridgeFailureDto, CandidatesDto, Container, ContainerList, DescribeResponse,
+        EntryDto, EntryList, FoldersDto, HiddenReplyDto, JobDto, JobStartDto, KillReplyDto,
+        LaunchReplyDto, LibraryPageDto, PreferencesSchemaDto, ProcessDto, ProgramDto,
+        RUNTIME_METHODS, RUNTIME_SESSION_METHODS, RuntimeEntryDto, RuntimeEventBatchDto,
+        RuntimeEventPayloadDto, RuntimeSnapshotDto, ScanResultDto,
     },
 };
 use crate::config::{self, ConfigField};
@@ -158,6 +158,10 @@ pub(crate) enum BridgeEvent {
     LoadFailed {
         container: Option<String>,
         reason: String,
+    },
+    /// `.exe` files found under a folder entry, for the in-app picker.
+    Candidates {
+        candidates: CandidatesDto,
     },
     /// `preferences.read` plus the `preferences.schema` allow-list.
     Preferences {
@@ -316,6 +320,11 @@ enum Command {
     EditFolders {
         container: String,
         edit: FolderEdit,
+    },
+    /// `folders.candidates` for one folder entry.
+    LoadCandidates {
+        container: String,
+        folder: String,
     },
     LoadEnvironment(String),
     SetEnvironment {
@@ -499,6 +508,13 @@ impl BridgeSupervisor {
         let _ = self.commands.send(Command::EditFolders {
             container: container.to_owned(),
             edit,
+        });
+    }
+
+    pub(crate) fn load_candidates(&self, container: &str, folder: &str) {
+        let _ = self.commands.send(Command::LoadCandidates {
+            container: container.to_owned(),
+            folder: folder.to_owned(),
         });
     }
 
@@ -1108,6 +1124,17 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
                 }
+                Some(Command::LoadCandidates { container, folder }) => {
+                    match load_candidates(&mut client, &container, &folder) {
+                        Ok(candidates) => {
+                            emit_event(&events, BridgeEvent::Candidates { candidates });
+                        }
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::RuntimeFailed { reason });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
                 Some(Command::EditFolders { container, edit }) => {
                     let (method, params) = edit.call(&container);
                     match client.call(method, params).map_err(classify) {
@@ -1598,6 +1625,21 @@ fn load_folders(client: &mut Client, container: &str) -> Result<FoldersDto, Call
         .map_err(classify)?;
     serde_json::from_value(reply)
         .map_err(|error| CallFailure::Remote(format!("invalid folders payload: {error}")))
+}
+
+fn load_candidates(
+    client: &mut Client,
+    container: &str,
+    folder: &str,
+) -> Result<CandidatesDto, CallFailure> {
+    let reply = client
+        .call(
+            "folders.candidates",
+            json!({ "container": container, "path": folder }),
+        )
+        .map_err(classify)?;
+    serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid candidates payload: {error}")))
 }
 
 fn load_environment(
