@@ -12,6 +12,7 @@ mod library_layout;
 mod model;
 #[cfg(feature = "visual-test")]
 mod motion_capture;
+mod runtime;
 mod state;
 mod theme;
 mod views;
@@ -55,7 +56,7 @@ impl Render for WhiskyApp {
         let presence = Presence::new("detail-presence", self.detail_open)
             .transition(self.timing(DETAIL_MS))
             .sample(window, cx);
-        let notification = Presence::new("notice-presence", self.notice)
+        let notification = Presence::new("notice-presence", self.notice.is_some())
             .transition(self.timing(NOTICE_MS))
             .sample(window, cx);
         let mut root = row()
@@ -118,7 +119,11 @@ impl Render for WhiskyApp {
         if self.bridge_dialog {
             root = root.child(self.bridge_status_dialog(ww, wh, cx));
         }
+        if self.clipboard_prompt.is_some() {
+            root = root.child(self.clipboard_dialog(ww, wh, cx));
+        }
         if notification.should_render() {
+            let message = self.notice.clone().unwrap_or_default();
             root = root.child(
                 row()
                     .absolute()
@@ -134,7 +139,7 @@ impl Render for WhiskyApp {
                     .shadow_lg()
                     .opacity(notification.progress)
                     .child(icon("info", 16.).text_color(rgb(ACCENT)))
-                    .child("外观演示 · 未启动游戏，也未修改容器"),
+                    .child(message),
             );
         }
         if self.scroll_needs_measurement.get() {
@@ -233,6 +238,18 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
     .detach();
 }
 
+/// Value following `flag`, if the flag is present. `None` when absent, `Err`
+/// when the flag has no value (so the caller can print usage).
+fn cli_value<'a>(arguments: &'a [String], flag: &str) -> Result<Option<&'a str>, ()> {
+    match arguments.iter().position(|argument| argument == flag) {
+        Some(index) => match arguments.get(index + 1) {
+            Some(value) if !value.starts_with("--") => Ok(Some(value.as_str())),
+            _ => Err(()),
+        },
+        None => Ok(None),
+    }
+}
+
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     if arguments.iter().any(|argument| argument == "--print-bridge-status") {
@@ -240,6 +257,32 @@ fn main() {
     }
     if arguments.iter().any(|argument| argument == "--print-runtime") {
         std::process::exit(bridge::print_runtime());
+    }
+    if arguments.iter().any(|argument| argument == "--runtime-watch") {
+        const USAGE: &str =
+            "usage: whisky-gpui --runtime-watch [--seconds N] [--bottle <name-or-path>]";
+        let seconds = match cli_value(&arguments, "--seconds") {
+            Ok(Some(raw)) => match raw.parse::<u64>() {
+                Ok(seconds) => seconds,
+                Err(_) => {
+                    eprintln!("{USAGE}");
+                    std::process::exit(2);
+                }
+            },
+            Ok(None) => 5,
+            Err(()) => {
+                eprintln!("{USAGE}");
+                std::process::exit(2);
+            }
+        };
+        let bottle = match cli_value(&arguments, "--bottle") {
+            Ok(bottle) => bottle,
+            Err(()) => {
+                eprintln!("{USAGE}");
+                std::process::exit(2);
+            }
+        };
+        std::process::exit(bridge::watch_runtime(bottle, seconds));
     }
     if arguments.iter().any(|argument| argument == "--print-library") {
         let bottle = match arguments.iter().position(|argument| argument == "--bottle") {

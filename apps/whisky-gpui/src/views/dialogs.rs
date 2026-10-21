@@ -7,8 +7,9 @@ use gpui_kit::{prelude::*, *};
 use super::Command;
 use crate::bridge::BridgeStatus;
 use crate::controls::*;
+use crate::runtime::ClipboardDecision;
 use crate::state::{PreviewSheet, WhiskyApp};
-use crate::theme::{OVERLAY, RADIUS_LG, SURFACE, SURFACE_BORDER};
+use crate::theme::{MUTED, OVERLAY, RADIUS_LG, SURFACE, SURFACE_BORDER};
 
 impl WhiskyApp {
     fn run_settings(&self, index: usize, cx: &Context<Self>) -> AnyElement {
@@ -393,6 +394,136 @@ impl WhiskyApp {
             )
             .into_any_element()
     }
+    /// Clipboard preflight. The helper refuses to launch until it is told
+    /// whether to keep or clear the clipboard, so this sheet sits between the
+    /// first and second `runtime.launch` call.
+    ///
+    /// `LaunchInteractionBroker.resolve` accepts exactly `clear` and `keep`;
+    /// both continue the launch. Dismissing sends nothing, so nothing starts.
+    pub(crate) fn clipboard_dialog(
+        &self,
+        width: f32,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(prompt) = &self.clipboard_prompt else {
+            return div().into_any_element();
+        };
+        let content = if prompt.content_type.is_empty() {
+            "未知内容".to_owned()
+        } else {
+            prompt.content_type.clone()
+        };
+        let detail = format!(
+            "启动前检测到剪贴板中有 {content}（{}）。Wine 可能读取剪贴板，请选择如何处理。",
+            clipboard_size(prompt.size_bytes)
+        );
+        let pw = 460_f32.min(width - 48.);
+        let ph = 290_f32.min(height - 48.);
+        div()
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .bg(rgba(OVERLAY))
+            .child(
+                div()
+                    .id("clipboard-dismiss")
+                    .absolute()
+                    .inset_0()
+                    .on_click(cx.listener(|this, _, _, cx| this.dismiss_clipboard(cx))),
+            )
+            .child(
+                col()
+                    .absolute()
+                    .left(px((width - pw) / 2.))
+                    .top(px((height - ph) / 2.))
+                    .w(px(pw))
+                    .h(px(ph))
+                    .rounded(px(RADIUS_LG))
+                    .overflow_hidden()
+                    .bg(rgb(SURFACE))
+                    .border_1()
+                    .border_color(rgba(SURFACE_BORDER))
+                    .shadow_xl()
+                    .child(
+                        row()
+                            .flex_shrink_0()
+                            .h(px(46.))
+                            .px(px(16.))
+                            .gap(px(12.))
+                            .border_b_1()
+                            .border_color(rgba(SURFACE_BORDER))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("剪贴板内容"),
+                            )
+                            .child(
+                                Button::new("clipboard-close")
+                                    .label("×")
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.dismiss_clipboard(cx);
+                                    })),
+                            ),
+                    )
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_h_0()
+                            .px(px(18.))
+                            .py(px(14.))
+                            .gap(px(10.))
+                            .child(muted(detail).line_height(relative(1.5)).line_clamp(3))
+                            .when_some(prompt.preview.clone(), |d, preview| {
+                                d.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .p(px(10.))
+                                        .rounded(px(8.))
+                                        .bg(rgba(0xffffff0a))
+                                        .font_family("monospace")
+                                        .text_size(px(11.))
+                                        .text_color(rgb(MUTED))
+                                        .line_clamp(4)
+                                        .child(preview),
+                                )
+                            }),
+                    )
+                    .child(
+                        row()
+                            .flex_shrink_0()
+                            .justify_end()
+                            .gap(px(8.))
+                            .px(px(16.))
+                            .py(px(12.))
+                            .border_t_1()
+                            .border_color(rgba(SURFACE_BORDER))
+                            .child(Button::new("clipboard-cancel").label("取消").ghost().on_click(
+                                cx.listener(|this, _, _, cx| this.dismiss_clipboard(cx)),
+                            ))
+                            .child(
+                                Button::new("clipboard-keep")
+                                    .label("保留并启动")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.resolve_clipboard(ClipboardDecision::Keep, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("clipboard-clear")
+                                    .label("清空并启动")
+                                    .primary()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.resolve_clipboard(ClipboardDecision::Clear, cx);
+                                    })),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
     pub(crate) fn bridge_status_dialog(
         &self,
         width: f32,
@@ -518,4 +649,15 @@ impl WhiskyApp {
             )
             .into_any_element()
     }
+}
+
+/// Bytes as the sheet shows them. The helper reports the raw byte count.
+fn clipboard_size(bytes: i64) -> String {
+    if bytes <= 0 {
+        return "大小未知".to_owned();
+    }
+    if bytes < 1024 {
+        return format!("{bytes} 字节");
+    }
+    format!("{:.1} KB", bytes as f64 / 1024.)
 }

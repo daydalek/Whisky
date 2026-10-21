@@ -1,14 +1,16 @@
 //! Live connection to the Swift `whisky-bridge` helper.
 //!
 //! M1b reads the container catalogue and each bottle's library over the bridge.
-//! The supervisor is restartable: a failed or timed-out session can be replaced
-//! without restarting the UI process.
+//! M2b adds the runtime session: configure on bottle selection, a cursor poll
+//! over `runtime.events`, and launch/cancel/stop commands. The supervisor is
+//! restartable: a failed or timed-out session can be replaced without
+//! restarting the UI process.
 
 pub(crate) mod dto;
 mod supervisor;
 
 pub(crate) use supervisor::{
-    BridgeEvent, BridgeSupervisor, print_library, print_runtime, print_status,
+    BridgeEvent, BridgeSupervisor, print_library, print_runtime, print_status, watch_runtime,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]

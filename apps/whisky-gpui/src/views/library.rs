@@ -4,8 +4,10 @@ use std::time::Duration;
 
 use gpui_kit::base::{Spring, spring, transition};
 use gpui_kit::component::{
+    Sizable,
     button::{Button, ButtonVariants},
     menu::ContextMenuExt,
+    spinner::Spinner,
 };
 use gpui_kit::{prelude::*, *};
 
@@ -13,7 +15,8 @@ use crate::bridge::BridgeStatus;
 use crate::controls::*;
 use crate::library_layout::{CardRect, LibraryLayout};
 use crate::model::{ambient, art};
-use crate::state::{PreviewPage, WhiskyApp};
+use crate::runtime::{RuntimeAction, RuntimeState};
+use crate::state::{DEMO_NOTICE, PreviewPage, WhiskyApp};
 use crate::theme::*;
 
 /// One sidebar row. Kept next to the sidebar so the Library and bottle entries
@@ -436,20 +439,59 @@ impl WhiskyApp {
                     .when(!self.preview_single_line(), |d| d.line_clamp(2))
                     .child(title),
             )
-            .child(
-                row()
+            // Running and pending states are always visible; only the idle
+            // affordance waits for hover, as it did before.
+            .child(match self.runtime_state(index) {
+                Some(RuntimeState::Running) => live_badge("Running")
                     .absolute()
-                    .top(px(10. + (1. - amount) * 5.))
-                    .right(px(10.))
-                    .justify_center()
-                    .size(px(30.))
-                    .rounded_full()
-                    .bg(rgba(0x141416bb))
-                    .opacity(amount)
-                    .child(icon("play", 15.)),
-            )
+                    .top(px(9.))
+                    .right(px(9.))
+                    .into_any_element(),
+                Some(state) if state.is_active() => phase_badge(state.phase_label())
+                    .absolute()
+                    .top(px(9.))
+                    .right(px(9.))
+                    .into_any_element(),
+                _ => self.cover_play_circle(index, amount, cx),
+            })
             .context_menu(self.game_menu(index, cx))
             .into_any_element()
+    }
+    /// The hover play circle. It dispatches the runtime action when there is
+    /// one and stops the click so the card does not also open the details.
+    fn cover_play_circle(
+        &self,
+        index: usize,
+        amount: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let action = if self.demo {
+            None
+        } else {
+            self.primary_action(index).action
+        };
+        let mut circle = row()
+            .id(("cover-play", index))
+            .absolute()
+            .top(px(10. + (1. - amount) * 5.))
+            .right(px(10.))
+            .justify_center()
+            .size(px(30.))
+            .rounded_full()
+            .bg(rgba(0x141416bb))
+            .opacity(amount)
+            .child(icon("play", 15.));
+        if let Some(action) = action {
+            let view = cx.entity().downgrade();
+            circle = circle.cursor_pointer().on_click(move |_, _, cx| {
+                let _ = view.update(cx, |this, cx| {
+                    this.perform_runtime_action(index, Some(action), cx)
+                });
+                // The card behind this control opens the details panel.
+                cx.stop_propagation();
+            });
+        }
+        circle.into_any_element()
     }
     pub(crate) fn animated_rect(
         &self,
@@ -546,10 +588,18 @@ impl WhiskyApp {
     pub(crate) fn play_button(
         &self,
         id: impl Into<ElementId>,
-        label: &'static str,
+        index: usize,
+        demo_label: &'static str,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        row()
+        // The demo has no runtime; it keeps its own label and its notice.
+        let (label, enabled, busy, action) = if self.demo {
+            (demo_label, true, false, None)
+        } else {
+            let action = self.primary_action(index);
+            (action.label, action.enabled, action.busy, action.action)
+        };
+        let mut button = row()
             .id(id)
             .flex_shrink_0()
             .justify_center()
@@ -557,15 +607,46 @@ impl WhiskyApp {
             .px(px(16.))
             .h(px(30.))
             .rounded_full()
-            .bg(rgb(ACCENT))
-            .text_color(rgb(0xffffff))
             .text_size(px(12.))
-            .font_weight(FontWeight::BOLD)
-            .cursor_pointer()
-            .hover(|s| s.bg(rgb(0xff9c3a)))
-            .on_click(cx.listener(|this, _, _, cx| this.show_notice(cx)))
-            .child(icon("play", 13.))
-            .child(label)
+            .font_weight(FontWeight::BOLD);
+        if busy {
+            button = button
+                .bg(rgba(0xffffff14))
+                .text_color(rgb(MUTED))
+                .child(Spinner::new().with_size(px(12.)))
+                .child(label);
+        } else if enabled {
+            let leading = match action {
+                Some(RuntimeAction::Cancel) => icon("x", 13.),
+                Some(RuntimeAction::Stop) => icon("square", 12.),
+                _ => icon("play", 13.),
+            };
+            button = button
+                .bg(rgb(ACCENT))
+                .text_color(rgb(0xffffff))
+                .cursor_pointer()
+                .hover(|s| s.bg(rgb(0xff9c3a)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if this.demo {
+                        this.show_notice(DEMO_NOTICE, cx);
+                    } else {
+                        this.perform_runtime_action(index, action, cx);
+                    }
+                }))
+                .child(leading.into_any_element())
+                .child(label);
+        } else {
+            let leading = match action {
+                Some(RuntimeAction::Stop) => icon("square", 12.),
+                _ => icon("play", 13.),
+            };
+            button = button
+                .bg(rgba(0xffffff12))
+                .text_color(rgb(MUTED))
+                .child(leading.into_any_element())
+                .child(label);
+        }
+        button
     }
     pub(crate) fn timeline(&self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let games = self.games();
@@ -620,6 +701,15 @@ impl WhiskyApp {
                 if let Some(label) = crate::model::format_play_time(g.play_time) {
                     meta = meta.child(badge("clock-3", label));
                 }
+            }
+            if let Some(state) = self.runtime_state(index) {
+                meta = if state == RuntimeState::Running {
+                    meta.child(live_badge("Running"))
+                } else if state.is_active() {
+                    meta.child(phase_badge(state.phase_label()))
+                } else {
+                    meta
+                };
             }
             let hover = transition(
                 ElementId::from(("timeline-hover", index)),
@@ -787,6 +877,7 @@ impl WhiskyApp {
                                         .flex_shrink_0()
                                         .child(self.play_button(
                                             ("timeline-play", index),
+                                            index,
                                             "继续游玩",
                                             cx,
                                         ))
@@ -837,7 +928,7 @@ impl WhiskyApp {
                                     .truncate(),
                             )
                         })
-                        .child(self.play_button(("classic-play", i), "游玩", cx)),
+                        .child(self.play_button(("classic-play", i), i, "游玩", cx)),
                 );
             content = content.child(self.card_slot(i, rect, card));
         }
@@ -880,6 +971,15 @@ impl WhiskyApp {
             if let Some(last_played) = crate::model::format_last_played(g.last_played) {
                 badges = badges.child(badge("clock-3", last_played));
             }
+        }
+        if let Some(state) = self.runtime_state(index) {
+            badges = if state == RuntimeState::Running {
+                badges.child(live_badge("Running"))
+            } else if state.is_active() {
+                badges.child(phase_badge(state.phase_label()))
+            } else {
+                badges
+            };
         }
         let pw = (width - 100.).clamp(600., 910.).min(width - 36.);
         let ph = (height - 90.).clamp(480., 690.).min(height - 36.);
@@ -1011,6 +1111,7 @@ impl WhiskyApp {
                                                     .child(div().mt(px(12.)).child(
                                                         self.play_button(
                                                             "detail-play",
+                                                            index,
                                                             "继续游玩",
                                                             cx,
                                                         ),

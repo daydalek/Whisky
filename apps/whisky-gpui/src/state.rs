@@ -13,7 +13,15 @@ use crate::library_layout::CardRect;
 use crate::model::{
     BottleVm, Game, demo_bottles, demo_data, demo_requested, empty_library_message,
 };
+use crate::runtime::{
+    ClipboardDecision, ClipboardPrompt, PrimaryAction, RuntimeAction, RuntimeState, RuntimeTable,
+    primary_action_for,
+};
 use crate::views::Command;
+
+/// Toast copy for the demo-only menu actions, which still do not mutate
+/// anything. Runtime failures reuse the same toast with the helper's reason.
+pub(crate) const DEMO_NOTICE: &str = "外观演示 · 未启动游戏，也未修改容器";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PreviewPage {
@@ -147,7 +155,13 @@ pub(crate) struct WhiskyApp {
     pub(crate) ambient_index: usize,
     pub(crate) detail: Option<usize>,
     pub(crate) detail_open: bool,
-    pub(crate) notice: bool,
+    /// The message on the existing toast; `None` hides it. Runtime failures
+    /// reuse the toast instead of introducing another surface.
+    pub(crate) notice: Option<SharedString>,
+    /// Per-entry launch state, keyed by bridge entry id.
+    pub(crate) runtime: RuntimeTable,
+    /// The clipboard preflight awaiting a decision, if any.
+    pub(crate) clipboard_prompt: Option<ClipboardPrompt>,
     pub(crate) bridge: BridgeSupervisor,
     pub(crate) bridge_status: BridgeStatus,
     pub(crate) bridge_dialog: bool,
@@ -158,6 +172,12 @@ impl WhiskyApp {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search programs"));
         let subscription = cx.observe(&search, |_, _, cx| cx.notify());
         let (bridge, bridge_events) = BridgeSupervisor::start();
+        // Polling pauses in the background, so the worker starts from the real
+        // activation state rather than assuming the window is focused.
+        bridge.set_active(window.is_window_active());
+        let activation = cx.observe_window_activation(window, |this, window, _| {
+            this.bridge.set_active(window.is_window_active());
+        });
         cx.spawn(async move |this, cx| {
             while let Ok(event) = bridge_events.recv().await {
                 let _ = this.update(cx, |this, cx| this.apply_bridge_event(event, cx));
@@ -193,11 +213,13 @@ impl WhiskyApp {
             ambient_index: 0,
             detail: None,
             detail_open: false,
-            notice: false,
+            notice: None,
+            runtime: RuntimeTable::default(),
+            clipboard_prompt: None,
             bridge,
             bridge_status: BridgeStatus::Locating,
             bridge_dialog: false,
-            _subscriptions: vec![subscription],
+            _subscriptions: vec![subscription, activation],
         }
     }
     pub(crate) fn bridge_retry(&mut self, cx: &mut Context<Self>) {
@@ -208,6 +230,8 @@ impl WhiskyApp {
         self.failures.clear();
         self.load_error = None;
         self.loading = false;
+        self.runtime = RuntimeTable::default();
+        self.clipboard_prompt = None;
         cx.notify();
     }
 
@@ -238,6 +262,9 @@ impl WhiskyApp {
                 self.bridge_status = status;
                 if unavailable && !self.demo {
                     self.pending.clear();
+                    // A pending clipboard token belongs to a session that is
+                    // gone; re-launching from the card gets a fresh one.
+                    self.clipboard_prompt = None;
                     if self.entries.is_empty() {
                         self.load_error = reason;
                     }
@@ -264,7 +291,42 @@ impl WhiskyApp {
                     self.failures.clear();
                     self.load_error = None;
                     self.pending.clear();
+                    // The helper keeps no runtime session across processes.
+                    self.runtime = RuntimeTable::default();
                     self.request_all();
+                    // A reconnect must re-configure, or every card would stay
+                    // disabled with no way back short of reselecting the bottle.
+                    if let Some(path) = self
+                        .selected_bottle
+                        .and_then(|index| self.bottles.get(index))
+                        .filter(|bottle| bottle.available)
+                        .map(|bottle| bottle.path.clone())
+                    {
+                        self.bridge.configure_runtime(&path);
+                    }
+                }
+            }
+            BridgeEvent::Runtime(update) => {
+                if !self.demo {
+                    // A poll for the previous container must not leak into the
+                    // new one; `resync` already clears, this guards the delta.
+                    if self
+                        .selected_bottle
+                        .and_then(|index| self.bottles.get(index))
+                        .is_none_or(|bottle| bottle.path == update.container)
+                    {
+                        self.runtime.apply(update);
+                    }
+                }
+            }
+            BridgeEvent::ClipboardPrompt(prompt) => {
+                if !self.demo {
+                    self.clipboard_prompt = Some(prompt);
+                }
+            }
+            BridgeEvent::RuntimeFailed { reason } => {
+                if !self.demo {
+                    self.show_notice(reason, cx);
                 }
             }
             BridgeEvent::Entries { container, entries } => {
@@ -342,6 +404,9 @@ impl WhiskyApp {
             self.failures.remove(&index);
             self.pending.insert(index);
             self.bridge.load_entries(&path);
+            // The runtime publishes one session at a time, so selecting a
+            // bottle rebinds it before any card can offer Play.
+            self.bridge.configure_runtime(&path);
         }
         self.loading = self.compute_loading();
         cx.notify();
@@ -365,6 +430,7 @@ impl WhiskyApp {
                             {
                                 self.pending.insert(index);
                                 self.bridge.load_entries(&path);
+                                self.bridge.configure_runtime(&path);
                             } else {
                                 self.failures
                                     .insert(index, "This bottle is unavailable.".to_owned());
@@ -492,16 +558,16 @@ impl WhiskyApp {
         self.detail = Some(index);
         self.detail_open = true;
         self.hovered = None;
-        self.notice = false;
+        self.notice = None;
         cx.notify();
     }
-    pub(crate) fn show_notice(&mut self, cx: &mut Context<Self>) {
-        self.notice = true;
+    pub(crate) fn show_notice(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.notice = Some(message.into());
         cx.notify();
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_secs(3)).await;
             let _ = this.update(cx, |this, cx| {
-                this.notice = false;
+                this.notice = None;
                 cx.notify();
             });
         })
@@ -567,8 +633,100 @@ impl WhiskyApp {
             Command::Move(i, bottle) => {
                 self.preview.moved.insert(i, bottle);
             }
-            Command::Notice => self.show_notice(cx),
+            Command::Notice => self.show_notice(DEMO_NOTICE, cx),
+            Command::Runtime(i) => {
+                if self.demo {
+                    self.show_notice(DEMO_NOTICE, cx);
+                } else {
+                    let action = self.primary_action(i).action;
+                    self.perform_runtime_action(i, action, cx);
+                }
+            }
         }
+        cx.notify();
+    }
+
+    /// Container path that owns this card's entry, when the bottle is present.
+    fn bottle_path(&self, index: usize) -> Option<String> {
+        self.game(index)
+            .and_then(|game| game.bottle.checked_sub(1))
+            .and_then(|slot| self.bottles.get(slot))
+            .filter(|bottle| bottle.available)
+            .map(|bottle| bottle.path.clone())
+    }
+
+    /// Per-entry runtime state. Cards for entries the helper has never
+    /// configured (the Library page before any bottle is opened, or the demo)
+    /// have no state and therefore no action.
+    pub(crate) fn runtime_state(&self, index: usize) -> Option<RuntimeState> {
+        self.game(index)
+            .and_then(|game| self.runtime.entry(&game.id))
+            .map(|entry| entry.state)
+    }
+
+    /// The card's primary action. Entries without runtime state — and states
+    /// this build does not understand — yield a disabled, neutral button.
+    pub(crate) fn primary_action(&self, index: usize) -> PrimaryAction {
+        self.game(index)
+            .and_then(|game| self.runtime.entry(&game.id))
+            .map_or(PrimaryAction::unavailable(), |entry| {
+                primary_action_for(entry.state, entry.capabilities)
+            })
+    }
+
+    /// Send the mutation and move the card into a plausible transitional state.
+    /// The next snapshot is authoritative and corrects it.
+    pub(crate) fn perform_runtime_action(
+        &mut self,
+        index: usize,
+        action: Option<RuntimeAction>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(action) = action else { return };
+        let (Some(container), Some(entry_id)) = (
+            self.bottle_path(index),
+            self.game(index).map(|game| game.id.clone()),
+        ) else {
+            return;
+        };
+        match action {
+            RuntimeAction::Launch => {
+                self.runtime.set_state(&entry_id, RuntimeState::Preparing);
+                self.bridge.launch(&container, &entry_id);
+            }
+            RuntimeAction::Cancel => {
+                // Cancel is only accepted while preparing/launching; showing the
+                // pre-launch phase keeps the button unavailable until the next
+                // event lands.
+                self.runtime.set_state(&entry_id, RuntimeState::CheckingLaunch);
+                self.bridge.cancel(&container, &entry_id);
+            }
+            RuntimeAction::Stop => {
+                self.runtime.set_state(&entry_id, RuntimeState::Idle);
+                self.bridge.stop(&container, &entry_id);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Second launch call for a clipboard prompt. The token travels unchanged;
+    /// dismissing the sheet calls `dismiss_clipboard` instead and never launches.
+    pub(crate) fn resolve_clipboard(
+        &mut self,
+        decision: ClipboardDecision,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(prompt) = self.clipboard_prompt.take() else {
+            return;
+        };
+        self.runtime
+            .set_state(&prompt.entry_id, RuntimeState::Preparing);
+        self.bridge.resolve_clipboard(prompt, decision);
+        cx.notify();
+    }
+
+    pub(crate) fn dismiss_clipboard(&mut self, cx: &mut Context<Self>) {
+        self.clipboard_prompt = None;
         cx.notify();
     }
     pub(crate) fn navigate(&mut self, page: PreviewPage, cx: &mut Context<Self>) {

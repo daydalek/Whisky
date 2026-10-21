@@ -23,6 +23,18 @@ pub(crate) const REQUIRED_METHODS: &[&str] = &["workspace.containers", "library.
 /// Methods the headless runtime probe cannot work without.
 pub(crate) const RUNTIME_METHODS: &[&str] = &["runtime.snapshot"];
 
+/// The full runtime surface this frontend drives (`RuntimeService.methods`).
+/// Checked before `--runtime-watch` so the probe fails with a clear message
+/// instead of a remote `method_unavailable`.
+pub(crate) const RUNTIME_SESSION_METHODS: &[&str] = &[
+    "runtime.configure",
+    "runtime.snapshot",
+    "runtime.events",
+    "runtime.launch",
+    "runtime.cancel",
+    "runtime.stop",
+];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DescribeResponse {
@@ -96,6 +108,82 @@ pub(crate) struct RuntimeEntryDto {
     pub(crate) state: String,
     #[serde(default)]
     pub(crate) capabilities: i64,
+}
+
+/// One `runtime.events` result (`RuntimeService.runtimeEvents`).
+///
+/// `after` is a decimal cursor; `resyncRequired` means the cursor fell behind
+/// the 128-event ring and local state must be replaced wholesale. `events` is
+/// filtered by the helper to entries newer than the cursor, so an empty array
+/// is normal.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RuntimeEventBatchDto {
+    #[serde(default)]
+    pub(crate) sequence: String,
+    #[serde(default)]
+    pub(crate) resync_required: bool,
+    #[serde(default)]
+    pub(crate) events: Vec<RuntimeEventDto>,
+    /// The service always includes it; optional here so a truncated frame
+    /// cannot take the session down.
+    #[serde(default)]
+    pub(crate) snapshot: Option<RuntimeSnapshotDto>,
+}
+
+/// One buffered event. The helper wraps the payload as `{sequence, event}`;
+/// the sequence is redundant with the batch cursor, so only the payload is kept.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct RuntimeEventDto {
+    pub(crate) event: RuntimeEventPayloadDto,
+}
+
+/// `RuntimeService.encodeEvent` tags each payload with `kind`. Unknown kinds are
+/// tolerated: a newer helper may publish events this build cannot interpret.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub(crate) enum RuntimeEventPayloadDto {
+    /// A complete state snapshot, not a delta.
+    State { value: RuntimeSnapshotDto },
+    LaunchResult {
+        #[serde(rename = "entryID", default)]
+        entry_id: String,
+        #[serde(default)]
+        status: String,
+        #[serde(default)]
+        error: Option<String>,
+    },
+    Failure {
+        #[serde(default)]
+        message: String,
+    },
+    #[serde(other)]
+    Unknown,
+}
+
+/// `runtime.launch` reply: either `{accepted, entryID}` or the clipboard
+/// prompt `{accepted: false, interaction: {…}}` from `LaunchInteractionBroker`.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct LaunchReplyDto {
+    #[serde(default)]
+    pub(crate) accepted: bool,
+    #[serde(default)]
+    pub(crate) interaction: Option<ClipboardInteractionDto>,
+}
+
+/// The clipboard prompt payload. `kind` is `"clipboard"`; the token is one-use
+/// and must be echoed back verbatim.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ClipboardInteractionDto {
+    pub(crate) kind: String,
+    pub(crate) token: String,
+    #[serde(default)]
+    pub(crate) content_type: String,
+    #[serde(default)]
+    pub(crate) size_bytes: i64,
+    #[serde(default)]
+    pub(crate) preview: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -404,6 +492,70 @@ mod tests {
             describe.missing_methods(RUNTIME_METHODS),
             vec!["runtime.snapshot"]
         );
+    }
+
+    #[test]
+    fn runtime_event_batch_deserializes_state_results_and_tolerates_unknown_kinds() {
+        let batch: RuntimeEventBatchDto = serde_json::from_str(
+            r#"{
+                "sequence": "42",
+                "resyncRequired": true,
+                "events": [
+                    {"sequence": "41", "event": {"kind": "state", "value": {
+                        "sequence": "41", "entries": [
+                            {"id": "pinned:a", "state": "preparing", "capabilities": 11}
+                        ], "queryFailures": {}
+                    }}},
+                    {"sequence": "42", "event": {"kind": "launchResult",
+                        "entryID": "pinned:a", "status": "failed", "program": "a.exe",
+                        "error": "wine exited"}},
+                    {"sequence": "43", "event": {"kind": "telemetry", "value": 7}}
+                ],
+                "snapshot": {"sequence": "42", "entries": [], "queryFailures": {}}
+            }"#,
+        )
+        .expect("event batch");
+        assert_eq!(batch.sequence, "42");
+        assert!(batch.resync_required);
+        assert_eq!(batch.events.len(), 3);
+        match &batch.events[0].event {
+            RuntimeEventPayloadDto::State { value } => {
+                assert_eq!(value.entries.len(), 1);
+                assert_eq!(value.entries[0].state, "preparing");
+                assert_eq!(value.entries[0].capabilities, 11);
+            }
+            other => panic!("expected a state event, got {other:?}"),
+        }
+        match &batch.events[1].event {
+            RuntimeEventPayloadDto::LaunchResult { entry_id, status, error } => {
+                assert_eq!(entry_id, "pinned:a");
+                assert_eq!(status, "failed");
+                assert_eq!(error.as_deref(), Some("wine exited"));
+            }
+            other => panic!("expected a launch result, got {other:?}"),
+        }
+        assert!(matches!(batch.events[2].event, RuntimeEventPayloadDto::Unknown));
+        assert_eq!(batch.snapshot.expect("snapshot").sequence, "42");
+    }
+
+    #[test]
+    fn the_event_tag_may_follow_its_payload_on_the_wire() {
+        // `JSONValue.object` is an unordered Swift dictionary: the recorded
+        // helper emits `{"value": …, "kind": "state"}`, tag last.
+        let event: RuntimeEventDto = serde_json::from_str(
+            r#"{"event": {"value": {"sequence": "1", "entries": [], "queryFailures": {}},
+                "kind": "state"}}"#,
+        )
+        .expect("event with a trailing tag");
+        assert!(matches!(event.event, RuntimeEventPayloadDto::State { .. }));
+    }
+
+    #[test]
+    fn an_events_reply_without_a_snapshot_still_deserializes() {
+        let batch: RuntimeEventBatchDto =
+            serde_json::from_str(r#"{"sequence":"0","resyncRequired":false,"events":[]}"#).unwrap();
+        assert!(batch.snapshot.is_none());
+        assert!(batch.events.is_empty());
     }
 
     /// Recorded from `whisky-bridge`, first three entries of

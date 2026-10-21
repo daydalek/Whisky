@@ -23,6 +23,8 @@ pub(crate) enum Command {
     Sheet(PreviewSheet),
     Details(usize),
     Configure(usize),
+    /// Run the card's primary action (launch, cancel, or stop).
+    Runtime(usize),
     Toggle(&'static str),
     Sort(usize),
     Reorder,
@@ -162,7 +164,7 @@ impl WhiskyApp {
         let hidden = self.preview.hidden.contains(&index)
             || self.game(index).is_some_and(|game| game.hidden);
         let items = vec![
-            self.menu_item("运行", Command::Notice, cx),
+            self.menu_item("运行", Command::Runtime(index), cx),
             MenuEntry::separator(cx.entity().downgrade()),
             self.menu_item(
                 if hidden { "取消隐藏" } else { "隐藏游戏" },
