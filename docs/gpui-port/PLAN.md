@@ -49,6 +49,7 @@ must also be added to `ApplicationService.methods`.
 | --- | --- | --- |
 | Metadata search, attach, detach, custom cover | `GameMetadata`, `GameMetadataSearchResult`, `GameMetadataAutomaticMatchOutcome` | M5 |
 | Bottle rename, import, delete, copy, migrate, scan orphans | `BottleSettings`, bottle registry records (`BottleVM.plist`) | M5 |
+| Move a library entry to another bottle | New `entry.move` method; `LibraryEntry` identity is bottle-scoped, so no existing call can express it | M3 |
 | Full `ProgramSettings`: arguments, locale, DLL overrides, override groups, shortcuts, console/run history | `ProgramSettings`, `ProgramOverrides`, `Locales` | M3 |
 | Activity write side: play time, last played, session start/stop | `GameActivity`, `GameActivitySampleToken`, `GameActivityRecordResult` | M2 |
 | Steam download snapshot and subscribe | `SteamDownloadSnapshot`, `SteamAppManifest`, `SteamLibrary` | M5 |

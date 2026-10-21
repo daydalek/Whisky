@@ -4,12 +4,13 @@ Tracked GPUI app for the Whisky desktop UI. This is the M0 seed: the sources wer
 copied mechanically from the local design demo at `demos/gpui-demo/`, which is
 gitignored and not part of the repository. The demo remains the visual reference.
 
-M1b renders the sidebar from `workspace.containers` and the library grid from
-`library.entries`, read-only. Selecting a bottle reads that bottle's entries;
-the whole-library view is the union of the bottles loaded so far. The bridge
-never starts Wine and the app never writes to a container in this milestone.
-Mutations, covers that do not exist on disk, and live runtime events are M2
-work; see [`docs/gpui-port/PLAN.md`](../../docs/gpui-port/PLAN.md).
+The sidebar comes from `workspace.containers` and the grid from
+`library.entries`. Every bottle is read once and cached; the whole-library view
+is the merge, with a card de-duplicated only when its title and bottle-relative
+artwork match. Rating and visibility use `entry.rating` / `entry.hidden`, and
+Play configures the card's bottle lazily before `runtime.launch`. Library view
+preferences reuse the SwiftUI `@AppStorage` key names (see
+`src/preferences.rs`). See [`docs/gpui-port/PLAN.md`](../../docs/gpui-port/PLAN.md).
 
 ### Demo data
 
@@ -93,12 +94,15 @@ To read the real library headlessly:
 ```sh
 apps/whisky-gpui/target/debug/whisky-gpui --print-library
 apps/whisky-gpui/target/debug/whisky-gpui --print-library --bottle galgame
+apps/whisky-gpui/target/debug/whisky-gpui --print-library --all
 ```
 
 This prints `{"containers": [{path, name, available, entryCount, sample}]}`
 (sample = first five entry names) and exits 0. `--bottle` accepts a container
-name or absolute path. Any bridge failure, or an unmatched `--bottle`, prints
-to stderr and exits 1. Neither command creates a window.
+name or absolute path. `--all` merges every bottle and adds
+`all: {total, perBottle: [{name, entries}]}`; when both flags are present
+`--all` wins. Any bridge failure, or an unmatched `--bottle`, prints to stderr
+and exits 1. None of these commands creates a window.
 
 ## Visual baseline capture
 

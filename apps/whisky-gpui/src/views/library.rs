@@ -268,10 +268,7 @@ impl WhiskyApp {
                     .hover(|s| s.bg(rgba(0xffffff15)))
                     .child(icon(name, 19.))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.mode = index;
-                        this.settings = false;
-                        this.hovered = None;
-                        cx.notify();
+                        this.set_mode(index, cx);
                     })),
             );
         }
@@ -313,6 +310,27 @@ impl WhiskyApp {
                             .label("重排")
                             .tooltip("反转卡片顺序 · ⌘R")
                             .on_click(cx.listener(|this, _, _, cx| this.reorder_library(cx))),
+                    )
+                },
+            )
+            .when(
+                self.preview.page == PreviewPage::Library && !self.settings,
+                |d| {
+                    let hidden = self.hidden_count();
+                    let label: SharedString = if hidden == 0 {
+                        "Hidden".into()
+                    } else {
+                        format!("Hidden · {hidden}").into()
+                    };
+                    d.child(
+                        Button::new("hidden-filter")
+                            .label(label)
+                            .rounded_full()
+                            .tooltip("显示或隐藏已隐藏的游戏")
+                            .when(self.show_hidden(), |button| button.primary())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.command(crate::views::Command::Toggle("show-hidden"), cx);
+                            })),
                     )
                 },
             )
@@ -650,20 +668,24 @@ impl WhiskyApp {
     }
     pub(crate) fn timeline(&self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let games = self.games();
-        let mut indices = self.filtered(cx);
-        // Presentation ordering; the timestamps and durations come from each
-        // entry's activity record (the demo keeps its sample values).
-        let featured = ["Northwind Signal", "Saltlight", "Quiet Frequency", "Emberline"];
-        indices.sort_by_key(|&i| {
-            featured
-                .iter()
-                .position(|s| games[i].title.starts_with(s))
-                .unwrap_or(10 + i)
-        });
-        self.preview_sort(&mut indices);
-        if self.reversed {
-            indices.reverse();
-        }
+        // The demo keeps its hand-tuned featured order for the default sort;
+        // every other case uses the same memoised order as the other modes.
+        let indices = if self.demo && self.preview.sort == 0 {
+            let mut indices = self.filtered(cx);
+            let featured = ["Northwind Signal", "Saltlight", "Quiet Frequency", "Emberline"];
+            indices.sort_by_key(|&i| {
+                featured
+                    .iter()
+                    .position(|s| games[i].title.starts_with(s))
+                    .unwrap_or(10 + i)
+            });
+            if self.reversed {
+                indices.reverse();
+            }
+            indices
+        } else {
+            self.ordered(cx)
+        };
         let rail = if width > 1000. { 100. } else { 48. };
         let cw = if width > 1000. { 145. } else { 125. };
         let ch = cw * 1.5 + 26.;
@@ -937,6 +959,41 @@ impl WhiskyApp {
         }
         self.library_viewport(2, content)
     }
+    /// Five-star rating control for the detail panel. Re-clicking the current
+    /// star writes `null`, matching "unrated" in the SwiftUI menu.
+    fn rating_row(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+        let current = self.game(index).and_then(|game| game.rating);
+        let filled = current.map_or(0, |rating| rating.min(5));
+        let mut stars = row().gap(px(3.));
+        for star in 1..=5_u8 {
+            stars = stars.child(
+                row()
+                    .id(("rating", index * 16 + star as usize))
+                    .w(px(20.))
+                    .h(px(20.))
+                    .justify_center()
+                    .rounded(px(4.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgba(0xffffff14)))
+                    .child(icon("star", 16.).text_color(rgb(if star <= filled {
+                        ACCENT
+                    } else {
+                        MUTED
+                    })))
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.set_rating(index, star, cx)),
+                    ),
+            );
+        }
+        row()
+            .gap(px(8.))
+            .items_center()
+            .child(muted("评分"))
+            .child(stars)
+            .when_some(current, |d, rating| d.child(muted(format!("{rating} / 10"))))
+            .into_any_element()
+    }
+
     pub(crate) fn detail_panel(
         &self,
         index: usize,
@@ -1108,6 +1165,9 @@ impl WhiskyApp {
                                                         ))
                                                     })
                                                     .child(badges)
+                                                    .when(!self.demo, |d| {
+                                                        d.child(self.rating_row(index, cx))
+                                                    })
                                                     .child(div().mt(px(12.)).child(
                                                         self.play_button(
                                                             "detail-play",

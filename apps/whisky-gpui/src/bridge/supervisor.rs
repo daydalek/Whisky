@@ -26,9 +26,10 @@ use whisky_bridge::Client;
 use super::{
     BridgeStatus,
     dto::{
-        Container, ContainerList, DescribeResponse, EntryDto, EntryList, LaunchReplyDto,
-        RUNTIME_METHODS, RUNTIME_SESSION_METHODS, RuntimeEventBatchDto,
-        RuntimeEventPayloadDto, RuntimeSnapshotDto,
+        ActivityDto, Container, ContainerList, DescribeResponse, EntryDto, EntryList,
+        HiddenReplyDto, LaunchReplyDto, PreferencesSchemaDto, RUNTIME_METHODS,
+        RUNTIME_SESSION_METHODS, RuntimeEventBatchDto, RuntimeEventPayloadDto,
+        RuntimeSnapshotDto,
     },
 };
 use crate::runtime::{
@@ -44,6 +45,12 @@ pub(crate) const BACKOFF_MAX_MS: u64 = 8_000;
 /// How long the worker blocks when there is nothing to poll and nothing to do.
 /// Commands still wake it immediately.
 const PARK: Duration = Duration::from_secs(3_600);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EntryMutation {
+    Rating,
+    Hidden,
+}
 
 #[derive(Debug)]
 pub(crate) enum BridgeEvent {
@@ -64,9 +71,41 @@ pub(crate) enum BridgeEvent {
     RuntimeFailed {
         reason: String,
     },
+    /// `runtime.configure` did not take effect. The bottle is removed from the
+    /// configured set so the next Play retries instead of launching against an
+    /// unconfigured entry.
+    ConfigureFailed {
+        container: String,
+        reason: String,
+    },
     /// A read failed. `container` is `None` for catalogue failures.
     LoadFailed {
         container: Option<String>,
+        reason: String,
+    },
+    /// `preferences.read` plus the `preferences.schema` allow-list.
+    Preferences {
+        values: serde_json::Value,
+        schema: PreferencesSchemaDto,
+    },
+    /// The activity record `entry.rating` returned, not an echo of the request.
+    EntryRating {
+        container: String,
+        entry_id: String,
+        activity: ActivityDto,
+    },
+    /// The `entry.hidden` reply. The record owns the resulting visibility.
+    EntryHidden {
+        container: String,
+        entry_id: String,
+        hidden: bool,
+    },
+    /// A per-entry mutation was rejected; the UI rolls back its optimistic
+    /// value and reuses the toast for `reason`.
+    EntryFailed {
+        mutation: EntryMutation,
+        container: String,
+        entry_id: String,
         reason: String,
     },
 }
@@ -93,6 +132,21 @@ enum Command {
     Stop {
         container: String,
         entry_id: String,
+    },
+    SetRating {
+        container: String,
+        entry_id: String,
+        rating: Option<i64>,
+    },
+    SetHidden {
+        container: String,
+        entry_id: String,
+        hidden: bool,
+    },
+    LoadPreferences,
+    SetPreference {
+        key: String,
+        value: serde_json::Value,
     },
     /// Window activation: polling pauses while the app is in the background.
     SetActive(bool),
@@ -183,6 +237,37 @@ impl BridgeSupervisor {
         let _ = self.commands.send(Command::Stop {
             container: container.to_owned(),
             entry_id: entry_id.to_owned(),
+        });
+    }
+
+    /// `entry.rating` with `null` clearing the rating.
+    pub(crate) fn set_rating(&self, container: &str, entry_id: &str, rating: Option<i64>) {
+        let _ = self.commands.send(Command::SetRating {
+            container: container.to_owned(),
+            entry_id: entry_id.to_owned(),
+            rating,
+        });
+    }
+
+    /// `entry.hidden`; the reply carries the record the UI stores.
+    pub(crate) fn set_hidden(&self, container: &str, entry_id: &str, hidden: bool) {
+        let _ = self.commands.send(Command::SetHidden {
+            container: container.to_owned(),
+            entry_id: entry_id.to_owned(),
+            hidden,
+        });
+    }
+
+    /// Read every preference once per connected session.
+    pub(crate) fn load_preferences(&self) {
+        let _ = self.commands.send(Command::LoadPreferences);
+    }
+
+    /// Write one preference. The UI debounces this; the worker just executes.
+    pub(crate) fn set_preference(&self, key: &str, value: serde_json::Value) {
+        let _ = self.commands.send(Command::SetPreference {
+            key: key.to_owned(),
+            value,
         });
     }
 
@@ -385,7 +470,10 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                             // Nothing is configured now, so stop polling: the
                             // cards gate their actions on the configured path.
                             live = None;
-                            emit_event(&events, BridgeEvent::RuntimeFailed { reason });
+                            emit_event(
+                                &events,
+                                BridgeEvent::ConfigureFailed { container, reason },
+                            );
                         }
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
@@ -453,6 +541,113 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         }
                     }
                     poll_soon(&mut live);
+                }
+                Some(Command::SetRating {
+                    container,
+                    entry_id,
+                    rating,
+                }) => {
+                    let params = json!({
+                        "container": container,
+                        "entryID": entry_id,
+                        "rating": rating,
+                    });
+                    match client.call("entry.rating", params).map_err(classify) {
+                        Ok(value) => match serde_json::from_value::<ActivityDto>(value) {
+                            Ok(activity) => emit_event(
+                                &events,
+                                BridgeEvent::EntryRating {
+                                    container,
+                                    entry_id,
+                                    activity,
+                                },
+                            ),
+                            Err(error) => emit_event(
+                                &events,
+                                BridgeEvent::EntryFailed {
+                                    mutation: EntryMutation::Rating,
+                                    container,
+                                    entry_id,
+                                    reason: format!("invalid activity payload: {error}"),
+                                },
+                            ),
+                        },
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::EntryFailed {
+                                mutation: EntryMutation::Rating,
+                                container,
+                                entry_id,
+                                reason,
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::SetHidden {
+                    container,
+                    entry_id,
+                    hidden,
+                }) => {
+                    let params = json!({
+                        "container": container,
+                        "entryID": entry_id,
+                        "hidden": hidden,
+                    });
+                    match client.call("entry.hidden", params).map_err(classify) {
+                        Ok(value) => match serde_json::from_value::<HiddenReplyDto>(value) {
+                            Ok(reply) => emit_event(
+                                &events,
+                                BridgeEvent::EntryHidden {
+                                    container,
+                                    entry_id: reply.entry_id,
+                                    hidden: reply.hidden,
+                                },
+                            ),
+                            Err(error) => emit_event(
+                                &events,
+                                BridgeEvent::EntryFailed {
+                                    mutation: EntryMutation::Hidden,
+                                    container,
+                                    entry_id,
+                                    reason: format!("invalid visibility payload: {error}"),
+                                },
+                            ),
+                        },
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::EntryFailed {
+                                mutation: EntryMutation::Hidden,
+                                container,
+                                entry_id,
+                                reason,
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::LoadPreferences) => {
+                    match load_preferences(&mut client) {
+                        Ok((values, schema)) => {
+                            emit_event(&events, BridgeEvent::Preferences { values, schema });
+                        }
+                        // Preferences are a view nicety: a failure keeps the
+                        // SwiftUI defaults instead of blanking the library.
+                        Err(CallFailure::Remote(reason)) => {
+                            eprintln!("whisky-bridge: preferences.read failed: {reason}");
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::SetPreference { key, value }) => {
+                    let params = json!({ "key": key, "value": value });
+                    match client.call("preferences.set", params).map_err(classify) {
+                        Ok(_) => {}
+                        Err(CallFailure::Remote(reason)) => {
+                            eprintln!("whisky-bridge: preferences.set failed for {key}: {reason}");
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
                 }
             }
             if let Some(reason) = reconnect {
@@ -744,6 +939,29 @@ fn fetch_entries(client: &mut Client, container: &str) -> Result<EntryList, Call
         .map_err(classify)?;
     serde_json::from_value(value)
         .map_err(|error| CallFailure::Remote(format!("invalid library payload: {error}")))
+}
+
+/// Read the schema and the stored values in one worker slot. `preferences.read`
+/// returns every key the helper knows, so the request carries no filter; the
+/// `keys` array is still sent for forward compatibility.
+fn load_preferences(
+    client: &mut Client,
+) -> Result<(serde_json::Value, PreferencesSchemaDto), CallFailure> {
+    let schema = client
+        .call("preferences.schema", json!({}))
+        .map_err(classify)?;
+    let schema: PreferencesSchemaDto = serde_json::from_value(schema)
+        .map_err(|error| CallFailure::Remote(format!("invalid preferences schema: {error}")))?;
+    let keys = schema.keys().map(str::to_owned).collect::<Vec<_>>();
+    let values = client
+        .call("preferences.read", json!({ "keys": keys }))
+        .map_err(classify)?;
+    if !values.is_object() {
+        return Err(CallFailure::Remote(
+            "preferences.read did not return an object".into(),
+        ));
+    }
+    Ok((values, schema))
 }
 
 fn log_container_names(containers: &[Container]) {
@@ -1116,6 +1334,23 @@ fn print_watch_delta(
 #[serde(rename_all = "camelCase")]
 struct LibrarySummary {
     containers: Vec<BottleSummary>,
+    /// Present with `--all`: the merged view the Library page renders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    all: Option<AllBottlesSummary>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AllBottlesSummary {
+    /// Every entry across every bottle, before display de-duplication.
+    total: usize,
+    per_bottle: Vec<PerBottleCount>,
+}
+
+#[derive(Serialize)]
+struct PerBottleCount {
+    name: String,
+    entries: usize,
 }
 
 #[derive(Serialize)]
@@ -1129,9 +1364,10 @@ struct BottleSummary {
     sample: Vec<String>,
 }
 
-/// `--print-library [--bottle <name-or-path>]`: read-only, no window. Prints
-/// containers and their entry counts as JSON; failures go to stderr.
-pub(crate) fn print_library(bottle: Option<&str>) -> i32 {
+/// `--print-library [--bottle <name-or-path>] [--all]`: read-only, no window.
+/// Prints containers and their entry counts as JSON; failures go to stderr.
+/// `all` merges every bottle and adds the total plus per-bottle counts.
+pub(crate) fn print_library(bottle: Option<&str>, all: bool) -> i32 {
     let helper = match locate_helper() {
         Ok(helper) => helper,
         Err(reason) => {
@@ -1165,7 +1401,7 @@ pub(crate) fn print_library(bottle: Option<&str>) -> i32 {
             return 1;
         }
     };
-    if let Some(selector) = bottle {
+    if let Some(selector) = bottle.filter(|_| !all) {
         let matched: Vec<_> = containers
             .into_iter()
             .filter(|container| container.name == selector || container.path == selector)
@@ -1208,6 +1444,16 @@ pub(crate) fn print_library(bottle: Option<&str>) -> i32 {
         });
     }
     let summary = LibrarySummary {
+        all: all.then(|| AllBottlesSummary {
+            total: summaries.iter().map(|bottle| bottle.entry_count).sum(),
+            per_bottle: summaries
+                .iter()
+                .map(|bottle| PerBottleCount {
+                    name: bottle.name.clone(),
+                    entries: bottle.entry_count,
+                })
+                .collect(),
+        }),
         containers: summaries,
     };
     match serde_json::to_string_pretty(&summary) {

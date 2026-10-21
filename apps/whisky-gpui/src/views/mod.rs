@@ -30,7 +30,6 @@ pub(crate) enum Command {
     Reorder,
     Notice,
     Hide(usize),
-    Move(usize, usize),
 }
 #[derive(Clone)]
 struct MenuEntry {
@@ -103,7 +102,9 @@ impl WhiskyApp {
             );
             items.push(MenuEntry::separator(cx.entity().downgrade()));
             {
-                for (i, label) in ["默认顺序", "名称", "反向顺序"].into_iter().enumerate()
+                // Mirrors `LibrarySort` (recent, name, bottle); the labels are
+                // the GPUI app's existing Chinese copy.
+                for (i, label) in ["最近游玩", "名称", "容器"].into_iter().enumerate()
                 {
                     items.push(
                         self.menu_item(label, Command::Sort(i), cx)
@@ -161,8 +162,7 @@ impl WhiskyApp {
         index: usize,
         cx: &Context<Self>,
     ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
-        let hidden = self.preview.hidden.contains(&index)
-            || self.game(index).is_some_and(|game| game.hidden);
+        let hidden = self.game(index).is_some_and(|game| game.hidden);
         let items = vec![
             self.menu_item("运行", Command::Runtime(index), cx),
             MenuEntry::separator(cx.entity().downgrade()),
@@ -181,33 +181,14 @@ impl WhiskyApp {
             MenuEntry::separator(cx.entity().downgrade()),
             self.menu_item("配置容器", Command::Configure(index), cx),
         ];
-        let current = self
-            .preview
-            .moved
-            .get(&index)
-            .copied()
-            .unwrap_or_else(|| self.game(index).map_or(0, |game| game.bottle));
-        let targets = self
-            .bottles
-            .iter()
-            .enumerate()
-            .map(|(bottle_index, bottle)| {
-                let slot = bottle_index + 1;
-                self.menu_item(bottle.name.clone(), Command::Move(index, slot), cx)
-                    .checked(current == slot)
-            })
-            .collect::<Vec<_>>();
-        move |mut menu, window, cx| {
+        // `entry.move` is not exposed by the bridge, so there is deliberately
+        // no "target bottle" submenu: a local-only move would be a lie. It is
+        // recorded as an M3 gap instead.
+        move |mut menu, _, _| {
             for item in &items {
                 menu = menu.item(item.build());
             }
-            let targets = targets.clone();
-            menu.submenu("目标容器", window, cx, move |mut menu, _, _| {
-                for item in &targets {
-                    menu = menu.item(item.build());
-                }
-                menu
-            })
+            menu
         }
     }
     pub(crate) fn game_options(&self, index: usize, cx: &Context<Self>) -> AnyElement {

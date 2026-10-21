@@ -1,27 +1,34 @@
 //! Application state: the root view model, page/sheet enums, and navigation.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use gpui_kit::base::Transition;
 use gpui_kit::component::input::InputState;
 use gpui_kit::{prelude::*, *};
+use serde_json::json;
 
-use crate::bridge::{BridgeEvent, BridgeStatus, BridgeSupervisor};
+use crate::bridge::{BridgeEvent, BridgeStatus, BridgeSupervisor, EntryMutation};
 #[cfg(feature = "visual-test")]
 use crate::library_layout::CardRect;
+use crate::library_view::{self, Sort};
 use crate::model::{
     BottleVm, Game, demo_bottles, demo_data, demo_requested, empty_library_message,
 };
+use crate::preferences;
 use crate::runtime::{
-    ClipboardDecision, ClipboardPrompt, PrimaryAction, RuntimeAction, RuntimeState, RuntimeTable,
-    primary_action_for,
+    ClipboardDecision, ClipboardPrompt, ConfiguredBottles, PendingEdits, PrimaryAction,
+    RuntimeAction, RuntimeState, RuntimeTable, primary_action_for,
 };
 use crate::views::Command;
 
 /// Toast copy for the demo-only menu actions, which still do not mutate
 /// anything. Runtime failures reuse the same toast with the helper's reason.
 pub(crate) const DEMO_NOTICE: &str = "外观演示 · 未启动游戏，也未修改容器";
+
+/// How long preference writes are coalesced before reaching the bridge.
+const PREFERENCE_DEBOUNCE: Duration = Duration::from_millis(300);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PreviewPage {
@@ -52,8 +59,6 @@ pub(crate) struct PreviewState {
     pub(crate) choices: BTreeMap<&'static str, SharedString>,
     pub(crate) collapsed: BTreeSet<&'static str>,
     pub(crate) inputs: BTreeMap<&'static str, Entity<InputState>>,
-    pub(crate) hidden: BTreeSet<usize>,
-    pub(crate) moved: BTreeMap<usize, usize>,
     pub(crate) sort: usize,
     // Retained per document, including forms mounted inside settings sheets.
     pub(crate) scroll_handles: std::cell::RefCell<BTreeMap<&'static str, ScrollHandle>>,
@@ -93,7 +98,8 @@ impl PreviewState {
             sheet_history: vec![],
             inputs,
             toggles: [
-                ("refresh", true),
+                ("refresh", preferences::DEFAULT_REFRESH_AFTER_EXIT),
+                ("single-title", preferences::DEFAULT_SINGLE_LINE_TITLES),
                 ("shader", true),
                 ("appnap", true),
                 ("kill", true),
@@ -111,12 +117,33 @@ impl PreviewState {
                 "console",
             ]
             .into(),
-            hidden: BTreeSet::new(),
-            moved: BTreeMap::new(),
             sort: 0,
             scroll_handles: Default::default(),
         }
     }
+}
+
+/// The query/scope a cached index list was computed for. `revision` changes
+/// whenever an entry is added, removed, or mutated.
+#[derive(Clone, PartialEq, Eq)]
+struct ViewKey {
+    query: String,
+    slot: usize,
+    show_hidden: bool,
+    revision: u64,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct OrderKey {
+    view: ViewKey,
+    sort: usize,
+    reversed: bool,
+}
+
+#[derive(Default)]
+struct ViewCache {
+    view: Option<(ViewKey, Vec<usize>)>,
+    ordered: Option<(OrderKey, Vec<usize>)>,
 }
 
 pub(crate) struct WhiskyApp {
@@ -126,20 +153,36 @@ pub(crate) struct WhiskyApp {
     /// The bundled demo snapshot, enabled with `WHISKY_GPUI_DEMO_DATA=1`.
     pub(crate) demo: bool,
     pub(crate) bottles: Vec<BottleVm>,
-    /// Every loaded entry, in bottle order. `Game::bottle` is the one-based slot.
+    /// Every loaded entry, in bottle order, de-duplicated for display.
+    /// `Game::bottle` is the one-based slot and `Game::container` is the path.
     pub(crate) entries: Vec<Game>,
+    /// Successful reads keyed by bottle path: revisiting a bottle is instant.
+    bottle_entries: BTreeMap<String, Vec<Game>>,
     /// Index into `bottles`; `None` means the whole library.
     pub(crate) selected_bottle: Option<usize>,
     /// A read for the visible scope is still in flight.
     pub(crate) loading: bool,
     /// Session/catalogue failure for the whole library surface.
     pub(crate) load_error: Option<String>,
-    /// Successful entries per bottle, seeded from the cache and invalidation.
-    bottle_entries: BTreeMap<usize, Vec<Game>>,
     /// Bottle indices with a queued or in-flight read.
     pending: BTreeSet<usize>,
     /// Per-bottle read errors, shown when that bottle is visible.
     failures: BTreeMap<usize, String>,
+    /// Bottles already handed to `runtime.configure`, so Play on the Library
+    /// page configures each bottle exactly once.
+    configured: ConfiguredBottles,
+    /// `libraryShowHiddenGames`; hidden entries stay in `entries` (so indices
+    /// are stable) and only leave the grid through this filter.
+    show_hidden: bool,
+    view_cache: RefCell<ViewCache>,
+    library_revision: u64,
+    /// Keys `preferences.schema` advertises. Anything else stays in memory.
+    prefs_supported: BTreeSet<String>,
+    prefs_pending: BTreeMap<String, serde_json::Value>,
+    prefs_generation: u64,
+    /// Last committed value per entry, for rolling back optimistic edits.
+    rating_edits: PendingEdits<Option<u8>>,
+    hidden_edits: PendingEdits<bool>,
     pub(crate) sidebar: bool,
     pub(crate) settings: bool,
     pub(crate) motion: bool,
@@ -155,8 +198,8 @@ pub(crate) struct WhiskyApp {
     pub(crate) ambient_index: usize,
     pub(crate) detail: Option<usize>,
     pub(crate) detail_open: bool,
-    /// The message on the existing toast; `None` hides it. Runtime failures
-    /// reuse the toast instead of introducing another surface.
+    /// The message on the existing toast; `None` hides it. Runtime and entry
+    /// failures reuse the toast instead of introducing another surface.
     pub(crate) notice: Option<SharedString>,
     /// Per-entry launch state, keyed by bridge entry id.
     pub(crate) runtime: RuntimeTable,
@@ -192,12 +235,21 @@ impl WhiskyApp {
             demo,
             bottles: if demo { demo_bottles() } else { Vec::new() },
             entries: Vec::new(),
+            bottle_entries: BTreeMap::new(),
             selected_bottle: None,
             loading: false,
             load_error: None,
-            bottle_entries: BTreeMap::new(),
             pending: BTreeSet::new(),
             failures: BTreeMap::new(),
+            configured: ConfiguredBottles::default(),
+            show_hidden: preferences::DEFAULT_SHOW_HIDDEN,
+            view_cache: RefCell::new(ViewCache::default()),
+            library_revision: 0,
+            prefs_supported: BTreeSet::new(),
+            prefs_pending: BTreeMap::new(),
+            prefs_generation: 0,
+            rating_edits: PendingEdits::default(),
+            hidden_edits: PendingEdits::default(),
             sidebar: true,
             settings: false,
             motion: true,
@@ -208,7 +260,7 @@ impl WhiskyApp {
             scroll_needs_measurement: Default::default(),
             #[cfg(feature = "visual-test")]
             motion_samples: Default::default(),
-            mixed: true,
+            mixed: preferences::DEFAULT_MIXED_COVER_LAYOUT,
             hovered: None,
             ambient_index: 0,
             detail: None,
@@ -231,6 +283,9 @@ impl WhiskyApp {
         self.load_error = None;
         self.loading = false;
         self.runtime = RuntimeTable::default();
+        self.configured.clear();
+        self.rating_edits.clear();
+        self.hidden_edits.clear();
         self.clipboard_prompt = None;
         cx.notify();
     }
@@ -250,6 +305,7 @@ impl WhiskyApp {
                         "whisky-bridge: connected to {helper} ({version}, {methods} methods)"
                     );
                 }
+                let connected = matches!(&status, BridgeStatus::Connected { .. });
                 let unavailable =
                     matches!(&status, BridgeStatus::Failed { .. } | BridgeStatus::Stopped);
                 let reason = match &status {
@@ -260,8 +316,16 @@ impl WhiskyApp {
                     _ => None,
                 };
                 self.bridge_status = status;
+                if connected && !self.demo {
+                    // One read per connected session; the reply carries both
+                    // the stored values and the writable-key schema.
+                    self.bridge.load_preferences();
+                }
                 if unavailable && !self.demo {
                     self.pending.clear();
+                    self.configured.clear();
+                    self.rating_edits.clear();
+                    self.hidden_edits.clear();
                     // A pending clipboard token belongs to a session that is
                     // gone; re-launching from the card gets a fresh one.
                     self.clipboard_prompt = None;
@@ -293,6 +357,10 @@ impl WhiskyApp {
                     self.pending.clear();
                     // The helper keeps no runtime session across processes.
                     self.runtime = RuntimeTable::default();
+                    self.configured.clear();
+                    self.rating_edits.clear();
+                    self.hidden_edits.clear();
+                    self.invalidate_view();
                     self.request_all();
                     // A reconnect must re-configure, or every card would stay
                     // disabled with no way back short of reselecting the bottle.
@@ -301,6 +369,7 @@ impl WhiskyApp {
                         .and_then(|index| self.bottles.get(index))
                         .filter(|bottle| bottle.available)
                         .map(|bottle| bottle.path.clone())
+                        && self.configured.ensure(&path)
                     {
                         self.bridge.configure_runtime(&path);
                     }
@@ -329,6 +398,13 @@ impl WhiskyApp {
                     self.show_notice(reason, cx);
                 }
             }
+            BridgeEvent::ConfigureFailed { container, reason } => {
+                if !self.demo {
+                    // The set only records successes; let the next Play retry.
+                    self.configured.forget(&container);
+                    self.show_notice(reason, cx);
+                }
+            }
             BridgeEvent::Entries { container, entries } => {
                 if !self.demo
                     && let Some(index) = self
@@ -336,23 +412,18 @@ impl WhiskyApp {
                         .iter()
                         .position(|bottle| bottle.path == container)
                 {
-                    let fallback = index + 1;
+                    let slot = index + 1;
                     let games: Vec<Game> = entries
                         .into_iter()
                         .map(|entry| {
-                            let slot = entry
-                                .container
-                                .as_deref()
-                                .and_then(|path| {
-                                    self.bottles
-                                        .iter()
-                                        .position(|bottle| bottle.path == path)
-                                })
-                                .map_or(fallback, |bottle_index| bottle_index + 1);
-                            entry.into_game(slot)
+                            let mut game = entry.into_game(slot);
+                            // Tag by the bottle that answered the request, not
+                            // by a lookup that could race a catalogue change.
+                            game.container = container.clone();
+                            game
                         })
                         .collect();
-                    self.bottle_entries.insert(index, games);
+                    self.bottle_entries.insert(container, games);
                     self.rebuild_entries();
                     self.pending.remove(&index);
                     self.failures.remove(&index);
@@ -377,13 +448,80 @@ impl WhiskyApp {
                     }
                 }
             }
+            BridgeEvent::Preferences { values, schema } => {
+                if !self.demo {
+                    self.prefs_supported = schema.keys().map(str::to_owned).collect();
+                    self.apply_preferences(&values);
+                }
+            }
+            BridgeEvent::EntryRating {
+                container,
+                entry_id,
+                activity,
+            } => {
+                if !self.demo {
+                    let key = entry_key(&container, &entry_id);
+                    self.rating_edits.succeed(&key);
+                    // The reply is the activity record itself; never re-derive
+                    // the value from what was requested.
+                    self.update_entry(&container, &entry_id, |game| {
+                        game.rating = activity.rating();
+                        game.play_time = activity.play_time();
+                        game.last_played = activity.last_played();
+                        game.last_session_ended_at = activity.last_session_ended_at();
+                    });
+                    self.rebuild_entries();
+                }
+            }
+            BridgeEvent::EntryHidden {
+                container,
+                entry_id,
+                hidden,
+            } => {
+                if !self.demo {
+                    let key = entry_key(&container, &entry_id);
+                    self.hidden_edits.succeed(&key);
+                    self.update_entry(&container, &entry_id, |game| game.hidden = hidden);
+                    self.rebuild_entries();
+                }
+            }
+            BridgeEvent::EntryFailed {
+                mutation,
+                container,
+                entry_id,
+                reason,
+            } => {
+                if !self.demo {
+                    self.roll_back(mutation, &container, &entry_id);
+                    self.show_notice(reason, cx);
+                }
+            }
         }
         self.loading = self.compute_loading();
         cx.notify();
     }
 
-    /// Select a bottle (or `None` for the whole library). A switch always asks
-    /// for a fresh read; the supervisor drops its cache for the old bottle.
+    /// Restore the last committed value for a rejected optimistic edit.
+    fn roll_back(&mut self, mutation: EntryMutation, container: &str, entry_id: &str) {
+        let key = entry_key(container, entry_id);
+        match mutation {
+            EntryMutation::Rating => {
+                if let Some(previous) = self.rating_edits.fail(&key) {
+                    self.update_entry(container, entry_id, |game| game.rating = previous);
+                }
+            }
+            EntryMutation::Hidden => {
+                if let Some(previous) = self.hidden_edits.fail(&key) {
+                    self.update_entry(container, entry_id, |game| game.hidden = previous);
+                }
+            }
+        }
+        self.rebuild_entries();
+    }
+
+    /// Select a bottle (or `None` for the whole library). Entries are cached per
+    /// bottle, so revisiting is instant; only a bottle without a cache issues a
+    /// read. The runtime is configured once per session, lazily.
     pub(crate) fn select_bottle(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
         self.settings = false;
         self.selected_bottle = index;
@@ -402,13 +540,18 @@ impl WhiskyApp {
         {
             let path = bottle.path.clone();
             self.failures.remove(&index);
-            self.pending.insert(index);
-            self.bridge.load_entries(&path);
+            if !self.bottle_entries.contains_key(&path) && !self.pending.contains(&index) {
+                self.pending.insert(index);
+                self.bridge.load_entries(&path);
+            }
             // The runtime publishes one session at a time, so selecting a
             // bottle rebinds it before any card can offer Play.
-            self.bridge.configure_runtime(&path);
+            if self.configured.ensure(&path) {
+                self.bridge.configure_runtime(&path);
+            }
         }
         self.loading = self.compute_loading();
+        self.invalidate_view();
         cx.notify();
     }
 
@@ -428,15 +571,25 @@ impl WhiskyApp {
                                 .filter(|bottle| bottle.available)
                                 .map(|bottle| bottle.path.clone())
                             {
+                                // A retry re-reads the bottle, so its runtime
+                                // configuration must be refreshed as well.
+                                self.bottle_entries.remove(&path);
+                                self.configured.forget(&path);
                                 self.pending.insert(index);
                                 self.bridge.load_entries(&path);
-                                self.bridge.configure_runtime(&path);
+                                if self.configured.ensure(&path) {
+                                    self.bridge.configure_runtime(&path);
+                                }
                             } else {
                                 self.failures
                                     .insert(index, "This bottle is unavailable.".to_owned());
                             }
                         }
-                        None => self.request_all(),
+                        None => {
+                            // Keep the caches on screen while each bottle is
+                            // re-read; `Entries` replaces them one at a time.
+                            self.request_all();
+                        }
                     }
                 }
                 _ => {
@@ -447,6 +600,7 @@ impl WhiskyApp {
             }
         }
         self.loading = self.compute_loading();
+        self.invalidate_view();
         cx.notify();
     }
 
@@ -474,12 +628,33 @@ impl WhiskyApp {
     }
 
     /// The flat grid list is rebuilt in bottle order so shelf layout is stable.
+    /// Per-bottle caches keep every `(container, id)` record; only identical
+    /// title+artwork cards are collapsed, and the first bottle wins.
     fn rebuild_entries(&mut self) {
-        let mut entries = Vec::new();
-        for games in self.bottle_entries.values() {
-            entries.extend(games.iter().cloned());
+        self.entries = library_view::merge_bottles(&self.bottles, &self.bottle_entries);
+        self.invalidate_view();
+    }
+
+    /// Replace one entry in the per-bottle cache and in the display list.
+    fn update_entry(&mut self, container: &str, entry_id: &str, mut update: impl FnMut(&mut Game)) {
+        if let Some(games) = self.bottle_entries.get_mut(container) {
+            for game in games.iter_mut().filter(|game| game.id == entry_id) {
+                update(game);
+            }
         }
-        self.entries = entries;
+        for game in self
+            .entries
+            .iter_mut()
+            .filter(|game| game.container == container && game.id == entry_id)
+        {
+            update(game);
+        }
+    }
+
+    /// Invalidate the memoised filter/order lists.
+    fn invalidate_view(&mut self) {
+        self.library_revision = self.library_revision.wrapping_add(1);
+        *self.view_cache.get_mut() = ViewCache::default();
     }
 
     pub(crate) fn games(&self) -> &[Game] {
@@ -573,65 +748,93 @@ impl WhiskyApp {
         })
         .detach();
     }
-    pub(crate) fn filtered(&self, cx: &App) -> Vec<usize> {
-        let query = self.search.read(cx).value().to_lowercase();
-        let games = self.games();
-        let slot = self.bottle_slot();
-        (0..games.len())
-            .filter(|&i| {
-                (slot == 0 || self.preview_bottle(i) == slot)
-                    && self.preview_visible(i)
-                    && (games[i].title.to_lowercase().contains(&query)
-                        || games[i].studio().to_lowercase().contains(&query))
-            })
-            .collect()
+
+    fn view_key(&self, cx: &App) -> ViewKey {
+        ViewKey {
+            query: self.search.read(cx).value().trim().to_lowercase(),
+            slot: self.bottle_slot(),
+            show_hidden: self.show_hidden,
+            revision: self.library_revision,
+        }
     }
+
+    /// Filtered indices, memoised per `(query, scope, hidden filter, revision)`.
+    pub(crate) fn filtered(&self, cx: &App) -> Vec<usize> {
+        let key = self.view_key(cx);
+        {
+            let cache = self.view_cache.borrow();
+            if let Some((cached, indices)) = &cache.view
+                && *cached == key
+            {
+                return indices.clone();
+            }
+        }
+        let indices = library_view::filter_indices(
+            self.games(),
+            &key.query,
+            key.slot,
+            key.show_hidden,
+        );
+        self.view_cache.borrow_mut().view = Some((key, indices.clone()));
+        indices
+    }
+
     pub(crate) fn reorder_library(&mut self, cx: &mut Context<Self>) {
         self.reversed = !self.reversed;
         self.hovered = None;
+        self.invalidate_view();
         cx.notify();
     }
+
+    /// Filtered and sorted indices, memoised per
+    /// `(query, scope, hidden filter, sort, reverse, revision)`.
     pub(crate) fn ordered(&self, cx: &App) -> Vec<usize> {
+        let key = OrderKey {
+            view: self.view_key(cx),
+            sort: self.preview.sort,
+            reversed: self.reversed,
+        };
+        {
+            let cache = self.view_cache.borrow();
+            if let Some((cached, indices)) = &cache.ordered
+                && *cached == key
+            {
+                return indices.clone();
+            }
+        }
         let mut indices = self.filtered(cx);
-        self.preview_sort(&mut indices);
+        library_view::sort_indices(
+            self.games(),
+            &mut indices,
+            Sort::from_index(self.preview.sort),
+            &self.bottles,
+        );
         if self.reversed {
             indices.reverse();
         }
+        self.view_cache.borrow_mut().ordered = Some((key, indices.clone()));
         indices
     }
+
     pub(crate) fn command(&mut self, command: Command, cx: &mut Context<Self>) {
         match command {
             Command::Page(page) => self.navigate(page, cx),
             Command::Sheet(sheet) => self.open_preview_sheet(sheet, cx),
             Command::Details(i) => self.open_detail(i, cx),
             Command::Configure(i) => {
-                let slot = self
-                    .preview
-                    .moved
-                    .get(&i)
-                    .copied()
-                    .unwrap_or_else(|| self.game(i).map_or(0, |game| game.bottle));
+                let slot = self.game(i).map_or(0, |game| game.bottle);
                 self.selected_bottle = slot.checked_sub(1).filter(|index| *index < self.bottles.len());
                 self.navigate(PreviewPage::ConfigureBottle, cx);
             }
-            Command::Toggle(key) => match key {
-                "mixed" => self.mixed = !self.mixed,
-                "motion" => self.motion = !self.motion,
-                "lively" => self.lively = !self.lively,
-                _ => {
-                    let value = self.preview.toggles.entry(key).or_default();
-                    *value = !*value;
-                }
-            },
-            Command::Sort(i) => self.preview.sort = i,
+            Command::Toggle(key) => self.toggle_option(key, cx),
+            Command::Sort(i) => self.set_sort(i, cx),
             Command::Reorder => self.reorder_library(cx),
             Command::Hide(i) => {
-                if !self.preview.hidden.remove(&i) {
-                    self.preview.hidden.insert(i);
+                if self.demo {
+                    self.show_notice(DEMO_NOTICE, cx);
+                } else {
+                    self.toggle_hidden(i, cx);
                 }
-            }
-            Command::Move(i, bottle) => {
-                self.preview.moved.insert(i, bottle);
             }
             Command::Notice => self.show_notice(DEMO_NOTICE, cx),
             Command::Runtime(i) => {
@@ -646,32 +849,165 @@ impl WhiskyApp {
         cx.notify();
     }
 
-    /// Container path that owns this card's entry, when the bottle is present.
+    fn toggle_option(&mut self, key: &'static str, cx: &mut Context<Self>) {
+        match key {
+            "mixed" => {
+                self.mixed = !self.mixed;
+                self.persist(preferences::MIXED_COVER_LAYOUT, json!(self.mixed), cx);
+            }
+            "motion" => self.motion = !self.motion,
+            "lively" => self.lively = !self.lively,
+            "show-hidden" => {
+                self.show_hidden = !self.show_hidden;
+                self.persist(preferences::SHOW_HIDDEN, json!(self.show_hidden), cx);
+                self.invalidate_view();
+            }
+            _ => {
+                let value = {
+                    let slot = self.preview.toggles.entry(key).or_default();
+                    *slot = !*slot;
+                    *slot
+                };
+                match key {
+                    "single-title" => {
+                        self.persist(preferences::SINGLE_LINE_TITLES, json!(value), cx)
+                    }
+                    "refresh" => {
+                        self.persist(preferences::REFRESH_AFTER_EXIT, json!(value), cx)
+                    }
+                    _ => {}
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn set_mode(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.mode = index;
+        self.settings = false;
+        self.hovered = None;
+        self.persist(
+            preferences::DISPLAY_MODE,
+            json!(preferences::mode_value(index)),
+            cx,
+        );
+        cx.notify();
+    }
+
+    fn set_sort(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.preview.sort = index;
+        self.persist(
+            preferences::SORT,
+            json!(preferences::sort_value(index)),
+            cx,
+        );
+        self.invalidate_view();
+        cx.notify();
+    }
+
+    /// Queue one preference write, coalescing bursts into a single call.
+    fn persist(&mut self, key: &'static str, value: serde_json::Value, cx: &mut Context<Self>) {
+        if !self.prefs_supported.contains(key) {
+            // Not in `preferences.schema`: this key lives in memory only.
+            return;
+        }
+        self.prefs_pending.insert(key.to_owned(), value);
+        self.prefs_generation = self.prefs_generation.wrapping_add(1);
+        let generation = self.prefs_generation;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(PREFERENCE_DEBOUNCE).await;
+            let _ = this.update(cx, |this, _| {
+                if this.prefs_generation != generation {
+                    return;
+                }
+                for (key, value) in std::mem::take(&mut this.prefs_pending) {
+                    this.bridge.set_preference(&key, value);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Apply the stored values. Keys absent from the reply keep the SwiftUI
+    /// defaults already in the state; keys absent from the schema are never
+    /// written, so they also keep their default for the session.
+    fn apply_preferences(&mut self, values: &serde_json::Value) {
+        if let Some(raw) = values
+            .get(preferences::DISPLAY_MODE)
+            .and_then(serde_json::Value::as_str)
+            .and_then(preferences::mode_index)
+        {
+            self.mode = raw;
+        }
+        if let Some(index) = values
+            .get(preferences::SORT)
+            .and_then(serde_json::Value::as_str)
+            .and_then(preferences::sort_index)
+        {
+            self.preview.sort = index;
+        }
+        if let Some(flag) = values
+            .get(preferences::SHOW_HIDDEN)
+            .and_then(serde_json::Value::as_bool)
+        {
+            self.show_hidden = flag;
+        }
+        if let Some(flag) = values
+            .get(preferences::MIXED_COVER_LAYOUT)
+            .and_then(serde_json::Value::as_bool)
+        {
+            self.mixed = flag;
+        }
+        if let Some(flag) = values
+            .get(preferences::SINGLE_LINE_TITLES)
+            .and_then(serde_json::Value::as_bool)
+        {
+            self.preview.toggles.insert("single-title", flag);
+        }
+        if let Some(flag) = values
+            .get(preferences::REFRESH_AFTER_EXIT)
+            .and_then(serde_json::Value::as_bool)
+        {
+            self.preview.toggles.insert("refresh", flag);
+        }
+        self.invalidate_view();
+    }
+
+    /// Container path that owns this card's entry.
     fn bottle_path(&self, index: usize) -> Option<String> {
         self.game(index)
-            .and_then(|game| game.bottle.checked_sub(1))
-            .and_then(|slot| self.bottles.get(slot))
-            .filter(|bottle| bottle.available)
-            .map(|bottle| bottle.path.clone())
+            .map(|game| game.container.clone())
+            .filter(|path| !path.is_empty())
     }
 
     /// Per-entry runtime state. Cards for entries the helper has never
     /// configured (the Library page before any bottle is opened, or the demo)
-    /// have no state and therefore no action.
+    /// have no state yet.
     pub(crate) fn runtime_state(&self, index: usize) -> Option<RuntimeState> {
         self.game(index)
             .and_then(|game| self.runtime.entry(&game.id))
             .map(|entry| entry.state)
     }
 
-    /// The card's primary action. Entries without runtime state — and states
-    /// this build does not understand — yield a disabled, neutral button.
+    /// The card's primary action. Before a bottle is configured there is no
+    /// runtime state, but the entry is launchable: the click configures the
+    /// bottle first and the next snapshot replaces this optimistic action.
     pub(crate) fn primary_action(&self, index: usize) -> PrimaryAction {
-        self.game(index)
+        if let Some(entry) = self
+            .game(index)
             .and_then(|game| self.runtime.entry(&game.id))
-            .map_or(PrimaryAction::unavailable(), |entry| {
-                primary_action_for(entry.state, entry.capabilities)
-            })
+        {
+            return primary_action_for(entry.state, entry.capabilities);
+        }
+        if !self.demo && self.bottle_path(index).is_some() {
+            return PrimaryAction {
+                label: "Play",
+                action: Some(RuntimeAction::Launch),
+                enabled: true,
+                busy: false,
+            };
+        }
+        PrimaryAction::unavailable()
     }
 
     /// Send the mutation and move the card into a plausible transitional state.
@@ -691,6 +1027,12 @@ impl WhiskyApp {
         };
         match action {
             RuntimeAction::Launch => {
+                // Configure the bottle lazily, once per helper session. The
+                // worker handles commands in order, so the launch lands after
+                // the configure that made the entry actionable.
+                if self.configured.ensure(&container) {
+                    self.bridge.configure_runtime(&container);
+                }
                 self.runtime.set_state(&entry_id, RuntimeState::Preparing);
                 self.bridge.launch(&container, &entry_id);
             }
@@ -706,6 +1048,44 @@ impl WhiskyApp {
                 self.bridge.stop(&container, &entry_id);
             }
         }
+        cx.notify();
+    }
+
+    /// Set one star rating (1–5). Choosing the current value clears it, which
+    /// is how the detail panel expresses "unrated".
+    pub(crate) fn set_rating(&mut self, index: usize, star: u8, cx: &mut Context<Self>) {
+        let Some(game) = self.game(index) else { return };
+        let previous = game.rating;
+        let next = library_view::next_rating(previous, star);
+        let (container, entry_id) = (game.container.clone(), game.id.clone());
+        if self.demo || container.is_empty() {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        self.rating_edits.begin(&entry_key(&container, &entry_id), previous);
+        self.update_entry(&container, &entry_id, |game| game.rating = next);
+        self.rebuild_entries();
+        self.bridge
+            .set_rating(&container, &entry_id, next.map(i64::from));
+        cx.notify();
+    }
+
+    /// Flip the visibility of one entry. The grid reacts immediately; the
+    /// bridge reply (or an error rollback) settles it.
+    pub(crate) fn toggle_hidden(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(game) = self.game(index) else { return };
+        let (container, entry_id, previous) =
+            (game.container.clone(), game.id.clone(), game.hidden);
+        if self.demo || container.is_empty() {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let next = !previous;
+        self.hidden_edits
+            .begin(&entry_key(&container, &entry_id), previous);
+        self.update_entry(&container, &entry_id, |game| game.hidden = next);
+        self.rebuild_entries();
+        self.bridge.set_hidden(&container, &entry_id, next);
         cx.notify();
     }
 
@@ -775,24 +1155,21 @@ impl WhiskyApp {
         self.preview.sheet_history.clear();
         cx.notify();
     }
-    pub(crate) fn preview_visible(&self, index: usize) -> bool {
-        self.flag("show-hidden")
-            || (!self.preview.hidden.contains(&index)
-                && !self.game(index).is_some_and(|game| game.hidden))
+    /// Whether the `Hidden` filter currently includes hidden entries.
+    pub(crate) fn show_hidden(&self) -> bool {
+        self.show_hidden
     }
-    pub(crate) fn preview_bottle(&self, index: usize) -> usize {
-        self.preview
-            .moved
-            .get(&index)
-            .copied()
-            .unwrap_or_else(|| self.game(index).map_or(0, |game| game.bottle))
+    /// Count of hidden entries in the current scope, for the filter chip.
+    pub(crate) fn hidden_count(&self) -> usize {
+        let slot = self.bottle_slot();
+        self.games()
+            .iter()
+            .filter(|game| (slot == 0 || game.bottle == slot) && game.hidden)
+            .count()
     }
-    pub(crate) fn preview_sort(&self, indices: &mut [usize]) {
-        let games = self.games();
-        match self.preview.sort {
-            1 => indices.sort_by_key(|&i| games[i].title.as_str()),
-            2 => indices.reverse(),
-            _ => {}
-        }
-    }
+}
+
+/// Internal identity: the same bridge id in two bottles is two records.
+fn entry_key(container: &str, entry_id: &str) -> String {
+    format!("{container}\u{1}{entry_id}")
 }

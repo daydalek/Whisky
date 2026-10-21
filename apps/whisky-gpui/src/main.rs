@@ -9,9 +9,11 @@ use gpui_kit::{prelude::*, *};
 mod bridge;
 mod controls;
 mod library_layout;
+mod library_view;
 mod model;
 #[cfg(feature = "visual-test")]
 mod motion_capture;
+mod preferences;
 mod runtime;
 mod state;
 mod theme;
@@ -285,17 +287,20 @@ fn main() {
         std::process::exit(bridge::watch_runtime(bottle, seconds));
     }
     if arguments.iter().any(|argument| argument == "--print-library") {
+        let all = arguments.iter().any(|argument| argument == "--all");
         let bottle = match arguments.iter().position(|argument| argument == "--bottle") {
             Some(index) => match arguments.get(index + 1) {
                 Some(value) if !value.starts_with("--") => Some(value.as_str()),
                 _ => {
-                    eprintln!("usage: whisky-gpui --print-library [--bottle <name-or-path>]");
+                    eprintln!(
+                        "usage: whisky-gpui --print-library [--bottle <name-or-path>] [--all]"
+                    );
                     std::process::exit(2);
                 }
             },
             None => None,
         };
-        std::process::exit(bridge::print_library(bottle));
+        std::process::exit(bridge::print_library(bottle, all));
     }
     gpui_kit::application()
         .with_assets(gpui_kit::assets::AllAssets)

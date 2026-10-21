@@ -257,6 +257,65 @@ pub(crate) fn poll_interval(any_active: bool) -> Duration {
     if any_active { BUSY_POLL } else { IDLE_POLL }
 }
 
+/// Bottles already handed to `runtime.configure` in the current helper session.
+///
+/// The helper keeps one session, so the UI remembers which containers it has
+/// already configured and configures each one at most once. `ensure` returns
+/// whether a command must be sent; that return value is what the tests pin.
+#[derive(Debug, Default)]
+pub(crate) struct ConfiguredBottles {
+    configured: std::collections::HashSet<String>,
+}
+
+impl ConfiguredBottles {
+    /// `true` the first time this container is seen, `false` afterwards.
+    pub(crate) fn ensure(&mut self, container: &str) -> bool {
+        self.configured.insert(container.to_owned())
+    }
+
+    /// A new helper process has no configured containers.
+    pub(crate) fn clear(&mut self) {
+        self.configured.clear();
+    }
+
+    /// A re-read of this bottle may have changed its entries, so the next
+    /// selection has to configure it again.
+    pub(crate) fn forget(&mut self, container: &str) {
+        self.configured.remove(container);
+    }
+}
+
+/// The value a mutation had before an optimistic update, keyed by entry.
+///
+/// Success simply forgets the saved value (the bridge reply is authoritative);
+/// failure hands it back so the caller can restore exactly what was there. A
+/// second optimistic change for the same entry keeps the *first* saved value,
+/// so a failed burst still rolls back to the committed state.
+#[derive(Debug, Default)]
+pub(crate) struct PendingEdits<T> {
+    previous: std::collections::HashMap<String, T>,
+}
+
+impl<T> PendingEdits<T> {
+    pub(crate) fn begin(&mut self, key: &str, previous: T) {
+        self.previous.entry(key.to_owned()).or_insert(previous);
+    }
+
+    /// The value to restore, if this entry still has an outstanding edit.
+    pub(crate) fn fail(&mut self, key: &str) -> Option<T> {
+        self.previous.remove(key)
+    }
+
+    pub(crate) fn succeed(&mut self, key: &str) {
+        self.previous.remove(key);
+    }
+
+    /// A new helper session cannot deliver the old edits' replies.
+    pub(crate) fn clear(&mut self) {
+        self.previous.clear();
+    }
+}
+
 /// `ClipboardDecision` as the helper spells it: `LaunchInteractionBroker.resolve`
 /// accepts exactly these two strings. Both continue the launch; the difference
 /// is whether the clipboard is cleared first. Any other string is rejected with
@@ -465,6 +524,47 @@ mod tests {
         assert_eq!(poll_interval(RuntimeState::Running.is_active()), BUSY_POLL);
         assert_eq!(poll_interval(RuntimeState::Idle.is_active()), IDLE_POLL);
         assert!(RuntimeState::Unknown.is_active());
+    }
+
+    #[test]
+    fn lazy_configure_fires_once_per_bottle_even_for_consecutive_launches() {
+        let mut configured = ConfiguredBottles::default();
+        // Two entries from the same bottle, launched in sequence: the first
+        // Play configures, the second reuses the session.
+        assert!(configured.ensure("/bottles/galgame"));
+        assert!(!configured.ensure("/bottles/galgame"));
+        // Another bottle is configured independently.
+        assert!(configured.ensure("/bottles/galgame-win7"));
+        assert!(!configured.ensure("/bottles/galgame-win7"));
+
+        // A reconnect drops the helper session, so the set must start over.
+        configured.clear();
+        assert!(configured.ensure("/bottles/galgame"));
+    }
+
+    #[test]
+    fn rating_rollback_restores_the_committed_value_on_error() {
+        let mut edits = PendingEdits::default();
+        let mut rating = Some(2_u8);
+        edits.begin("pinned:a", rating);
+        // Optimistic update: the card shows the new value immediately.
+        rating = Some(5);
+        assert_eq!(rating, Some(5));
+        // The bridge rejected the write: restore what was committed.
+        rating = edits.fail("pinned:a").expect("rollback value");
+        assert_eq!(rating, Some(2));
+        assert_eq!(edits.fail("pinned:a"), None, "rollback runs once");
+
+        // A second click while the first request is in flight keeps the
+        // original committed value.
+        edits.begin("pinned:a", Some(3_u8));
+        edits.begin("pinned:a", Some(4_u8));
+        assert_eq!(edits.fail("pinned:a"), Some(Some(3)));
+
+        // A successful reply commits: nothing is left to roll back.
+        edits.begin("pinned:b", None);
+        edits.succeed("pinned:b");
+        assert_eq!(edits.fail("pinned:b"), None);
     }
 
     const PROMPT_REPLY: &str = r#"{

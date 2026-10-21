@@ -197,6 +197,39 @@ pub(crate) struct Container {
 
 pub(crate) type ContainerList = Vec<Container>;
 
+/// `preferences.schema`: the keys the helper will accept on `preferences.set`.
+/// Anything outside this set has no persistence and must stay in memory.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PreferencesSchemaDto {
+    #[serde(default)]
+    pub(crate) booleans: BTreeMap<String, bool>,
+    #[serde(default)]
+    pub(crate) strings: BTreeMap<String, String>,
+    #[serde(default)]
+    pub(crate) paths: Vec<String>,
+}
+
+impl PreferencesSchemaDto {
+    /// Every key the helper advertises, regardless of its type.
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &str> {
+        self.booleans
+            .keys()
+            .chain(self.strings.keys())
+            .chain(self.paths.iter())
+            .map(String::as_str)
+    }
+}
+
+/// `entry.hidden` reply. The record, not the request, is what the UI stores.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HiddenReplyDto {
+    #[serde(rename = "entryID")]
+    pub(crate) entry_id: String,
+    pub(crate) hidden: bool,
+}
+
 /// One `library.entries` record (`EntryRecord` in `Workspace.swift`).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -253,6 +286,36 @@ pub(crate) struct ActivityDto {
     pub(crate) rating: Option<i64>,
     #[serde(default)]
     pub(crate) last_played: Option<f64>,
+    /// Confirmed session completion; the Swift library sorts `recent` by it.
+    #[serde(default)]
+    pub(crate) last_session_ended_at: Option<f64>,
+}
+
+impl ActivityDto {
+    /// One-based rating (`nil` when unrated), clamped to what the grid supports.
+    pub(crate) fn rating(&self) -> Option<u8> {
+        self.rating
+            .and_then(|rating| u8::try_from(rating).ok())
+            .filter(|rating| *rating <= 10)
+    }
+
+    pub(crate) fn play_time(&self) -> Option<u64> {
+        self.play_time
+            .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+            .map(|seconds| seconds.round() as u64)
+    }
+
+    pub(crate) fn last_played(&self) -> Option<u64> {
+        self.last_played
+            .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+            .map(|seconds| seconds as u64)
+    }
+
+    pub(crate) fn last_session_ended_at(&self) -> Option<u64> {
+        self.last_session_ended_at
+            .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+            .map(|seconds| seconds as u64)
+    }
 }
 
 impl EntryDto {
@@ -294,22 +357,12 @@ impl EntryDto {
             landscape: self.cover_aspect_ratio.is_some_and(|ratio| ratio > 1.0),
             bottle,
             hidden: self.hidden,
-            rating: self
-                .activity
-                .rating
-                .and_then(|rating| u8::try_from(rating).ok())
-                .filter(|rating| *rating <= 10),
-            play_time: self
-                .activity
-                .play_time
-                .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
-                .map(|seconds| seconds.round() as u64),
-            last_played: self
-                .activity
-                .last_played
-                .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
-                .map(|seconds| seconds as u64),
+            rating: self.activity.rating(),
+            play_time: self.activity.play_time(),
+            last_played: self.activity.last_played(),
             executable: self.executable.as_deref().map(expand_path),
+            container: self.container.unwrap_or_default(),
+            last_session_ended_at: self.activity.last_session_ended_at(),
         }
     }
 }
@@ -682,5 +735,54 @@ mod tests {
     fn empty_container_payload_is_an_empty_list_not_an_error() {
         let containers: ContainerList = serde_json::from_str("[]").unwrap();
         assert!(containers.is_empty());
+    }
+
+    /// Recorded from `preferences.schema` on this machine. It intentionally
+    /// omits the library view keys the GPUI app keeps in memory.
+    const PREFERENCES_SCHEMA_FIXTURE: &str = r#"{
+        "booleans": {
+            "libraryMixedCoverLayout": false,
+            "librarySingleLineTitles": false,
+            "libraryRefreshAfterExit": true
+        },
+        "strings": {"libraryCoverFillStyle": "blurred"},
+        "paths": ["defaultBottleLocation"]
+    }"#;
+
+    #[test]
+    fn recorded_preferences_schema_exposes_only_its_writable_keys() {
+        let schema: PreferencesSchemaDto =
+            serde_json::from_str(PREFERENCES_SCHEMA_FIXTURE).expect("schema");
+        let keys = schema.keys().collect::<Vec<_>>();
+        assert!(keys.contains(&"libraryMixedCoverLayout"));
+        assert!(keys.contains(&"librarySingleLineTitles"));
+        assert!(keys.contains(&"libraryRefreshAfterExit"));
+        assert!(keys.contains(&"defaultBottleLocation"));
+        assert!(!keys.contains(&"libraryDisplayMode"));
+        assert!(!keys.contains(&"librarySort"));
+        assert!(!keys.contains(&"libraryShowHiddenGames"));
+    }
+
+    #[test]
+    fn the_rating_reply_is_an_activity_record() {
+        // Verbatim shape of `GameActivity` as `entry.rating` returns it.
+        let activity: ActivityDto = serde_json::from_str(
+            r#"{"schemaVersion": 1, "playTime": 84.3, "rating": 8,
+                "lastPlayed": 1792496362.7, "lastSessionEndedAt": 1792496362.7,
+                "owner": {"source": "gui"}}"#,
+        )
+        .expect("activity");
+        assert_eq!(activity.rating(), Some(8));
+        assert_eq!(activity.play_time(), Some(84));
+        assert_eq!(activity.last_played(), Some(1_792_496_362));
+        assert_eq!(activity.last_session_ended_at(), Some(1_792_496_362));
+    }
+
+    #[test]
+    fn the_hidden_reply_carries_the_records_visibility() {
+        let reply: HiddenReplyDto =
+            serde_json::from_str(r#"{"entryID": "pinned:/a", "hidden": true}"#).expect("reply");
+        assert_eq!(reply.entry_id, "pinned:/a");
+        assert!(reply.hidden);
     }
 }

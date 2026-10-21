@@ -30,6 +30,12 @@ pub(crate) struct Game {
     pub(crate) last_played: Option<u64>,
     /// Launching executable, when the entry is a program rather than a Store app.
     pub(crate) executable: Option<PathBuf>,
+    /// Absolute path of the bottle this entry was read from. Entries are keyed
+    /// internally by `(container, id)`, so a game installed in two bottles
+    /// stays two records even when the grid shows one card.
+    pub(crate) container: String,
+    /// `GameActivity.lastSessionEndedAt`; the Swift `recent` sort key.
+    pub(crate) last_session_ended_at: Option<u64>,
 }
 
 impl Game {
@@ -48,6 +54,8 @@ impl Game {
             play_time: None,
             last_played: None,
             executable: None,
+            container: String::new(),
+            last_session_ended_at: None,
         }
     }
 
