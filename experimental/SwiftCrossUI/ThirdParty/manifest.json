@@ -1,0 +1,283 @@
+{
+  "packages": [
+    {
+      "identity": "androidkit",
+      "source": "https://github.com/moreSwift/AndroidKit",
+      "revision": "d5142b5a9b90fa940be54a2a41d7fd5842f21111",
+      "notices": [
+        {
+          "file": "androidkit/LICENSE",
+          "sha256": "83e4dd21429a91fb7cea67a476032a9641425e5355df2e0f589a738b6ec9fd2c"
+        }
+      ]
+    },
+    {
+      "identity": "jpeg",
+      "source": "https://github.com/stackotter/jpeg",
+      "revision": "a27e47f49479993b2541bc5f5c95d9354ed567a0",
+      "notices": [
+        {
+          "file": "jpeg/LICENSE",
+          "sha256": "29470e822129b9fdd1863681b409becdb233fd94eb7e07077ba4f1fb9fa112ff"
+        }
+      ]
+    },
+    {
+      "identity": "libpng",
+      "source": "https://github.com/the-swift-collective/libpng",
+      "revision": "0eff23aca92a086b7892831f5cb4f58e15be9449",
+      "notices": [
+        {
+          "file": "libpng/LICENSE",
+          "sha256": "7317e078e2d3b5d7ba5a6159e650945153262b44b76f6700f8e9edb261c5143e"
+        }
+      ]
+    },
+    {
+      "identity": "libwebp",
+      "source": "https://github.com/the-swift-collective/libwebp",
+      "revision": "5f745a17b9a5c2a4283f17c2cde4517610ab5f99",
+      "notices": [
+        {
+          "file": "libwebp/LICENSE",
+          "sha256": "e293d1dddc9785200b1f58a4f5293543cf8566d9e0b8a3c02fad955035b19f42"
+        }
+      ]
+    },
+    {
+      "identity": "semanticversion",
+      "source": "https://github.com/SwiftPackageIndex/SemanticVersion.git",
+      "revision": "330bab3e41aad91fb3b1b0f779d1325738e54b93",
+      "notices": [
+        {
+          "file": "semanticversion/LICENSE",
+          "sha256": "cc4d4de0920b0d3912203b5d9aa76728ac4a11087f55da9ea00576db7d1e34e2"
+        }
+      ]
+    },
+    {
+      "identity": "swift-android-native",
+      "source": "https://github.com/swift-android-sdk/swift-android-native.git",
+      "revision": "5f71c1584b3cbe3842d335ebb4d7b545205d9945",
+      "notices": [
+        {
+          "file": "swift-android-native/LICENSE.txt",
+          "sha256": "0ca84095d1de77cad1a866ebbad28f8db98a0826c6055d92b0608c5baa1643e2"
+        }
+      ]
+    },
+    {
+      "identity": "swift-argument-parser",
+      "source": "https://github.com/apple/swift-argument-parser",
+      "revision": "6a52f3251125d74daf04fcbd5e6f08a75d074382",
+      "notices": [
+        {
+          "file": "swift-argument-parser/LICENSE.txt",
+          "sha256": "770af8291f708538d8ff885a0bbc4e045cd700531741c4f99528d435c14d7f55"
+        }
+      ]
+    },
+    {
+      "identity": "swift-collections",
+      "source": "https://github.com/apple/swift-collections",
+      "revision": "35a1edcb8ebd2bfe251d587f0b69e62af28f508c",
+      "notices": [
+        {
+          "file": "swift-collections/LICENSE.txt",
+          "sha256": "770af8291f708538d8ff885a0bbc4e045cd700531741c4f99528d435c14d7f55"
+        }
+      ]
+    },
+    {
+      "identity": "swift-cross-ui",
+      "source": "https://github.com/moreSwift/swift-cross-ui",
+      "revision": "0f3ec3958b79cdc39a1a3e604516b71ab33a9043",
+      "notices": [
+        {
+          "file": "swift-cross-ui/LICENSE",
+          "sha256": "3c25f31e07a5c2136c56fdacb988ddf589d0b0bf2a0a2a8ee8c703d8d2bbb03f"
+        }
+      ]
+    },
+    {
+      "identity": "swift-image-formats",
+      "source": "https://github.com/stackotter/swift-image-formats",
+      "revision": "d735e0ed3d4a4aed50f4042494e7c769b5b70229",
+      "notices": [
+        {
+          "file": "swift-image-formats/LICENSE",
+          "sha256": "d2378405ed24c0b50aeb1e9868cde815007fbbbf3a167fd45782afaefd33c979"
+        }
+      ]
+    },
+    {
+      "identity": "swift-issue-reporting",
+      "source": "https://github.com/pointfreeco/swift-issue-reporting",
+      "revision": "b23bb4493c439d3e05152bc167014235ba3d47fc",
+      "notices": [
+        {
+          "file": "swift-issue-reporting/LICENSE",
+          "sha256": "e26e14493356d7abf33f426942a1c451832a8a4a309297d44c5b8a03af1d9ea1"
+        }
+      ]
+    },
+    {
+      "identity": "swift-java",
+      "source": "https://github.com/stackotter/swift-java",
+      "revision": "e04c0ed6af98936ca6300e94be9a19869df418a2",
+      "notices": [
+        {
+          "file": "swift-java/LICENSE.txt",
+          "sha256": "770af8291f708538d8ff885a0bbc4e045cd700531741c4f99528d435c14d7f55"
+        }
+      ]
+    },
+    {
+      "identity": "swift-java-jni-core",
+      "source": "https://github.com/swiftlang/swift-java-jni-core",
+      "revision": "b440a0be98381550cf189c903782e817619ffa05",
+      "notices": [
+        {
+          "file": "swift-java-jni-core/LICENSE.txt",
+          "sha256": "770af8291f708538d8ff885a0bbc4e045cd700531741c4f99528d435c14d7f55"
+        }
+      ]
+    },
+    {
+      "identity": "swift-log",
+      "source": "https://github.com/apple/swift-log.git",
+      "revision": "4038b6a4f74a1426f47eb1dd5b4bb5628a15d597",
+      "notices": [
+        {
+          "file": "swift-log/NOTICE.txt",
+          "sha256": "879b241d49b407215a0ad8e1c6a71c358d7b29591b090cf379d37a5f50cff918"
+        },
+        {
+          "file": "swift-log/LICENSE.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ]
+    },
+    {
+      "identity": "swift-macro-toolkit",
+      "source": "https://github.com/stackotter/swift-macro-toolkit",
+      "revision": "d6ed555bb83c9f21a292e9769952e8f52610a6e2",
+      "notices": [
+        {
+          "file": "swift-macro-toolkit/LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ]
+    },
+    {
+      "identity": "swift-mutex",
+      "source": "https://github.com/swhitty/swift-mutex",
+      "revision": "1770152df756b54c28ef1787df1e957d93cc62d5",
+      "notices": [
+        {
+          "file": "swift-mutex/LICENSE",
+          "sha256": "b722f8f26b5c623df0d029725691ca00413582165e8f734af841161f18291e9a"
+        }
+      ]
+    },
+    {
+      "identity": "swift-observation-polyfill",
+      "source": "https://github.com/moreSwift/swift-observation-polyfill",
+      "revision": "d8843fa6dbf970aab42faaf101c9ce1cfd16fb94",
+      "notices": [
+        {
+          "file": "swift-observation-polyfill/LICENSE",
+          "sha256": "72565151804cdc168937ccc70e4c30c5afff92ff314bb9d504780a3ad1c1f868"
+        }
+      ]
+    },
+    {
+      "identity": "swift-subprocess",
+      "source": "https://github.com/swiftlang/swift-subprocess.git",
+      "revision": "11633673a41f509f8945f23c96c7acd4adafd679",
+      "notices": [
+        {
+          "file": "swift-subprocess/LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ]
+    },
+    {
+      "identity": "swift-syntax",
+      "source": "https://github.com/swiftlang/swift-syntax.git",
+      "revision": "79e4b74a295b6eb74a8b585e3a39d29e70c1dbd1",
+      "notices": [
+        {
+          "file": "swift-syntax/LICENSE.txt",
+          "sha256": "770af8291f708538d8ff885a0bbc4e045cd700531741c4f99528d435c14d7f55"
+        }
+      ]
+    },
+    {
+      "identity": "swift-system",
+      "source": "https://github.com/apple/swift-system",
+      "revision": "869129b7bf4ecc57b97d0193ad29690ca2134750",
+      "notices": [
+        {
+          "file": "swift-system/LICENSE.txt",
+          "sha256": "2245a990b635558be210fb3eb4f8a6f7a49aebc0fefbf5859146a65ddc7ddcf3"
+        }
+      ]
+    },
+    {
+      "identity": "swift-winui",
+      "source": "https://github.com/moreSwift/swift-winui",
+      "revision": "c4f1cb75c02f4a4fdefcef2e5c5c4388c7cf9389",
+      "notices": [
+        {
+          "file": "swift-winui/LICENSE",
+          "sha256": "3ea3aed286a298af013d1232d06984c29cde7a04a5c5c25cba3e323c2810b0e2"
+        }
+      ]
+    },
+    {
+      "identity": "swiftjavalang",
+      "source": "https://github.com/stackotter/SwiftJavaLang.git",
+      "revision": "000441db9284536a2af611745b82ec7653dca5bc",
+      "notices": [
+        {
+          "file": "swiftjavalang/LICENSE",
+          "sha256": "2bc2d3f8675c2644c3fbec1b4d5a4e7b7646fd764366a58e4e37ae3419c3e42b"
+        }
+      ]
+    },
+    {
+      "identity": "swiftkotlin",
+      "source": "https://github.com/stackotter/SwiftKotlin.git",
+      "revision": "ad30daacb7e4666e1a56bfdd48498f5ac4ff081d",
+      "notices": [
+        {
+          "file": "swiftkotlin/LICENSE",
+          "sha256": "2bc2d3f8675c2644c3fbec1b4d5a4e7b7646fd764366a58e4e37ae3419c3e42b"
+        }
+      ]
+    },
+    {
+      "identity": "xctest-dynamic-overlay",
+      "source": "https://github.com/pointfreeco/xctest-dynamic-overlay",
+      "revision": "d9308ad679143c26a30dec52daefe82f54af2b82",
+      "notices": [
+        {
+          "file": "xctest-dynamic-overlay/LICENSE",
+          "sha256": "e26e14493356d7abf33f426942a1c451832a8a4a309297d44c5b8a03af1d9ea1"
+        }
+      ]
+    },
+    {
+      "identity": "zlib",
+      "source": "https://github.com/the-swift-collective/zlib.git",
+      "revision": "f1d153b90420f9fcc6ef916cd67ea96f0e68d137",
+      "notices": [
+        {
+          "file": "zlib/LICENSE",
+          "sha256": "0f854f426019c475697e17f1b0fa638270f6e700bc756d9bfe50d17268bd3281"
+        }
+      ]
+    }
+  ]
+}
