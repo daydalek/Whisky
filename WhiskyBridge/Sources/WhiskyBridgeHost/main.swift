@@ -111,11 +111,15 @@ struct BridgeHost {
         )
         let jobs = BridgeJobStore()
         #if os(macOS)
+        let native = MacOSApplicationServices(
+            wineEnabled: arguments.contains("--enable-wine"), preferencesDomain: preferencesDomain, jobs: jobs
+        )
+        // Runtime reads stay available without --enable-wine; the native service
+        // keeps gating Wine host effects.
         return ApplicationService(
             workspace: workspace,
-            native: MacOSApplicationServices(
-                wineEnabled: arguments.contains("--enable-wine"), preferencesDomain: preferencesDomain, jobs: jobs
-            ),
+            native: native,
+            runtime: native.runtimeService,
             preferences: preferences, jobs: jobs
         )
         #elseif os(Linux)

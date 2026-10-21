@@ -32,7 +32,9 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         bottleResolver: { [weak self] in self?.bottle($0) },
         driverFactory: { MonitoredSteamClientDriver(bottle: $0) }
     )
-    private lazy var runtimeService = RuntimeService(
+    /// Shared with `ApplicationService` so `runtime.*` requests take the same
+    /// controller path as the SwiftUI app instead of a second instance.
+    public lazy var runtimeService = RuntimeService(
         driver: driver,
         clipboard: { ClipboardManager.shared },
         policyLoader: { [weak self] containerURL in

@@ -3,6 +3,7 @@
 //! Unknown fields are deliberately accepted: the Swift service adds methods and
 //! payload keys independently of this frontend.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,9 @@ use crate::model::Game;
 /// path; there is no separate activity method — each entry carries its
 /// `activity` snapshot. The allow-list is checked against wire names.
 pub(crate) const REQUIRED_METHODS: &[&str] = &["workspace.containers", "library.entries"];
+
+/// Methods the headless runtime probe cannot work without.
+pub(crate) const RUNTIME_METHODS: &[&str] = &["runtime.snapshot"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,12 +59,43 @@ impl DescribeResponse {
 
     /// Required methods absent from the advertised allow-list.
     pub(crate) fn missing_required_methods(&self) -> Vec<&'static str> {
-        REQUIRED_METHODS
+        self.missing_methods(REQUIRED_METHODS)
+    }
+
+    /// The subset of `required` the helper does not advertise.
+    pub(crate) fn missing_methods(&self, required: &[&'static str]) -> Vec<&'static str> {
+        required
             .iter()
             .copied()
             .filter(|required| !self.methods.iter().any(|method| method == required))
             .collect()
     }
+}
+
+/// One `runtime.snapshot` result (`RuntimeService.snapshot` in Swift).
+///
+/// `sequence` is a decimal string because the Swift controller keeps a 64-bit
+/// cursor. Unknown keys are ignored so the helper can grow the payload.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RuntimeSnapshotDto {
+    #[serde(default)]
+    pub(crate) sequence: String,
+    #[serde(default)]
+    pub(crate) entries: Vec<RuntimeEntryDto>,
+    #[serde(default)]
+    pub(crate) query_failures: BTreeMap<String, String>,
+}
+
+/// Per-entry runtime state; `capabilities` is the `LibraryRuntimeCapabilities`
+/// option-set bitmask.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RuntimeEntryDto {
+    pub(crate) id: String,
+    pub(crate) state: String,
+    #[serde(default)]
+    pub(crate) capabilities: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -258,6 +293,22 @@ mod tests {
         {"path": "/tmp/Bottles/galgame-win7", "name": "galgame-win7", "available": false}
     ]"#;
 
+    /// Shape emitted by `RuntimeService.snapshot` (`sequence` is a decimal
+    /// string) with unknown keys at both levels.
+    const RUNTIME_SNAPSHOT_FIXTURE: &str = r#"{
+        "sequence": "12",
+        "entries": [
+            {
+                "id": "pinned:/tmp/Bottles/demo/drive_c/Game/play.exe",
+                "state": "idle",
+                "capabilities": 11,
+                "futureField": true
+            }
+        ],
+        "queryFailures": {"/tmp/Bottles/demo": "wineserver unreachable"},
+        "futureField": {"ignored": true}
+    }"#;
+
     #[derive(Deserialize)]
     struct Envelope {
         result: DescribeResponse,
@@ -317,6 +368,42 @@ mod tests {
             path_format: "absolute_native".into(),
         };
         assert!(describe.missing_required_methods().is_empty());
+    }
+
+    #[test]
+    fn recorded_runtime_snapshot_fixture_deserializes_and_accepts_unknown_fields() {
+        let snapshot: RuntimeSnapshotDto =
+            serde_json::from_str(RUNTIME_SNAPSHOT_FIXTURE).expect("runtime snapshot");
+        assert_eq!(snapshot.sequence, "12");
+        assert_eq!(snapshot.entries.len(), 1);
+        assert_eq!(snapshot.entries[0].state, "idle");
+        assert_eq!(snapshot.entries[0].capabilities, 11);
+        assert_eq!(
+            snapshot
+                .query_failures
+                .get("/tmp/Bottles/demo")
+                .map(String::as_str),
+            Some("wineserver unreachable")
+        );
+    }
+
+    #[test]
+    fn empty_runtime_snapshot_is_a_valid_payload() {
+        let snapshot: RuntimeSnapshotDto =
+            serde_json::from_str(r#"{"sequence":"0","entries":[],"queryFailures":{}}"#).unwrap();
+        assert_eq!(snapshot.sequence, "0");
+        assert!(snapshot.entries.is_empty());
+        assert!(snapshot.query_failures.is_empty());
+    }
+
+    #[test]
+    fn runtime_probe_reports_missing_runtime_methods() {
+        let mut describe = describe_fixture();
+        describe.methods.retain(|method| !method.starts_with("runtime."));
+        assert_eq!(
+            describe.missing_methods(RUNTIME_METHODS),
+            vec!["runtime.snapshot"]
+        );
     }
 
     /// Recorded from `whisky-bridge`, first three entries of

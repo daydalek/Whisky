@@ -19,7 +19,10 @@ use whisky_bridge::Client;
 
 use super::{
     BridgeStatus,
-    dto::{Container, ContainerList, DescribeResponse, EntryDto, EntryList},
+    dto::{
+        Container, ContainerList, DescribeResponse, EntryDto, EntryList, RUNTIME_METHODS,
+        RuntimeSnapshotDto,
+    },
 };
 
 /// Executable product declared in `WhiskyBridge/Package.swift`.
@@ -182,8 +185,8 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
         );
         // One bottle at a time is enough: a request for another container
         // invalidates the cached snapshot, matching "invalidate on switch".
-        // `runtime.events` is not polled in M1b: the helper does not construct
-        // `RuntimeService`, so there is no cursor that could invalidate reads.
+        // `runtime.events` is not polled yet: M2a only proves the runtime
+        // methods are reachable, and library reads do not consume the cursor.
         let mut cache: Option<(String, EntryList)> = None;
         loop {
             match commands.recv() {
@@ -468,6 +471,81 @@ pub(crate) fn print_status() -> i32 {
         Ok(containers) => log_container_names(&containers),
         Err(failure) => {
             eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    }
+    let _ = client.shutdown(false);
+    0
+}
+
+/// `--print-runtime`: connect, check the runtime allow-list, read one
+/// `runtime.snapshot`, and print it as JSON. Safe with no game running: the
+/// payload only reports the configured entries and the event cursor.
+pub(crate) fn print_runtime() -> i32 {
+    let helper = match locate_helper() {
+        Ok(helper) => helper,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            return 1;
+        }
+    };
+    eprintln!("whisky-bridge: helper {}", helper.display());
+    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("whisky-bridge: handshake failed: {error}");
+            return 1;
+        }
+    };
+    let describe = DescribeResponse::from_capabilities(client.capabilities());
+    let missing = describe.missing_methods(RUNTIME_METHODS);
+    if !missing.is_empty() {
+        eprintln!(
+            "whisky-bridge: helper does not advertise runtime method(s): {}",
+            missing.join(", ")
+        );
+        client.close();
+        return 1;
+    }
+    let payload = match client.call("runtime.snapshot", json!({})) {
+        Ok(payload) => payload,
+        Err(error) => {
+            eprintln!(
+                "whisky-bridge: runtime.snapshot failed: {}",
+                classify(error).into_message()
+            );
+            client.close();
+            return 1;
+        }
+    };
+    let snapshot: RuntimeSnapshotDto = match serde_json::from_value(payload.clone()) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            eprintln!("whisky-bridge: invalid runtime snapshot: {error}");
+            client.close();
+            return 1;
+        }
+    };
+    eprintln!(
+        "whisky-bridge: runtime sequence {}, {} entry(ies), {} query failure(s)",
+        snapshot.sequence,
+        snapshot.entries.len(),
+        snapshot.query_failures.len()
+    );
+    for entry in &snapshot.entries {
+        eprintln!(
+            "whisky-bridge:   {} state={} capabilities={}",
+            entry.id, entry.state, entry.capabilities
+        );
+    }
+    for (container, failure) in &snapshot.query_failures {
+        eprintln!("whisky-bridge:   {container}: {failure}");
+    }
+    match serde_json::to_string_pretty(&payload) {
+        Ok(rendered) => println!("{rendered}"),
+        Err(error) => {
+            eprintln!("whisky-bridge: cannot encode the runtime snapshot: {error}");
             client.close();
             return 1;
         }

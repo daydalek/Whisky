@@ -238,6 +238,9 @@ fn main() {
     if arguments.iter().any(|argument| argument == "--print-bridge-status") {
         std::process::exit(bridge::print_status());
     }
+    if arguments.iter().any(|argument| argument == "--print-runtime") {
+        std::process::exit(bridge::print_runtime());
+    }
     if arguments.iter().any(|argument| argument == "--print-library") {
         let bottle = match arguments.iter().position(|argument| argument == "--bottle") {
             Some(index) => match arguments.get(index + 1) {

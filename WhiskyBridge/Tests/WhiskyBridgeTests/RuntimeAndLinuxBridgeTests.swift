@@ -153,6 +153,38 @@ struct RuntimeAndLinuxBridgeTests {
         await service.shutdown()
     }
 
+    @Test @MainActor func helperCompositionAdvertisesRuntimeAndSnapshotsWithoutAGame() async throws {
+        let runtime = RuntimeService(driver: UnavailableLibraryRuntimeDriver())
+        let service = ApplicationService(workspace: ApplicationWorkspace(containers: []), runtime: runtime)
+
+        let describe = await service.respond(.init(id: "1", method: "bridge.describe"))
+        let methods = try #require(describe.result?.object?["methods"]?.arrayValues?
+            .compactMap { $0.string })
+        for method in RuntimeService.methods {
+            #expect(methods.contains(method))
+        }
+        let capabilities = try #require(describe.result?.object?["capabilities"]?.arrayValues?
+            .compactMap { $0.string })
+        for capability in RuntimeService.capabilities {
+            #expect(capabilities.contains(capability))
+        }
+
+        let snapshot = await service.respond(.init(id: "2", method: "runtime.snapshot"))
+        #expect(snapshot.error == nil)
+        #expect(snapshot.result?.object?["sequence"] == .string("0"))
+        #expect(snapshot.result?.object?["entries"]?.arrayValues?.isEmpty == true)
+        #expect(snapshot.result?.object?["queryFailures"]?.object?.isEmpty == true)
+
+        let events = await service.respond(.init(id: "3", method: "runtime.events", params: [
+            "after": .string("0")
+        ]))
+        #expect(events.error == nil)
+        #expect(events.result?.object?["events"]?.arrayValues?.isEmpty == true)
+        #expect(events.result?.object?["resyncRequired"] == .bool(false))
+        #expect(events.result?.object?["snapshot"]?.object?["sequence"] == .string("0"))
+        await service.shutdown()
+    }
+
     @Test @MainActor func foldersBridgeMethodsManageRootsAssignmentsExclusionsAndExecutables() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("whisky-folders-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -220,7 +252,7 @@ struct RuntimeAndLinuxBridgeTests {
             "container": .string(container.path),
             "path": .string(file.path)
         ])
-        #expect(opened.get() == container)
+        #expect(opened.get()?.path == container.path)
 
         let schema = try await service.call("configuration.schema", params: ["platform": .string("linux")])
         let ids = Set((schema.arrayValues ?? []).compactMap { $0.object?["id"]?.string })

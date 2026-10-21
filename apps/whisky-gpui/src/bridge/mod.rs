@@ -7,7 +7,9 @@
 pub(crate) mod dto;
 mod supervisor;
 
-pub(crate) use supervisor::{BridgeEvent, BridgeSupervisor, print_library, print_status};
+pub(crate) use supervisor::{
+    BridgeEvent, BridgeSupervisor, print_library, print_runtime, print_status,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum BridgeStatus {
