@@ -32,11 +32,6 @@ public final class GameActivityTracker: ObservableObject {
     private var polling = false
     private var pollAgain = false
     private var sleepTask: Task<Void, Never>?
-    private struct SampleBatch {
-        let targets: [LibraryEntry]
-        let running: Set<String>
-        let date: Date
-    }
 
     private var pendingSamples: [URL: SampleBatch] = [:]
     private var persistenceTask: Task<Void, Never>?
@@ -66,18 +61,9 @@ public final class GameActivityTracker: ObservableObject {
     private var entries: [URL: [LibraryEntry]] = [:]
     private var bottles: [URL: Bottle] = [:]
     private var names: [URL: [String: Set<String>]] = [:]
-    private struct TrackingKey: Hashable {
-        let bottle: URL
-        let identity: String
-    }
 
     private var clocks: [TrackingKey: GameActivityClock] = [:]
     private var task: Task<Void, Never>?
-    private struct Selection {
-        let identity: String
-        let date: Date
-        var observed = false
-    }
 
     private var selections: [URL: [String: Selection]] = [:]
     private let ownerID = UUID()

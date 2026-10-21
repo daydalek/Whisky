@@ -60,12 +60,7 @@ public enum BottleCreationService {
     ) async throws -> BottleCreationResult {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw BottleCreationServiceError.emptyName }
-        guard destinationDirectory.isFileURL, parentDirectory.isFileURL,
-              destinationDirectory.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL.path
-              == parentDirectory.resolvingSymlinksInPath().standardizedFileURL.path
-        else {
-            throw BottleCreationServiceError.directoryCreationFailed
-        }
+        try validateDirectories(destination: destinationDirectory, parent: parentDirectory)
         guard runtimeIsAvailable() else { throw BottleCreationServiceError.runtimeMissing }
 
         let locationResult = validateLocation(parentDirectory)
@@ -74,17 +69,9 @@ public enum BottleCreationService {
         }
 
         let fileManager = FileManager.default
-        guard !fileManager.fileExists(atPath: destinationDirectory.path) else {
-            throw BottleCreationServiceError.directoryCreationFailed
-        }
-        do {
-            try fileManager.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
-        } catch { throw BottleCreationServiceError.directoryCreationFailed }
-        guard mkdir(destinationDirectory.path, mode_t(0o755)) == 0 else {
-            throw BottleCreationServiceError.directoryCreationFailed
-        }
-        let createdIdentity = try fileManager
-            .attributesOfItem(atPath: destinationDirectory.path)[.systemFileNumber] as? NSNumber
+        let createdIdentity = try makeDestination(
+            destinationDirectory, parent: parentDirectory, fileManager: fileManager
+        )
 
         let bottle = Bottle(bottleUrl: destinationDirectory, inFlight: true)
         bottle.settings.windowsVersion = windowsVersion
@@ -118,5 +105,29 @@ public enum BottleCreationService {
             }
             throw error
         }
+    }
+
+    private static func validateDirectories(destination: URL, parent: URL) throws {
+        guard destination.isFileURL, parent.isFileURL,
+              destination.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL.path
+              == parent.resolvingSymlinksInPath().standardizedFileURL.path
+        else {
+            throw BottleCreationServiceError.directoryCreationFailed
+        }
+    }
+
+    private static func makeDestination(
+        _ destination: URL, parent: URL, fileManager: FileManager
+    ) throws -> NSNumber? {
+        guard !fileManager.fileExists(atPath: destination.path) else {
+            throw BottleCreationServiceError.directoryCreationFailed
+        }
+        do {
+            try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
+        } catch { throw BottleCreationServiceError.directoryCreationFailed }
+        guard mkdir(destination.path, mode_t(0o755)) == 0 else {
+            throw BottleCreationServiceError.directoryCreationFailed
+        }
+        return try fileManager.attributesOfItem(atPath: destination.path)[.systemFileNumber] as? NSNumber
     }
 }

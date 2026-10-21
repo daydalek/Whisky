@@ -23,8 +23,6 @@ private let logger = Logger(subsystem: Bundle.whiskyBundleIdentifier, category: 
 
 // MARK: - Installed Verb Discovery
 
-// swiftlint:disable function_body_length
-
 public extension WinetricksService {
     /// Runs `winetricks list-installed` as a headless process to discover installed verbs.
     ///
@@ -162,5 +160,3 @@ public extension WinetricksService {
         return (verbs, false)
     }
 }
-
-// swiftlint:enable function_body_length

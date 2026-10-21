@@ -247,7 +247,7 @@ final class WinetricksOutputDecoder: @unchecked Sendable {
         pending.append(data)
         var lines: [String] = []
         while let end = pending.firstIndex(of: 10) {
-            lines.append(String(decoding: pending[..<end], as: UTF8.self))
+            lines.append(Self.lossyString(pending[..<end]))
             pending.removeSubrange(...end)
         }
         if pending.count > 8_192 {
@@ -259,13 +259,19 @@ final class WinetricksOutputDecoder: @unchecked Sendable {
                     break
                 }
             }
-            lines.append(String(decoding: pending.prefix(end), as: UTF8.self))
+            lines.append(Self.lossyString(pending.prefix(end)))
             pending.removeFirst(end)
         }
         if finish, !pending.isEmpty {
-            lines.append(String(decoding: pending, as: UTF8.self))
+            lines.append(Self.lossyString(pending))
             pending.removeAll(keepingCapacity: true)
         }
         return lines.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    }
+
+    /// Lossy decoding is intentional: a split multibyte scalar must not drop a line.
+    private static func lossyString<Bytes: Collection>(_ bytes: Bytes) -> String where Bytes.Element == UInt8 {
+        /* Lossy decoding is intentional. */ // swiftlint:disable:next optional_data_string_conversion
+        String(decoding: bytes, as: UTF8.self)
     }
 }
