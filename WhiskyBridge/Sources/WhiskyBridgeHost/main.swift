@@ -120,6 +120,7 @@ struct BridgeHost {
             workspace: workspace,
             native: native,
             runtime: native.runtimeService,
+            processes: native.processService,
             preferences: preferences, jobs: jobs
         )
         #elseif os(Linux)

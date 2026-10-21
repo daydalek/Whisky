@@ -45,6 +45,7 @@ public final class ApplicationService {
     public let jobs: BridgeJobStore
     public let native: (any NativeApplicationServices)?
     public let runtime: RuntimeService?
+    public let processes: ProcessService?
     public static let methods = [
         "bridge.describe", "bridge.shutdown", "jobs.get", "jobs.cancel", "library.scan", "library.page",
         "workspace.containers",
@@ -63,6 +64,8 @@ public final class ApplicationService {
         "programs.list",
         "programs.pin",
         "programs.block",
+        "processes.list",
+        "processes.kill",
         "environment.read",
         "environment.set"
     ]
@@ -70,12 +73,14 @@ public final class ApplicationService {
         workspace: ApplicationWorkspace,
         native: (any NativeApplicationServices)? = nil,
         runtime: RuntimeService? = nil,
+        processes: ProcessService? = nil,
         preferences: PreferencesService? = nil,
         jobs: BridgeJobStore? = nil
     ) {
         self.workspace = workspace
         self.native = native
         self.runtime = runtime
+        self.processes = processes
         self.preferences = preferences
         self.jobs = jobs ?? BridgeJobStore()
     }
@@ -140,6 +145,7 @@ extension ApplicationService {
         case "configuration": return try await configurationCall(method, params: params)
         case "programs": return try await programCall(method, params: params)
         case "environment": return try await environmentCall(method, params: params)
+        case "processes": return try await processesCall(method, params: params)
         default: return nil
         }
     }
@@ -147,6 +153,13 @@ extension ApplicationService {
     private func runtimeCall(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
         if let runtime {
             return try await runtime.call(method, params: params, workspace: workspace)
+        }
+        return try await nativeCall(method, params: params)
+    }
+
+    private func processesCall(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
+        if let processes {
+            return try await processes.call(method, params: params, workspace: workspace)
         }
         return try await nativeCall(method, params: params)
     }

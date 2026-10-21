@@ -71,10 +71,15 @@ public final class MacOSApplicationServices: NativeApplicationServices {
 
     public var methods: [String] {
         ["system.reveal", "system.open", "system.resources"] + (wineEnabled ? [
-            "bottle.create",
-            "processes.list"
+            "bottle.create"
         ] + RuntimeService.methods : [])
     }
+
+    /// Shared with `ApplicationService` so `processes.*` reuses the same
+    /// tasklist snapshot and kill calls the SwiftUI Processes page drives.
+    public lazy var processService = ProcessService(
+        host: WineProcessHost(bottle: { [weak self] in self?.bottle($0) })
+    )
 
     private func bottle(_ url: URL) -> Bottle? {
         guard let data = try? ApplicationWorkspace.read(url.appendingPathComponent("Metadata.plist")),
@@ -125,7 +130,6 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         case "system": return try systemCall(method, params: params, workspace: workspace)
         case "bottle": return try await createBottle(params: params, workspace: workspace)
         case "runtime": return try await runtimeService.call(method, params: params, workspace: workspace)
-        case "processes": return try await listProcesses(params: params, workspace: workspace)
         default: throw BridgeFailure("method_unavailable", "Native method is unavailable")
         }
     }
@@ -187,21 +191,48 @@ extension MacOSApplicationServices {
         }
     }
 
-    private func listProcesses(
-        params: [String: JSONValue],
-        workspace: ApplicationWorkspace
-    ) async throws -> JSONValue {
-        let container = try workspace.resolve(params)
+}
+
+/// `ProcessSnapshotProviding` over the same WhiskyKit calls the SwiftUI
+/// `ProcessesViewModel` uses: `Wine.listProcesses` (the Unicode Toolhelp
+/// snapshot) for enumeration and `taskkill.exe` for termination. The `bottle`
+/// resolver is `MacOSApplicationServices.bottle`, kept behind a closure so the
+/// adapter never outlives its service.
+@MainActor
+private final class WineProcessHost: ProcessSnapshotProviding {
+    private let bottle: @MainActor (URL) -> Bottle?
+
+    init(bottle: @escaping @MainActor (URL) -> Bottle?) {
+        self.bottle = bottle
+    }
+
+    func listProcesses(in container: URL) async throws -> [ProcessRecord] {
         guard let bottle = bottle(container) else { throw BridgeFailure(
             "invalid_container",
             "Wine settings are unreadable"
         ) }
-        let processes = try await Wine.listProcesses(for: bottle)
-        return .array(processes.map { .object([
-            "pid": .integer(Int64($0.winePID)),
-            "name": .string($0.imageName),
-            "memory": .string($0.memoryUsage),
-            "kind": .string(String(describing: $0.kind))
-        ]) })
+        return try await Wine.listProcesses(for: bottle).map { process in
+            ProcessRecord(
+                pid: process.winePID,
+                name: process.imageName,
+                memory: process.memoryUsage,
+                kind: process.kind.rawValue,
+                source: process.source.rawValue,
+                startedAt: process.launchTime,
+                macosPID: process.macosPID
+            )
+        }
+    }
+
+    func terminateProcess(in container: URL, pid: Int32, force: Bool) async throws {
+        guard let bottle = bottle(container) else { throw BridgeFailure(
+            "invalid_container",
+            "Wine settings are unreadable"
+        ) }
+        if force {
+            await Wine.forceKillProcess(winePID: pid, bottle: bottle)
+        } else {
+            await Wine.gracefulKillProcess(winePID: pid, bottle: bottle)
+        }
     }
 }
