@@ -6,8 +6,8 @@ use gpui_kit::{prelude::*, *};
 
 use super::Command;
 use crate::controls::*;
-use crate::model::{art, demo_data};
 use crate::state::{PreviewPage, PreviewSheet, WhiskyApp};
+use crate::theme::MUTED;
 
 impl WhiskyApp {
     pub(crate) fn bottle_bar(&self, cx: &Context<Self>) -> AnyElement {
@@ -29,9 +29,12 @@ impl WhiskyApp {
             .child(self.action("bottle-run", "运行…", Command::Notice, cx))
             .into_any_element()
     }
-    pub(crate) fn preview_page(&self, cx: &Context<Self>) -> AnyElement {
+    pub(crate) fn preview_page(&self, cx: &mut Context<Self>) -> AnyElement {
         let body = match self.preview.page {
-            PreviewPage::Bottle => self.bottle_home(cx),
+            PreviewPage::Bottle => match self.visible_load_error() {
+                Some(error) => self.library_error_surface(error, cx),
+                None => self.bottle_home(cx),
+            },
             PreviewPage::ConfigureBottle => self.bottle_config(cx),
             PreviewPage::Programs => self.programs(cx),
             PreviewPage::Processes => self.processes(cx),
@@ -56,11 +59,7 @@ impl WhiskyApp {
                                 cx.notify();
                             })),
                     )
-                    .child(muted(if self.bottle == 2 {
-                        "galgame-win7"
-                    } else {
-                        "galgame"
-                    })),
+                    .child(muted(self.bottle_name().to_owned())),
             )
             .child(div().flex_1().min_h_0().child(body))
             .child(if self.preview.page == PreviewPage::ConfigureBottle {
@@ -82,12 +81,14 @@ impl WhiskyApp {
             .into_any_element()
     }
     fn bottle_home(&self, cx: &Context<Self>) -> AnyElement {
-        let pins: Vec<_> = demo_data()
+        let slot = self.bottle_slot();
+        let pins: Vec<_> = self
+            .games()
             .iter()
             .enumerate()
-            .filter(|(_, g)| g.bottle == self.bottle)
+            .filter(|(_, game)| game.bottle == slot)
             .take(5)
-            .map(|(i, g)| {
+            .map(|(i, game)| {
                 col()
                     .w(px(110.))
                     .gap(px(9.))
@@ -97,13 +98,24 @@ impl WhiskyApp {
                             .id(("pin", i))
                             .cursor_pointer()
                             .on_click(cx.listener(move |this, _, _, cx| this.open_detail(i, cx)))
-                            .child(
-                                img(art(i))
+                            .child(match self.artwork(i) {
+                                Some(path) => img(path)
                                     .w(px(76.))
                                     .h(px(90.))
                                     .rounded(px(9.))
-                                    .object_fit(ObjectFit::Cover),
-                            )
+                                    .object_fit(ObjectFit::Cover)
+                                    .into_any_element(),
+                                None => div()
+                                    .w(px(76.))
+                                    .h(px(90.))
+                                    .rounded(px(9.))
+                                    .bg(gradient(0xffffff12, 0xffffff04))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(icon("package", 22.).text_color(rgb(MUTED)))
+                                    .into_any_element(),
+                            })
                             .context_menu(self.game_menu(i, cx)),
                     )
                     .child(
@@ -112,11 +124,12 @@ impl WhiskyApp {
                             .text_size(px(11.))
                             .text_center()
                             .line_clamp(2)
-                            .child(g.title),
+                            .child(game.title.clone()),
                     )
                     .into_any_element()
             })
             .collect();
+        let pins_empty = pins.is_empty();
         let mut links = col().rounded(px(10.)).bg(rgba(0xffffff08));
         for (i, (label, page)) in [
             ("已安装的程序", PreviewPage::Programs),
@@ -146,6 +159,9 @@ impl WhiskyApp {
                 .p(px(26.))
                 .gap(px(30.))
                 .child(row().items_start().flex_wrap().gap(px(16.)).children(pins))
+                .when(pins_empty, |d| {
+                    d.child(muted("No games in this bottle").p(px(4.)))
+                })
                 .child(links)
                 .child(muted("自动选择图形后端 · Windows 11 · WhiskyWine")),
         )
@@ -338,31 +354,52 @@ impl WhiskyApp {
         )
     }
     fn programs(&self, cx: &Context<Self>) -> AnyElement {
-        let rows = demo_data()
+        let slot = self.bottle_slot();
+        let rows = self
+            .games()
             .iter()
             .enumerate()
-            .filter(|(_, g)| g.bottle == self.bottle)
-            .map(|(i, g)| {
+            .filter(|(_, game)| game.bottle == slot)
+            .map(|(i, game)| {
+                let path = if self.demo {
+                    format!("C:\\Games\\{}\\game.exe", i + 1)
+                } else {
+                    game.executable
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_default()
+                };
                 row()
-                    .id(("program-row", i))
+                    .id(game.id.clone())
                     .gap(px(15.))
                     .p(px(13.))
                     .border_b_1()
                     .border_color(rgba(0xffffff0a))
-                    .child(
-                        img(art(i))
+                    .child(match self.artwork(i) {
+                        Some(artwork) => img(artwork)
                             .w(px(32.))
                             .h(px(40.))
                             .rounded(px(4.))
-                            .object_fit(ObjectFit::Cover),
-                    )
+                            .object_fit(ObjectFit::Cover)
+                            .into_any_element(),
+                        None => div()
+                            .w(px(32.))
+                            .h(px(40.))
+                            .rounded(px(4.))
+                            .bg(gradient(0xffffff12, 0xffffff04))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(icon("package", 14.).text_color(rgb(MUTED)))
+                            .into_any_element(),
+                    })
                     .child(
                         col()
                             .flex_1()
                             .min_w_0()
                             .gap(px(4.))
-                            .child(div().truncate().child(g.title))
-                            .child(muted(format!("C:\\Games\\{}\\game.exe", i + 1)).truncate()),
+                            .child(div().truncate().child(game.title.clone()))
+                            .when(!path.is_empty(), |d| d.child(muted(path).truncate())),
                     )
                     .child(self.game_options(i, cx))
                     .context_menu(self.game_menu(i, cx))

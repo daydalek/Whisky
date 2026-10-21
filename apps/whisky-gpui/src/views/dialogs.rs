@@ -7,7 +7,6 @@ use gpui_kit::{prelude::*, *};
 use super::Command;
 use crate::bridge::BridgeStatus;
 use crate::controls::*;
-use crate::model::demo_data;
 use crate::state::{PreviewSheet, WhiskyApp};
 use crate::theme::{OVERLAY, RADIUS_LG, SURFACE, SURFACE_BORDER};
 
@@ -20,7 +19,12 @@ impl WhiskyApp {
                     "run-config",
                     "运行设置",
                     vec![
-                        self.info("程序", demo_data()[index].title),
+                        self.info(
+                            "程序",
+                            self.game(index)
+                                .map(|game| game.title.clone())
+                                .unwrap_or_default(),
+                        ),
                         self.choice(
                             "locale",
                             "区域设置",

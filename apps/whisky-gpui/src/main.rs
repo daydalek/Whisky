@@ -50,11 +50,7 @@ impl Render for WhiskyApp {
         } else if self.preview.page != PreviewPage::Library {
             self.preview_page(cx)
         } else {
-            match self.mode {
-                1 => self.timeline(width, window, cx),
-                2 => self.classic(width, window, cx),
-                _ => self.shelf(width, window, cx),
-            }
+            self.library_page(width, window, cx)
         };
         let presence = Presence::new("detail-presence", self.detail_open)
             .transition(self.timing(DETAIL_MS))
@@ -176,7 +172,7 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
                         this.preview.sheet = None;
                         this.preview.page = PreviewPage::Library;
                         this.mode = 0;
-                        this.bottle = 0;
+                        this.selected_bottle = None;
                         match stage {
                             0 => window.resize(size(px(1280.), px(820.))),
                             1 => this.mode = 1,
@@ -195,15 +191,15 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
                             5 => this.mode = 2,
                             6 => {
                                 window.resize(size(px(1280.), px(820.)));
-                                this.bottle = 1;
+                                this.selected_bottle = Some(0);
                                 this.preview.page = PreviewPage::Bottle;
                             }
                             7 => {
-                                this.bottle = 1;
+                                this.selected_bottle = Some(0);
                                 this.preview.page = PreviewPage::ConfigureBottle;
                             }
                             8 => {
-                                this.bottle = 1;
+                                this.selected_bottle = Some(0);
                                 this.preview.page = PreviewPage::Programs;
                             }
                             9 => this.open_preview_sheet(PreviewSheet::RunSettings(0), cx),
@@ -211,7 +207,7 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
                             11 => this.open_preview_sheet(PreviewSheet::Winetricks, cx),
                             _ => {
                                 window.resize(size(px(800.), px(580.)));
-                                this.bottle = 1;
+                                this.selected_bottle = Some(0);
                                 this.preview.page = PreviewPage::ConfigureBottle;
                             }
                         }
@@ -238,11 +234,22 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
 }
 
 fn main() {
-    if std::env::args()
-        .skip(1)
-        .any(|argument| argument == "--print-bridge-status")
-    {
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    if arguments.iter().any(|argument| argument == "--print-bridge-status") {
         std::process::exit(bridge::print_status());
+    }
+    if arguments.iter().any(|argument| argument == "--print-library") {
+        let bottle = match arguments.iter().position(|argument| argument == "--bottle") {
+            Some(index) => match arguments.get(index + 1) {
+                Some(value) if !value.starts_with("--") => Some(value.as_str()),
+                _ => {
+                    eprintln!("usage: whisky-gpui --print-library [--bottle <name-or-path>]");
+                    std::process::exit(2);
+                }
+            },
+            None => None,
+        };
+        std::process::exit(bridge::print_library(bottle));
     }
     gpui_kit::application()
         .with_assets(gpui_kit::assets::AllAssets)

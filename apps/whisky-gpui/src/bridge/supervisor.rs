@@ -1,8 +1,11 @@
-//! Helper discovery, process lifecycle, handshake validation, and reconnects.
+//! Helper discovery, process lifecycle, handshake validation, reconnects, and
+//! the small read-request queue the UI drives.
 //!
 //! All bridge work is blocking, so it runs on one dedicated thread. The UI only
-//! receives `BridgeStatus` values over an async channel and issues `retry`
-//! commands; it never touches the child process.
+//! receives events over an async channel and sends commands; it never touches
+//! the child process. Requests are handled one at a time (one in-flight call),
+//! and the last successful `library.entries` result is cached for the current
+//! bottle only, so switching bottles always refetches.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{
@@ -10,10 +13,14 @@ use std::sync::mpsc::{
 };
 use std::time::Duration;
 
+use serde::Serialize;
 use serde_json::json;
 use whisky_bridge::Client;
 
-use super::{BridgeStatus, dto::ContainerList, dto::DescribeResponse};
+use super::{
+    BridgeStatus,
+    dto::{Container, ContainerList, DescribeResponse, EntryDto, EntryList},
+};
 
 /// Executable product declared in `WhiskyBridge/Package.swift`.
 const HELPER_PRODUCT: &str = "whisky-bridge";
@@ -24,11 +31,24 @@ pub(crate) const BACKOFF_MAX_MS: u64 = 8_000;
 #[derive(Debug)]
 pub(crate) enum BridgeEvent {
     Status(BridgeStatus),
+    /// The container catalogue, emitted once per connected session.
+    Containers(Vec<Container>),
+    /// Entries for one container path, in bridge order.
+    Entries {
+        container: String,
+        entries: Vec<EntryDto>,
+    },
+    /// A read failed. `container` is `None` for catalogue failures.
+    LoadFailed {
+        container: Option<String>,
+        reason: String,
+    },
 }
 
 enum Command {
     Retry,
     Shutdown,
+    LoadEntries(String),
 }
 
 enum Wake {
@@ -74,6 +94,14 @@ impl BridgeSupervisor {
     pub(crate) fn retry(&self) {
         let _ = self.commands.send(Command::Retry);
     }
+
+    /// Queue a read-only library request. The worker coalesces nothing: callers
+    /// only send this on an explicit bottle switch or retry, never per frame.
+    pub(crate) fn load_entries(&self, container: &str) {
+        let _ = self
+            .commands
+            .send(Command::LoadEntries(container.to_owned()));
+    }
 }
 
 impl Drop for BridgeSupervisor {
@@ -84,7 +112,7 @@ impl Drop for BridgeSupervisor {
 
 fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Command>) {
     let mut attempt = 0_u32;
-    loop {
+    'session: loop {
         emit(&events, BridgeStatus::Locating);
         let helper = match locate_helper() {
             Ok(helper) => helper,
@@ -122,6 +150,21 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
             }
             continue;
         }
+        // A session without a catalogue cannot serve the UI, so the handshake
+        // is only reported as connected after the first read succeeds.
+        let containers = match fetch_containers(&mut client) {
+            Ok(containers) => containers,
+            Err(failure) => {
+                let reason = failure.into_message();
+                client.close();
+                if fail_and_wait(&events, &commands, &mut attempt, reason, true) {
+                    emit(&events, BridgeStatus::Stopped);
+                    return;
+                }
+                continue;
+            }
+        };
+        attempt = 0;
         emit(
             &events,
             BridgeStatus::Connected {
@@ -132,18 +175,82 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                 methods: describe.methods.len(),
             },
         );
-        if let Err(error) = log_containers(&mut client) {
-            eprintln!("whisky-bridge: {error}");
-        }
-        match wait(&commands, None) {
-            Wake::Retry => {
-                client.close();
-                attempt = 0;
-            }
-            Wake::Timeout | Wake::Stop => {
-                client.close();
-                emit(&events, BridgeStatus::Stopped);
-                return;
+        log_container_names(&containers);
+        emit_event(
+            &events,
+            BridgeEvent::Containers(containers),
+        );
+        // One bottle at a time is enough: a request for another container
+        // invalidates the cached snapshot, matching "invalidate on switch".
+        // `runtime.events` is not polled in M1b: the helper does not construct
+        // `RuntimeService`, so there is no cursor that could invalidate reads.
+        let mut cache: Option<(String, EntryList)> = None;
+        loop {
+            match commands.recv() {
+                Ok(Command::Shutdown) | Err(_) => {
+                    client.close();
+                    emit(&events, BridgeStatus::Stopped);
+                    return;
+                }
+                Ok(Command::Retry) => {
+                    client.close();
+                    attempt = 0;
+                    continue 'session;
+                }
+                Ok(Command::LoadEntries(container)) => {
+                    if let Some((cached, entries)) = &cache
+                        && *cached == container
+                    {
+                        emit_event(
+                            &events,
+                            BridgeEvent::Entries {
+                                container,
+                                entries: entries.clone(),
+                            },
+                        );
+                        continue;
+                    }
+                    cache = None;
+                    match fetch_entries(&mut client, &container) {
+                        Ok(entries) => {
+                            cache = Some((container.clone(), entries.clone()));
+                            emit_event(
+                                &events,
+                                BridgeEvent::Entries { container, entries },
+                            );
+                        }
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(
+                                &events,
+                                BridgeEvent::LoadFailed {
+                                    container: Some(container),
+                                    reason,
+                                },
+                            );
+                        }
+                        Err(CallFailure::Session(reason)) => {
+                            emit_event(
+                                &events,
+                                BridgeEvent::LoadFailed {
+                                    container: Some(container),
+                                    reason: reason.clone(),
+                                },
+                            );
+                            client.close();
+                            if fail_and_wait(
+                                &events,
+                                &commands,
+                                &mut attempt,
+                                reason,
+                                true,
+                            ) {
+                                emit(&events, BridgeStatus::Stopped);
+                                return;
+                            }
+                            continue 'session;
+                        }
+                    }
+                }
             }
         }
     }
@@ -165,7 +272,7 @@ fn fail_and_wait(
             retryable,
         },
     );
-    match wait(commands, Some(backoff_delay(*attempt))) {
+    match wait(commands, backoff_delay(*attempt)) {
         Wake::Stop => true,
         Wake::Retry => {
             *attempt = 0;
@@ -178,17 +285,18 @@ fn fail_and_wait(
     }
 }
 
-fn wait(commands: &CommandReceiver<Command>, timeout: Option<Duration>) -> Wake {
-    match timeout {
-        Some(delay) => match commands.recv_timeout(delay) {
-            Ok(Command::Retry) => Wake::Retry,
-            Ok(Command::Shutdown) | Err(RecvTimeoutError::Disconnected) => Wake::Stop,
-            Err(RecvTimeoutError::Timeout) => Wake::Timeout,
-        },
-        None => match commands.recv() {
-            Ok(Command::Retry) => Wake::Retry,
-            Ok(Command::Shutdown) | Err(_) => Wake::Stop,
-        },
+fn wait(commands: &CommandReceiver<Command>, delay: Duration) -> Wake {
+    let deadline = std::time::Instant::now() + delay;
+    loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        match commands.recv_timeout(remaining) {
+            Ok(Command::Retry) => return Wake::Retry,
+            Ok(Command::Shutdown) | Err(RecvTimeoutError::Disconnected) => return Wake::Stop,
+            // A read queued for the failed session is dropped; the catalogue
+            // event after reconnecting makes the UI issue fresh requests.
+            Ok(Command::LoadEntries(_)) => continue,
+            Err(RecvTimeoutError::Timeout) => return Wake::Timeout,
+        }
     }
 }
 
@@ -196,12 +304,50 @@ fn emit(events: &smol::channel::Sender<BridgeEvent>, status: BridgeStatus) {
     let _ = events.send_blocking(BridgeEvent::Status(status));
 }
 
-fn log_containers(client: &mut Client) -> Result<(), String> {
+fn emit_event(events: &smol::channel::Sender<BridgeEvent>, event: BridgeEvent) {
+    let _ = events.send_blocking(event);
+}
+
+/// A remote error leaves the session usable; anything else ends it.
+enum CallFailure {
+    Remote(String),
+    Session(String),
+}
+
+impl CallFailure {
+    fn into_message(self) -> String {
+        match self {
+            Self::Remote(message) | Self::Session(message) => message,
+        }
+    }
+}
+
+fn classify(error: whisky_bridge::Error) -> CallFailure {
+    match error {
+        whisky_bridge::Error::Remote(error) => {
+            CallFailure::Remote(format!("{}: {}", error.code, error.message))
+        }
+        other => CallFailure::Session(other.to_string()),
+    }
+}
+
+fn fetch_containers(client: &mut Client) -> Result<ContainerList, CallFailure> {
     let value = client
         .call("workspace.containers", json!({}))
-        .map_err(|error| format!("workspace.containers failed: {error}"))?;
-    let containers: ContainerList = serde_json::from_value(value)
-        .map_err(|error| format!("invalid container payload: {error}"))?;
+        .map_err(classify)?;
+    serde_json::from_value(value)
+        .map_err(|error| CallFailure::Remote(format!("invalid container payload: {error}")))
+}
+
+fn fetch_entries(client: &mut Client, container: &str) -> Result<EntryList, CallFailure> {
+    let value = client
+        .call("library.entries", json!({ "container": container }))
+        .map_err(classify)?;
+    serde_json::from_value(value)
+        .map_err(|error| CallFailure::Remote(format!("invalid library payload: {error}")))
+}
+
+fn log_container_names(containers: &[Container]) {
     let names = containers
         .iter()
         .map(|container| container.name.as_str())
@@ -212,7 +358,6 @@ fn log_containers(client: &mut Client) -> Result<(), String> {
         containers.len(),
         if names.is_empty() { "(none)" } else { &names }
     );
-    Ok(())
 }
 
 /// Capped exponential backoff: 500 ms, 1 s, 2 s, 4 s, then 8 s.
@@ -319,10 +464,123 @@ pub(crate) fn print_status() -> i32 {
             return 1;
         }
     }
-    if let Err(error) = log_containers(&mut client) {
-        eprintln!("whisky-bridge: {error}");
+    match fetch_containers(&mut client) {
+        Ok(containers) => log_container_names(&containers),
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    }
+    let _ = client.shutdown(false);
+    0
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LibrarySummary {
+    containers: Vec<BottleSummary>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BottleSummary {
+    path: String,
+    name: String,
+    available: bool,
+    entry_count: usize,
+    /// First five entry names, so a headless run shows what the grid will show.
+    sample: Vec<String>,
+}
+
+/// `--print-library [--bottle <name-or-path>]`: read-only, no window. Prints
+/// containers and their entry counts as JSON; failures go to stderr.
+pub(crate) fn print_library(bottle: Option<&str>) -> i32 {
+    let helper = match locate_helper() {
+        Ok(helper) => helper,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            return 1;
+        }
+    };
+    eprintln!("whisky-bridge: helper {}", helper.display());
+    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("whisky-bridge: handshake failed: {error}");
+            return 1;
+        }
+    };
+    let describe = DescribeResponse::from_capabilities(client.capabilities());
+    let missing = describe.missing_required_methods();
+    if !missing.is_empty() {
+        eprintln!(
+            "whisky-bridge: handshake is missing required method(s): {}",
+            missing.join(", ")
+        );
         client.close();
         return 1;
+    }
+    let mut containers = match fetch_containers(&mut client) {
+        Ok(containers) => containers,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    if let Some(selector) = bottle {
+        let matched: Vec<_> = containers
+            .into_iter()
+            .filter(|container| container.name == selector || container.path == selector)
+            .collect();
+        if matched.is_empty() {
+            eprintln!("whisky-bridge: no container named or located at {selector}");
+            client.close();
+            return 1;
+        }
+        containers = matched;
+    }
+    let mut summaries = Vec::with_capacity(containers.len());
+    for container in containers {
+        let entries = if container.available {
+            match fetch_entries(&mut client, &container.path) {
+                Ok(entries) => entries,
+                Err(failure) => {
+                    eprintln!(
+                        "whisky-bridge: library.entries failed for {}: {}",
+                        container.name,
+                        failure.into_message()
+                    );
+                    client.close();
+                    return 1;
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        summaries.push(BottleSummary {
+            path: container.path,
+            name: container.name,
+            available: container.available,
+            entry_count: entries.len(),
+            sample: entries
+                .iter()
+                .take(5)
+                .map(|entry| entry.name.clone())
+                .collect(),
+        });
+    }
+    let summary = LibrarySummary {
+        containers: summaries,
+    };
+    match serde_json::to_string_pretty(&summary) {
+        Ok(payload) => println!("{payload}"),
+        Err(error) => {
+            eprintln!("whisky-bridge: cannot encode the library summary: {error}");
+            client.close();
+            return 1;
+        }
     }
     let _ = client.shutdown(false);
     0

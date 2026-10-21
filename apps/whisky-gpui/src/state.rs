@@ -10,7 +10,9 @@ use gpui_kit::{prelude::*, *};
 use crate::bridge::{BridgeEvent, BridgeStatus, BridgeSupervisor};
 #[cfg(feature = "visual-test")]
 use crate::library_layout::CardRect;
-use crate::model::demo_data;
+use crate::model::{
+    BottleVm, Game, demo_bottles, demo_data, demo_requested, empty_library_message,
+};
 use crate::views::Command;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -113,7 +115,23 @@ pub(crate) struct WhiskyApp {
     pub(crate) preview: PreviewState,
     pub(crate) search: Entity<InputState>,
     pub(crate) mode: usize,
-    pub(crate) bottle: usize,
+    /// The bundled demo snapshot, enabled with `WHISKY_GPUI_DEMO_DATA=1`.
+    pub(crate) demo: bool,
+    pub(crate) bottles: Vec<BottleVm>,
+    /// Every loaded entry, in bottle order. `Game::bottle` is the one-based slot.
+    pub(crate) entries: Vec<Game>,
+    /// Index into `bottles`; `None` means the whole library.
+    pub(crate) selected_bottle: Option<usize>,
+    /// A read for the visible scope is still in flight.
+    pub(crate) loading: bool,
+    /// Session/catalogue failure for the whole library surface.
+    pub(crate) load_error: Option<String>,
+    /// Successful entries per bottle, seeded from the cache and invalidation.
+    bottle_entries: BTreeMap<usize, Vec<Game>>,
+    /// Bottle indices with a queued or in-flight read.
+    pending: BTreeSet<usize>,
+    /// Per-bottle read errors, shown when that bottle is visible.
+    failures: BTreeMap<usize, String>,
     pub(crate) sidebar: bool,
     pub(crate) settings: bool,
     pub(crate) motion: bool,
@@ -142,29 +160,24 @@ impl WhiskyApp {
         let (bridge, bridge_events) = BridgeSupervisor::start();
         cx.spawn(async move |this, cx| {
             while let Ok(event) = bridge_events.recv().await {
-                let BridgeEvent::Status(status) = event;
-                if let BridgeStatus::Connected {
-                    helper,
-                    version,
-                    methods,
-                } = &status
-                {
-                    eprintln!(
-                        "whisky-bridge: connected to {helper} ({version}, {methods} methods)"
-                    );
-                }
-                let _ = this.update(cx, |this, cx| {
-                    this.bridge_status = status;
-                    cx.notify();
-                });
+                let _ = this.update(cx, |this, cx| this.apply_bridge_event(event, cx));
             }
         })
         .detach();
+        let demo = demo_requested(std::env::var("WHISKY_GPUI_DEMO_DATA").ok().as_deref());
         Self {
             preview: PreviewState::new(window, cx),
             search,
             mode: 0,
-            bottle: 0,
+            demo,
+            bottles: if demo { demo_bottles() } else { Vec::new() },
+            entries: Vec::new(),
+            selected_bottle: None,
+            loading: false,
+            load_error: None,
+            bottle_entries: BTreeMap::new(),
+            pending: BTreeSet::new(),
+            failures: BTreeMap::new(),
             sidebar: true,
             settings: false,
             motion: true,
@@ -191,7 +204,282 @@ impl WhiskyApp {
         self.bridge.retry();
         self.bridge_status = BridgeStatus::Locating;
         self.bridge_dialog = false;
+        self.pending.clear();
+        self.failures.clear();
+        self.load_error = None;
+        self.loading = false;
         cx.notify();
+    }
+
+    /// Route a supervisor event into the library view model. Errors never panic
+    /// and never discard entries that are already on screen.
+    pub(crate) fn apply_bridge_event(&mut self, event: BridgeEvent, cx: &mut Context<Self>) {
+        match event {
+            BridgeEvent::Status(status) => {
+                if let BridgeStatus::Connected {
+                    helper,
+                    version,
+                    methods,
+                } = &status
+                {
+                    eprintln!(
+                        "whisky-bridge: connected to {helper} ({version}, {methods} methods)"
+                    );
+                }
+                let unavailable =
+                    matches!(&status, BridgeStatus::Failed { .. } | BridgeStatus::Stopped);
+                let reason = match &status {
+                    BridgeStatus::Failed { reason, .. } => Some(reason.clone()),
+                    BridgeStatus::Stopped => {
+                        Some("The bridge helper is not running.".to_owned())
+                    }
+                    _ => None,
+                };
+                self.bridge_status = status;
+                if unavailable && !self.demo {
+                    self.pending.clear();
+                    if self.entries.is_empty() {
+                        self.load_error = reason;
+                    }
+                }
+            }
+            BridgeEvent::Containers(containers) => {
+                if !self.demo {
+                    let previous = self
+                        .selected_bottle
+                        .and_then(|index| self.bottles.get(index).map(|bottle| bottle.path.clone()));
+                    self.bottles = containers
+                        .into_iter()
+                        .map(|container| BottleVm {
+                            path: container.path,
+                            name: container.name,
+                            available: container.available,
+                        })
+                        .collect();
+                    // A reconnect keeps the selected bottle when it still exists.
+                    self.selected_bottle = previous
+                        .and_then(|path| self.bottles.iter().position(|bottle| bottle.path == path));
+                    self.bottle_entries.clear();
+                    self.entries.clear();
+                    self.failures.clear();
+                    self.load_error = None;
+                    self.pending.clear();
+                    self.request_all();
+                }
+            }
+            BridgeEvent::Entries { container, entries } => {
+                if !self.demo
+                    && let Some(index) = self
+                        .bottles
+                        .iter()
+                        .position(|bottle| bottle.path == container)
+                {
+                    let fallback = index + 1;
+                    let games: Vec<Game> = entries
+                        .into_iter()
+                        .map(|entry| {
+                            let slot = entry
+                                .container
+                                .as_deref()
+                                .and_then(|path| {
+                                    self.bottles
+                                        .iter()
+                                        .position(|bottle| bottle.path == path)
+                                })
+                                .map_or(fallback, |bottle_index| bottle_index + 1);
+                            entry.into_game(slot)
+                        })
+                        .collect();
+                    self.bottle_entries.insert(index, games);
+                    self.rebuild_entries();
+                    self.pending.remove(&index);
+                    self.failures.remove(&index);
+                }
+            }
+            BridgeEvent::LoadFailed { container, reason } => {
+                if !self.demo {
+                    let index = container.and_then(|container| {
+                        self.bottles
+                            .iter()
+                            .position(|bottle| bottle.path == container)
+                    });
+                    match index {
+                        Some(index) => {
+                            self.pending.remove(&index);
+                            self.failures.insert(index, reason);
+                        }
+                        None => {
+                            self.pending.clear();
+                            self.load_error = Some(reason);
+                        }
+                    }
+                }
+            }
+        }
+        self.loading = self.compute_loading();
+        cx.notify();
+    }
+
+    /// Select a bottle (or `None` for the whole library). A switch always asks
+    /// for a fresh read; the supervisor drops its cache for the old bottle.
+    pub(crate) fn select_bottle(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
+        self.settings = false;
+        self.selected_bottle = index;
+        self.preview.page = if index.is_none() {
+            PreviewPage::Library
+        } else {
+            PreviewPage::Bottle
+        };
+        self.preview.history.clear();
+        self.detail_open = false;
+        self.hovered = None;
+        if let Some(index) = index
+            && !self.demo
+            && let Some(bottle) = self.bottles.get(index)
+            && bottle.available
+        {
+            let path = bottle.path.clone();
+            self.failures.remove(&index);
+            self.pending.insert(index);
+            self.bridge.load_entries(&path);
+        }
+        self.loading = self.compute_loading();
+        cx.notify();
+    }
+
+    /// Retry the visible scope: re-read while connected, reconnect otherwise.
+    pub(crate) fn retry_library(&mut self, cx: &mut Context<Self>) {
+        self.load_error = None;
+        self.failures.clear();
+        if !self.demo {
+            match self.bridge_status {
+                BridgeStatus::Connected { .. } => {
+                    self.pending.clear();
+                    match self.selected_bottle {
+                        Some(index) => {
+                            if let Some(path) = self
+                                .bottles
+                                .get(index)
+                                .filter(|bottle| bottle.available)
+                                .map(|bottle| bottle.path.clone())
+                            {
+                                self.pending.insert(index);
+                                self.bridge.load_entries(&path);
+                            } else {
+                                self.failures
+                                    .insert(index, "This bottle is unavailable.".to_owned());
+                            }
+                        }
+                        None => self.request_all(),
+                    }
+                }
+                _ => {
+                    self.pending.clear();
+                    self.bridge.retry();
+                    self.bridge_status = BridgeStatus::Locating;
+                }
+            }
+        }
+        self.loading = self.compute_loading();
+        cx.notify();
+    }
+
+    fn request_all(&mut self) {
+        for index in 0..self.bottles.len() {
+            if !self.bottles[index].available {
+                self.failures
+                    .insert(index, "This bottle is unavailable.".to_owned());
+                continue;
+            }
+            let path = self.bottles[index].path.clone();
+            self.pending.insert(index);
+            self.bridge.load_entries(&path);
+        }
+    }
+
+    fn compute_loading(&self) -> bool {
+        if self.demo {
+            return false;
+        }
+        match self.selected_bottle {
+            Some(index) => self.pending.contains(&index),
+            None => !self.pending.is_empty(),
+        }
+    }
+
+    /// The flat grid list is rebuilt in bottle order so shelf layout is stable.
+    fn rebuild_entries(&mut self) {
+        let mut entries = Vec::new();
+        for games in self.bottle_entries.values() {
+            entries.extend(games.iter().cloned());
+        }
+        self.entries = entries;
+    }
+
+    pub(crate) fn games(&self) -> &[Game] {
+        if self.demo {
+            demo_data()
+        } else {
+            &self.entries
+        }
+    }
+
+    pub(crate) fn game(&self, index: usize) -> Option<&Game> {
+        self.games().get(index)
+    }
+
+    /// One-based sidebar slot: `0` for the whole library.
+    pub(crate) fn bottle_slot(&self) -> usize {
+        self.selected_bottle.map_or(0, |index| index + 1)
+    }
+
+    pub(crate) fn bottle_name(&self) -> &str {
+        self.selected_bottle
+            .and_then(|index| self.bottles.get(index))
+            .map(|bottle| bottle.name.as_str())
+            .unwrap_or("Bottle")
+    }
+
+    pub(crate) fn bottle_name_at(&self, slot: usize) -> &str {
+        slot.checked_sub(1)
+            .and_then(|index| self.bottles.get(index))
+            .map(|bottle| bottle.name.as_str())
+            .unwrap_or("")
+    }
+
+    /// Entries in the visible scope before the search filter runs.
+    fn scope_entry_count(&self) -> usize {
+        match self.selected_bottle {
+            Some(index) => self
+                .games()
+                .iter()
+                .filter(|game| game.bottle == index + 1)
+                .count(),
+            None => self.games().len(),
+        }
+    }
+
+    pub(crate) fn empty_library_message(&self) -> &'static str {
+        empty_library_message(self.demo, self.bottles.len(), self.scope_entry_count())
+    }
+
+    /// The error surface is scoped: a broken bottle does not hide entries that
+    /// loaded from another bottle on the Library page.
+    pub(crate) fn visible_load_error(&self) -> Option<&str> {
+        if self.demo {
+            return None;
+        }
+        match self.selected_bottle {
+            Some(index) => self.failures.get(&index).map(String::as_str),
+            None => {
+                if !self.entries.is_empty() {
+                    return None;
+                }
+                self.load_error
+                    .as_deref()
+                    .or_else(|| self.failures.values().next().map(String::as_str))
+            }
+        }
     }
     pub(crate) fn timing(&self, ms: u64) -> Transition {
         Transition::new(Duration::from_millis(if self.motion { ms } else { 0 }))
@@ -221,13 +509,14 @@ impl WhiskyApp {
     }
     pub(crate) fn filtered(&self, cx: &App) -> Vec<usize> {
         let query = self.search.read(cx).value().to_lowercase();
-        let games = demo_data();
+        let games = self.games();
+        let slot = self.bottle_slot();
         (0..games.len())
             .filter(|&i| {
-                (self.bottle == 0 || self.preview_bottle(i) == self.bottle)
+                (slot == 0 || self.preview_bottle(i) == slot)
                     && self.preview_visible(i)
                     && (games[i].title.to_lowercase().contains(&query)
-                        || games[i].studio.to_lowercase().contains(&query))
+                        || games[i].studio().to_lowercase().contains(&query))
             })
             .collect()
     }
@@ -250,12 +539,13 @@ impl WhiskyApp {
             Command::Sheet(sheet) => self.open_preview_sheet(sheet, cx),
             Command::Details(i) => self.open_detail(i, cx),
             Command::Configure(i) => {
-                self.bottle = self
+                let slot = self
                     .preview
                     .moved
                     .get(&i)
                     .copied()
-                    .unwrap_or(demo_data()[i].bottle);
+                    .unwrap_or_else(|| self.game(i).map_or(0, |game| game.bottle));
+                self.selected_bottle = slot.checked_sub(1).filter(|index| *index < self.bottles.len());
                 self.navigate(PreviewPage::ConfigureBottle, cx);
             }
             Command::Toggle(key) => match key {
@@ -303,23 +593,17 @@ impl WhiskyApp {
         self.hovered = None;
         cx.notify();
     }
-    pub(crate) fn preview_title(&self) -> &'static str {
+    pub(crate) fn preview_title(&self) -> SharedString {
         if self.settings {
-            return "设置";
+            return "设置".into();
         }
         match self.preview.page {
-            PreviewPage::Library => "Library",
-            PreviewPage::Bottle => {
-                if self.bottle == 2 {
-                    "galgame-win7"
-                } else {
-                    "galgame"
-                }
-            }
-            PreviewPage::ConfigureBottle => "Configure Bottle",
-            PreviewPage::Programs => "已安装的程序",
-            PreviewPage::Processes => "运行中的进程",
-            PreviewPage::GameConfigs => "游戏配置",
+            PreviewPage::Library => "Library".into(),
+            PreviewPage::Bottle => self.bottle_name().to_owned().into(),
+            PreviewPage::ConfigureBottle => "Configure Bottle".into(),
+            PreviewPage::Programs => "已安装的程序".into(),
+            PreviewPage::Processes => "运行中的进程".into(),
+            PreviewPage::GameConfigs => "游戏配置".into(),
         }
     }
     pub(crate) fn flag(&self, key: &'static str) -> bool {
@@ -334,19 +618,21 @@ impl WhiskyApp {
         cx.notify();
     }
     pub(crate) fn preview_visible(&self, index: usize) -> bool {
-        self.flag("show-hidden") || !self.preview.hidden.contains(&index)
+        self.flag("show-hidden")
+            || (!self.preview.hidden.contains(&index)
+                && !self.game(index).is_some_and(|game| game.hidden))
     }
     pub(crate) fn preview_bottle(&self, index: usize) -> usize {
         self.preview
             .moved
             .get(&index)
             .copied()
-            .unwrap_or(demo_data()[index].bottle)
+            .unwrap_or_else(|| self.game(index).map_or(0, |game| game.bottle))
     }
     pub(crate) fn preview_sort(&self, indices: &mut [usize]) {
-        let games = demo_data();
+        let games = self.games();
         match self.preview.sort {
-            1 => indices.sort_by_key(|&i| games[i].title),
+            1 => indices.sort_by_key(|&i| games[i].title.as_str()),
             2 => indices.reverse(),
             _ => {}
         }

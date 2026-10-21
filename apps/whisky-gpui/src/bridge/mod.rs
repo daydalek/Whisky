@@ -1,13 +1,13 @@
 //! Live connection to the Swift `whisky-bridge` helper.
 //!
-//! M1a only reports connection state; library data is still `model::demo_data`.
+//! M1b reads the container catalogue and each bottle's library over the bridge.
 //! The supervisor is restartable: a failed or timed-out session can be replaced
 //! without restarting the UI process.
 
 pub(crate) mod dto;
 mod supervisor;
 
-pub(crate) use supervisor::{BridgeEvent, BridgeSupervisor, print_status};
+pub(crate) use supervisor::{BridgeEvent, BridgeSupervisor, print_library, print_status};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum BridgeStatus {

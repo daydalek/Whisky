@@ -1,7 +1,8 @@
 # GPUI port plan
 
-Status: M0 complete (`apps/whisky-gpui/` seeded). This document is the working
-checklist for the remaining milestones.
+Status: M1 complete (`apps/whisky-gpui/` renders live bottles and library data,
+read-only). This document is the working checklist for the remaining
+milestones.
 
 ## Goal
 
@@ -31,7 +32,7 @@ Replace the SwiftUI app with a GPUI app that is functionally at parity with
 ## Milestones
 
 - [x] **M0** seed tracked app (this commit)
-- [ ] **M1** bridge supervisor + typed DTOs; real containers + library read-only
+- [x] **M1** bridge supervisor + typed DTOs; real containers + library read-only
 - [ ] **M2** library interactions: layouts, search, sort, hide, move, rating, detail, launch/stop, clipboard preflight, runtime events
 - [ ] **M3** bottle surfaces: schema-driven configuration, folder scan jobs, programs, processes, environment, create bottle, winetricks
 - [ ] **M4** application settings, localization, native menus, menu-bar extra, about, file-open/drag-drop, window restore

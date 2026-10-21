@@ -15,7 +15,6 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::*, *};
 
 use crate::controls::*;
-use crate::model::demo_data;
 use crate::state::{PreviewPage, PreviewSheet, WhiskyApp};
 
 #[derive(Clone, Copy)]
@@ -160,15 +159,13 @@ impl WhiskyApp {
         index: usize,
         cx: &Context<Self>,
     ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+        let hidden = self.preview.hidden.contains(&index)
+            || self.game(index).is_some_and(|game| game.hidden);
         let items = vec![
             self.menu_item("运行", Command::Notice, cx),
             MenuEntry::separator(cx.entity().downgrade()),
             self.menu_item(
-                if self.preview.hidden.contains(&index) {
-                    "取消隐藏"
-                } else {
-                    "隐藏游戏"
-                },
+                if hidden { "取消隐藏" } else { "隐藏游戏" },
                 Command::Hide(index),
                 cx,
             ),
@@ -182,26 +179,22 @@ impl WhiskyApp {
             MenuEntry::separator(cx.entity().downgrade()),
             self.menu_item("配置容器", Command::Configure(index), cx),
         ];
-        let targets = [
-            self.menu_item("galgame", Command::Move(index, 1), cx)
-                .checked(
-                    self.preview
-                        .moved
-                        .get(&index)
-                        .copied()
-                        .unwrap_or(demo_data()[index].bottle)
-                        == 1,
-                ),
-            self.menu_item("galgame-win7", Command::Move(index, 2), cx)
-                .checked(
-                    self.preview
-                        .moved
-                        .get(&index)
-                        .copied()
-                        .unwrap_or(demo_data()[index].bottle)
-                        == 2,
-                ),
-        ];
+        let current = self
+            .preview
+            .moved
+            .get(&index)
+            .copied()
+            .unwrap_or_else(|| self.game(index).map_or(0, |game| game.bottle));
+        let targets = self
+            .bottles
+            .iter()
+            .enumerate()
+            .map(|(bottle_index, bottle)| {
+                let slot = bottle_index + 1;
+                self.menu_item(bottle.name.clone(), Command::Move(index, slot), cx)
+                    .checked(current == slot)
+            })
+            .collect::<Vec<_>>();
         move |mut menu, window, cx| {
             for item in &items {
                 menu = menu.item(item.build());

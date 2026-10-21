@@ -3,88 +3,162 @@
 use std::time::Duration;
 
 use gpui_kit::base::{Spring, spring, transition};
-use gpui_kit::component::{button::Button, menu::ContextMenuExt};
+use gpui_kit::component::{
+    button::{Button, ButtonVariants},
+    menu::ContextMenuExt,
+};
 use gpui_kit::{prelude::*, *};
 
 use crate::bridge::BridgeStatus;
 use crate::controls::*;
 use crate::library_layout::{CardRect, LibraryLayout};
-use crate::model::{ambient, art, demo_data};
+use crate::model::{ambient, art};
 use crate::state::{PreviewPage, WhiskyApp};
 use crate::theme::*;
 
+/// One sidebar row. Kept next to the sidebar so the Library and bottle entries
+/// cannot drift apart visually.
+fn sidebar_row(
+    id: impl Into<ElementId>,
+    label: &str,
+    symbol: &str,
+    count: usize,
+    selected: bool,
+) -> Stateful<Div> {
+    row()
+        .id(id)
+        .h(px(34.))
+        .px(px(13.))
+        .gap(px(10.))
+        .rounded(px(6.))
+        .bg(if selected {
+            rgba(0xffffff1a)
+        } else {
+            rgba(0x00000000)
+        })
+        .cursor_pointer()
+        .hover(|s| s.bg(rgba(0xffffff10)))
+        .child(icon(symbol, 18.).text_color(rgb(ACCENT)))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(px(13.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(label.to_owned()),
+        )
+        .child(muted(count.to_string()).text_size(px(11.)))
+}
+
 impl WhiskyApp {
+    /// Existing artwork only; the demo keeps its bundled sample covers.
+    pub(crate) fn artwork(&self, index: usize) -> Option<std::path::PathBuf> {
+        if self.demo {
+            Some(art(index))
+        } else {
+            self.game(index).and_then(|game| game.art.clone())
+        }
+    }
+
+    /// The blurred backdrop is derived from the same artwork.
+    fn ambient_art(&self, index: usize) -> Option<std::path::PathBuf> {
+        if self.demo {
+            Some(ambient(index))
+        } else {
+            self.artwork(index)
+        }
+    }
+
+    /// The library body plus the shared loading/error surfaces.
+    pub(crate) fn library_page(
+        &self,
+        width: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if let Some(error) = self.visible_load_error() {
+            return self.library_error_surface(error, cx);
+        }
+        if self.games().is_empty() && self.loading {
+            // The empty-state treatment, not a spinner overlay: content that
+            // already exists stays visible while a refresh is in flight.
+            return self.library_viewport(0, col().p(px(30.)).child(muted("Loading…")));
+        }
+        match self.mode {
+            1 => self.timeline(width, window, cx),
+            2 => self.classic(width, window, cx),
+            _ => self.shelf(width, window, cx),
+        }
+    }
+
+    pub(crate) fn library_error_surface(&self, reason: &str, cx: &mut Context<Self>) -> AnyElement {
+        col()
+            .size_full()
+            .items_center()
+            .justify_center()
+            .p(px(30.))
+            .child(
+                col()
+                    .w(px(420.))
+                    .gap(px(14.))
+                    .p(px(20.))
+                    .rounded(px(RADIUS_LG))
+                    .bg(rgb(SURFACE))
+                    .border_1()
+                    .border_color(rgba(SURFACE_BORDER))
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Library unavailable"))
+                    .child(
+                        muted(reason)
+                            .line_height(relative(1.5))
+                            .line_clamp(4),
+                    )
+                    .child(
+                        row().justify_end().child(
+                            Button::new("library-retry")
+                                .label("Retry")
+                                .primary()
+                                .on_click(cx.listener(|this, _, _, cx| this.retry_library(cx))),
+                        ),
+                    ),
+            )
+            .into_any_element()
+    }
+
     pub(crate) fn sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
-        let games = demo_data();
+        let games = self.games();
         let mut entries = col().gap(px(1.));
-        for (id, label, symbol, bottle, count) in [
-            (
+        entries = entries.child(
+            sidebar_row(
                 "library",
                 "Library",
                 "layout-grid",
-                0,
-                games.len().to_string(),
-            ),
-            (
-                "bottle-one",
-                "galgame",
-                "package",
-                1,
-                games.iter().filter(|g| g.bottle == 1).count().to_string(),
-            ),
-            (
-                "bottle-two",
-                "galgame-win7",
-                "package",
-                2,
-                games.iter().filter(|g| g.bottle == 2).count().to_string(),
-            ),
-        ] {
-            if bottle == 1 {
-                entries = entries.child(
-                    muted("Bottles")
-                        .text_size(px(11.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .mt(px(17.))
-                        .mb(px(4.))
-                        .px(px(13.)),
-                );
-            }
-            let selected = !self.settings && self.bottle == bottle;
+                games.len(),
+                !self.settings && self.selected_bottle.is_none(),
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.select_bottle(None, cx))),
+        );
+        entries = entries.child(
+            muted("Bottles")
+                .text_size(px(11.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .mt(px(17.))
+                .mb(px(4.))
+                .px(px(13.)),
+        );
+        for (index, bottle) in self.bottles.iter().enumerate() {
+            let count = games.iter().filter(|game| game.bottle == index + 1).count();
             entries = entries.child(
-                row()
-                    .id(id)
-                    .h(px(34.))
-                    .px(px(13.))
-                    .gap(px(10.))
-                    .rounded(px(6.))
-                    .bg(if selected {
-                        rgba(0xffffff1a)
-                    } else {
-                        rgba(0x00000000)
-                    })
-                    .cursor_pointer()
-                    .hover(|s| s.bg(rgba(0xffffff10)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.settings = false;
-                        this.bottle = bottle;
-                        this.preview.page = if bottle == 0 {
-                            PreviewPage::Library
-                        } else {
-                            PreviewPage::Bottle
-                        };
-                        this.preview.history.clear();
-                        cx.notify();
-                    }))
-                    .child(icon(symbol, 18.).text_color(rgb(ACCENT)))
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(px(13.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(label),
-                    )
-                    .child(muted(count).text_size(px(11.))),
+                sidebar_row(
+                    ("bottle", index),
+                    &bottle.name,
+                    "package",
+                    count,
+                    !self.settings && self.selected_bottle == Some(index),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.select_bottle(Some(index), cx);
+                })),
             );
         }
         col()
@@ -250,7 +324,7 @@ impl WhiskyApp {
     pub(crate) fn backdrop(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         // Per-image channels preserve continuous blending even during rapid A → B → C hovers.
         let mut layers = div().absolute().size_full().overflow_hidden().bg(rgb(BG));
-        for i in 0..demo_data().len() {
+        for i in 0..self.games().len() {
             let target = if self.hovered.is_some() && self.ambient_index == i {
                 0.24_f32
             } else {
@@ -263,9 +337,11 @@ impl WhiskyApp {
                 window,
                 cx,
             );
-            if alpha > 0.001 {
+            if alpha > 0.001
+                && let Some(path) = self.ambient_art(i)
+            {
                 layers = layers.child(
-                    img(ambient(i))
+                    img(path)
                         .absolute()
                         .size_full()
                         .object_fit(ObjectFit::Cover)
@@ -294,6 +370,11 @@ impl WhiskyApp {
         // Frame stays fixed; only artwork expands, avoiding shelf reflow.
         let iw = width * (1. + amount * 0.025);
         let ih = height * (1. + amount * 0.025);
+        let artwork = self.artwork(index);
+        let title = self
+            .game(index)
+            .map(|game| game.title.clone())
+            .unwrap_or_default();
         div()
             .id(("cover", index))
             .relative()
@@ -315,15 +396,26 @@ impl WhiskyApp {
                 cx.notify();
             }))
             .on_click(cx.listener(move |this, _, _, cx| this.open_detail(index, cx)))
-            .child(
-                img(art(index))
+            .child(match artwork {
+                Some(path) => img(path)
                     .absolute()
                     .left(px((width - iw) / 2.))
                     .top(px((height - ih) / 2.))
                     .w(px(iw))
                     .h(px(ih))
-                    .object_fit(ObjectFit::Cover),
-            )
+                    .object_fit(ObjectFit::Cover)
+                    .into_any_element(),
+                // Same frame, same gradient language as the demo covers.
+                None => div()
+                    .absolute()
+                    .size_full()
+                    .bg(gradient(0xffffff12, 0xffffff04))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(icon("package", 26.).text_color(rgb(MUTED)))
+                    .into_any_element(),
+            })
             .child(
                 div()
                     .absolute()
@@ -342,7 +434,7 @@ impl WhiskyApp {
                     .font_weight(FontWeight::BOLD)
                     .when(self.preview_single_line(), |d| d.truncate())
                     .when(!self.preview_single_line(), |d| d.line_clamp(2))
-                    .child(demo_data()[index].title),
+                    .child(title),
             )
             .child(
                 row()
@@ -431,7 +523,7 @@ impl WhiskyApp {
     pub(crate) fn shelf(&self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let indices = self.ordered(cx);
         let layout = LibraryLayout::shelf(&indices, width, |i| {
-            self.mixed && demo_data()[i].landscape
+            self.mixed && self.game(i).is_some_and(|game| game.landscape)
         });
         let mut content = div()
             .relative()
@@ -447,7 +539,7 @@ impl WhiskyApp {
             ));
         }
         if indices.is_empty() {
-            content = content.child(muted("没有找到匹配的游戏").p(px(30.)));
+            content = content.child(muted(self.empty_library_message()).p(px(30.)));
         }
         self.library_viewport(0, content)
     }
@@ -476,9 +568,10 @@ impl WhiskyApp {
             .child(label)
     }
     pub(crate) fn timeline(&self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let games = demo_data();
+        let games = self.games();
         let mut indices = self.filtered(cx);
-        // Presentation ordering and sample times; no personal activity records are read.
+        // Presentation ordering; the timestamps and durations come from each
+        // entry's activity record (the demo keeps its sample values).
         let featured = ["Northwind Signal", "Saltlight", "Quiet Frequency", "Emberline"];
         indices.sort_by_key(|&i| {
             featured
@@ -501,7 +594,33 @@ impl WhiskyApp {
             .flex_shrink_0();
         for (position, (index, target)) in layout.cards.into_iter().enumerate() {
             let rect = self.animated_rect(index, target, window, cx);
-            let g = games[index];
+            let g = &games[index];
+            let mut meta = row().flex_shrink_0().flex_wrap().gap(px(7.)).mt(px(3.));
+            if self.demo {
+                meta = meta
+                    .child(icon("clock-3", 12.).text_color(rgb(MUTED)))
+                    .child(muted(if position == 0 {
+                        "晚上7:39"
+                    } else if position == 1 {
+                        "晚上7:37"
+                    } else {
+                        "下午6:39"
+                    }))
+                    .child(badge("package", self.bottle_name_at(g.bottle)))
+                    .child(badge("clock-3", "8分钟"));
+            } else {
+                if let Some(label) = crate::model::format_last_played(g.last_played) {
+                    meta = meta
+                        .child(icon("clock-3", 12.).text_color(rgb(MUTED)))
+                        .child(muted(label));
+                }
+                if g.bottle > 0 {
+                    meta = meta.child(badge("package", self.bottle_name_at(g.bottle)));
+                }
+                if let Some(label) = crate::model::format_play_time(g.play_time) {
+                    meta = meta.child(badge("clock-3", label));
+                }
+            }
             let hover = transition(
                 ElementId::from(("timeline-hover", index)),
                 if self.hovered == Some(index) {
@@ -592,11 +711,23 @@ impl WhiskyApp {
                                         .on_click(cx.listener(move |this, _, _, cx| {
                                             this.open_detail(index, cx)
                                         }))
-                                        .child(
-                                            img(art(index))
+                                        .child(match self.artwork(index) {
+                                            Some(path) => img(path)
                                                 .size_full()
-                                                .object_fit(ObjectFit::Cover),
-                                        )
+                                                .object_fit(ObjectFit::Cover)
+                                                .into_any_element(),
+                                            None => div()
+                                                .size_full()
+                                                .bg(gradient(0xffffff12, 0xffffff04))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .child(
+                                                    icon("package", 26.)
+                                                        .text_color(rgb(MUTED)),
+                                                )
+                                                .into_any_element(),
+                                        })
                                         .context_menu(self.game_menu(index, cx)),
                                 )
                                 .child(
@@ -612,53 +743,40 @@ impl WhiskyApp {
                                                 .line_height(relative(1.25))
                                                 .font_weight(FontWeight::BOLD)
                                                 .flex_shrink_0()
-                                                .child(g.title),
+                                                .child(g.title.clone()),
                                         )
-                                        .child(muted(g.studio).flex_shrink_0().truncate())
-                                        .child(
-                                            row()
-                                                .flex_shrink_0()
-                                                .flex_wrap()
-                                                .gap(px(7.))
-                                                .mt(px(3.))
-                                                .child(icon("clock-3", 12.).text_color(rgb(MUTED)))
-                                                .child(muted(if position == 0 {
-                                                    "晚上7:39"
-                                                } else if position == 1 {
-                                                    "晚上7:37"
-                                                } else {
-                                                    "下午6:39"
-                                                }))
-                                                .child(badge(
-                                                    "package",
-                                                    if g.bottle == 1 {
-                                                        "galgame"
-                                                    } else {
-                                                        "galgame-win7"
-                                                    },
-                                                ))
-                                                .child(badge("clock-3", "8分钟")),
-                                        )
-                                        .child(
-                                            div()
-                                                .mt(px(5.))
-                                                .text_size(px(13.))
-                                                .text_color(rgb(0xaaaaae))
-                                                .line_height(relative(1.55))
-                                                .flex_1()
-                                                .min_h_0()
-                                                .max_h(px(13. * 1.55 * 3.))
-                                                .overflow_hidden()
-                                                .line_clamp(3)
-                                                // Metadata contains paragraph breaks; a card uses one
-                                                // bounded preview, while details retain the full text.
-                                                .child(
-                                                    g.description
-                                                        .split_whitespace()
-                                                        .collect::<Vec<_>>()
-                                                        .join(" "),
-                                                ),
-                                        ),
+                                        .when(self.demo || g.studio.is_some(), |d| {
+                                            d.child(
+                                                muted(g.studio())
+                                                    .flex_shrink_0()
+                                                    .truncate(),
+                                            )
+                                        })
+                                        .child(meta)
+                                        .when(g.description.is_some(), |d| {
+                                            d.child(
+                                                div()
+                                                    .mt(px(5.))
+                                                    .text_size(px(13.))
+                                                    .text_color(rgb(0xaaaaae))
+                                                    .line_height(relative(1.55))
+                                                    .flex_1()
+                                                    .min_h_0()
+                                                    .max_h(px(13. * 1.55 * 3.))
+                                                    .overflow_hidden()
+                                                    .line_clamp(3)
+                                                    // Metadata contains paragraph breaks; a card uses one
+                                                    // bounded preview, while details retain the full text.
+                                                    .child(
+                                                        g.description
+                                                            .as_deref()
+                                                            .unwrap_or_default()
+                                                            .split_whitespace()
+                                                            .collect::<Vec<_>>()
+                                                            .join(" "),
+                                                    ),
+                                            )
+                                        }),
                                 )
                                 .child(
                                     col()
@@ -678,6 +796,9 @@ impl WhiskyApp {
                 ),
             );
         }
+        if indices.is_empty() {
+            content = content.child(muted(self.empty_library_message()).p(px(30.)));
+        }
         self.library_viewport(1, content)
     }
     pub(crate) fn classic(&self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -690,6 +811,10 @@ impl WhiskyApp {
             .flex_shrink_0();
         for (i, target) in layout.cards {
             let rect = self.animated_rect(i, target, window, cx);
+            // The demo always rendered the studio line, even when it was empty.
+            let studio = self
+                .game(i)
+                .map(|game| game.studio.clone().unwrap_or_default());
             let card = col()
                 .size_full()
                 .gap(px(10.))
@@ -704,10 +829,20 @@ impl WhiskyApp {
                     row()
                         .px(px(12.))
                         .justify_between()
-                        .child(muted(demo_data()[i].studio).flex_1().min_w_0().truncate())
+                        .when(self.demo || studio.is_some(), |d| {
+                            d.child(
+                                muted(studio.clone().unwrap_or_default())
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate(),
+                            )
+                        })
                         .child(self.play_button(("classic-play", i), "游玩", cx)),
                 );
             content = content.child(self.card_slot(i, rect, card));
+        }
+        if indices.is_empty() {
+            content = content.child(muted(self.empty_library_message()).p(px(30.)));
         }
         self.library_viewport(2, content)
     }
@@ -719,7 +854,33 @@ impl WhiskyApp {
         height: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let g = demo_data()[index];
+        let Some(g) = self.game(index) else {
+            return div().into_any_element();
+        };
+        let backdrop = self.ambient_art(index);
+        let artwork = self.artwork(index);
+        let mut badges = row().gap(px(8.)).mt(px(8.));
+        if self.demo {
+            badges = badges
+                .child(badge("package", "galgame"))
+                .child(badge("star", "8 / 10"));
+        } else {
+            if g.bottle > 0 {
+                badges = badges.child(badge("package", self.bottle_name_at(g.bottle)));
+            }
+            if let Some(year) = g.year() {
+                badges = badges.child(badge("calendar", year));
+            }
+            if let Some(rating) = g.rating {
+                badges = badges.child(badge("star", format!("{rating} / 10")));
+            }
+            if let Some(play_time) = crate::model::format_play_time(g.play_time) {
+                badges = badges.child(badge("clock-3", play_time));
+            }
+            if let Some(last_played) = crate::model::format_last_played(g.last_played) {
+                badges = badges.child(badge("clock-3", last_played));
+            }
+        }
         let pw = (width - 100.).clamp(600., 910.).min(width - 36.);
         let ph = (height - 90.).clamp(480., 690.).min(height - 36.);
         div()
@@ -754,12 +915,17 @@ impl WhiskyApp {
                     .border_color(rgba(0xffffff25))
                     .bg(rgb(0x29292c))
                     .child(
-                        div().absolute().size_full().child(
-                            img(ambient(index))
-                                .size_full()
-                                .object_fit(ObjectFit::Cover)
-                                .opacity(0.22),
-                        ),
+                        div()
+                            .absolute()
+                            .size_full()
+                            .when_some(backdrop, |d, path| {
+                                d.child(
+                                    img(path)
+                                        .size_full()
+                                        .object_fit(ObjectFit::Cover)
+                                        .opacity(0.22),
+                                )
+                            }),
                     )
                     .child(
                         row()
@@ -794,14 +960,29 @@ impl WhiskyApp {
                                             .flex_shrink_0()
                                             .items_start()
                                             .gap(px(25.))
-                                            .child(
-                                                img(art(index))
+                                            .child(match artwork {
+                                                Some(path) => img(path)
                                                     .w(px(190.))
                                                     .h(px(278.))
                                                     .flex_shrink_0()
                                                     .rounded(px(9.))
-                                                    .object_fit(ObjectFit::Cover),
-                                            )
+                                                    .object_fit(ObjectFit::Cover)
+                                                    .into_any_element(),
+                                                None => div()
+                                                    .w(px(190.))
+                                                    .h(px(278.))
+                                                    .flex_shrink_0()
+                                                    .rounded(px(9.))
+                                                    .bg(gradient(0xffffff12, 0xffffff04))
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .child(
+                                                        icon("package", 34.)
+                                                            .text_color(rgb(MUTED)),
+                                                    )
+                                                    .into_any_element(),
+                                            })
                                             .child(
                                                 col()
                                                     .flex_1()
@@ -813,17 +994,20 @@ impl WhiskyApp {
                                                             .text_size(px(27.))
                                                             .font_weight(FontWeight::BOLD)
                                                             .line_height(relative(1.2))
-                                                            .child(g.title),
+                                                            .child(g.title.clone()),
                                                     )
-                                                    .child(muted(g.studio).text_size(px(14.)))
-                                                    .child(muted(g.release))
-                                                    .child(
-                                                        row()
-                                                            .gap(px(8.))
-                                                            .mt(px(8.))
-                                                            .child(badge("package", "galgame"))
-                                                            .child(badge("star", "8 / 10")),
-                                                    )
+                                                    .when(self.demo || g.studio.is_some(), |d| {
+                                                        d.child(
+                                                            muted(g.studio())
+                                                                .text_size(px(14.)),
+                                                        )
+                                                    })
+                                                    .when(g.release.is_some(), |d| {
+                                                        d.child(muted(
+                                                            g.release.clone().unwrap_or_default(),
+                                                        ))
+                                                    })
+                                                    .child(badges)
                                                     .child(div().mt(px(12.)).child(
                                                         self.play_button(
                                                             "detail-play",
@@ -833,26 +1017,28 @@ impl WhiskyApp {
                                                     )),
                                             ),
                                     )
-                                    .child(
-                                        col()
-                                            .flex_shrink_0()
-                                            .gap(px(12.))
-                                            .p(px(20.))
-                                            .rounded(px(12.))
-                                            .bg(rgba(0xffffff09))
-                                            .child(
-                                                div()
-                                                    .font_weight(FontWeight::SEMIBOLD)
-                                                    .child("简介"),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_size(px(13.))
-                                                    .text_color(rgb(0xc3c3ca))
-                                                    .line_height(relative(1.65))
-                                                    .child(g.description),
-                                            ),
-                                    ),
+                                    .when_some(g.description.clone(), |d, description| {
+                                        d.child(
+                                            col()
+                                                .flex_shrink_0()
+                                                .gap(px(12.))
+                                                .p(px(20.))
+                                                .rounded(px(12.))
+                                                .bg(rgba(0xffffff09))
+                                                .child(
+                                                    div()
+                                                        .font_weight(FontWeight::SEMIBOLD)
+                                                        .child("简介"),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_size(px(13.))
+                                                        .text_color(rgb(0xc3c3ca))
+                                                        .line_height(relative(1.65))
+                                                        .child(description),
+                                                ),
+                                        )
+                                    }),
                             ),
                         ),
                     ),

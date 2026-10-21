@@ -4,19 +4,28 @@ Tracked GPUI app for the Whisky desktop UI. This is the M0 seed: the sources wer
 copied mechanically from the local design demo at `demos/gpui-demo/`, which is
 gitignored and not part of the repository. The demo remains the visual reference.
 
-At this stage the app renders 32 hard-coded games with in-memory state. M1a
-adds a live `whisky-bridge` connection (handshake plus one container-catalogue
-read) but still renders `model::demo_data()`; real library data arrives in M1b.
-The bridge never starts Wine or mutates a container in this milestone. Later
-milestones replace the sample data with bridge-backed data; see
-[`docs/gpui-port/PLAN.md`](../../docs/gpui-port/PLAN.md).
+M1b renders the sidebar from `workspace.containers` and the library grid from
+`library.entries`, read-only. Selecting a bottle reads that bottle's entries;
+the whole-library view is the union of the bottles loaded so far. The bridge
+never starts Wine and the app never writes to a container in this milestone.
+Mutations, covers that do not exist on disk, and live runtime events are M2
+work; see [`docs/gpui-port/PLAN.md`](../../docs/gpui-port/PLAN.md).
+
+### Demo data
+
+Set `WHISKY_GPUI_DEMO_DATA=1` to render the bundled 32-game design snapshot
+(`model::demo_data()`) instead of bridge data. This is the escape hatch for
+visual/design work on machines without a real bottle: the sidebar, grid, cards,
+and detail panel then behave exactly as they did in M0/M1a. The flag does not
+affect `--print-library`, which always reads the bridge.
 
 ## Layout
 
 - `src/main.rs` — app entry, window options, root view composition, capture hook.
 - `src/theme.rs` — colours and animation durations shared by every surface.
-- `src/model.rs` — `Game` plus the demo library snapshot until M1b.
-- `src/state.rs` — `WhiskyApp`, page/sheet enums, navigation, filtering and sorting.
+- `src/bridge/` — supervisor, request queue, and tolerant wire DTOs.
+- `src/model.rs` — owned `Game`/`BottleVm` view models plus the demo snapshot.
+- `src/state.rs` — `WhiskyApp`, bridge event handling, navigation, filtering.
 - `src/controls.rs` — shared widgets (rows, icons, badges, round buttons).
 - `src/views/` — library, bottle, settings, and dialog surfaces.
 - `src/library_layout.rs` — cover grid geometry.
@@ -63,9 +72,11 @@ The app resolves it in this order and uses the first regular file:
 (0.5 s → 8 s) and the status dialog offers an immediate `Retry`.
 
 The bridge's container method is `workspace.containers` (the plan's
-`containers.list` name does not exist in `ApplicationService.methods`). M1a
-calls it once after the `bridge.describe` handshake and logs the count and names
-to stderr.
+`containers.list` name does not exist in `ApplicationService.methods`). Library
+reads use `library.entries` with `{"container": "<absolute path>"}`. There is
+no separate activity method: each entry carries its `activity` snapshot
+(`playTime` seconds, `rating`, `lastPlayed` Unix seconds). `runtime.events` is
+not subscribed yet; the helper does not currently construct `RuntimeService`.
 
 To exercise the connection without opening a window:
 
@@ -76,6 +87,18 @@ apps/whisky-gpui/target/debug/whisky-gpui --print-bridge-status
 This prints the `bridge.describe` payload as JSON and exits 0; helper
 resolution, handshake, allow-list, or container-call failures print to stderr
 and exit 1.
+
+To read the real library headlessly:
+
+```sh
+apps/whisky-gpui/target/debug/whisky-gpui --print-library
+apps/whisky-gpui/target/debug/whisky-gpui --print-library --bottle galgame
+```
+
+This prints `{"containers": [{path, name, available, entryCount, sample}]}`
+(sample = first five entry names) and exits 0. `--bottle` accepts a container
+name or absolute path. Any bridge failure, or an unmatched `--bottle`, prints
+to stderr and exits 1. Neither command creates a window.
 
 ## Visual baseline capture
 
