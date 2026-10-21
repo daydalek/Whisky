@@ -334,6 +334,29 @@ fn main() {
         };
         std::process::exit(bridge::watch_runtime(bottle, seconds));
     }
+    if arguments.iter().any(|argument| argument == "--diagnose-launch") {
+        const USAGE: &str =
+            "usage: whisky-gpui --diagnose-launch --bottle <name-or-path> [--entry <substring>]";
+        let bottle = match cli_value(&arguments, "--bottle") {
+            Ok(Some(bottle)) => Some(bottle),
+            Ok(None) => {
+                eprintln!("{USAGE}");
+                std::process::exit(2);
+            }
+            Err(()) => {
+                eprintln!("{USAGE}");
+                std::process::exit(2);
+            }
+        };
+        let entry = match cli_value(&arguments, "--entry") {
+            Ok(entry) => entry,
+            Err(()) => {
+                eprintln!("{USAGE}");
+                std::process::exit(2);
+            }
+        };
+        std::process::exit(bridge::diagnose_launch(bottle, entry));
+    }
     if arguments.iter().any(|argument| argument == "--print-library") {
         let all = arguments.iter().any(|argument| argument == "--all");
         let bottle = match arguments.iter().position(|argument| argument == "--bottle") {

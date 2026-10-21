@@ -18,9 +18,11 @@ use serde_json::{Value, json};
 use crate::bridge::dto::{ClipboardInteractionDto, LaunchReplyDto, RuntimeEntryDto};
 
 /// `LibraryRuntimeCapabilities` option-set bits (`LibraryRuntime.swift`).
-const CAP_LAUNCH: i64 = 1 << 0;
-const CAP_CANCEL: i64 = 1 << 1;
-const CAP_STOP: i64 = 1 << 2;
+/// Public within the crate so the headless launch probe can decode the same
+/// bitmask the button gate reads.
+pub(crate) const CAP_LAUNCH: i64 = 1 << 0;
+pub(crate) const CAP_CANCEL: i64 = 1 << 1;
+pub(crate) const CAP_STOP: i64 = 1 << 2;
 
 /// Poll cadence while at least one entry is not idle. A launch or an exit is
 /// the interesting event, and both are only observable through this cursor.

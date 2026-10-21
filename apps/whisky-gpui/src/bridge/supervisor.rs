@@ -29,14 +29,14 @@ use super::{
         ActivityDto, BridgeFailureDto, Container, ContainerList, DescribeResponse, EntryDto,
         EntryList, FoldersDto, HiddenReplyDto, JobDto, JobStartDto, KillReplyDto, LaunchReplyDto,
         LibraryPageDto, PreferencesSchemaDto, ProcessDto, ProgramDto, RUNTIME_METHODS,
-        RUNTIME_SESSION_METHODS, RuntimeEventBatchDto, RuntimeEventPayloadDto, RuntimeSnapshotDto,
-        ScanResultDto,
+        RUNTIME_SESSION_METHODS, RuntimeEntryDto, RuntimeEventBatchDto, RuntimeEventPayloadDto,
+        RuntimeSnapshotDto, ScanResultDto,
     },
 };
 use crate::config::{self, ConfigField};
 use crate::runtime::{
-    ClipboardDecision, ClipboardPrompt, LaunchOutcome, RuntimeState, RuntimeUpdate,
-    interpret_launch_reply, poll_interval,
+    CAP_LAUNCH, ClipboardDecision, ClipboardPrompt, LaunchOutcome, RuntimeAction, RuntimeState,
+    RuntimeUpdate, interpret_launch_reply, poll_interval, primary_action_for,
 };
 use crate::scan::{self, JobStatus, PageAccumulator};
 
@@ -2838,6 +2838,182 @@ pub(crate) fn print_processes(bottle: Option<&str>) -> i32 {
         "whisky-bridge: {} process(es); kill probe on bogus pid {}",
         processes.len(),
         BOGUS_PID
+    );
+    let _ = client.shutdown(false);
+    0
+}
+
+/// Capability bits of `LibraryRuntimeCapabilities` (`LibraryRuntime.swift`),
+/// decoded so the report shows what the button gate will actually see.
+fn decode_capabilities(bits: i64) -> Vec<&'static str> {
+    const BITS: [(i64, &str); 4] = [
+        (1 << 0, "launch"),
+        (1 << 1, "cancelLaunch"),
+        (1 << 2, "stop"),
+        (1 << 3, "terminal"),
+    ];
+    BITS.iter()
+        .filter(|(bit, _)| bits & bit != 0)
+        .map(|(_, name)| *name)
+        .collect()
+}
+
+/// `--diagnose-launch --bottle <name-or-path> [--entry <substring>]`:
+/// observation only. Configures one bottle and reports, per matched entry,
+/// the id the UI would send as `entryID`, the id `runtime.snapshot` carries,
+/// the derived `PrimaryAction`, and both helper-side gates (`configured` and
+/// the `.launch` capability). Nothing here calls `runtime.launch`, so no game
+/// and no Steam client can start.
+pub(crate) fn diagnose_launch(bottle: Option<&str>, entry: Option<&str>) -> i32 {
+    let helper = match locate_helper() {
+        Ok(helper) => helper,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            return 1;
+        }
+    };
+    eprintln!("whisky-bridge: helper {}", helper.display());
+    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("whisky-bridge: handshake failed: {error}");
+            return 1;
+        }
+    };
+    let describe = DescribeResponse::from_capabilities(client.capabilities());
+    let missing = describe.missing_methods(RUNTIME_SESSION_METHODS);
+    if !missing.is_empty() {
+        eprintln!(
+            "whisky-bridge: helper does not advertise runtime method(s): {}",
+            missing.join(", ")
+        );
+        client.close();
+        return 1;
+    }
+    let containers = match fetch_containers(&mut client) {
+        Ok(containers) => containers,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    let container = match pick_container(&containers, bottle) {
+        Ok(container) => container,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            client.close();
+            return 1;
+        }
+    };
+    // The UI's `game.id` is `EntryRecord.id` from `library.entries`; the
+    // runtime table and the helper's `configured` gate are keyed by the same
+    // `LibraryEntry.id`. Both reads are shown so a divergence is visible.
+    let library = match fetch_entries(&mut client, &container.path) {
+        Ok(entries) => entries,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    eprintln!(
+        "whisky-bridge: configuring {} (observation only; no game is launched)",
+        container.name
+    );
+    let snapshot = match configure_runtime(&mut client, &container.path) {
+        Ok(snapshot) => snapshot,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    let by_id: BTreeMap<&str, &RuntimeEntryDto> = snapshot
+        .entries
+        .iter()
+        .map(|entry| (entry.id.as_str(), entry))
+        .collect();
+    let needle = entry.map(str::to_lowercase);
+    let mut reports = Vec::new();
+    for record in &library {
+        let matches = needle.as_ref().is_none_or(|needle| {
+            record.name.to_lowercase().contains(needle.as_str())
+                || record.id.to_lowercase().contains(needle.as_str())
+        });
+        if !matches {
+            continue;
+        }
+        // The UI sends this id as `entryID`; the helper resolves the entry by
+        // scanning `workspace.entries` and matching `$0.id == entryID`.
+        let ui_entry_id = record.id.as_str();
+        let runtime = by_id.get(ui_entry_id).copied();
+        let state = runtime.map(|entry| entry.state.clone());
+        let capabilities = runtime.map(|entry| entry.capabilities).unwrap_or(0);
+        let has_launch = capabilities & CAP_LAUNCH != 0;
+        // Mirrors `WhiskyApp::primary_action`: a runtime table row wins, and
+        // an entry the helper never listed falls back to the optimistic Play.
+        let action = match runtime {
+            Some(entry) => {
+                let state = RuntimeState::from_wire(&entry.state);
+                let action = primary_action_for(state, entry.capabilities);
+                json!({
+                    "label": action.label,
+                    "action": action.action.map(|action| match action {
+                        RuntimeAction::Launch => "launch",
+                        RuntimeAction::Cancel => "cancel",
+                        RuntimeAction::Stop => "stop",
+                    }),
+                    "enabled": action.enabled,
+                    "busy": action.busy,
+                    "derivedFrom": "runtimeState",
+                })
+            }
+            None => json!({
+                "label": "Play",
+                "action": "launch",
+                "enabled": true,
+                "busy": false,
+                "derivedFrom": "optimistic",
+            }),
+        };
+        reports.push(json!({
+            "name": record.name,
+            "uiEntryID": ui_entry_id,
+            "runtimeEntryID": runtime.map(|entry| entry.id.as_str()),
+            "idMatches": runtime.is_some(),
+            "state": state,
+            "capabilities": capabilities,
+            "capabilitiesDecoded": decode_capabilities(capabilities),
+            "configuredGate": runtime.is_some(),
+            "hasLaunchCapability": has_launch,
+            "primaryAction": action,
+            "executable": record.executable,
+            "needsExecutable": record.needs_executable,
+        }));
+    }
+    let report = json!({
+        "bottle": container.name,
+        "container": container.path,
+        "libraryTotal": library.len(),
+        "snapshotTotal": snapshot.entries.len(),
+        "sequence": snapshot.sequence,
+        "queryFailures": snapshot.query_failures,
+        "matched": reports,
+    });
+    match serde_json::to_string_pretty(&report) {
+        Ok(payload) => println!("{payload}"),
+        Err(error) => {
+            eprintln!("whisky-bridge: cannot encode the launch report: {error}");
+            client.close();
+            return 1;
+        }
+    }
+    eprintln!(
+        "whisky-bridge: {} library entr(ies), {} runtime entr(ies), {} matched",
+        library.len(),
+        snapshot.entries.len(),
+        reports.len()
     );
     let _ = client.shutdown(false);
     0
