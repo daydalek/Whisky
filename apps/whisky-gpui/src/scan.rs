@@ -166,6 +166,7 @@ mod tests {
             name: name.to_owned(),
             container: None,
             executable: None,
+            needs_executable: false,
             icon: None,
             hidden: false,
             metadata: None,

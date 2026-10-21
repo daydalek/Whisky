@@ -1994,6 +1994,61 @@ impl WhiskyApp {
         cx.notify();
     }
 
+    /// A folder entry names its folder, so the helper cannot run it until the
+    /// user has chosen an executable for that folder.
+    fn needs_executable(&self, index: usize) -> bool {
+        self.game(index).is_some_and(|game| game.needs_executable)
+    }
+
+    /// Ask for the executable, record it through `folders.executable`, then
+    /// launch it — the order `LibraryModel` uses before starting a folder game.
+    ///
+    /// The helper resolves an already-recorded executable on its own, so this
+    /// path only runs for a folder that has none.
+    fn ask_for_executable(&mut self, index: usize, container: String, cx: &mut Context<Self>) {
+        let details = self
+            .game(index)
+            .map(|game| (game.executable.clone(), game.id.clone(), game.title.clone()));
+        let Some((Some(folder), entry_id, title)) = details else {
+            self.show_notice("该条目没有可指定的程序", cx);
+            return;
+        };
+        let prompt = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(format!("选择 {title} 启动的 .exe").into()),
+        });
+        cx.spawn(async move |this, cx| {
+            // `Canceled`, a picker error, and a cancelled dialog all mean the
+            // same thing here: nothing was chosen, so nothing is launched.
+            let Ok(Ok(Some(paths))) = prompt.await else {
+                return;
+            };
+            let Some(executable) = paths.into_iter().next() else {
+                return;
+            };
+            let executable = executable.to_string_lossy().to_string();
+            let _ = this.update(cx, |this, cx| {
+                this.bridge.edit_folders(
+                    &container,
+                    FolderEdit::Executable {
+                        path: folder.to_string_lossy().to_string(),
+                        executable: Some(executable.clone()),
+                    },
+                );
+                this.update_entry(&container, &entry_id, |game| {
+                    game.needs_executable = false;
+                    game.executable = Some(std::path::PathBuf::from(&executable));
+                });
+                this.runtime.set_state(&entry_id, RuntimeState::Preparing);
+                this.bridge.launch(&container, &entry_id, Some(&executable));
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Kill one process. The row leaves the list at once; the reply either
     /// settles the removal or rolls it back with the reason on the toast.
     pub(crate) fn kill_process(&mut self, pid: i64, cx: &mut Context<Self>) {
@@ -2076,6 +2131,10 @@ impl WhiskyApp {
                 // the configure that made the entry actionable.
                 if self.configured.ensure(&container) {
                     self.bridge.configure_runtime(&container);
+                }
+                if self.needs_executable(index) {
+                    self.ask_for_executable(index, container, cx);
+                    return;
                 }
                 self.runtime.set_state(&entry_id, RuntimeState::Preparing);
                 self.bridge.launch(&container, &entry_id, None);

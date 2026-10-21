@@ -400,9 +400,14 @@ pub(crate) struct EntryDto {
     /// Bottle path; used to confirm which sidebar slot owns the entry.
     #[serde(default)]
     pub(crate) container: Option<String>,
-    /// Launching executable for pinned/folder entries.
+    /// Launching executable for pinned/folder entries. A folder entry carries
+    /// its folder, which cannot be run.
     #[serde(default)]
     pub(crate) executable: Option<String>,
+    /// A folder entry with no executable chosen yet. Play asks for a file
+    /// before it can launch.
+    #[serde(default)]
+    pub(crate) needs_executable: bool,
     /// Executable to extract an icon from, when the source has no artwork.
     #[serde(default)]
     pub(crate) icon: Option<String>,
@@ -522,6 +527,7 @@ impl EntryDto {
             play_time: self.activity.play_time(),
             last_played: self.activity.last_played(),
             executable: self.executable.as_deref().map(expand_path),
+            needs_executable: self.needs_executable,
             container: self.container.unwrap_or_default(),
             last_session_ended_at: self.activity.last_session_ended_at(),
         }
@@ -831,6 +837,37 @@ mod tests {
         assert!(eden.last_played.is_some());
     }
 
+    /// A folder entry carries its folder, so the helper reports whether an
+    /// executable has been chosen for it. Play uses that to ask for a file
+    /// instead of sending a launch that can only fail.
+    #[test]
+    fn a_folder_entry_reports_whether_an_executable_has_been_chosen() {
+        let pending: EntryDto = serde_json::from_str(
+            r#"{"id":"folder:/bottle:/Games/Sample","name":"Sample","container":"/bottle",
+                "source":"folder","executable":"/Games/Sample","needsExecutable":true}"#,
+        )
+        .expect("folder entry without an executable");
+        let game = pending.clone().into_game(1);
+        assert!(game.needs_executable);
+        assert_eq!(game.executable.as_deref(), Some(Path::new("/Games/Sample")));
+
+        let resolved: EntryDto = serde_json::from_str(
+            r#"{"id":"folder:/bottle:/Games/Sample","name":"Sample","container":"/bottle",
+                "source":"folder","executable":"/Games/Sample","needsExecutable":false}"#,
+        )
+        .expect("folder entry with an executable");
+        assert!(!resolved.clone().into_game(1).needs_executable);
+
+        // An older helper omits the key; defaulting to false keeps Play as it
+        // is today rather than prompting for every card.
+        let legacy: EntryDto = serde_json::from_str(
+            r#"{"id":"pinned:/Games/Sample","name":"Sample","container":"/bottle",
+                "source":"pinned","executable":"/Games/Sample/sample.exe"}"#,
+        )
+        .expect("entry without the flag");
+        assert!(!legacy.into_game(1).needs_executable);
+    }
+
     #[test]
     fn tilde_expansion_uses_the_supplied_home_and_keeps_absolute_paths() {
         let home = Path::new("/Users/example");
@@ -862,6 +899,7 @@ mod tests {
             name: "Entry".into(),
             container: None,
             executable: None,
+            needs_executable: false,
             icon: Some("/definitely/missing-icon.png".into()),
             hidden: false,
             metadata: None,

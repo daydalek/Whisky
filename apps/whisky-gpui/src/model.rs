@@ -29,7 +29,10 @@ pub(crate) struct Game {
     /// Unix seconds, if the bridge recorded a session.
     pub(crate) last_played: Option<u64>,
     /// Launching executable, when the entry is a program rather than a Store app.
+    /// A folder entry holds its folder here, which cannot be run.
     pub(crate) executable: Option<PathBuf>,
+    /// A folder entry that has no executable chosen yet: Play must ask for one.
+    pub(crate) needs_executable: bool,
     /// Absolute path of the bottle this entry was read from. Entries are keyed
     /// internally by `(container, id)`, so a game installed in two bottles
     /// stays two records even when the grid shows one card.
@@ -54,6 +57,7 @@ impl Game {
             play_time: None,
             last_played: None,
             executable: None,
+            needs_executable: false,
             container: String::new(),
             last_session_ended_at: None,
         }

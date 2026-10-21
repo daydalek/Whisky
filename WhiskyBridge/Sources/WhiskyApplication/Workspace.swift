@@ -130,6 +130,9 @@ public struct EntryRecord: Codable, Sendable {
     public let source: String
     public let executable: String?
     public let steamAppID: Int?
+    /// A folder entry that has no executable chosen yet. Launching one asks the
+    /// frontend for a file before anything can run.
+    public let needsExecutable: Bool
     public let icon: String?
     public let hidden: Bool
     public let metadata: GameMetadata?
@@ -145,8 +148,11 @@ public struct EntryRecord: Codable, Sendable {
         switch entry.launch {
         case let .program(url): executable = url.path
             steamAppID = nil
+            needsExecutable = entry.source == .folder
+                && Self.chosenExecutable(for: url, bottleURL: entry.bottleURL) == nil
         case let .steam(appID): executable = nil
             steamAppID = appID
+            needsExecutable = false
         }
         icon = entry.iconURL?.path
         hidden = !visibility.includes(entry)
@@ -154,6 +160,15 @@ public struct EntryRecord: Codable, Sendable {
         activity = presentation.activity
         cover = presentation.coverURL?.path
         coverAspectRatio = presentation.coverAspectRatio
+    }
+
+    /// The executable a folder entry runs, when the user has picked one.
+    private static func chosenExecutable(for folder: URL, bottleURL: URL) -> URL? {
+        guard let library = try? FolderGameLibrary.load(bottleURL: bottleURL),
+              let executable = library.executable(for: folder, bottleURL: bottleURL),
+              FileManager.default.fileExists(atPath: executable.path)
+        else { return nil }
+        return executable
     }
 }
 
