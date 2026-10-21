@@ -301,6 +301,12 @@ impl<T> PendingEdits<T> {
         self.previous.entry(key.to_owned()).or_insert(previous);
     }
 
+    /// Whether an edit is still in flight. Used to keep optimistic values on
+    /// top of an authoritative snapshot that raced the reply.
+    pub(crate) fn contains(&self, key: &str) -> bool {
+        self.previous.contains_key(key)
+    }
+
     /// The value to restore, if this entry still has an outstanding edit.
     pub(crate) fn fail(&mut self, key: &str) -> Option<T> {
         self.previous.remove(key)
@@ -342,6 +348,9 @@ impl ClipboardDecision {
 pub(crate) struct ClipboardPrompt {
     pub(crate) container: String,
     pub(crate) entry_id: String,
+    /// The launch's executable override, echoed on the second call so the
+    /// resolved launch runs the same target the first one named.
+    pub(crate) executable: Option<String>,
     pub(crate) token: String,
     pub(crate) content_type: String,
     pub(crate) size_bytes: i64,
@@ -353,6 +362,7 @@ impl ClipboardPrompt {
     pub(crate) fn new(
         container: &str,
         entry_id: &str,
+        executable: Option<&str>,
         interaction: ClipboardInteractionDto,
     ) -> Option<Self> {
         if interaction.kind != "clipboard" {
@@ -361,6 +371,7 @@ impl ClipboardPrompt {
         Some(Self {
             container: container.to_owned(),
             entry_id: entry_id.to_owned(),
+            executable: executable.map(str::to_owned),
             token: interaction.token,
             content_type: interaction.content_type,
             size_bytes: interaction.size_bytes,
@@ -370,12 +381,16 @@ impl ClipboardPrompt {
 
     /// The second `runtime.launch` call. The token travels unchanged.
     pub(crate) fn params(&self, decision: ClipboardDecision) -> Value {
-        json!({
+        let mut params = json!({
             "container": self.container,
             "entryID": self.entry_id,
             "interactionToken": self.token,
             "clipboardDecision": decision.as_wire(),
-        })
+        });
+        if let Some(executable) = &self.executable {
+            params["executable"] = json!(executable);
+        }
+        params
     }
 }
 
@@ -391,12 +406,15 @@ pub(crate) enum LaunchOutcome {
 pub(crate) fn interpret_launch_reply(
     container: &str,
     entry_id: &str,
+    executable: Option<&str>,
     reply: LaunchReplyDto,
 ) -> LaunchOutcome {
     match (reply.accepted, reply.interaction) {
         (true, _) => LaunchOutcome::Accepted,
-        (false, Some(interaction)) => ClipboardPrompt::new(container, entry_id, interaction)
-            .map_or(LaunchOutcome::Rejected, LaunchOutcome::Prompt),
+        (false, Some(interaction)) => {
+            ClipboardPrompt::new(container, entry_id, executable, interaction)
+                .map_or(LaunchOutcome::Rejected, LaunchOutcome::Prompt)
+        }
         (false, None) => LaunchOutcome::Rejected,
     }
 }
@@ -582,7 +600,8 @@ mod tests {
     #[test]
     fn a_clipboard_reply_opens_the_sheet_and_the_decision_keeps_the_token() {
         let reply: LaunchReplyDto = serde_json::from_str(PROMPT_REPLY).expect("reply");
-        let outcome = interpret_launch_reply("/tmp/Bottles/demo", "pinned:a", reply);
+        let outcome =
+            interpret_launch_reply("/tmp/Bottles/demo", "pinned:a", Some("/exe/a.exe"), reply);
         let LaunchOutcome::Prompt(prompt) = outcome else {
             panic!("expected a clipboard prompt, got {outcome:?}");
         };
@@ -596,11 +615,14 @@ mod tests {
         assert_eq!(clear["entryID"], "pinned:a");
         assert_eq!(clear["container"], "/tmp/Bottles/demo");
         assert_eq!(clear["clipboardDecision"], "clear");
+        // The executable override travels to the second call unchanged.
+        assert_eq!(clear["executable"], "/exe/a.exe");
         assert!(clear.get("mode").is_none(), "mode defaults to standard");
 
         let keep = prompt.params(ClipboardDecision::Keep);
         assert_eq!(keep["interactionToken"], prompt.token.as_str());
         assert_eq!(keep["clipboardDecision"], "keep");
+        assert_eq!(keep["executable"], "/exe/a.exe");
     }
 
     #[test]
@@ -614,7 +636,7 @@ mod tests {
         let accepted: LaunchReplyDto =
             serde_json::from_str(r#"{"accepted": true, "entryID": "pinned:a"}"#).unwrap();
         assert_eq!(
-            interpret_launch_reply("bottle", "pinned:a", accepted),
+            interpret_launch_reply("bottle", "pinned:a", None, accepted),
             LaunchOutcome::Accepted
         );
 
@@ -623,7 +645,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            interpret_launch_reply("bottle", "pinned:a", other),
+            interpret_launch_reply("bottle", "pinned:a", None, other),
             LaunchOutcome::Rejected
         );
     }

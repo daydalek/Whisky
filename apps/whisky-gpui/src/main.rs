@@ -15,6 +15,8 @@ mod model;
 #[cfg(feature = "visual-test")]
 mod motion_capture;
 mod preferences;
+mod processes;
+mod programs;
 mod runtime;
 mod scan;
 mod state;
@@ -283,6 +285,28 @@ fn main() {
             }
         };
         std::process::exit(bridge::print_folders(bottle));
+    }
+    if arguments.iter().any(|argument| argument == "--print-programs") {
+        const USAGE: &str = "usage: whisky-gpui --print-programs [--bottle <name-or-path>]";
+        let bottle = match cli_value(&arguments, "--bottle") {
+            Ok(bottle) => bottle,
+            Err(()) => {
+                eprintln!("{USAGE}");
+                std::process::exit(2);
+            }
+        };
+        std::process::exit(bridge::print_programs(bottle));
+    }
+    if arguments.iter().any(|argument| argument == "--print-processes") {
+        const USAGE: &str = "usage: whisky-gpui --print-processes [--bottle <name-or-path>]";
+        let bottle = match cli_value(&arguments, "--bottle") {
+            Ok(bottle) => bottle,
+            Err(()) => {
+                eprintln!("{USAGE}");
+                std::process::exit(2);
+            }
+        };
+        std::process::exit(bridge::print_processes(bottle));
     }
     if arguments.iter().any(|argument| argument == "--runtime-watch") {
         const USAGE: &str =

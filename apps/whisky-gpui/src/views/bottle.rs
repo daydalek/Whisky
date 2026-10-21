@@ -65,11 +65,7 @@ impl WhiskyApp {
                         Button::new("page-back")
                             .label("‹ 返回")
                             .ghost()
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.preview.page =
-                                    this.preview.history.pop().unwrap_or(PreviewPage::Bottle);
-                                cx.notify();
-                            })),
+                            .on_click(cx.listener(|this, _, _, cx| this.navigate_back(cx))),
                     )
                     .child(muted(self.bottle_name().to_owned())),
             )
@@ -688,7 +684,148 @@ impl WhiskyApp {
             ],
         )
     }
+    /// Installed programs. The demo keeps its static design snapshot; a live
+    /// bottle renders `programs.list` with pin/block/Play rows.
     fn programs(&self, cx: &Context<Self>) -> AnyElement {
+        if self.demo {
+            return self.demo_programs(cx);
+        }
+        let Some(container) = self.selected_container() else {
+            return self.form(
+                "programs-scroll",
+                vec![self.section(
+                    "program-list",
+                    "程序",
+                    vec![muted("请先在侧边栏选择一个容器。").into_any_element()],
+                    cx,
+                )],
+            );
+        };
+        let page = self
+            .programs
+            .as_ref()
+            .filter(|page| page.container == container);
+        let Some(page) = page else {
+            return self.programs_status("正在读取程序…", cx);
+        };
+        if page.loading {
+            return self.programs_status("正在读取程序…", cx);
+        }
+        if let Some(reason) = &page.error {
+            return self.form(
+                "programs-scroll",
+                vec![self.section(
+                    "program-list",
+                    "程序",
+                    vec![
+                        muted(reason.clone()).into_any_element(),
+                        row()
+                            .py(px(8.))
+                            .child(
+                                Button::new("programs-retry")
+                                    .label("重试")
+                                    .on_click(cx.listener(|this, _, _, cx| this.reload_programs(cx))),
+                            )
+                            .into_any_element(),
+                    ],
+                    cx,
+                )],
+            );
+        }
+        let mut rows: Vec<AnyElement> = Vec::new();
+        if page.table.is_empty() {
+            rows.push(muted(crate::programs::EMPTY_PROGRAMS).into_any_element());
+        }
+        for program in page.table.ordered() {
+            let path = program.path.clone();
+            let pin_path = path.clone();
+            let block_path = path.clone();
+            let play_path = path.clone();
+            let pinned = program.pinned;
+            let blocked = program.blocked;
+            let launchable = self.program_entry_id(&container, program).is_some();
+            rows.push(
+                row()
+                    .id(path.clone())
+                    .gap(px(15.))
+                    .p(px(13.))
+                    .border_b_1()
+                    .border_color(rgba(0xffffff0a))
+                    .child(
+                        div()
+                            .w(px(32.))
+                            .h(px(40.))
+                            .rounded(px(4.))
+                            .bg(gradient(0xffffff12, 0xffffff04))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(icon("package", 14.).text_color(rgb(MUTED))),
+                    )
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(4.))
+                            .child(div().truncate().child(program.name.clone()))
+                            .child(muted(path.clone()).truncate())
+                            .when(blocked, |d| d.child(muted("已屏蔽"))),
+                    )
+                    .child(
+                        Button::new(format!("program-pin:{path}"))
+                            .label(if pinned { "取消固定" } else { "固定" })
+                            .ghost()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.toggle_program_pin(&pin_path, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new(format!("program-block:{path}"))
+                            .label(if blocked { "取消屏蔽" } else { "屏蔽" })
+                            .ghost()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.toggle_program_block(&block_path, cx);
+                            })),
+                    )
+                    .when(launchable, |d| {
+                        d.child(
+                            Button::new(format!("program-play:{path}"))
+                                .label("运行")
+                                .ghost()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.play_program(&play_path, cx);
+                                })),
+                        )
+                    })
+                    .into_any_element(),
+            );
+        }
+        self.form(
+            "programs-scroll",
+            vec![self.section("program-list", "程序", rows, cx)],
+        )
+    }
+
+    fn programs_status(&self, message: &'static str, cx: &Context<Self>) -> AnyElement {
+        self.form(
+            "programs-scroll",
+            vec![self.section(
+                "program-list",
+                "程序",
+                vec![
+                    row()
+                        .gap(px(8.))
+                        .py(px(10.))
+                        .child(Spinner::new().with_size(px(14.)))
+                        .child(muted(message))
+                        .into_any_element(),
+                ],
+                cx,
+            )],
+        )
+    }
+
+    fn demo_programs(&self, cx: &Context<Self>) -> AnyElement {
         let slot = self.bottle_slot();
         let rows = self
             .games()
@@ -696,14 +833,7 @@ impl WhiskyApp {
             .enumerate()
             .filter(|(_, game)| game.bottle == slot)
             .map(|(i, game)| {
-                let path = if self.demo {
-                    format!("C:\\Games\\{}\\game.exe", i + 1)
-                } else {
-                    game.executable
-                        .as_ref()
-                        .map(|path| path.display().to_string())
-                        .unwrap_or_default()
-                };
+                let path = format!("C:\\Games\\{}\\game.exe", i + 1);
                 row()
                     .id(game.id.clone())
                     .gap(px(15.))
@@ -746,7 +876,91 @@ impl WhiskyApp {
             vec![self.section("program-list", "程序", rows, cx)],
         )
     }
+    /// Running processes. The demo keeps its static design snapshot; a live
+    /// bottle polls `processes.list` and renders each row in the demo list's
+    /// two-column treatment with a kill action. The form scrolls, so the row
+    /// count is unbounded.
     fn processes(&self, cx: &Context<Self>) -> AnyElement {
+        if self.demo {
+            return self.demo_processes(cx);
+        }
+        let Some(container) = self.selected_container() else {
+            return self.form(
+                "processes-scroll",
+                vec![self.section(
+                    "process-list",
+                    "运行中的进程",
+                    vec![muted("请先在侧边栏选择一个容器。").into_any_element()],
+                    cx,
+                )],
+            );
+        };
+        let page = self
+            .processes
+            .as_ref()
+            .filter(|page| page.container == container);
+        let mut rows: Vec<AnyElement> = vec![self.info("进程名称", "PID")];
+        match page {
+            None => rows.push(self.process_status_row()),
+            Some(page) => {
+                if let Some(reason) = &page.error {
+                    rows.push(muted(reason.clone()).into_any_element());
+                } else if page.table.is_empty() {
+                    if page.loading {
+                        rows.push(self.process_status_row());
+                    } else {
+                        rows.push(self.info("当前没有运行中的进程", "0"));
+                    }
+                }
+                for process in page.table.rows() {
+                    let pid = process.pid;
+                    let value = match &process.memory {
+                        Some(memory) => format!("{pid} · {memory}"),
+                        None => format!("{pid}"),
+                    };
+                    rows.push(
+                        row()
+                            .gap(px(18.))
+                            .py(px(10.))
+                            .items_start()
+                            .child(div().flex_1().min_w_0().child(process.name.clone()))
+                            .child(muted(value).max_w(relative(0.65)))
+                            .child(
+                                Button::new(format!("process-kill:{pid}"))
+                                    .label("结束")
+                                    .ghost()
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.kill_process(pid, cx);
+                                    })),
+                            )
+                            .into_any_element(),
+                    );
+                }
+            }
+        }
+        rows.push(
+            Button::new("refresh-processes")
+                .label("刷新")
+                .on_click(cx.listener(|this, _, _, cx| this.refresh_processes(cx)))
+                .into_any_element(),
+        );
+        rows.push(self.action("stop-processes", "停止所有进程", Command::Notice, cx));
+        self.form(
+            "processes-scroll",
+            vec![self.section("process-list", "运行中的进程", rows, cx)],
+        )
+    }
+
+    fn process_status_row(&self) -> AnyElement {
+        row()
+            .gap(px(8.))
+            .py(px(10.))
+            .child(Spinner::new().with_size(px(14.)))
+            .child(muted("正在读取进程…"))
+            .into_any_element()
+    }
+
+    fn demo_processes(&self, cx: &Context<Self>) -> AnyElement {
         self.form(
             "processes-scroll",
             vec![self.section(

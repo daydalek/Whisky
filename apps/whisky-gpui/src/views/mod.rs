@@ -291,12 +291,12 @@ impl WhiskyApp {
             .child(Input::new(&self.preview.inputs[key]))
             .into_any_element()
     }
-    pub(crate) fn info(&self, label: &'static str, value: impl Into<SharedString>) -> AnyElement {
+    pub(crate) fn info(&self, label: impl Into<SharedString>, value: impl Into<SharedString>) -> AnyElement {
         row()
             .gap(px(18.))
             .py(px(10.))
             .items_start()
-            .child(div().flex_1().min_w_0().child(label))
+            .child(div().flex_1().min_w_0().child(label.into()))
             .child(muted(value).max_w(relative(0.65)))
             .into_any_element()
     }

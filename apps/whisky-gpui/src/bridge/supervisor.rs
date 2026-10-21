@@ -27,9 +27,10 @@ use super::{
     BridgeStatus,
     dto::{
         ActivityDto, BridgeFailureDto, Container, ContainerList, DescribeResponse, EntryDto,
-        EntryList, FoldersDto, HiddenReplyDto, JobDto, JobStartDto, LaunchReplyDto,
-        LibraryPageDto, PreferencesSchemaDto, RUNTIME_METHODS, RUNTIME_SESSION_METHODS,
-        RuntimeEventBatchDto, RuntimeEventPayloadDto, RuntimeSnapshotDto, ScanResultDto,
+        EntryList, FoldersDto, HiddenReplyDto, JobDto, JobStartDto, KillReplyDto, LaunchReplyDto,
+        LibraryPageDto, PreferencesSchemaDto, ProcessDto, ProgramDto, RUNTIME_METHODS,
+        RUNTIME_SESSION_METHODS, RuntimeEventBatchDto, RuntimeEventPayloadDto, RuntimeSnapshotDto,
+        ScanResultDto,
     },
 };
 use crate::config::{self, ConfigField};
@@ -52,6 +53,14 @@ const PARK: Duration = Duration::from_secs(3_600);
 pub(crate) enum EntryMutation {
     Rating,
     Hidden,
+}
+
+/// Which `programs.*` write a `ProgramFailed` event names, so the UI rolls
+/// back exactly the flag that was rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProgramMutation {
+    Pin,
+    Block,
 }
 
 /// One `folders.*` mutation. Every reply is the whole folder payload, so the UI
@@ -210,6 +219,46 @@ pub(crate) enum BridgeEvent {
         container: String,
         reason: String,
     },
+    /// The `programs.list` payload for one container. Also the reply to a
+    /// successful pin/block, so it is always authoritative; `settled` names
+    /// the mutation whose optimistic edit it retires.
+    Programs {
+        container: String,
+        programs: Vec<ProgramDto>,
+        settled: Option<(ProgramMutation, String)>,
+    },
+    ProgramsFailed {
+        container: String,
+        reason: String,
+    },
+    /// A pin/block write was rejected; the UI rolls its optimistic flag back.
+    ProgramFailed {
+        mutation: ProgramMutation,
+        container: String,
+        path: String,
+        reason: String,
+    },
+    /// The `processes.list` snapshot for one container.
+    Processes {
+        container: String,
+        processes: Vec<ProcessDto>,
+    },
+    ProcessesFailed {
+        container: String,
+        reason: String,
+    },
+    /// The `processes.kill` reply. `killed: false` means the helper signalled
+    /// nothing and the UI rolls its optimistic removal back.
+    ProcessKilled {
+        container: String,
+        pid: i64,
+        killed: bool,
+    },
+    ProcessKillFailed {
+        container: String,
+        pid: i64,
+        reason: String,
+    },
     Scan {
         container: String,
         update: ScanUpdate,
@@ -224,6 +273,9 @@ enum Command {
     Launch {
         container: String,
         entry_id: String,
+        /// Launch this executable instead of the entry's default one; the
+        /// program Play path uses it (`RuntimeService.launch`'s `executable`).
+        executable: Option<String>,
     },
     /// The prompt is carried as received so the second call echoes exactly the
     /// token the helper issued, through the same code path the tests cover.
@@ -272,6 +324,23 @@ enum Command {
         value: Option<String>,
         /// A renamed key: removed before the new one is written.
         replacing: Option<String>,
+    },
+    LoadPrograms(String),
+    SetProgramPinned {
+        container: String,
+        path: String,
+        name: String,
+        pinned: bool,
+    },
+    SetProgramBlocked {
+        container: String,
+        path: String,
+        blocked: bool,
+    },
+    LoadProcesses(String),
+    KillProcess {
+        container: String,
+        pid: i64,
     },
     StartScan(String),
     CancelScan,
@@ -339,10 +408,11 @@ impl BridgeSupervisor {
             .send(Command::ConfigureRuntime(container.to_owned()));
     }
 
-    pub(crate) fn launch(&self, container: &str, entry_id: &str) {
+    pub(crate) fn launch(&self, container: &str, entry_id: &str, executable: Option<&str>) {
         let _ = self.commands.send(Command::Launch {
             container: container.to_owned(),
             entry_id: entry_id.to_owned(),
+            executable: executable.map(str::to_owned),
         });
     }
 
@@ -463,6 +533,48 @@ impl BridgeSupervisor {
 
     pub(crate) fn cancel_scan(&self) {
         let _ = self.commands.send(Command::CancelScan);
+    }
+
+    /// `programs.list` for one bottle. The pin/block mutations reply with the
+    /// same payload, so one event type carries all three.
+    pub(crate) fn load_programs(&self, container: &str) {
+        let _ = self
+            .commands
+            .send(Command::LoadPrograms(container.to_owned()));
+    }
+
+    /// `programs.pin`; the reply is the refreshed program list.
+    pub(crate) fn set_program_pinned(&self, container: &str, path: &str, name: &str, pinned: bool) {
+        let _ = self.commands.send(Command::SetProgramPinned {
+            container: container.to_owned(),
+            path: path.to_owned(),
+            name: name.to_owned(),
+            pinned,
+        });
+    }
+
+    /// `programs.block`; the reply is the refreshed program list.
+    pub(crate) fn set_program_blocked(&self, container: &str, path: &str, blocked: bool) {
+        let _ = self.commands.send(Command::SetProgramBlocked {
+            container: container.to_owned(),
+            path: path.to_owned(),
+            blocked,
+        });
+    }
+
+    /// `processes.list` for one bottle. The Processes page polls this.
+    pub(crate) fn load_processes(&self, container: &str) {
+        let _ = self
+            .commands
+            .send(Command::LoadProcesses(container.to_owned()));
+    }
+
+    /// `processes.kill` with the default graceful semantics.
+    pub(crate) fn kill_process(&self, container: &str, pid: i64) {
+        let _ = self.commands.send(Command::KillProcess {
+            container: container.to_owned(),
+            pid,
+        });
     }
 
     pub(crate) fn set_active(&self, active: bool) {
@@ -746,15 +858,23 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
                 }
-                Some(Command::Launch { container, entry_id }) => {
+                Some(Command::Launch {
+                    container,
+                    entry_id,
+                    executable,
+                }) => {
                     // `mode` is omitted: the helper defaults to "standard",
                     // and a terminal launch needs the `.terminal` bit.
-                    let params = json!({ "container": container, "entryID": entry_id });
+                    let mut params = json!({ "container": container, "entryID": entry_id });
+                    if let Some(executable) = &executable {
+                        params["executable"] = json!(executable);
+                    }
                     if let Err(failure) = runtime_launch(
                         &mut client,
                         params,
                         &container,
                         &entry_id,
+                        executable.as_deref(),
                         &events,
                     ) {
                         match failure {
@@ -773,6 +893,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         params,
                         &prompt.container,
                         &prompt.entry_id,
+                        prompt.executable.as_deref(),
                         &events,
                     ) {
                         match failure {
@@ -1034,6 +1155,161 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         Err(CallFailure::Remote(reason)) => emit_event(
                             &events,
                             BridgeEvent::EnvironmentFailed { container, reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::LoadPrograms(container)) => {
+                    match fetch_programs(&mut client, &container) {
+                        Ok(programs) => {
+                            emit_event(
+                                &events,
+                                BridgeEvent::Programs {
+                                    container,
+                                    programs,
+                                    settled: None,
+                                },
+                            );
+                        }
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramsFailed { container, reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::SetProgramPinned {
+                    container,
+                    path,
+                    name,
+                    pinned,
+                }) => {
+                    let params = json!({
+                        "container": container,
+                        "executable": path,
+                        "name": name,
+                        "pinned": pinned,
+                    });
+                    let settled = Some((ProgramMutation::Pin, path.clone()));
+                    match client.call("programs.pin", params).map_err(classify) {
+                        Ok(reply) => match serde_json::from_value::<Vec<ProgramDto>>(reply) {
+                            Ok(programs) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Programs {
+                                        container,
+                                        programs,
+                                        settled,
+                                    },
+                                );
+                            }
+                            Err(error) => emit_event(
+                                &events,
+                                BridgeEvent::ProgramFailed {
+                                    mutation: ProgramMutation::Pin,
+                                    container,
+                                    path,
+                                    reason: format!("invalid programs payload: {error}"),
+                                },
+                            ),
+                        },
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramFailed {
+                                mutation: ProgramMutation::Pin,
+                                container,
+                                path,
+                                reason,
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::SetProgramBlocked {
+                    container,
+                    path,
+                    blocked,
+                }) => {
+                    let params = json!({
+                        "container": container,
+                        "executable": path,
+                        "blocked": blocked,
+                    });
+                    let settled = Some((ProgramMutation::Block, path.clone()));
+                    match client.call("programs.block", params).map_err(classify) {
+                        Ok(reply) => match serde_json::from_value::<Vec<ProgramDto>>(reply) {
+                            Ok(programs) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Programs {
+                                        container,
+                                        programs,
+                                        settled,
+                                    },
+                                );
+                            }
+                            Err(error) => emit_event(
+                                &events,
+                                BridgeEvent::ProgramFailed {
+                                    mutation: ProgramMutation::Block,
+                                    container,
+                                    path,
+                                    reason: format!("invalid programs payload: {error}"),
+                                },
+                            ),
+                        },
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramFailed {
+                                mutation: ProgramMutation::Block,
+                                container,
+                                path,
+                                reason,
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::LoadProcesses(container)) => {
+                    match fetch_processes(&mut client, &container) {
+                        Ok(processes) => {
+                            emit_event(&events, BridgeEvent::Processes { container, processes });
+                        }
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ProcessesFailed { container, reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::KillProcess { container, pid }) => {
+                    let params = json!({ "container": container, "pid": pid });
+                    match client.call("processes.kill", params).map_err(classify) {
+                        Ok(reply) => match serde_json::from_value::<KillReplyDto>(reply) {
+                            Ok(kill) => emit_event(
+                                &events,
+                                BridgeEvent::ProcessKilled {
+                                    container,
+                                    pid,
+                                    killed: kill.killed,
+                                },
+                            ),
+                            Err(error) => emit_event(
+                                &events,
+                                BridgeEvent::ProcessKillFailed {
+                                    container,
+                                    pid,
+                                    reason: format!("invalid kill payload: {error}"),
+                                },
+                            ),
+                        },
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ProcessKillFailed {
+                                container,
+                                pid,
+                                reason,
+                            },
                         ),
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
@@ -1488,12 +1764,13 @@ fn runtime_launch(
     params: serde_json::Value,
     container: &str,
     entry_id: &str,
+    executable: Option<&str>,
     events: &smol::channel::Sender<BridgeEvent>,
 ) -> Result<(), CallFailure> {
     let value = client.call("runtime.launch", params).map_err(classify)?;
     let reply: LaunchReplyDto = serde_json::from_value(value)
         .map_err(|error| CallFailure::Remote(format!("invalid launch payload: {error}")))?;
-    match interpret_launch_reply(container, entry_id, reply) {
+    match interpret_launch_reply(container, entry_id, executable, reply) {
         LaunchOutcome::Accepted => Ok(()),
         LaunchOutcome::Prompt(prompt) => {
             emit_event(events, BridgeEvent::ClipboardPrompt(prompt));
@@ -1619,6 +1896,22 @@ fn fetch_entries(client: &mut Client, container: &str) -> Result<EntryList, Call
         .map_err(classify)?;
     serde_json::from_value(value)
         .map_err(|error| CallFailure::Remote(format!("invalid library payload: {error}")))
+}
+
+fn fetch_programs(client: &mut Client, container: &str) -> Result<Vec<ProgramDto>, CallFailure> {
+    let value = client
+        .call("programs.list", json!({ "container": container }))
+        .map_err(classify)?;
+    serde_json::from_value(value)
+        .map_err(|error| CallFailure::Remote(format!("invalid programs payload: {error}")))
+}
+
+fn fetch_processes(client: &mut Client, container: &str) -> Result<Vec<ProcessDto>, CallFailure> {
+    let value = client
+        .call("processes.list", json!({ "container": container }))
+        .map_err(classify)?;
+    serde_json::from_value(value)
+        .map_err(|error| CallFailure::Remote(format!("invalid processes payload: {error}")))
 }
 
 /// Read the schema and the stored values in one worker slot. `preferences.read`
@@ -2345,6 +2638,206 @@ pub(crate) fn print_folders(bottle: Option<&str>) -> i32 {
         folders.roots.len(),
         folders.assigned_folders.len(),
         folders.excluded_folders.len()
+    );
+    let _ = client.shutdown(false);
+    0
+}
+
+/// `--print-programs [--bottle <name-or-path>]`: the bottle's installed
+/// programs with their pin/block state, as counts plus a five-row sample.
+/// Read-only: it never calls `programs.pin` or `programs.block`.
+pub(crate) fn print_programs(bottle: Option<&str>) -> i32 {
+    let helper = match locate_helper() {
+        Ok(helper) => helper,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            return 1;
+        }
+    };
+    eprintln!("whisky-bridge: helper {}", helper.display());
+    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("whisky-bridge: handshake failed: {error}");
+            return 1;
+        }
+    };
+    let describe = DescribeResponse::from_capabilities(client.capabilities());
+    let missing = describe.missing_methods(&["programs.list"]);
+    if !missing.is_empty() {
+        eprintln!(
+            "whisky-bridge: helper does not advertise program method(s): {}",
+            missing.join(", ")
+        );
+        client.close();
+        return 1;
+    }
+    let containers = match fetch_containers(&mut client) {
+        Ok(containers) => containers,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    let container = match pick_container(&containers, bottle) {
+        Ok(container) => container,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            client.close();
+            return 1;
+        }
+    };
+    let programs = match fetch_programs(&mut client, &container.path) {
+        Ok(programs) => programs,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    let sample: Vec<serde_json::Value> = programs
+        .iter()
+        .take(5)
+        .map(|program| {
+            json!({
+                "name": program.name,
+                "path": program.path,
+                "pinned": program.pinned,
+                "blocked": program.blocked,
+                "available": program.available,
+            })
+        })
+        .collect();
+    let report = json!({
+        "bottle": container.name,
+        "container": container.path,
+        "programCount": programs.len(),
+        "pinnedCount": programs.iter().filter(|program| program.pinned).count(),
+        "blockedCount": programs.iter().filter(|program| program.blocked).count(),
+        "sample": sample,
+    });
+    match serde_json::to_string_pretty(&report) {
+        Ok(payload) => println!("{payload}"),
+        Err(error) => {
+            eprintln!("whisky-bridge: cannot encode the programs report: {error}");
+            client.close();
+            return 1;
+        }
+    }
+    eprintln!(
+        "whisky-bridge: {} program(s), {} pinned, {} blocked",
+        programs.len(),
+        programs.iter().filter(|program| program.pinned).count(),
+        programs.iter().filter(|program| program.blocked).count()
+    );
+    let _ = client.shutdown(false);
+    0
+}
+
+/// A PID that cannot name a real Wine process: the kill probe must never
+/// signal anything, so it picks `Int32::MAX` and only reads the reply.
+const BOGUS_PID: i64 = 2_147_483_647;
+
+/// `--print-processes [--bottle <name-or-path>]`: one `processes.list`
+/// snapshot plus a `processes.kill` probe against [`BOGUS_PID`]. Observation
+/// only: no game is launched and nothing real is ever signalled. An empty
+/// list is a legitimate answer and still exits 0.
+pub(crate) fn print_processes(bottle: Option<&str>) -> i32 {
+    let helper = match locate_helper() {
+        Ok(helper) => helper,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            return 1;
+        }
+    };
+    eprintln!("whisky-bridge: helper {}", helper.display());
+    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("whisky-bridge: handshake failed: {error}");
+            return 1;
+        }
+    };
+    let describe = DescribeResponse::from_capabilities(client.capabilities());
+    let missing = describe.missing_methods(&["processes.list", "processes.kill"]);
+    if !missing.is_empty() {
+        eprintln!(
+            "whisky-bridge: helper does not advertise process method(s): {}",
+            missing.join(", ")
+        );
+        client.close();
+        return 1;
+    }
+    let containers = match fetch_containers(&mut client) {
+        Ok(containers) => containers,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    let container = match pick_container(&containers, bottle) {
+        Ok(container) => container,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            client.close();
+            return 1;
+        }
+    };
+    let processes = match fetch_processes(&mut client, &container.path) {
+        Ok(processes) => processes,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    let sample: Vec<serde_json::Value> = processes
+        .iter()
+        .take(5)
+        .map(|process| {
+            json!({
+                "pid": process.pid,
+                "name": process.name,
+                "memory": process.memory,
+                "kind": process.kind,
+                "source": process.source,
+                "startedAt": process.started_at,
+                "macosPid": process.macos_pid,
+            })
+        })
+        .collect();
+    // The kill probe: a PID no process can hold. `killed: false` is the only
+    // honest answer and proves the reply path without signalling anything.
+    let probe = match client.call(
+        "processes.kill",
+        json!({ "container": container.path, "pid": BOGUS_PID }),
+    ) {
+        Ok(reply) => serde_json::from_value::<KillReplyDto>(reply)
+            .map(|kill| json!({ "pid": BOGUS_PID, "killed": kill.killed }))
+            .unwrap_or_else(|error| json!({ "pid": BOGUS_PID, "error": error.to_string() })),
+        Err(error) => json!({ "pid": BOGUS_PID, "error": classify(error).into_message() }),
+    };
+    let report = json!({
+        "bottle": container.name,
+        "container": container.path,
+        "processCount": processes.len(),
+        "sample": sample,
+        "killProbe": probe,
+    });
+    match serde_json::to_string_pretty(&report) {
+        Ok(payload) => println!("{payload}"),
+        Err(error) => {
+            eprintln!("whisky-bridge: cannot encode the processes report: {error}");
+            client.close();
+            return 1;
+        }
+    }
+    eprintln!(
+        "whisky-bridge: {} process(es); kill probe on bogus pid {}",
+        processes.len(),
+        BOGUS_PID
     );
     let _ = client.shutdown(false);
     0

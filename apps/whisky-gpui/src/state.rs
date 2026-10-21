@@ -9,9 +9,10 @@ use gpui_kit::component::input::InputState;
 use gpui_kit::{prelude::*, *};
 use serde_json::json;
 
-use crate::bridge::dto::FoldersDto;
+use crate::bridge::dto::{FoldersDto, ProgramDto};
 use crate::bridge::{
-    BridgeEvent, BridgeStatus, BridgeSupervisor, EntryMutation, FolderEdit, ScanUpdate,
+    BridgeEvent, BridgeStatus, BridgeSupervisor, EntryMutation, FolderEdit, ProgramMutation,
+    ScanUpdate,
 };
 #[cfg(feature = "visual-test")]
 use crate::library_layout::CardRect;
@@ -21,6 +22,8 @@ use crate::model::{
     BottleVm, Game, demo_bottles, demo_data, demo_requested, empty_library_message,
 };
 use crate::preferences;
+use crate::processes::{self, KillOutcome, ProcessTable};
+use crate::programs::ProgramTable;
 use crate::runtime::{
     ClipboardDecision, ClipboardPrompt, ConfiguredBottles, PendingEdits, PrimaryAction,
     RuntimeAction, RuntimeState, RuntimeTable, primary_action_for,
@@ -68,6 +71,26 @@ impl ScanState {
     pub(crate) fn running(&self) -> bool {
         self.status.is_some_and(|status| !status.is_terminal())
     }
+}
+
+/// `programs.list` for one bottle. Pin/block replies carry the refreshed
+/// list, so the table is always the helper's own view of the truth except
+/// for edits still in flight.
+pub(crate) struct ProgramsPage {
+    pub(crate) container: String,
+    pub(crate) table: ProgramTable,
+    pub(crate) loading: bool,
+    /// A page-level failure; a rejected pin/block uses the toast and rolls
+    /// its own flag back.
+    pub(crate) error: Option<String>,
+}
+
+/// `processes.list` for one bottle, polled while the Processes page is open.
+pub(crate) struct ProcessesPage {
+    pub(crate) container: String,
+    pub(crate) table: ProcessTable,
+    pub(crate) loading: bool,
+    pub(crate) error: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -247,6 +270,14 @@ pub(crate) struct WhiskyApp {
     /// Container environment map keyed by container path.
     pub(crate) environments: BTreeMap<String, BTreeMap<String, String>>,
     pub(crate) environment_error: BTreeMap<String, String>,
+    /// Installed programs for the selected bottle.
+    pub(crate) programs: Option<ProgramsPage>,
+    /// Running processes for the selected bottle, polled while its page is
+    /// open.
+    pub(crate) processes: Option<ProcessesPage>,
+    /// Bumped to stop the process poll loop: a loop exits once the generation
+    /// it captured no longer matches.
+    process_generation: u64,
     /// The one scan job this session follows.
     pub(crate) scan: Option<ScanState>,
     /// Key that "编辑" put in the env inputs; saving with a different name
@@ -332,6 +363,9 @@ impl WhiskyApp {
             folders_error: BTreeMap::new(),
             environments: BTreeMap::new(),
             environment_error: BTreeMap::new(),
+            programs: None,
+            processes: None,
+            process_generation: 0,
             scan: None,
             env_original: None,
             env_clear_on_reply: false,
@@ -397,6 +431,9 @@ impl WhiskyApp {
         self.env_original = None;
         self.env_clear_on_reply = false;
         self.env_fill = None;
+        self.programs = None;
+        self.processes = None;
+        self.stop_process_polling();
         if self.scan.as_ref().is_some_and(ScanState::running) {
             // The job lived in the previous session.
             self.scan = None;
@@ -729,6 +766,131 @@ impl WhiskyApp {
                     self.show_notice(reason, cx);
                 }
             }
+            BridgeEvent::Programs {
+                container,
+                programs,
+                settled,
+            } => {
+                if !self.demo {
+                    if let Some(page) = self
+                        .programs
+                        .as_mut()
+                        .filter(|page| page.container == container)
+                    {
+                        if let Some((mutation, path)) = &settled {
+                            match mutation {
+                                ProgramMutation::Pin => page.table.commit_pin(path),
+                                ProgramMutation::Block => page.table.commit_block(path),
+                            }
+                        }
+                        page.table.apply(programs);
+                        page.loading = false;
+                        page.error = None;
+                    }
+                    if settled.is_some() {
+                        // Pinned programs appear in (and leave) the library:
+                        // `workspace.entries` is built from the pin list.
+                        self.bridge.load_entries(&container);
+                    }
+                }
+            }
+            BridgeEvent::ProgramsFailed { container, reason } => {
+                if !self.demo {
+                    if let Some(page) = self
+                        .programs
+                        .as_mut()
+                        .filter(|page| page.container == container)
+                    {
+                        page.loading = false;
+                        page.error = Some(reason.clone());
+                    }
+                    self.show_notice(reason, cx);
+                }
+            }
+            BridgeEvent::ProgramFailed {
+                mutation,
+                container,
+                path,
+                reason,
+            } => {
+                if !self.demo {
+                    if let Some(page) = self
+                        .programs
+                        .as_mut()
+                        .filter(|page| page.container == container)
+                    {
+                        match mutation {
+                            ProgramMutation::Pin => {
+                                page.table.rollback_pin(&path);
+                            }
+                            ProgramMutation::Block => {
+                                page.table.rollback_block(&path);
+                            }
+                        }
+                    }
+                    self.show_notice(reason, cx);
+                }
+            }
+            BridgeEvent::Processes { container, processes } => {
+                if !self.demo {
+                    if let Some(page) = self
+                        .processes
+                        .as_mut()
+                        .filter(|page| page.container == container)
+                    {
+                        page.table.apply(processes);
+                        page.loading = false;
+                        page.error = None;
+                    }
+                }
+            }
+            BridgeEvent::ProcessesFailed { container, reason } => {
+                if !self.demo {
+                    if let Some(page) = self
+                        .processes
+                        .as_mut()
+                        .filter(|page| page.container == container)
+                    {
+                        page.loading = false;
+                        page.error = Some(reason.clone());
+                    }
+                    self.show_notice(reason, cx);
+                }
+            }
+            BridgeEvent::ProcessKilled {
+                container,
+                pid,
+                killed,
+            } => {
+                if !self.demo {
+                    let restored = self
+                        .processes
+                        .as_mut()
+                        .filter(|page| page.container == container)
+                        .is_some_and(|page| {
+                            matches!(page.table.finish_kill(pid, killed), KillOutcome::Restored(_))
+                        });
+                    if restored {
+                        self.show_notice("未能结束该进程", cx);
+                    }
+                }
+            }
+            BridgeEvent::ProcessKillFailed {
+                container,
+                pid,
+                reason,
+            } => {
+                if !self.demo {
+                    if let Some(page) = self
+                        .processes
+                        .as_mut()
+                        .filter(|page| page.container == container)
+                    {
+                        let _ = page.table.finish_kill(pid, false);
+                    }
+                    self.show_notice(reason, cx);
+                }
+            }
             BridgeEvent::Scan { container, update } => {
                 if !self.demo {
                     match update {
@@ -840,6 +1002,7 @@ impl WhiskyApp {
             PreviewPage::Bottle
         };
         self.preview.history.clear();
+        self.stop_process_polling();
         self.detail_open = false;
         self.hovered = None;
         if let Some(index) = index
@@ -1589,6 +1752,272 @@ impl WhiskyApp {
             .filter(|scan| scan.container == container)
     }
 
+    // MARK: - Programs and processes
+
+    /// Read the program list once per bottle, or again after a failure.
+    pub(crate) fn ensure_programs(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        if let Some(page) = &self.programs
+            && page.container == container
+            && (page.loading || page.error.is_none())
+        {
+            return;
+        }
+        self.programs = Some(ProgramsPage {
+            container: container.clone(),
+            table: ProgramTable::default(),
+            loading: true,
+            error: None,
+        });
+        self.bridge.load_programs(&container);
+        cx.notify();
+    }
+
+    /// Retry a failed `programs.list`.
+    pub(crate) fn reload_programs(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        self.programs = Some(ProgramsPage {
+            container: container.clone(),
+            table: ProgramTable::default(),
+            loading: true,
+            error: None,
+        });
+        self.bridge.load_programs(&container);
+        cx.notify();
+    }
+
+    /// Read the process list once, then let the poll loop keep it fresh.
+    pub(crate) fn ensure_processes(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        if let Some(page) = &self.processes
+            && page.container == container
+            && (page.loading || page.error.is_none())
+        {
+            return;
+        }
+        self.processes = Some(ProcessesPage {
+            container: container.clone(),
+            table: ProcessTable::default(),
+            loading: true,
+            error: None,
+        });
+        self.bridge.load_processes(&container);
+        cx.notify();
+    }
+
+    /// The "刷新" row: re-read now; the poll loop continues afterwards.
+    pub(crate) fn refresh_processes(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        if let Some(page) = self
+            .processes
+            .as_mut()
+            .filter(|page| page.container == container)
+        {
+            page.error = None;
+        } else {
+            self.processes = Some(ProcessesPage {
+                container: container.clone(),
+                table: ProcessTable::default(),
+                loading: true,
+                error: None,
+            });
+        }
+        self.bridge.load_processes(&container);
+        cx.notify();
+    }
+
+    /// Poll `processes.list` while the Processes page is open. The cadence
+    /// follows [`processes::poll_interval`]; the loop exits on the next tick
+    /// after [`Self::stop_process_polling`] bumps the generation.
+    fn start_process_polling(&mut self, cx: &mut Context<Self>) {
+        self.process_generation = self.process_generation.wrapping_add(1);
+        let generation = self.process_generation;
+        cx.spawn(async move |this, cx| {
+            loop {
+                let cadence = {
+                    let mut scheduled = None;
+                    let _ = this.update(cx, |this, _cx| {
+                        if this.process_generation != generation {
+                            return;
+                        }
+                        if let Some(container) = this.selected_container() {
+                            this.bridge.load_processes(&container);
+                        }
+                        let any_alive = this
+                            .processes
+                            .as_ref()
+                            .is_some_and(|page| page.table.any_alive());
+                        scheduled = Some(processes::poll_interval(any_alive));
+                    });
+                    match scheduled {
+                        Some(cadence) => cadence,
+                        None => break,
+                    }
+                };
+                cx.background_executor().timer(cadence).await;
+            }
+        })
+        .detach();
+    }
+
+    /// Stop the poll loop at the end of the current interval (or now, on the
+    /// loop's next generation check).
+    fn stop_process_polling(&mut self) {
+        self.process_generation = self.process_generation.wrapping_add(1);
+    }
+
+    /// Flip a program's pin state. The row changes at once and the reply's
+    /// refreshed list settles it; a rejection rolls the flag back.
+    pub(crate) fn toggle_program_pin(&mut self, path: &str, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        let Some(page) = self
+            .programs
+            .as_mut()
+            .filter(|page| page.container == container)
+        else {
+            return;
+        };
+        let Some(row) = page.table.row(path) else {
+            return;
+        };
+        let pinned = row.pinned;
+        let name = row.name.clone();
+        if !page.table.set_pinned(path, !pinned) {
+            return;
+        }
+        self.bridge
+            .set_program_pinned(&container, path, &name, !pinned);
+        cx.notify();
+    }
+
+    /// Flip a program's block state; same optimistic contract as the pin.
+    pub(crate) fn toggle_program_block(&mut self, path: &str, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        let Some(page) = self
+            .programs
+            .as_mut()
+            .filter(|page| page.container == container)
+        else {
+            return;
+        };
+        let Some(row) = page.table.row(path) else {
+            return;
+        };
+        let blocked = row.blocked;
+        if !page.table.set_blocked(path, !blocked) {
+            return;
+        }
+        self.bridge.set_program_blocked(&container, path, !blocked);
+        cx.notify();
+    }
+
+    /// The library entry a program launches through, when one exists.
+    ///
+    /// Pinned programs gain an entry named `pinned:<path>`
+    /// (`ContainerProgram.entry`); folder and store entries match by their
+    /// launch executable. A program with no entry cannot be started through
+    /// `runtime.launch`, which resolves an `entryID`, so those rows simply
+    /// offer no Play.
+    pub(crate) fn program_entry_id(
+        &self,
+        container: &str,
+        program: &ProgramDto,
+    ) -> Option<String> {
+        let pinned_id = program.entry_id();
+        let executable = std::path::Path::new(&program.path);
+        self.bottle_entries.get(container)?.iter().find_map(|game| {
+            (game.id == pinned_id || game.executable.as_deref() == Some(executable))
+                .then(|| game.id.clone())
+        })
+    }
+
+    /// Play a program through its library entry. The executable parameter
+    /// names exactly what to run, matching `RuntimeService.launch`'s
+    /// `executable` override.
+    pub(crate) fn play_program(&mut self, path: &str, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        let entry_id = self
+            .programs
+            .as_ref()
+            .filter(|page| page.container == container)
+            .and_then(|page| page.table.row(path))
+            .and_then(|program| self.program_entry_id(&container, program));
+        let Some(entry_id) = entry_id else {
+            self.show_notice("该程序没有可启动的游戏库条目", cx);
+            return;
+        };
+        // Configure the bottle lazily, exactly like a card's Play.
+        if self.configured.ensure(&container) {
+            self.bridge.configure_runtime(&container);
+        }
+        self.runtime.set_state(&entry_id, RuntimeState::Preparing);
+        self.bridge.launch(&container, &entry_id, Some(path));
+        cx.notify();
+    }
+
+    /// Kill one process. The row leaves the list at once; the reply either
+    /// settles the removal or rolls it back with the reason on the toast.
+    pub(crate) fn kill_process(&mut self, pid: i64, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        let Some(page) = self
+            .processes
+            .as_mut()
+            .filter(|page| page.container == container)
+        else {
+            return;
+        };
+        if !page.table.begin_kill(pid) {
+            return;
+        }
+        self.bridge.kill_process(&container, pid);
+        cx.notify();
+    }
+
     /// Container path that owns this card's entry.
     fn bottle_path(&self, index: usize) -> Option<String> {
         self.game(index)
@@ -1649,7 +2078,7 @@ impl WhiskyApp {
                     self.bridge.configure_runtime(&container);
                 }
                 self.runtime.set_state(&entry_id, RuntimeState::Preparing);
-                self.bridge.launch(&container, &entry_id);
+                self.bridge.launch(&container, &entry_id, None);
             }
             RuntimeAction::Cancel => {
                 // Cancel is only accepted while preparing/launching; showing the
@@ -1733,10 +2162,30 @@ impl WhiskyApp {
         self.detail_open = false;
         self.preview.sheet = None;
         self.hovered = None;
-        if page == PreviewPage::ConfigureBottle {
-            self.ensure_configuration(cx);
-        }
+        self.apply_page_loads(cx);
         cx.notify();
+    }
+
+    /// The page-back button: pop history without pushing onto it.
+    pub(crate) fn navigate_back(&mut self, cx: &mut Context<Self>) {
+        self.preview.page = self.preview.history.pop().unwrap_or(PreviewPage::Bottle);
+        self.apply_page_loads(cx);
+        cx.notify();
+    }
+
+    /// Load what the new page shows and keep the process poll in step with
+    /// the Processes page's visibility.
+    fn apply_page_loads(&mut self, cx: &mut Context<Self>) {
+        self.stop_process_polling();
+        match self.preview.page {
+            PreviewPage::ConfigureBottle => self.ensure_configuration(cx),
+            PreviewPage::Programs => self.ensure_programs(cx),
+            PreviewPage::Processes => {
+                self.ensure_processes(cx);
+                self.start_process_polling(cx);
+            }
+            _ => {}
+        }
     }
     pub(crate) fn open_preview_sheet(&mut self, sheet: PreviewSheet, cx: &mut Context<Self>) {
         if let Some(previous) = self.preview.sheet {

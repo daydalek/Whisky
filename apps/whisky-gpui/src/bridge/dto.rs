@@ -265,6 +265,61 @@ impl FoldersDto {
     }
 }
 
+/// One `programs.list` record (`ContainerProgram` in `ContainerPrograms.swift`).
+/// `pinned` programs are also library entries; `blocked` programs are hidden
+/// from the launcher path but stay listed so the block can be undone.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProgramDto {
+    pub(crate) path: String,
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) pinned: bool,
+    #[serde(default)]
+    pub(crate) blocked: bool,
+    #[serde(default)]
+    pub(crate) available: bool,
+}
+
+impl ProgramDto {
+    /// The library entry a pinned program gains (`ContainerProgram.entry`).
+    pub(crate) fn entry_id(&self) -> String {
+        format!("pinned:{}", self.path)
+    }
+}
+
+/// One `processes.list` row (`ProcessRecord` in `ProcessService.swift`).
+///
+/// Every field the snapshot cannot compute honestly is optional and omitted by
+/// the helper when unknown: `startedAt` and `macosPid` only exist for
+/// registry-tracked rows, and `memory` is the tasklist display string, not a
+/// byte count.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProcessDto {
+    pub(crate) pid: i64,
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) memory: Option<String>,
+    #[serde(default)]
+    pub(crate) kind: Option<String>,
+    #[serde(default)]
+    pub(crate) source: Option<String>,
+    /// Unix seconds, matching the bridge's `dateUnit`.
+    #[serde(default)]
+    pub(crate) started_at: Option<f64>,
+    #[serde(default)]
+    pub(crate) macos_pid: Option<i64>,
+}
+
+/// `processes.kill` reply. `killed: false` means the snapshot did not contain
+/// the PID and nothing was signalled; it is a reply, not an error.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct KillReplyDto {
+    #[serde(default)]
+    pub(crate) killed: bool,
+}
+
 /// `library.scan` reply: a `BridgeJobStore` handle.
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct JobStartDto {
@@ -917,6 +972,86 @@ mod tests {
         );
         assert_eq!(folders.executable_for("/Users/example/game/Hollow"), None);
         assert!(folders.automatic_metadata);
+    }
+
+    /// Shape of `programs.list` for the recorded `galgame` bottle: a pinned
+    /// program with its display name and a discovered one with only the fields
+    /// `ContainerProgram` always carries.
+    const PROGRAMS_FIXTURE: &str = r#"[
+        {
+            "path": "/Users/example/game/Sample/sample.exe",
+            "name": "Sample",
+            "pinned": true,
+            "blocked": false,
+            "available": true,
+            "futureField": 3
+        },
+        {"path": "/Users/example/game/Hollow/hollow.exe", "name": "hollow"}
+    ]"#;
+
+    #[test]
+    fn recorded_programs_payload_decodes_and_tolerates_missing_optional_flags() {
+        let programs: Vec<ProgramDto> = serde_json::from_str(PROGRAMS_FIXTURE).expect("programs");
+        assert_eq!(programs.len(), 2);
+        assert_eq!(programs[0].entry_id(), "pinned:/Users/example/game/Sample/sample.exe");
+        assert!(programs[0].pinned);
+        assert!(!programs[0].blocked);
+        assert!(programs[0].available);
+        // A discovered program carries no flags at all; they default off.
+        assert!(!programs[1].pinned);
+        assert!(!programs[1].blocked);
+        assert!(!programs[1].available);
+    }
+
+    #[test]
+    fn an_empty_programs_payload_is_an_empty_list() {
+        let programs: Vec<ProgramDto> = serde_json::from_str("[]").unwrap();
+        assert!(programs.is_empty());
+    }
+
+    /// Shape of `processes.list`: the registry-tracked row carries everything
+    /// the snapshot pool can enrich; the untracked row only the tasklist core.
+    const PROCESSES_FIXTURE: &str = r#"[
+        {
+            "pid": 42,
+            "name": "game.exe",
+            "memory": "24 K",
+            "kind": "app",
+            "source": "whisky",
+            "startedAt": 1700000000,
+            "macosPid": 7331,
+            "futureField": {"ignored": true}
+        },
+        {"pid": 84, "name": "services.exe"}
+    ]"#;
+
+    #[test]
+    fn recorded_processes_payload_decodes_and_tolerates_missing_optionals() {
+        let processes: Vec<ProcessDto> = serde_json::from_str(PROCESSES_FIXTURE).expect("processes");
+        assert_eq!(processes.len(), 2);
+        let game = &processes[0];
+        assert_eq!(game.pid, 42);
+        assert_eq!(game.name, "game.exe");
+        assert_eq!(game.memory.as_deref(), Some("24 K"));
+        assert_eq!(game.kind.as_deref(), Some("app"));
+        assert_eq!(game.source.as_deref(), Some("whisky"));
+        assert_eq!(game.started_at, Some(1_700_000_000.0));
+        assert_eq!(game.macos_pid, Some(7_331));
+        // A tasklist-only row has none of the enrichment fields.
+        let service = &processes[1];
+        assert_eq!(service.pid, 84);
+        assert_eq!(service.memory, None);
+        assert_eq!(service.kind, None);
+        assert_eq!(service.started_at, None);
+        assert_eq!(service.macos_pid, None);
+    }
+
+    #[test]
+    fn a_kill_reply_reports_the_boolean_and_defaults_to_false() {
+        let reply: KillReplyDto = serde_json::from_str(r#"{"killed": true}"#).expect("reply");
+        assert!(reply.killed);
+        let reply: KillReplyDto = serde_json::from_str("{}").expect("reply");
+        assert!(!reply.killed);
     }
 
     #[test]
