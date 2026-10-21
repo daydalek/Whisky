@@ -23,7 +23,7 @@ import WhiskyCore
 /// Portable bridge adapter over `LibraryRuntimeController` and `LaunchInteractionBroker`.
 @MainActor
 public final class RuntimeService {
-    public typealias ClipboardPolicySnapshot = (
+    public typealias ClipboardPolicySnapshot = ( // swiftlint:disable:this large_tuple
         launcher: LauncherType?,
         policy: ClipboardPolicy,
         threshold: Int

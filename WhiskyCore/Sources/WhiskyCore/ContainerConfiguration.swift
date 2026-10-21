@@ -37,6 +37,7 @@ public struct ConfigurationSection: Identifiable, Sendable {
     }
 }
 
+// swiftlint:disable:next type_body_length
 public enum ContainerConfiguration {
     public static let wineConfigurationFields: Set<String> = [
         "windowsVersion",
@@ -344,7 +345,7 @@ public enum ContainerConfiguration {
 }
 
 public extension ConfigurationFile {
-    func clipboardPreflightConfiguration() throws -> (
+    func clipboardPreflightConfiguration() throws -> ( // swiftlint:disable:this large_tuple
         launcher: LauncherType?,
         policy: ClipboardPolicy,
         threshold: Int

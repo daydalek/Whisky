@@ -88,6 +88,7 @@ private final class TestClipboard: ClipboardAccess {
 
 @Suite("Portable runtime, folders and Linux bridge services")
 struct RuntimeAndLinuxBridgeTests {
+    // swiftlint:disable:next function_body_length
     @Test @MainActor func portableRuntimeServiceDrivesLaunchInteractionAndEvents() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("whisky-rt-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }

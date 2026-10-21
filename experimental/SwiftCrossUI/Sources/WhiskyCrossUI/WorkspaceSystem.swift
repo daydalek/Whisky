@@ -37,7 +37,9 @@ enum WorkspaceSystem {
         guard NSWorkspace.shared.open(url) else { throw CocoaError(.fileReadUnsupportedScheme) }
         #elseif os(Linux)
         guard let opener = locateXDGOpen() else {
-            throw CocoaError(.fileNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "xdg-open is unavailable on this host"])
+            throw CocoaError(.fileNoSuchFile, userInfo: [
+                NSLocalizedDescriptionKey: "xdg-open is unavailable on this host"
+            ])
         }
         let process = Process()
         process.executableURL = opener

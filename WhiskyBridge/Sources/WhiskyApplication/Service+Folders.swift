@@ -44,18 +44,7 @@ extension ApplicationService {
                 library.initializedRoots.remove(key)
             }
         case "folders.assign":
-            let folder = try params.path("path")
-            let assigned = params["assigned"] == nil ? true : try params.flag("assigned")
-            if assigned {
-                _ = try Self.validatedDirectory(folder)
-            }
-            let key = FolderGameLibrary.key(for: folder, bottleURL: container)
-            return try Self.mutateFolders(in: container) { library in
-                library.assignedFolders.removeAll { $0 == key }
-                if assigned {
-                    library.assignedFolders.append(key)
-                }
-            }
+            return try assignFolder(params, container: container)
         case "folders.exclude":
             let key = FolderGameLibrary.key(for: try params.path("path"), bottleURL: container)
             let excluded = try params.flag("excluded")
@@ -70,6 +59,21 @@ extension ApplicationService {
             return try setFolderExecutable(params, container: container)
         default:
             return try await nativeCall(method, params: params)
+        }
+    }
+
+    private func assignFolder(_ params: [String: JSONValue], container: URL) throws -> JSONValue {
+        let folder = try params.path("path")
+        let assigned = params["assigned"] == nil ? true : try params.flag("assigned")
+        if assigned {
+            _ = try Self.validatedDirectory(folder)
+        }
+        let key = FolderGameLibrary.key(for: folder, bottleURL: container)
+        return try Self.mutateFolders(in: container) { library in
+            library.assignedFolders.removeAll { $0 == key }
+            if assigned {
+                library.assignedFolders.append(key)
+            }
         }
     }
 

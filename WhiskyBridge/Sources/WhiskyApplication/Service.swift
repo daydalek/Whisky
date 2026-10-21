@@ -102,22 +102,17 @@ public final class ApplicationService {
     }
 
     public func call(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
-        switch method.prefix(while: { $0 != "." }) {
+        let scope = method.prefix(while: { $0 != "." })
+        switch scope {
         case "bridge": return try await bridgeCall(method, params: params)
-        case "preferences": return try await preferencesCall(method, params: params)
-        case "jobs": return try await jobsCall(method, params: params)
         case "library", "workspace": return try await libraryCall(method, params: params)
         case "folders": return try await foldersCall(method, params: params)
-        case "entry": return try await entryCall(method, params: params)
-        case "configuration": return try await configurationCall(method, params: params)
-        case "programs": return try await programCall(method, params: params)
-        case "environment": return try await environmentCall(method, params: params)
-        case "runtime":
-            if let runtime {
-                return try await runtime.call(method, params: params, workspace: workspace)
+        case "runtime": return try await runtimeCall(method, params: params)
+        default:
+            if let result = try await scopedCall(scope, method: method, params: params) {
+                return result
             }
             return try await nativeCall(method, params: params)
-        default: return try await nativeCall(method, params: params)
         }
     }
 
@@ -133,6 +128,29 @@ public final class ApplicationService {
 // MARK: - Method dispatch
 
 extension ApplicationService {
+    private func scopedCall(
+        _ scope: Substring,
+        method: String,
+        params: [String: JSONValue]
+    ) async throws -> JSONValue? {
+        switch scope {
+        case "preferences": return try await preferencesCall(method, params: params)
+        case "jobs": return try await jobsCall(method, params: params)
+        case "entry": return try await entryCall(method, params: params)
+        case "configuration": return try await configurationCall(method, params: params)
+        case "programs": return try await programCall(method, params: params)
+        case "environment": return try await environmentCall(method, params: params)
+        default: return nil
+        }
+    }
+
+    private func runtimeCall(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
+        if let runtime {
+            return try await runtime.call(method, params: params, workspace: workspace)
+        }
+        return try await nativeCall(method, params: params)
+    }
+
     private func bridgeCall(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
         switch method {
         case "bridge.describe":
