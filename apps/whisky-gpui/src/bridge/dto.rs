@@ -404,6 +404,9 @@ pub(crate) struct EntryDto {
     /// its folder, which cannot be run.
     #[serde(default)]
     pub(crate) executable: Option<String>,
+    /// Where the entry came from (`pinned`, `steam`, `folder`).
+    #[serde(default)]
+    pub(crate) source: Option<String>,
     /// A folder entry with no executable chosen yet. Play asks for a file
     /// before it can launch.
     #[serde(default)]
@@ -527,6 +530,7 @@ impl EntryDto {
             play_time: self.activity.play_time(),
             last_played: self.activity.last_played(),
             executable: self.executable.as_deref().map(expand_path),
+            is_folder: self.source.as_deref() == Some("folder"),
             needs_executable: self.needs_executable,
             container: self.container.unwrap_or_default(),
             last_session_ended_at: self.activity.last_session_ended_at(),
@@ -849,6 +853,7 @@ mod tests {
         .expect("folder entry without an executable");
         let game = pending.clone().into_game(1);
         assert!(game.needs_executable);
+        assert!(game.is_folder);
         assert_eq!(game.executable.as_deref(), Some(Path::new("/Games/Sample")));
 
         let resolved: EntryDto = serde_json::from_str(
@@ -865,7 +870,10 @@ mod tests {
                 "source":"pinned","executable":"/Games/Sample/sample.exe"}"#,
         )
         .expect("entry without the flag");
-        assert!(!legacy.into_game(1).needs_executable);
+        let legacy = legacy.into_game(1);
+        assert!(!legacy.needs_executable);
+        // A pin names its own executable, so the card offers no choice.
+        assert!(!legacy.is_folder);
     }
 
     #[test]
@@ -900,6 +908,7 @@ mod tests {
             container: None,
             executable: None,
             needs_executable: false,
+            source: None,
             icon: Some("/definitely/missing-icon.png".into()),
             hidden: false,
             metadata: None,

@@ -245,6 +245,7 @@ mod tests {
             play_time: None,
             last_played: None,
             executable: None,
+            is_folder: false,
             needs_executable: false,
             container: container.into(),
             last_session_ended_at: None,

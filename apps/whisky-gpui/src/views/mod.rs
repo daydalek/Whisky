@@ -25,6 +25,8 @@ pub(crate) enum Command {
     Configure(usize),
     /// Run the card's primary action (launch, cancel, or stop).
     Runtime(usize),
+    /// Name the executable a folder entry starts, without running it.
+    Executable(usize),
     Toggle(&'static str),
     Sort(usize),
     Reorder,
@@ -162,8 +164,10 @@ impl WhiskyApp {
         index: usize,
         cx: &Context<Self>,
     ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
-        let hidden = self.game(index).is_some_and(|game| game.hidden);
-        let items = vec![
+        let game = self.game(index);
+        let hidden = game.is_some_and(|game| game.hidden);
+        let is_folder = game.is_some_and(|game| game.is_folder);
+        let mut items = vec![
             self.menu_item("运行", Command::Runtime(index), cx),
             MenuEntry::separator(cx.entity().downgrade()),
             self.menu_item(
@@ -181,6 +185,12 @@ impl WhiskyApp {
             MenuEntry::separator(cx.entity().downgrade()),
             self.menu_item("配置容器", Command::Configure(index), cx),
         ];
+        // Only a folder entry runs something the user picked; a pin or a Steam
+        // app already names its own executable.
+        if is_folder {
+            items.push(MenuEntry::separator(cx.entity().downgrade()));
+            items.push(self.menu_item("选择启动程序…", Command::Executable(index), cx));
+        }
         // `entry.move` is not exposed by the bridge, so there is deliberately
         // no "target bottle" submenu: a local-only move would be a lie. It is
         // recorded as an M3 gap instead.

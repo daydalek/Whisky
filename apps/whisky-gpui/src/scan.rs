@@ -167,6 +167,7 @@ mod tests {
             container: None,
             executable: None,
             needs_executable: false,
+            source: None,
             icon: None,
             hidden: false,
             metadata: None,

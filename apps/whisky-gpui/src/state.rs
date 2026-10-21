@@ -1317,6 +1317,13 @@ impl WhiskyApp {
                     self.perform_runtime_action(i, action, cx);
                 }
             }
+            Command::Executable(i) => {
+                if self.demo {
+                    self.show_notice(DEMO_NOTICE, cx);
+                } else if let Some(container) = self.bottle_path(i) {
+                    self.ask_for_executable(i, container, false, cx);
+                }
+            }
         }
         cx.notify();
     }
@@ -2000,12 +2007,19 @@ impl WhiskyApp {
         self.game(index).is_some_and(|game| game.needs_executable)
     }
 
-    /// Ask for the executable, record it through `folders.executable`, then
-    /// launch it — the order `LibraryModel` uses before starting a folder game.
+    /// Ask for the executable and record it through `folders.executable`, the
+    /// way `LibraryModel` does before starting a folder game. `launch` runs it
+    /// straight away, which is what Play does; the card menu records only.
     ///
-    /// The helper resolves an already-recorded executable on its own, so this
-    /// path only runs for a folder that has none.
-    fn ask_for_executable(&mut self, index: usize, container: String, cx: &mut Context<Self>) {
+    /// The helper resolves an already-recorded executable on its own, so Play
+    /// only reaches this for a folder that has none.
+    fn ask_for_executable(
+        &mut self,
+        index: usize,
+        container: String,
+        launch: bool,
+        cx: &mut Context<Self>,
+    ) {
         let details = self
             .game(index)
             .map(|game| (game.executable.clone(), game.id.clone(), game.title.clone()));
@@ -2041,8 +2055,10 @@ impl WhiskyApp {
                     game.needs_executable = false;
                     game.executable = Some(std::path::PathBuf::from(&executable));
                 });
-                this.runtime.set_state(&entry_id, RuntimeState::Preparing);
-                this.bridge.launch(&container, &entry_id, Some(&executable));
+                if launch {
+                    this.runtime.set_state(&entry_id, RuntimeState::Preparing);
+                    this.bridge.launch(&container, &entry_id, Some(&executable));
+                }
                 cx.notify();
             });
         })
@@ -2133,7 +2149,7 @@ impl WhiskyApp {
                     self.bridge.configure_runtime(&container);
                 }
                 if self.needs_executable(index) {
-                    self.ask_for_executable(index, container, cx);
+                    self.ask_for_executable(index, container, true, cx);
                     return;
                 }
                 self.runtime.set_state(&entry_id, RuntimeState::Preparing);

@@ -31,6 +31,9 @@ pub(crate) struct Game {
     /// Launching executable, when the entry is a program rather than a Store app.
     /// A folder entry holds its folder here, which cannot be run.
     pub(crate) executable: Option<PathBuf>,
+    /// A scanned folder rather than a pinned file or a Steam app. Its
+    /// executable is a choice the user makes, so the card offers one.
+    pub(crate) is_folder: bool,
     /// A folder entry that has no executable chosen yet: Play must ask for one.
     pub(crate) needs_executable: bool,
     /// Absolute path of the bottle this entry was read from. Entries are keyed
@@ -57,6 +60,7 @@ impl Game {
             play_time: None,
             last_played: None,
             executable: None,
+            is_folder: false,
             needs_executable: false,
             container: String::new(),
             last_session_ended_at: None,
