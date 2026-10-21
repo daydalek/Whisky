@@ -20,6 +20,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import WhiskyCore
 import WhiskyKit
 
 enum LibraryDisplayMode: String, CaseIterable, Identifiable {
@@ -44,6 +45,7 @@ enum LibraryDisplayMode: String, CaseIterable, Identifiable {
 /// programs and a future launcher needs no change here.
 struct LibraryView: View {
     @EnvironmentObject var bottleVM: BottleVM
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var selectedBottle: URL?
     /// Toggled by the toolbar's refresh button. Folded into the reload trigger
     /// because the bottle list is unchanged by a refresh, so watching only that
@@ -60,16 +62,22 @@ struct LibraryView: View {
 
     @StateObject private var model = LibraryModel()
     @State private var search: String = ""
+    @State private var appliedSearch = ""
+    @State private var scrollAnchor: String?
+    @AppStorage("libraryRefreshAfterExit") private var refreshAfterExit = true
     @State private var detailRow: LibraryRow?
     @State private var settingsProgram: Program?
     @State private var steamSettingsRow: LibraryRow?
     @State private var metadata: [String: GameMetadata] = [:]
     @State private var metadataRevision = 0
     @State private var coverAspectRatios: [String: Double] = [:]
+    @State private var coverLayoutCache = LibraryCoverGrid.Cache()
+    @State private var aspectBatch = LibraryAspectBatch()
     @State private var metadataError: String?
     @State private var showScanSettings = false
     @State private var manualSync = false
     @State private var syncing = false
+    @State private var metadataLoadGeneration = 0
     @State private var ambientController = LibraryAmbientController()
     @AppStorage("libraryMetadataEnabledSources") private var enabledSourceIDs = "bangumi,vndb,steam,ymgal"
 
@@ -79,11 +87,11 @@ struct LibraryView: View {
 
     private var visible: [LibraryRow] {
         let rows = model.rows.filter { showHiddenGames || !model.isHidden($0.item) }
-        guard !search.isEmpty else { return rows }
+        guard !appliedSearch.isEmpty else { return rows }
         return rows.filter { row in
-            row.item.name.localizedCaseInsensitiveContains(search)
+            row.item.name.localizedCaseInsensitiveContains(appliedSearch)
                 || metadata[row.id]?.matchingTitles.contains {
-                    $0.localizedCaseInsensitiveContains(search)
+                    $0.localizedCaseInsensitiveContains(appliedSearch)
                 } == true
         }
     }
@@ -103,6 +111,11 @@ struct LibraryView: View {
                 grid
             }
         }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: displayMode)
+        .task(id: search) {
+            do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+            appliedSearch = search
+        }
         .background {
             LibraryAmbientBackdrop(controller: ambientController)
         }
@@ -113,7 +126,7 @@ struct LibraryView: View {
         .task(id: reloadTrigger) {
             await model.reload(bottles: bottles)
         }
-        .task(id: model.rows.map(\.id).joined(separator: "\u{1F}") + "\(metadataRevision)") {
+        .task(id: "\(model.catalogueRevision):\(metadataRevision)") {
             await loadMetadata()
         }
         .sheet(item: $detailRow) { row in
@@ -130,6 +143,7 @@ struct LibraryView: View {
                 },
                 didSave: { metadataRevision += 1 }
             )
+            .onDisappear { Task { await model.refreshActivity(entryIDs: [row.id]) } }
         }
         .sheet(isPresented: $showScanSettings) {
             LibraryFolderSettings(bottles: bottles, initialBottleURL: selectedBottle) { refresh.toggle() }
@@ -155,12 +169,28 @@ struct LibraryView: View {
             }
         }
         .onChange(of: sort, initial: true) {
-            model.sort = displayMode == .timeline ? sort : .name
+            model.configurePresentation(
+                sort: displayMode == .timeline ? sort : .name,
+                groupsLaunchers: displayMode != .timeline
+            )
         }
         .onChange(of: displayMode, initial: true) {
-            model.groupsLaunchers = displayMode != .timeline
-            model.sort = displayMode == .timeline ? sort : .name
+            model.configurePresentation(
+                sort: displayMode == .timeline ? sort : .name,
+                groupsLaunchers: displayMode != .timeline
+            )
             coverMode = displayMode != .classic
+        }
+        .onChange(of: model.completionRevision) {
+            guard displayMode == .timeline, sort == .recent, let first = visible.first,
+                  model.completedEntryIDs.contains(first.id)
+            else { return }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.28)) { scrollAnchor = first.id }
+        }
+        .onChange(of: refreshAfterExit) {
+            if refreshAfterExit {
+                Task { await model.refreshActivity() }
+            }
         }
         .onChange(of: coverMode) {
             if !coverMode, displayMode != .classic {
@@ -211,6 +241,8 @@ struct LibraryView: View {
         }
         ToolbarItem(placement: .automatic) {
             Menu {
+                Toggle("settings.library.refreshAfterExit", isOn: $refreshAfterExit)
+                Divider()
                 if displayMode == .timeline {
                     Picker("library.sort", selection: $sort) {
                         ForEach(LibrarySort.allCases) { option in
@@ -266,43 +298,43 @@ struct LibraryView: View {
     private var grid: some View {
         switch displayMode {
         case .timeline:
-            timelineView
+            timelineView.transition(.opacity)
         case .covers:
             if mixedCoverLayout {
-                mixedCoverGrid
+                mixedCoverGrid.transition(.opacity)
             } else {
-                uniformGrid
+                uniformGrid.transition(.opacity)
             }
         case .classic:
-            uniformGrid
+            uniformGrid.transition(.opacity)
         }
     }
 
     private var timelineView: some View {
-        ScrollView {
+        let entries = visible
+        return ScrollView {
             LazyVStack(alignment: isSidebarCollapsed ? .center : .leading, spacing: 0) {
-                ForEach(Array(visible.enumerated()), id: \.element.id) { index, row in
-                    let showsDate = sort == .recent && shouldShowDateHeader(at: index, in: visible)
+                ForEach(Array(entries.enumerated()), id: \.element.id) { index, row in
+                    let showsDate = sort == .recent && shouldShowDateHeader(at: index, in: entries)
                     LibraryTimelineRow(
                         item: row.item,
                         metadata: metadata[row.id],
                         bottleName: row.bottleName,
-                        lastPlayed: row.lastPlayed,
+                        lastSessionEndedAt: row.lastSessionEndedAt,
                         state: model.state(for: row.item),
+                        activity: row.activity,
                         showsDateHeader: showsDate,
                         groupTitle: sort == .bottle && (index == 0
-                            || visible[index - 1].item.bottleURL != row.item.bottleURL)
+                            || entries[index - 1].item.bottleURL != row.item.bottleURL)
                             ? (row.bottleName ?? bottles.first { $0.url == row.item.bottleURL }?.settings.name
                                 ?? row.item.bottleURL.lastPathComponent) : nil,
                         isFirstEntry: index == 0,
-                        isLastEntry: index == visible.count - 1,
+                        isLastEntry: index == entries.count - 1,
                         details: { detailRow = row },
                         launch: { model.launch(row, bottles: bottles) },
                         coverAspectRatio: coverAspectRatios[row.id],
                         coverAspectRatioDidLoad: { aspect in
-                            if coverAspectRatios[row.id] != aspect {
-                                coverAspectRatios[row.id] = aspect
-                            }
+                            recordAspect(aspect, for: row.id)
                         },
                         onHoverCoverChanged: { hovering, url, dir in
                             updateHoveredCover(hovering: hovering, row: row, url: url, directory: dir)
@@ -314,18 +346,21 @@ struct LibraryView: View {
                     .contextMenu { menu(for: row) }
                 }
             }
+            .scrollTargetLayout()
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: entries.map(\.id))
             .frame(maxWidth: isSidebarCollapsed ? 1_120 : .infinity, alignment: isSidebarCollapsed ? .center : .leading)
             .padding(.horizontal, isSidebarCollapsed ? 32 : 20)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: isSidebarCollapsed ? .center : .leading)
-            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isSidebarCollapsed)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isSidebarCollapsed)
         }
+        .scrollPosition(id: $scrollAnchor, anchor: .top)
     }
 
     private func shouldShowDateHeader(at index: Int, in list: [LibraryRow]) -> Bool {
         guard index > 0 else { return true }
-        let current = list[index].lastPlayed
-        let previous = list[index - 1].lastPlayed
+        let current = list[index].lastSessionEndedAt
+        let previous = list[index - 1].lastSessionEndedAt
         switch (current, previous) {
         case let (.some(currentDate), .some(previousDate)):
             return !Calendar.current.isDate(currentDate, inSameDayAs: previousDate)
@@ -339,7 +374,7 @@ struct LibraryView: View {
     private var mixedCoverGrid: some View {
         GeometryReader { geometry in
             let entries = visible
-            let layout = LibraryCoverGrid(
+            let layout = coverLayoutCache.layout(
                 width: max(geometry.size.width - 36, 1),
                 landscape: entries.map { (coverAspectRatios[$0.id] ?? 0) > 1 }
             )
@@ -356,25 +391,29 @@ struct LibraryView: View {
                                     coverHeight: layout.coverHeight,
                                     adaptToFrame: true,
                                     coverAspectRatioDidLoad: { aspect in
-                                        if coverAspectRatios[row.id] != aspect {
-                                            coverAspectRatios[row.id] = aspect
-                                        }
+                                        recordAspect(aspect, for: row.id)
                                     },
                                     onHoverCoverChanged: { hovering, url, dir in
                                         updateHoveredCover(hovering: hovering, row: row, url: url, directory: dir)
                                     },
                                     coverRevision: metadataRevision
                                 )
+                                .id(row.id)
+                                .transition(.opacity)
                                 .frame(width: layout.width(for: index))
                                 .modifier(LibraryHiddenBadge(hidden: model.isHidden(row.item)))
                                 .contextMenu { menu(for: row) }
                             }
                         }
+                        .id(entries[indices[0]].id)
                     }
                 }
+                .scrollTargetLayout()
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: entries.map(\.id))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(18)
             }
+            .scrollPosition(id: $scrollAnchor, anchor: .top)
         }
     }
 
@@ -407,7 +446,7 @@ struct LibraryView: View {
                             LibraryCard(
                                 item: row.item,
                                 bottleName: row.bottleName,
-                                lastPlayed: row.lastPlayed,
+                                lastPlayed: row.lastSessionEndedAt,
                                 state: model.state(for: row.item),
                                 launch: { model.launch(row, bottles: bottles) }
                             )
@@ -417,7 +456,17 @@ struct LibraryView: View {
                     .contextMenu { menu(for: row) }
                 }
             }
+            .scrollTargetLayout()
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: visible.map(\.id))
             .padding(18)
+        }
+        .scrollPosition(id: $scrollAnchor, anchor: .top)
+    }
+
+    private func recordAspect(_ aspect: Double, for id: String) {
+        guard coverAspectRatios[id] != aspect else { return }
+        aspectBatch.submit(id: id, aspect: aspect) { updates in
+            coverAspectRatios.merge(updates) { _, new in new }
         }
     }
 
@@ -426,7 +475,8 @@ struct LibraryView: View {
             hovering: hovering,
             id: row.id,
             url: url ?? metadata[row.id]?.coverURL,
-            directory: directory
+            directory: directory,
+            reduceMotion: reduceMotion
         )
     }
 
@@ -438,7 +488,7 @@ struct LibraryView: View {
         if case .steam = row.item.launch, model.state(for: row.item).isPending {
             Button("library.steam.cancelWaiting") { model.cancelLaunch(row) }
         }
-        if model.state(for: row.item) == .running {
+        if case .steam = row.item.launch, model.state(for: row.item) == .running {
             Button("library.card.stop") { model.stop(row, bottles: bottles) }
         }
         Divider()
@@ -472,14 +522,18 @@ struct LibraryView: View {
                 }
             }
             if row.item.source == .folder {
-                Button("library.scan.executable") { _ = model.folderExecutable(row.item, chooseAgain: true) }
+                Button("library.scan.executable") {
+                    Task { _ = await model.folderExecutable(row.item, chooseAgain: true) }
+                }
             }
             Button("library.program.settings") {
-                guard let bottle = bottles.first(where: { $0.url == row.item.bottleURL }),
-                      let executable = row.item.source == .folder ? model.folderExecutable(row.item) : url
-                else { return }
-                settingsProgram = bottle.programs.first(where: { $0.url == executable })
-                    ?? Program(url: executable, bottle: bottle)
+                Task {
+                    guard let bottle = bottles.first(where: { $0.url == row.item.bottleURL }),
+                          let executable = row.item.source == .folder ? await model.folderExecutable(row.item) : url
+                    else { return }
+                    settingsProgram = bottle.programs.first(where: { $0.url == executable })
+                        ?? Program(url: executable, bottle: bottle)
+                }
             }
             Button("button.showInFinder") {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -506,11 +560,18 @@ struct LibraryView: View {
 
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     private func loadMetadata() async {
+        metadataLoadGeneration += 1
+        let generation = metadataLoadGeneration
         syncing = true
         let requested = manualSync
         manualSync = false
-        defer { syncing = false }
-        var loaded: [String: GameMetadata] = [:]
+        defer {
+            if generation == metadataLoadGeneration {
+                syncing = false
+            }
+        }
+        let requestedIDs = Set(model.rows.map(\.id))
+        var loaded = metadata.filter { requestedIDs.contains($0.key) }
         var stores: [URL: GameMetadataStore] = [:]
         var libraries: [URL: FolderGameLibrary] = [:]
         let sources = GameMetadataSource.allCases.filter {
@@ -518,6 +579,29 @@ struct LibraryView: View {
                 && $0 != .hikarinagi
         }
         let providers = sources.map { PublicGameMetadataProvider(source: $0) }
+        let requestedRows = model.rows
+        var aspects = coverAspectRatios.filter { requestedIDs.contains($0.key) }
+        // Publish cached metadata together so online matching cannot hold up later covers.
+        for (index, row) in requestedRows.enumerated() {
+            guard !Task.isCancelled else { return }
+            do {
+                let directory = row.item.metadataDirectory
+                let store = stores[directory] ?? GameMetadataStore(directory: directory)
+                stores[directory] = store
+                loaded[row.id] = try await store.load(for: row.item.metadataIdentity)
+                aspects[row.id] = try await store.coverAspectRatio(
+                    for: row.item.metadataIdentity, metadataCoverURL: loaded[row.id]?.coverURL
+                )
+            } catch { metadataError = error.localizedDescription }
+            guard !Task.isCancelled else { return }
+            if index == 11 || (index + 1).isMultiple(of: 48) {
+                metadata = loaded
+                coverAspectRatios = aspects
+            }
+        }
+        guard !Task.isCancelled else { return }
+        metadata = loaded
+        coverAspectRatios = aspects
         for row in model.rows {
             guard !Task.isCancelled else { return }
             do {
@@ -527,14 +611,6 @@ struct LibraryView: View {
                     stores[directory] = created
                     return created
                 }()
-                loaded[row.id] = try await store.load(for: row.item.metadataIdentity)
-                let aspect = try await store.coverAspectRatio(
-                    for: row.item.metadataIdentity, metadataCoverURL: loaded[row.id]?.coverURL
-                )
-                if !Task.isCancelled {
-                    coverAspectRatios[row.id] = aspect
-                    metadata[row.id] = loaded[row.id]
-                }
                 if model.isHidden(row.item) || NetworkSettings.isOffline {
                     continue
                 }
@@ -813,5 +889,24 @@ private struct LibraryFolderSettings: View {
             }
         }
         save()
+    }
+}
+
+/// Coalesces image callbacks before publishing a single parent layout update.
+@MainActor
+private final class LibraryAspectBatch {
+    private var pending: [String: Double] = [:]
+    private var task: Task<Void, Never>?
+
+    func submit(id: String, aspect: Double, apply: @escaping @MainActor ([String: Double]) -> Void) {
+        pending[id] = aspect
+        guard task == nil else { return }
+        task = Task {
+            do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
+            let updates = pending
+            pending.removeAll(keepingCapacity: true)
+            task = nil
+            apply(updates)
+        }
     }
 }

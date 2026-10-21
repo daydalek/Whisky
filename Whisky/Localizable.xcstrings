@@ -1,6 +1,209 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+  "library.activity.legacyActivity": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Historical activity time"
+        }
+      },
+      "en-GB": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Historical activity time"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "历史活动时间"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "歷史活動時間"
+        }
+      }
+    }
+  },
+  "library.card.queryUnavailable": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Process query failed"
+        }
+      },
+      "en-GB": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Process query failed"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "启动状态查询失败"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "啟動狀態查詢失敗"
+        }
+      }
+    }
+  },
+  "library.card.preparing": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Preparing…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "准备中…"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "準備中…"
+        }
+      },
+      "en-GB": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Preparing…"
+        }
+      }
+    }
+  },
+  "library.activity.lastSessionEnded": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Last session ended"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "上次游玩结束"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "上次遊玩結束"
+        }
+      },
+      "en-GB": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Last session ended"
+        }
+      }
+    }
+  },
+  "settings.library.refreshAfterExit": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Update library after a game exits"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "游戏结束后自动更新游戏库"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "遊戲結束後自動更新遊戲庫"
+        }
+      },
+      "en-GB": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Update library after a game exits"
+        }
+      }
+    }
+  },
+  "settings.library.refreshAfterExit.help": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Update play time and recent ordering when a game closes."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "游戏关闭后更新游玩时长和最近玩过的排序。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "遊戲關閉後更新遊玩時長和最近玩過的排序。"
+        }
+      },
+      "en-GB": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Update play time and recent ordering when a game closes."
+        }
+      }
+    }
+  },
+  "library.launch.timeout": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The game process was not detected within two minutes. Check its launch log for details."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "两分钟内未检测到游戏进程，请查看启动日志了解详情。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "兩分鐘內未偵測到遊戲程序，請查看啟動記錄了解詳情。"
+        }
+      },
+      "en-GB": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The game process was not detected within two minutes. Check its launch log for details."
+        }
+      }
+    }
+  },
     "library.options": {
       "extractionState" : "manual",
       "localizations" : {
@@ -1431,25 +1634,25 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Unplayed"
+            "value" : "No completed sessions"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "尚未游玩"
+            "value" : "暂无游玩结束记录"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "尚未遊玩"
+            "value" : "暫無遊玩結束記錄"
           }
         },
         "en-GB" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Unplayed"
+            "value" : "No completed sessions"
           }
         }
       }

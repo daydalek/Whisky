@@ -80,6 +80,10 @@ extension ContentView {
                 }
             }
             .animation(.default, value: bottleVM.bottles)
+            .task(id: bottleVM.bottles.map(\.url)) { sidebarCounts.refresh(bottles: bottleVM.bottles) }
+            .onReceive(NotificationCenter.default.publisher(for: LibrarySidebarCounts.didChange)) { _ in
+                sidebarCounts.refresh(bottles: bottleVM.bottles, force: true)
+            }
             .listStyle(.sidebar)
             .accessibilityIdentifier("bottleSidebar")
             // No search field here. The library has one, and two fields forty
@@ -97,10 +101,7 @@ extension ContentView {
     }
 
     private var totalLibraryProgramCount: Int {
-        _ = triggerRefresh
-        return bottleVM.bottles
-            .filter(\.isAvailable)
-            .reduce(0) { $0 + BottleListEntry.libraryProgramCount(for: $1) }
+        bottleVM.bottles.filter(\.isAvailable).reduce(0) { $0 + (sidebarCounts.counts[$1.url] ?? 0) }
     }
 
     /// Selecting nothing means the library, not an empty pane: the library is

@@ -25,6 +25,7 @@ struct SettingsView: View {
     @AppStorage("showMenuBarExtra") var showMenuBarExtra = false
     @AppStorage("checkWhiskyWineUpdates") var checkWhiskyWineUpdates = true
     @AppStorage("defaultBottleLocation") var defaultBottleLocation = BottleData.defaultBottleDir
+    @AppStorage("libraryRefreshAfterExit") private var refreshAfterExit = true
     @AppStorage("libraryDetailBlurredBackground") private var blurredDetailBackground = true
     @AppStorage("librarySingleLineTitles") private var singleLineTitles = false
     @AppStorage("libraryCenterWideCoverText") private var centerCoverText = false
@@ -76,6 +77,8 @@ struct SettingsView: View {
                 }
             }
             Section("settings.library") {
+                Toggle("settings.library.refreshAfterExit", isOn: $refreshAfterExit)
+                    .help("settings.library.refreshAfterExit.help")
                 Toggle("library.details.blurredBackground", isOn: $blurredDetailBackground)
                     .help("library.details.blurredBackground.help")
                 Toggle("settings.library.mixedCoverLayout", isOn: $mixedCoverLayout)

@@ -18,7 +18,9 @@
 
 import AppKit
 import Foundation
+import ImageIO
 import UniformTypeIdentifiers
+import WhiskyCore
 
 /// Thread-safe cache for program icons extracted from PE files.
 ///
@@ -30,7 +32,7 @@ import UniformTypeIdentifiers
 /// ```swift
 /// let icon = await IconCache.shared.iconAsync(for: programURL)
 /// ```
-public actor IconCache {
+public actor IconCache: ArtworkProviding {
     /// The shared icon cache instance.
     public static let shared = IconCache()
 
@@ -57,19 +59,80 @@ public actor IconCache {
 
     private let memoryCache = NSCache<NSURL, NSImage>()
     private let artworkCache = NSCache<NSURL, SampledBox>()
+    private final class AssetBox {
+        let asset: ArtworkAsset
+        init(_ asset: ArtworkAsset) {
+            self.asset = asset
+        }
+    }
 
-    private init() {
+    private let portableCache = NSCache<NSString, AssetBox>()
+    private let diskCache: ArtworkDiskCache?
+    private let artworkWriter: ArtworkWriteQueue?
+
+    init(cacheDirectory: URL? = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+        .appendingPathComponent("Whisky/Artwork-v1", isDirectory: true)) {
+        diskCache = cacheDirectory.map { ArtworkDiskCache(directory: $0) }
+        artworkWriter = diskCache.map { ArtworkWriteQueue(cache: $0) }
+
         memoryCache.countLimit = 100
         memoryCache.totalCostLimit = 50 * 1_024 * 1_024 // 50MB limit
         // Keep enough cover images and palettes cached across scrolling and
         // view-mode switches so neither disk I/O nor colour sampling repeats.
         artworkCache.countLimit = 250
         artworkCache.totalCostLimit = 160 * 1_024 * 1_024
+        portableCache.countLimit = 250
+        portableCache.totalCostLimit = 32 * 1_024 * 1_024
     }
 
-    /// Returns an already-cached sampled artwork entry without touching disk.
+    /// Cross-toolkit clients receive a bounded PNG and a shared colour value.
+    public func artwork(for request: ArtworkRequest) -> ArtworkAsset? {
+        let url = request.source.url
+        guard url.isFileURL, !Task.isCancelled else { return nil }
+        let key = "\(request.source):\(versionedKey(for: url)):\(request.maxPixelSize)" as NSString
+        if let cached = portableCache.object(forKey: key) {
+            return cached.asset
+        }
+        let decoded: CGImage?
+        switch request.source {
+        case .image:
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+            decoded = ArtworkDiskCache.thumbnailImage(source: source, maxPixelSize: request.maxPixelSize)
+        case .executable:
+            decoded = iconOrFallback(for: url).cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
+        guard let source = decoded else { return nil }
+        let scale = min(1, Double(request.maxPixelSize) / Double(max(source.width, source.height)))
+        let width = max(1, Int(Double(source.width) * scale))
+        let height = max(1, Int(Double(source.height) * scale))
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )
+        else { return nil }
+        context.interpolationQuality = .high
+        context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let resized = context.makeImage(), !Task.isCancelled else { return nil }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil)
+        else { return nil }
+        CGImageDestinationAddImage(destination, resized, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        let asset = ArtworkAsset(data: data as Data, palette: IconPalette.palette(for: resized))
+        portableCache.setObject(AssetBox(asset), forKey: key, cost: data.count)
+        return asset
+    }
+
+    /// Reuses processed artwork from memory or the persistent derivative cache.
     public func cachedSampledArtwork(for url: URL) -> Sampled? {
-        artworkCache.object(forKey: url as NSURL)?.sampled
+        let key = versionedKey(for: url)
+        if let cached = artworkCache.object(forKey: key as NSURL) {
+            return cached.sampled
+        }
+        guard !Task.isCancelled, let cached = diskCache?.load(at: key) else { return nil }
+        cacheArtwork(cached, key: key)
+        return cached
     }
 
     /// Loads artwork from disk and samples its palette, caching both.
@@ -83,34 +146,51 @@ public actor IconCache {
     /// - Parameter url: The image file to load.
     /// - Returns: The image and its palette, or `nil` if it could not be decoded.
     public func sampledArtwork(for url: URL) -> Sampled? {
-        if let cached = artworkCache.object(forKey: url as NSURL) {
+        let key = versionedKey(for: url)
+        if let cached = artworkCache.object(forKey: key as NSURL) {
             return cached.sampled
         }
+        guard !Task.isCancelled, FileManager.default.fileExists(atPath: url.path) else { return nil }
+        if let cached = diskCache?.load(at: key) {
+            cacheArtwork(cached, key: key)
+            return cached
+        }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = ArtworkDiskCache.thumbnail(source: source)
+        else { return nil }
+        return sampleAndStore(image, key: key)
+    }
 
-        guard let image = NSImage(contentsOf: url) else { return nil }
+    /// Decodes bounded thumbnails; derivative and palette survive application restarts.
+    public func storeSampledArtwork(data: Data, for url: URL) -> Sampled? {
+        let key = versionedKey(for: url)
+        if let cached = artworkCache.object(forKey: key as NSURL) {
+            return cached.sampled
+        }
+        guard !Task.isCancelled, let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = ArtworkDiskCache.thumbnail(source: source)
+        else { return nil }
+        return sampleAndStore(image, key: key)
+    }
+
+    private func sampleAndStore(_ image: NSImage, key: URL) -> Sampled {
         let sampled = Sampled(
-            image: image,
-            ambient: IconPalette.blurredAmbient(for: image),
-            palette: IconPalette.palette(for: image)
+            image: image, ambient: IconPalette.blurredAmbient(for: image), palette: IconPalette.palette(for: image)
         )
-        artworkCache.setObject(SampledBox(sampled), forKey: url as NSURL)
+        cacheArtwork(sampled, key: key)
+        artworkWriter?.enqueue(sampled, at: key)
         return sampled
     }
 
-    /// Decodes raw image data, samples its palette, and caches both under `url`.
-    public func storeSampledArtwork(data: Data, for url: URL) -> Sampled? {
-        if let cached = artworkCache.object(forKey: url as NSURL) {
-            return cached.sampled
-        }
+    /// Waits for derivative persistence at explicit handoff and test boundaries.
+    public func flushArtworkWrites() async {
+        await artworkWriter?.flush()
+    }
 
-        guard let image = NSImage(data: data) else { return nil }
-        let sampled = Sampled(
-            image: image,
-            ambient: IconPalette.blurredAmbient(for: image),
-            palette: IconPalette.palette(for: image)
-        )
-        artworkCache.setObject(SampledBox(sampled), forKey: url as NSURL)
-        return sampled
+    private func cacheArtwork(_ sampled: Sampled, key: URL) {
+        let cost = Int(sampled.image.size.width * sampled.image.size.height * 4)
+            + Int(sampled.ambient.size.width * sampled.ambient.size.height * 4)
+        artworkCache.setObject(SampledBox(sampled), forKey: key as NSURL, cost: cost)
     }
 
     /// The icon for a program plus the palette sampled from it.
@@ -124,13 +204,14 @@ public actor IconCache {
     ///   - peFile: An optional pre-parsed PE file.
     /// - Returns: The icon (or the system fallback) and its palette.
     public func sampledIcon(for url: URL, peFile: PEFile? = nil) -> Sampled {
-        if let cached = artworkCache.object(forKey: url as NSURL) {
+        let key = versionedKey(for: url)
+        if let cached = artworkCache.object(forKey: key as NSURL) {
             return cached.sampled
         }
 
         let image = iconOrFallback(for: url, peFile: peFile)
         let sampled = Sampled(image: image, palette: IconPalette.palette(for: image))
-        artworkCache.setObject(SampledBox(sampled), forKey: url as NSURL)
+        artworkCache.setObject(SampledBox(sampled), forKey: key as NSURL)
         return sampled
     }
 
@@ -144,7 +225,8 @@ public actor IconCache {
     ///   - peFile: An optional pre-parsed PE file. If not provided, the file will be parsed.
     /// - Returns: The extracted icon, or `nil` if extraction fails.
     public func icon(for url: URL, peFile: PEFile? = nil) -> NSImage? {
-        if let cached = memoryCache.object(forKey: url as NSURL) {
+        let key = versionedKey(for: url)
+        if let cached = memoryCache.object(forKey: key as NSURL) {
             return cached
         }
 
@@ -154,7 +236,7 @@ public actor IconCache {
         // reach the real system fallback icon on every call.
         guard let icon = pefile?.bestIcon() else { return nil }
 
-        memoryCache.setObject(icon, forKey: url as NSURL)
+        memoryCache.setObject(icon, forKey: key as NSURL)
         return icon
     }
 
@@ -179,20 +261,33 @@ public actor IconCache {
 
     private static let fallbackIcon: NSImage = NSWorkspace.shared.icon(for: .exe)
 
+    private func versionedKey(for url: URL) -> URL {
+        (diskCache ?? ArtworkDiskCache(directory: FileManager.default.temporaryDirectory)).location(for: url)
+    }
+
     /// Removes a specific icon from the cache.
     ///
     /// Call this when a program is deleted or its executable is modified.
     ///
     /// - Parameter url: The URL of the PE file to remove from cache.
     public func invalidate(url: URL) {
+        portableCache.removeAllObjects()
+        let versioned = versionedKey(for: url)
+        memoryCache.removeObject(forKey: versioned as NSURL)
+        artworkCache.removeObject(forKey: versioned as NSURL)
         memoryCache.removeObject(forKey: url as NSURL)
         artworkCache.removeObject(forKey: url as NSURL)
+        if let key = diskCache?.location(for: url) {
+            artworkCache.removeObject(forKey: key as NSURL)
+            artworkWriter?.remove(at: key)
+        }
     }
 
     /// Clears all cached icons.
     ///
     /// This can be called in response to memory pressure or when bottles are deleted.
     public func clearCache() {
+        portableCache.removeAllObjects()
         memoryCache.removeAllObjects()
         artworkCache.removeAllObjects()
     }

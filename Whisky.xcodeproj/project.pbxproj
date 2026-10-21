@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A021C0DE0000000000000001 /* MacOSLibraryServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = A021C0DE0000000000000002 /* MacOSLibraryServices.swift */; };
 		A0C031010000000000000001 /* ThirdParty in Resources */ = {isa = PBXBuildFile; fileRef = A0C031010000000000000002 /* ThirdParty */; };
 		12DEDCF97DB77E9F6714B8F1 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61747C7BF48347DA75C30397 /* Cocoa.framework */; };
 		160B41C4006351293AAEEF27 /* LauncherConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D27C1F7764AE4F0AED2FD03D /* LauncherConfigSection.swift */; };
@@ -149,6 +150,7 @@
 		K1A2B3C4E5F61401A9B0C1D0 /* TroubleshootingHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = K1A2B3C4E5F61401A9B0C1D1 /* TroubleshootingHistoryView.swift */; };
 		K1A2B3C4E5F61401A9B0C1D2 /* TroubleshootingTargetPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = K1A2B3C4E5F61401A9B0C1D3 /* TroubleshootingTargetPicker.swift */; };
 		K1A2B3C4E5F61401A9B0C1D4 /* TroubleshootingEntryBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = K1A2B3C4E5F61401A9B0C1D5 /* TroubleshootingEntryBanner.swift */; };
+		63FBC2457D95CB0A0B6016A1 /* LibrarySidebarCounts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA60C3E7B4689DA7A654FA56 /* LibrarySidebarCounts.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -206,6 +208,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A021C0DE0000000000000002 /* MacOSLibraryServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacOSLibraryServices.swift; sourceTree = "<group>"; };
 		A0C031010000000000000002 /* ThirdParty */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ThirdParty; sourceTree = SOURCE_ROOT; };
 		000C327847E981AEF33EFB61 /* InputConfigSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InputConfigSection.swift; sourceTree = "<group>"; };
 		1A2B3C4E2E0107F000AABBCC /* TextTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextTable.swift; sourceTree = "<group>"; };
@@ -348,6 +351,7 @@
 		K1A2B3C4E5F61401A9B0C1D1 /* TroubleshootingHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TroubleshootingHistoryView.swift; sourceTree = "<group>"; };
 		K1A2B3C4E5F61401A9B0C1D3 /* TroubleshootingTargetPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TroubleshootingTargetPicker.swift; sourceTree = "<group>"; };
 		K1A2B3C4E5F61401A9B0C1D5 /* TroubleshootingEntryBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TroubleshootingEntryBanner.swift; sourceTree = "<group>"; };
+		DA60C3E7B4689DA7A654FA56 /* LibrarySidebarCounts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySidebarCounts.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -585,6 +589,8 @@
 				6E50D98229CD6066008C39F6 /* BottleVM.swift */,
 				B1A2C3D4E5F60302A9B0C1D2 /* ProcessesViewModel.swift */,
 				D7B1C2E3F4A50801A9B0E1F2 /* LibraryModel.swift */,
+				A021C0DE0000000000000002 /* MacOSLibraryServices.swift */,
+				DA60C3E7B4689DA7A654FA56 /* LibrarySidebarCounts.swift */,
 			);
 			path = "View Models";
 			sourceTree = "<group>";
@@ -1048,6 +1054,8 @@
 				6E50D98329CD6066008C39F6 /* BottleVM.swift in Sources */,
 				B1A2C3D4E5F60302A9B0C1D3 /* ProcessesViewModel.swift in Sources */,
 				D7B1C2E3F4A50801A9B0E1F3 /* LibraryModel.swift in Sources */,
+				A021C0DE0000000000000001 /* MacOSLibraryServices.swift in Sources */,
+				63FBC2457D95CB0A0B6016A1 /* LibrarySidebarCounts.swift in Sources */,
 				6E2B25C12B0E20F50084A67A /* PinAddView.swift in Sources */,
 				6E49E0212AECB7DB00009CAC /* SettingsView.swift in Sources */,
 				D4E5F6A7B8C90113A9B0C1F4 /* GPTKSettingsSection.swift in Sources */,
