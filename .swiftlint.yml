@@ -6,6 +6,13 @@ excluded:
   - .build
   - WhiskyKit/.build
   - build
+  # Per-package SwiftPM checkouts. WhiskyCore, WhiskyBridge and the experimental
+  # prototypes each keep their own .build, and linting those copies reports tens
+  # of thousands of violations from vendored dependency sources.
+  - WhiskyCore/.build
+  - WhiskyBridge/.build
+  - experimental/**/.build
+  - demos/**/.build
 
 file_header:
     severity: error

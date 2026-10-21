@@ -1,0 +1,115 @@
+name: Portability
+
+on:
+  push:
+    branches: [main, portability]
+    paths:
+      - 'WhiskyCore/**'
+      - 'WhiskyKit/**'
+      - 'WhiskyBridge/**'
+      - 'crates/**'
+      - 'scripts/**'
+      - 'experimental/SwiftCrossUI/**'
+      - '.github/workflows/Portability.yml'
+  pull_request:
+    paths:
+      - 'WhiskyCore/**'
+      - 'WhiskyKit/**'
+      - 'WhiskyBridge/**'
+      - 'crates/**'
+      - 'scripts/**'
+      - 'experimental/SwiftCrossUI/**'
+      - '.github/workflows/Portability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-core:
+    name: WhiskyCore / Linux / Swift 6.0
+    runs-on: ubuntu-latest
+    container: swift:6.0-noble
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check shared core boundaries
+        run: |
+          swift package dump-package --package-path WhiskyCore > /tmp/whisky-core-package.json
+          swift scripts/check-portability-boundaries.swift /tmp/whisky-core-package.json
+      - run: swift test --package-path WhiskyCore
+
+  macos-core:
+    name: WhiskyCore / macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check shared core boundaries
+        run: |
+          swift package dump-package --package-path WhiskyCore > /tmp/whisky-core-package.json
+          swift scripts/check-portability-boundaries.swift /tmp/whisky-core-package.json
+      - run: swift test --package-path WhiskyCore
+
+  # The SwiftCrossUI prototype is an unfinished reference backend. Building and
+  # driving its Gtk window needs a 6.4 toolchain plus Xvfb/AT-SPI tooling, which
+  # is too expensive and too brittle to pay for on every push and pull request.
+  # It was demoted to a manual workflow_dispatch run; nothing in the default
+  # build or the migration path depends on it.
+  linux-crossui:
+    name: SwiftCrossUI / Linux Gtk / Swift 6.4 (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    container: swift:6.4.0-noble
+    env:
+      CC: /usr/bin/clang-21
+      CXX: /usr/bin/clang-21
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Gtk development dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libgtk-4-dev clang pkg-config \
+            xvfb xauth dbus-x11 python3-pyatspi imagemagick fonts-noto-cjk xdotool
+      - name: Build and test the Gtk prototype
+        run: bash experimental/SwiftCrossUI/ci/check-linux.sh
+      - name: Exercise the Gtk window
+        env:
+          WHISKY_GUI_OUTPUT_DIR: /tmp/whisky-gui-evidence/library
+        run: bash experimental/SwiftCrossUI/ci/smoke-linux.sh
+      - name: Exercise container configuration and program settings
+        env:
+          WHISKY_GUI_OUTPUT_DIR: /tmp/whisky-gui-evidence/containers
+          WHISKY_GUI_SCENARIO: containers
+        run: bash experimental/SwiftCrossUI/ci/smoke-linux.sh
+      - name: Preserve Gtk interaction evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: gtk-interaction-evidence
+          path: /tmp/whisky-gui-evidence
+          if-no-files-found: ignore
+          retention-days: 7
+
+  linux-bridge:
+    name: GPUI foundation / Linux / Swift 6.0
+    runs-on: ubuntu-latest
+    container: swift:6.0-noble
+    steps:
+      - uses: actions/checkout@v6
+      - run: python3 scripts/check-gpui-foundation.py --swift-only
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: linux-bridge-evidence
+          path: build/portability/gpui-foundation/*.log
+
+  macos-bridge:
+    name: GPUI foundation / macOS / Rust to Swift
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: python3 scripts/check-gpui-foundation.py
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: macos-bridge-evidence
+          path: build/portability/gpui-foundation/*.log

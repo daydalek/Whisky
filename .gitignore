@@ -121,3 +121,10 @@ WhiskyKit/Sources/WhiskyKit/Discord/Local/client-id.txt
 # Wine process helper build outputs; generate with make -C scripts/wine-process-helper install.
 /scripts/wine-process-helper/WhiskyProcessHelper.exe
 /WhiskyKit/Sources/WhiskyKit/Wine/Resources/WhiskyProcessHelper.exe
+
+# Local-only prototypes and visual baselines. The GPUI demo stays on disk as the
+# design reference for the Linux UI; it is not part of the shipped tree.
+/demos/
+
+# Worktree bootstrap payload (a packaged baseline tarball, ~14 MB).
+/.worktree-setup/
