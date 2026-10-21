@@ -114,8 +114,7 @@ public enum SteamLauncher {
             await Wine.syncGPURegistry(bottle: bottle)
             try Task.checkCancellation()
             if !clientIsRunning {
-                let running = await hostSteamPIDs()
-                let alreadyRunning = await isClientRunning(bottle: bottle, hostSteamPIDs: running)
+                let alreadyRunning = await isClientRunning(bottle: bottle)
                 let previousSession = SteamClientReadiness.snapshot(steamRoot: steamRoot).session
                 let started = await startClientIfNeeded(
                     isRunning: { alreadyRunning },
@@ -124,7 +123,7 @@ public enum SteamLauncher {
                             startClient(steamExe: steamExe, bottle: bottle, onHandoff: onHandoff)
                         }
                     },
-                    hasStarted: { await !hostSteamPIDs().subtracting(running).isEmpty },
+                    hasStarted: { await isClientRunning(bottle: bottle) },
                     startup: clientStartup
                 )
                 try Task.checkCancellation()
@@ -248,7 +247,11 @@ public enum SteamLauncher {
         startup: SteamClientStartup? = nil
     ) async -> Bool {
         var started = false
-        defer { if !started { startup?.cancel() } }
+        defer {
+            if !started {
+                startup?.cancel()
+            }
+        }
         if await isRunning() {
             started = !Task.isCancelled
             return started
@@ -269,12 +272,10 @@ public enum SteamLauncher {
 
     /// Whether `steam.exe` is running in the bottle.
     ///
-    /// Without a `steam.exe` anywhere on the host the answer is no, and no Wine
-    /// process is started to find that out.
+    /// Checks the bottle's Windows process table while the production driver gates idle servers.
     @MainActor
-    static func isClientRunning(bottle: Bottle, hostSteamPIDs: Set<Int32>) async -> Bool {
-        guard !hostSteamPIDs.isEmpty else { return false }
-        return await WineSteamClientDriver(bottle: bottle).processList()
+    static func isClientRunning(bottle: Bottle, hostSteamPIDs _: Set<Int32> = []) async -> Bool {
+        await WineSteamClientDriver(bottle: bottle).processList()
             .contains { $0.imageName.lowercased() == "steam.exe" }
     }
 
@@ -303,7 +304,7 @@ public enum SteamLauncher {
             let fields = line.trimmingCharacters(in: .whitespaces)
                 .split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
             guard fields.count == 2, let pid = Int32(fields[0]) else { return nil }
-            let image = fields[1].split(separator: "\\").last ?? fields[1]
+            let image = fields[1].replacingOccurrences(of: "\\", with: "/").split(separator: "/").last ?? fields[1]
             return image.lowercased() == "steam.exe" ? pid : nil
         })
     }

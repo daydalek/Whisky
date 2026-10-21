@@ -30,14 +30,21 @@ one retry. Missing, truncated or rotated logs suppress automatic retries.
 
 ## Evidence and limitations
 
-Cold-start process waiting uses host process names plus a new bootstrap session
-in the selected bottle, without spawning Wine helpers. Background game tracking
-is suspended during shared client startup and does not query `tasklist.exe` when
-only unrelated Wine services are visible. This avoids repeatedly keeping Wine's
-cold-boot services alive while the registry-import output pipe is being drained.
-DLL override imports retain their compatibility settings and log start/completion
-and elapsed time to aid diagnosis; a successful registry write alone does not
-prove that the caller has finished waiting for the process/output stream.
+Cold-start process waiting first requires a new bootstrap session in the selected
+bottle, then confirms `steam.exe` through the Unicode Windows process snapshot.
+Host process names remain diagnostic information. Registry imports capture output
+to temporary files and complete when the import command itself exits, with a
+120-second limit and checked exit status. This lets cold-boot services retain their
+inherited output handles while launch preparation advances. The same path serves
+DLL overrides, GPU/audio settings and font aliases. Game output streaming keeps
+its existing lifecycle. Registry logs retain command details, captured output and
+exit status.
+
+A cold-prefix probe reproduced the original wait: `reg import` exited successfully
+in about 1.4 seconds, while snapshot polling kept its output pipes open throughout
+a 22-second observation. A quiet control reached EOF in about 4.5 seconds. The
+regression checks command completion while a descendant retains output handles,
+and checks that Steam's cold-start polling waits for a new bootstrap marker.
 
 There is no authenticated Steam IPC readiness API integrated here. The production
 probe conservatively uses observed Steam log markers, bounded to 512 KiB per

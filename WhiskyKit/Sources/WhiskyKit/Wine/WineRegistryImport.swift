@@ -52,14 +52,33 @@ extension Wine {
         // `reg import`, not `regedit`: regedit has no silent switch, so it puts
         // up the import confirmation and never exits.
         let arguments = ["reg", "import", url.path(percentEncoded: false)]
-        var exitCode: Int32 = -1
-        for await output in try runWineProcess(args: arguments, bottle: bottle) {
-            if case let .terminated(code) = output {
-                exitCode = code
-            }
-        }
-        guard exitCode == 0 else {
-            throw RegistryImportError(exitCode: exitCode)
+        try await runRegistryImport(arguments, bottle: bottle)
+    }
+
+    /// Registry commands finish with reg.exe. Cold-boot services can retain inherited
+    /// output handles, so capture to files and observe the command's own exit.
+    @MainActor
+    static func runRegistryImport(_ arguments: [String], bottle: Bottle) async throws {
+        let log = try makeFileHandle()
+        defer { try? log.closeWineLog() }
+        log.writeApplicationInfo()
+        log.writeInfo(for: bottle)
+        WineUserProfile.reconcile(bottleURL: bottle.url)
+        let environment = prefixSetupEnvironment(
+            args: arguments, environment: constructWineEnvironment(for: bottle, environment: [:])
+        )
+        let description = Process()
+        description.arguments = arguments
+        description.environment = environment
+        log.writeInfo(for: description)
+        let result = try await WineProcessQuery.run(
+            executable: wineBinary, arguments: arguments, environment: environment, timeout: 120
+        )
+        log.writeWineLog(line: result.output)
+        log.writeWineLog(line: result.diagnostics)
+        log.writeWineLog(line: "Registry import exited with code \(result.exitCode)")
+        guard result.exitCode == 0 else {
+            throw RegistryImportError(exitCode: result.exitCode)
         }
     }
 }

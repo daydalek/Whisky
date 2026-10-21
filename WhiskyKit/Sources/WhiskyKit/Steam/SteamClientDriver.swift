@@ -27,9 +27,7 @@ import Foundation
 public protocol SteamClientDriver: AnyObject {
     /// Lower-cased `.exe` names of Wine processes visible to the host.
     ///
-    /// Not bottle-scoped, so the orchestrator only uses it to short-circuit
-    /// the negative case: an empty answer means nothing is running anywhere,
-    /// and the bottle's own process list is not consulted.
+    /// Diagnostic host information; launch confirmation uses the bottle's Windows process list.
     func hostWineImageNames() async -> Set<String>
 
     /// The bottle's process list, as `tasklist.exe` reports it.
@@ -155,14 +153,16 @@ open class WineSteamClientDriver: SteamClientDriver {
             output
                 .split(whereSeparator: \.isNewline)
                 .compactMap { line in
-                    let name = (line.split(separator: "\\").last ?? line).lowercased()
+                    let name = (line.replacingOccurrences(of: "\\", with: "/").split(separator: "/").last ?? line)
+                        .lowercased()
                     return name.hasSuffix(".exe") ? String(name) : nil
                 }
         )
     }
 
     open func processList() async -> [WineProcess] {
-        await (try? Wine.listProcesses(for: bottle)) ?? []
+        guard await (try? Wine.probeWineserver(for: bottle)) == true else { return [] }
+        return await (try? Wine.listProcesses(for: bottle)) ?? []
     }
 
     /// `steam.exe -silent` runs for the whole session, so the run is never awaited.
@@ -194,20 +194,22 @@ open class WineSteamClientDriver: SteamClientDriver {
         receipts[game.appId]?.status(appID: game.appId) != .waiting
     }
 
-    /// Never spawn a Wine helper while the startup's registry import is waiting
-    /// for cold-boot services to release inherited stdout handles. Host evidence
-    /// alone is not bottle-scoped, so also require this bottle's new log session.
+    /// Confirms the Windows Steam process and the bottle's new log session.
+    /// Process queries are bounded and gated by server activity.
     open func waitForClientProcess(timeout: TimeInterval, pollInterval: Duration) async -> Bool {
         guard let root = SteamLibrary.detectInstall(bottleURL: bottle.url) else { return false }
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(timeout))
         repeat {
             guard !Task.isCancelled else { return false }
-            let names = await hostWineImageNames()
             let session = SteamClientReadiness.snapshot(steamRoot: root).session
-            if names.contains("steam.exe"), session != nil,
-               !startedClient || session != previousSession {
-                return true
+            // The new bootstrap marker means preparation has handed Steam to Wine.
+            // Keep Windows snapshots out of the cold registry-import phase.
+            if session != nil, !startedClient || session != previousSession {
+                let names = await Set(processList().map { $0.imageName.lowercased() })
+                if names.contains("steam.exe") {
+                    return true
+                }
             }
             if clock.now >= deadline {
                 return false

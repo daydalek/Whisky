@@ -66,26 +66,59 @@ public extension Wine {
         return running
     }
 
-    /// Lists the bottle's Wine processes as `tasklist.exe` reports them.
+    /// Lists the bottle's Windows processes through a Unicode Toolhelp snapshot.
     ///
-    /// `tasklist.exe` is a Wine process in the bottle, so unlike the `-k0` probe
-    /// above it runs with the bottle's full environment, the way any other helper
-    /// does. What it skips is the log file. The Processes page polls this every
-    /// few seconds, as does the Steam client driver while it watches Steam, and a
-    /// log per call buried the launch logs people are asked to attach.
+    /// The bundled helper uses Process32FirstW/Process32NextW and writes UTF-8 explicitly.
+    /// Bounded output capture keeps helper failures distinct from a successful empty observation.
     ///
     /// - Parameter bottle: The bottle whose processes to list.
     /// - Returns: The parsed process list.
-    /// - Throws: An error if `tasklist.exe` cannot be started.
+    /// - Throws: A spawn, timeout, output-decoding or helper error.
     @MainActor
     static func listProcesses(for bottle: Bottle) async throws -> [WineProcess] {
-        let output = try await runWineWithBottle(
-            ["tasklist.exe", "/FO", "CSV"], bottle: bottle, createsLogFile: false
-        )
-        return parseTasklistOutput(output)
+        var environment = constructWineEnvironment(for: bottle, environment: [:])
+        environment["WINEDEBUG"] = "-all"
+        environment["LC_ALL"] = "en_US.UTF-8"
+        let snapshotEnvironment = environment
+        let executable = wineBinary
+        let key = WineProcessSnapshotPool.Key(executable: executable, environment: environment)
+        let processes = try await WineProcessSnapshotPool.shared.processes(key: key) {
+            try await queryProcesses(executable: executable, environment: snapshotEnvironment)
+        }
+        try Task.checkCancellation()
+        return processes
     }
 
-    /// Parses the CSV output of `tasklist.exe` into an array of ``WineProcess`` values.
+    internal static var processSnapshotHelperURL: URL? {
+        Bundle.module.url(forResource: "WhiskyProcessSnapshot", withExtension: "exe")
+    }
+
+    internal static func queryProcesses(executable: URL, environment: [String: String]) async throws -> [WineProcess] {
+        guard let helper = processSnapshotHelperURL else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        let result = try await WineProcessQuery.run(
+            executable: executable, arguments: [helper.path], environment: environment
+        )
+        guard result.exitCode == 0 else {
+            throw WineProcessQuery.Failure.commandFailed(result.exitCode, String(result.diagnostics.prefix(2_048)))
+        }
+        let processes = parseTasklistOutput(result.output)
+        guard !processes.isEmpty else { throw WineProcessQuery.Failure.invalidProcessList }
+        return processes
+    }
+
+    /// A failed executable query propagates separately from a stopped server.
+    @MainActor
+    static func probeWineserver(for bottle: Bottle) async throws -> Bool {
+        let result = try await WineProcessQuery.run(
+            executable: WhiskyWineInstaller.binFolder.appending(path: "wineserver"),
+            arguments: ["-k0"], environment: ["WINEPREFIX": bottle.url.path], timeout: 3
+        )
+        return result.exitCode == 0
+    }
+
+    /// Parses the CSV shared by the Unicode snapshot helper and legacy tasklist output.
     ///
     /// The expected format is quoted CSV with a header line:
     /// ```
@@ -97,7 +130,7 @@ public extension Wine {
     /// All returned processes have ``ProcessSource/untracked`` source; the caller should
     /// update the source after merging with ``ProcessRegistry`` data.
     ///
-    /// - Parameter output: The raw string output from `tasklist.exe`.
+    /// - Parameter output: A complete UTF-8 process snapshot, with an optional header.
     /// - Returns: An array of parsed ``WineProcess`` instances.
     static func parseTasklistOutput(_ output: String) -> [WineProcess] {
         let lines = output.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
@@ -105,15 +138,7 @@ public extension Wine {
         processes.reserveCapacity(lines.count)
 
         for line in lines {
-            let fields = line.split(separator: ",", omittingEmptySubsequences: false)
-                .map { field in
-                    var trimmed = field.trimmingCharacters(in: .whitespaces)
-                    // Strip surrounding quotes
-                    if trimmed.hasPrefix("\""), trimmed.hasSuffix("\"") {
-                        trimmed = String(trimmed.dropFirst().dropLast())
-                    }
-                    return trimmed
-                }
+            let fields = tasklistFields(String(line))
 
             // Require at least 5 fields: Image Name, PID, Session Name, Session#, Mem Usage
             guard fields.count >= 5 else { continue }
@@ -138,6 +163,34 @@ public extension Wine {
         }
 
         return processes
+    }
+
+    private static func tasklistFields(_ line: String) -> [String] {
+        var fields: [String] = []
+        var field = ""
+        var quoted = false
+        var index = line.startIndex
+        while index < line.endIndex {
+            let character = line[index]
+            let next = line.index(after: index)
+            if character == "\"" {
+                if quoted, next < line.endIndex, line[next] == "\"" {
+                    field.append(character)
+                    index = line.index(after: next)
+                    continue
+                }
+                quoted.toggle()
+            } else if character == ",", !quoted {
+                fields.append(field.trimmingCharacters(in: .whitespacesAndNewlines))
+                field = ""
+            } else {
+                field.append(character)
+            }
+            index = next
+        }
+        guard !quoted else { return [] }
+        fields.append(field.trimmingCharacters(in: .whitespacesAndNewlines))
+        return fields
     }
 
     /// Sends a graceful kill request for a single Wine process via `taskkill.exe`.

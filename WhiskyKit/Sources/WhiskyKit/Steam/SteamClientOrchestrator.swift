@@ -19,6 +19,7 @@
 
 import Combine
 import Foundation
+import WhiskyCore
 
 public enum SteamOrchestratorError: LocalizedError, Equatable {
     /// steam.exe did not appear in the process list within the ready timeout.
@@ -59,11 +60,7 @@ public enum SteamOrchestratorError: LocalizedError, Equatable {
 ///   their own `tasklist.exe`, and concurrent reads coalesce into one.
 @MainActor
 public final class SteamClientOrchestrator: ObservableObject {
-    public enum Phase: Equatable, Sendable {
-        case startingClient
-        case waitingForClient
-        case launching
-    }
+    public typealias Phase = SteamLaunchPhase
 
     /// The waits and intervals, injectable so tests do not sit through them.
     public struct Timing: Sendable {
@@ -219,16 +216,12 @@ public final class SteamClientOrchestrator: ObservableObject {
         driver.shutdown()
     }
 
-    /// Whether Play should apply Steam's launcher fixes to this bottle.
-    ///
-    /// Skipped in manual mode: the user picked that launcher and that compat
-    /// setting, and Play must not quietly overrule either. Skipped too when
-    /// the bottle is already configured for Steam, so a launch does not
-    /// re-persist settings it did not change.
-    public static func shouldApplyLauncherFixes(settings: BottleSettings) -> Bool {
-        guard settings.launcherMode == .auto else { return false }
-        return !(settings.launcherCompatibilityMode && settings.detectedLauncher == .steam)
-    }
+    // Whether Play should apply Steam's launcher fixes to this bottle.
+    //
+    // Skipped in manual mode: the user picked that launcher and that compat
+    // setting, and Play must not quietly overrule either. Skipped too when
+    // the bottle is already configured for Steam, so a launch does not
+    // re-persist settings it did not change.
 
     // MARK: - Launch sequence
 
@@ -298,7 +291,9 @@ public final class SteamClientOrchestrator: ObservableObject {
         var completed = false
         defer {
             if startupID == id {
-                if !completed { driver.cancelClientStartup() }
+                if !completed {
+                    driver.cancelClientStartup()
+                }
                 clientStartup = nil
                 startupID = nil
             }
@@ -388,10 +383,7 @@ extension SteamClientOrchestrator {
     }
 
     func runningImageNames() async -> Set<String> {
-        let hostNames = await driver.hostWineImageNames()
-        let relevantNames = executableNamesByAppId.values.reduce(into: Set(["steam.exe"])) { $0.formUnion($1) }
-        guard !hostNames.isDisjoint(with: relevantNames) else { return [] }
-        return await Set(runningProcesses().map { $0.imageName.lowercased() })
+        await Set(runningProcesses().map { $0.imageName.lowercased() })
     }
 
     /// One process list per ``Timing/snapshotLifetime``, and one read at a
@@ -410,5 +402,12 @@ extension SteamClientOrchestrator {
         snapshotRead = nil
         processSnapshot = (processes, Date())
         return processes
+    }
+}
+
+extension SteamClientOrchestrator {
+    public static func shouldApplyLauncherFixes(settings: BottleSettings) -> Bool {
+        guard settings.launcherMode == .auto else { return false }
+        return !(settings.launcherCompatibilityMode && settings.detectedLauncher == .steam)
     }
 }

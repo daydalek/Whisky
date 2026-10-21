@@ -25,6 +25,35 @@ import Testing
 struct SteamClientOrchestratorProcessTests {
     private typealias Fixture = SteamOrchestratorFixture
 
+    private final class PreparationProbeDriver: WineSteamClientDriver {
+        var listCalls = 0
+
+        override func processList() async -> [WineProcess] {
+            listCalls += 1
+            return [WineProcess(imageName: "steam.exe", winePID: 42, memoryUsage: "0", kind: .app)]
+        }
+    }
+
+    @Test func coldStartupWaitsForNewBootstrapBeforeQueryingWindows() async throws {
+        let (bottle, _) = try Fixture.makeBottle()
+        defer { try? FileManager.default.removeItem(at: bottle.url) }
+        let root = try #require(SteamLibrary.detectInstall(bottleURL: bottle.url))
+        let logs = root.appendingPathComponent("logs")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        let bootstrap = logs.appendingPathComponent("bootstrap_log.txt")
+        try "[2026-10-20 09:00:00] Startup - Steam Client launched with: steam.exe\n"
+            .write(to: bootstrap, atomically: true, encoding: .utf8)
+        let driver = PreparationProbeDriver(bottle: bottle, clientStarter: { _, _, _ in Task {} })
+        driver.startClient(steamExe: root.appendingPathComponent("steam.exe"))
+        #expect(await driver.waitForClientProcess(timeout: 0, pollInterval: .milliseconds(1)) == false)
+        #expect(driver.listCalls == 0)
+        try "[2026-10-20 09:01:00] Startup - Steam Client launched with: steam.exe\n"
+            .write(to: bootstrap, atomically: true, encoding: .utf8)
+        #expect(await driver.waitForClientProcess(timeout: 0, pollInterval: .milliseconds(1)))
+        #expect(driver.listCalls == 1)
+        driver.shutdown()
+    }
+
     @Test("Reads inside the snapshot lifetime share one process list")
     func snapshotIsShared() async throws {
         let (bottle, _) = try Fixture.makeBottle()
@@ -67,7 +96,7 @@ struct SteamClientOrchestratorProcessTests {
         #expect(one.map(\.imageName) == two.map(\.imageName))
     }
 
-    @Test("An empty host process list skips tasklist entirely")
+    @Test("Windows process confirmation works with generic or empty host names")
     func hostShortCircuit() async throws {
         let (bottle, _) = try Fixture.makeBottle()
         let driver = FakeSteamClientDriver(script: [["steam.exe"]])
@@ -76,9 +105,9 @@ struct SteamClientOrchestratorProcessTests {
 
         let names = await orchestrator.runningImageNames()
 
-        #expect(names.isEmpty)
-        #expect(driver.hostCalls == 1)
-        #expect(driver.listCalls == 0)
+        #expect(names == ["steam.exe"])
+        #expect(driver.hostCalls == 0)
+        #expect(driver.listCalls == 1)
     }
 
     @Test("Stopping a game kills only its processes and drops the snapshot")
