@@ -623,6 +623,43 @@ mod tests {
         );
     }
 
+    /// The rejection rollback the `ConfigurationFailed` handler runs: the
+    /// committed value is remembered before the optimistic write and restored
+    /// when the helper refuses it, exactly once.
+    #[test]
+    fn a_rejected_write_restores_the_committed_value() {
+        use crate::runtime::PendingEdits;
+
+        let fields = recorded();
+        let mut values = resolved_values(&fields, &json!({"avxEnabled": false}));
+        let mut writes: PendingEdits<serde_json::Value> = PendingEdits::default();
+
+        // Optimistic toggle: the row flips immediately, before the wire answer.
+        writes.begin("avxEnabled", values["avxEnabled"].clone());
+        values.insert("avxEnabled".to_owned(), json!(true));
+        assert_eq!(values["avxEnabled"], json!(true));
+
+        // The helper rejected the write: restore what was committed.
+        let previous = writes.fail("avxEnabled").expect("rollback value");
+        values.insert("avxEnabled".to_owned(), previous);
+        assert_eq!(values["avxEnabled"], json!(false));
+        assert_eq!(writes.fail("avxEnabled"), None, "rollback runs once");
+
+        // A burst of edits still rolls back to the value committed before the
+        // first of them, not to an intermediate draft.
+        writes.begin("customResolutionWidth", json!(1920));
+        writes.begin("customResolutionWidth", json!(2560));
+        let previous = writes.fail("customResolutionWidth").expect("rollback value");
+        assert_eq!(previous, json!(1920));
+
+        // A confirmed write leaves nothing to roll back.
+        writes.begin("pinnedDeviceName", json!(""));
+        values.insert("pinnedDeviceName".to_owned(), json!("Speakers"));
+        writes.succeed("pinnedDeviceName");
+        assert_eq!(writes.fail("pinnedDeviceName"), None);
+        assert_eq!(values["pinnedDeviceName"], json!("Speakers"));
+    }
+
     #[test]
     fn environment_names_follow_the_helper_rule() {
         assert_eq!(validate_environment_name("LANG"), Ok("LANG"));
