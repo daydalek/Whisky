@@ -86,16 +86,31 @@ pub struct Client {
 }
 impl Client {
     pub fn bundled_helper(executable: &Path) -> Result<PathBuf, Error> {
-        let contents = executable
+        let bin_dir = executable
             .parent()
-            .and_then(Path::parent)
             .ok_or_else(|| Error::Transport("Cannot resolve the application bundle".into()))?;
-        let helper = contents.join("Resources/whisky-bridge");
-        if helper.is_file() {
-            Ok(helper)
-        } else {
-            Err(Error::Transport("Bundled whisky-bridge is missing".into()))
+        let mut candidates = Vec::new();
+        if let Some(prefix) = bin_dir.parent() {
+            candidates.push(prefix.join("Resources/whisky-bridge"));
+            candidates.push(prefix.join("lib/whisky/whisky-bridge"));
+            candidates.push(prefix.join("libexec/whisky-bridge"));
         }
+        candidates.push(bin_dir.join("whisky-bridge"));
+        for candidate in candidates {
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+        // Fallback: look up `whisky-bridge` along $PATH.
+        if let Some(path_var) = std::env::var_os("PATH") {
+            for dir in std::env::split_paths(&path_var) {
+                let candidate = dir.join("whisky-bridge");
+                if candidate.is_file() {
+                    return Ok(candidate);
+                }
+            }
+        }
+        Err(Error::Transport("Bundled whisky-bridge is missing".into()))
     }
     pub fn spawn(helper: &Path, arguments: &[String], timeout: Duration) -> Result<Self, Error> {
         if !helper.is_absolute() || timeout.is_zero() {
@@ -162,7 +177,7 @@ impl Client {
                 path_format: String::new(),
             },
         };
-        let payload = client.exchange("bridge.describe", json!({}))?;
+        let payload = client.exchange("bridge.describe", json!({}), timeout)?;
         let capabilities: Capabilities =
             serde_json::from_value(payload).map_err(|e| Error::Protocol(e.to_string()))?;
         if capabilities.protocol_version != PROTOCOL_VERSION
@@ -183,6 +198,17 @@ impl Client {
         String::from_utf8_lossy(&tail.iter().copied().collect::<Vec<_>>()).into_owned()
     }
     pub fn call(&mut self, method: &str, params: Value) -> Result<Value, Error> {
+        self.call_with_timeout(method, params, self.timeout)
+    }
+    pub fn call_with_timeout(
+        &mut self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, Error> {
+        if timeout.is_zero() {
+            return Err(Error::Protocol("Call timeout must be positive".into()));
+        }
         if !self.capabilities.methods.iter().any(|m| m == method) {
             return Err(Error::Remote(RemoteError {
                 code: "method_unavailable".into(),
@@ -190,9 +216,9 @@ impl Client {
                 retryable: false,
             }));
         }
-        self.exchange(method, params)
+        self.exchange(method, params, timeout)
     }
-    fn exchange(&mut self, method: &str, params: Value) -> Result<Value, Error> {
+    fn exchange(&mut self, method: &str, params: Value, timeout: Duration) -> Result<Value, Error> {
         if self.input.is_none() {
             return Err(Error::Closed);
         }
@@ -219,7 +245,7 @@ impl Client {
             self.close();
             return Err(Error::Transport(e.to_string()));
         }
-        let response = match self.responses.recv_timeout(self.timeout) {
+        let response = match self.responses.recv_timeout(timeout) {
             Ok(Ok(response)) => response,
             Ok(Err(message)) => {
                 self.close();
@@ -304,6 +330,8 @@ fn read_frame(reader: &mut impl BufRead) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     #[test]
     fn bounded_framing_rejects_truncation_and_oversize() {
         assert!(read_frame(&mut &b"{\"ok\":true}"[..]).is_err());
@@ -312,5 +340,32 @@ mod tests {
             read_frame(&mut "{\"title\":\"中文\"}\n".as_bytes()).unwrap(),
             "{\"title\":\"中文\"}".as_bytes()
         );
+    }
+
+    #[test]
+    fn bundled_helper_supports_macos_bundle_and_linux_layouts() {
+        let root = std::env::temp_dir().join(format!(
+            "whisky-helper-layout-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bin = root.join("usr/bin");
+        let lib = root.join("usr/lib/whisky");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(&lib).unwrap();
+        let exe = bin.join("whisky-gpui");
+        let helper = lib.join("whisky-bridge");
+        std::fs::write(&exe, b"").unwrap();
+        std::fs::write(&helper, b"").unwrap();
+        assert_eq!(Client::bundled_helper(&exe).unwrap(), helper);
+
+        let sibling = bin.join("whisky-bridge");
+        std::fs::remove_file(&helper).unwrap();
+        std::fs::write(&sibling, b"").unwrap();
+        assert_eq!(Client::bundled_helper(&exe).unwrap(), sibling);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

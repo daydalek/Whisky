@@ -44,10 +44,17 @@ public final class ApplicationService {
     private var catalogueOrder: [String] = []
     public let jobs: BridgeJobStore
     public let native: (any NativeApplicationServices)?
+    public let runtime: RuntimeService?
     public static let methods = [
         "bridge.describe", "bridge.shutdown", "jobs.get", "jobs.cancel", "library.scan", "library.page",
         "workspace.containers",
         "library.entries",
+        "folders.read",
+        "folders.addRoot",
+        "folders.removeRoot",
+        "folders.assign",
+        "folders.exclude",
+        "folders.executable",
         "entry.rating",
         "entry.hidden",
         "configuration.schema",
@@ -62,11 +69,13 @@ public final class ApplicationService {
     public init(
         workspace: ApplicationWorkspace,
         native: (any NativeApplicationServices)? = nil,
+        runtime: RuntimeService? = nil,
         preferences: PreferencesService? = nil,
         jobs: BridgeJobStore? = nil
     ) {
         self.workspace = workspace
         self.native = native
+        self.runtime = runtime
         self.preferences = preferences
         self.jobs = jobs ?? BridgeJobStore()
     }
@@ -98,10 +107,16 @@ public final class ApplicationService {
         case "preferences": return try await preferencesCall(method, params: params)
         case "jobs": return try await jobsCall(method, params: params)
         case "library", "workspace": return try await libraryCall(method, params: params)
+        case "folders": return try await foldersCall(method, params: params)
         case "entry": return try await entryCall(method, params: params)
         case "configuration": return try await configurationCall(method, params: params)
         case "programs": return try await programCall(method, params: params)
         case "environment": return try await environmentCall(method, params: params)
+        case "runtime":
+            if let runtime {
+                return try await runtime.call(method, params: params, workspace: workspace)
+            }
+            return try await nativeCall(method, params: params)
         default: return try await nativeCall(method, params: params)
         }
     }
@@ -109,6 +124,7 @@ public final class ApplicationService {
     public func shutdown(applyExitPolicy: Bool = false) async {
         guard !closed else { return }
         closed = true
+        runtime?.stopTracking()
         await jobs.shutdown()
         await native?.shutdown(applyExitPolicy: applyExitPolicy)
     }
@@ -131,21 +147,24 @@ extension ApplicationService {
     }
 
     private func describe() -> JSONValue {
-        .object([
+        let extraMethods = (preferences == nil ? [] : PreferencesService.methods)
+            + (runtime == nil ? [] : RuntimeService.methods)
+            + (native?.methods ?? [])
+        let extraCapabilities = (runtime == nil ? [] : RuntimeService.capabilities)
+            + (native?.capabilities ?? [])
+        return .object([
             "protocolVersion": .integer(1),
             "platform": .string(Self.platform),
-            "methods": .array((Self
-                    .methods + (preferences == nil ? [] : PreferencesService.methods) + (native?.methods ?? []))
-                .sorted()
-                .map(JSONValue.string)),
-            "capabilities": .array(([
+            "methods": .array(Array(Set(Self.methods + extraMethods)).sorted().map(JSONValue.string)),
+            "capabilities": .array(Array(Set([
                 "workspace.read",
                 "library.read",
+                "folders.edit",
                 "configuration.file",
                 "programs.edit",
                 "activity.rating",
                 "visibility.edit"
-            ] + (native?.capabilities ?? [])).map(JSONValue.string)),
+            ] + extraCapabilities)).sorted().map(JSONValue.string)),
             "registry": .string(workspace.registry.path),
             "dateUnit": .string("unix_seconds"),
             "pathFormat": .string("absolute_native"),

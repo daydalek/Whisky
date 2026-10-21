@@ -19,6 +19,9 @@
 import Foundation
 
 /// The birth token is opaque and follows the host's process identity convention.
+/// It is platform-dependent (macOS: start time in microseconds; Linux: jiffies from
+/// `/proc/<pid>/stat`). It is only meaningful for same-platform equality comparison and
+/// must not be serialized into cross-platform protocols.
 public struct HostProcessIdentity: Equatable, Sendable {
     public var pid: Int32
     public var birth: UInt64

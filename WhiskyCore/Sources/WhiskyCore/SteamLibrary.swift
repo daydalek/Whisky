@@ -58,9 +58,10 @@ public enum SteamLibrary {
     /// - Returns: The Steam root directory (the one containing `steam.exe`),
     ///   or `nil` if no install is found.
     public static func detectInstall(bottleURL: URL) -> URL? {
+        let driveC = CaseInsensitivePath.resolve(base: bottleURL, components: ["drive_c"])
         for candidate in installCandidates {
-            let root = bottleURL.appending(path: "drive_c").appending(path: candidate)
-            let steamExe = root.appending(path: "steam.exe")
+            let root = CaseInsensitivePath.resolve(base: driveC, relativePath: candidate)
+            let steamExe = CaseInsensitivePath.resolve(base: root, components: ["steam.exe"])
             if FileManager.default.fileExists(atPath: steamExe.path(percentEncoded: false)) {
                 return root
             }
@@ -109,7 +110,7 @@ public enum SteamLibrary {
     /// parsing every manifest in every library.
     private static func revision(of libraries: [URL]) -> [String] {
         libraries.map { library in
-            let steamapps = library.appending(path: "steamapps")
+            let steamapps = CaseInsensitivePath.resolve(base: library, components: ["steamapps"])
             let modified = try? steamapps.resourceValues(forKeys: [.contentModificationDateKey])
                 .contentModificationDate
             let resolvedPath = steamapps.resolvingSymlinksInPath().path(percentEncoded: false)
@@ -181,8 +182,8 @@ public enum SteamLibrary {
     /// VDF parsing is cached; existence checks and drive symlinks are resolved on every call.
     public static func libraryRoots(steamRoot: URL, bottleURL: URL) -> [URL] {
         let vdfCandidates = [
-            steamRoot.appending(path: "config/libraryfolders.vdf"),
-            steamRoot.appending(path: "steamapps/libraryfolders.vdf")
+            CaseInsensitivePath.resolve(base: steamRoot, relativePath: "config/libraryfolders.vdf"),
+            CaseInsensitivePath.resolve(base: steamRoot, relativePath: "steamapps/libraryfolders.vdf")
         ]
         var roots = [steamRoot]
         var seen = Set([steamRoot.resolvingSymlinksInPath().standardizedFileURL.path])
@@ -239,31 +240,35 @@ public enum SteamLibrary {
         guard components.allSatisfy(isSafePathComponent) else { return nil }
 
         let base: URL = if driveLetter == "c" {
-            bottleURL.appending(path: "drive_c")
+            CaseInsensitivePath.resolve(base: bottleURL, components: ["drive_c"])
         } else {
-            bottleURL.appending(path: "dosdevices").appending(path: "\(driveLetter):")
+            CaseInsensitivePath.resolve(base: bottleURL, components: ["dosdevices", "\(driveLetter):"])
         }
 
-        return components.reduce(base) { $0.appending(path: $1) }
+        return CaseInsensitivePath.resolve(base: base, components: components)
     }
 
     /// Fully installed games in one library root whose install directory exists.
     private static func games(inLibrary library: URL) -> [SteamGame] {
-        let steamApps = library.appending(path: "steamapps")
+        let steamApps = CaseInsensitivePath.resolve(base: library, components: ["steamapps"])
         guard let contents = try? FileManager.default.contentsOfDirectory(
             atPath: steamApps.path(percentEncoded: false)
         )
         else { return [] }
 
         var found: [SteamGame] = []
-        for filename in contents where filename.hasPrefix("appmanifest_") && filename.hasSuffix(".acf") {
+        for filename in contents
+            where filename.lowercased().hasPrefix("appmanifest_") && filename.lowercased().hasSuffix(".acf") {
             guard let manifest = SteamAppManifest(contentsOf: steamApps.appending(path: filename)),
                   manifest.isFullyInstalled,
                   isSafePathComponent(manifest.installDir),
                   !nonGameAppIds.contains(manifest.appId)
             else { continue }
 
-            let installURL = steamApps.appending(path: "common").appending(path: manifest.installDir)
+            let installURL = CaseInsensitivePath.resolve(
+                base: steamApps,
+                components: ["common", manifest.installDir]
+            )
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(
                 atPath: installURL.path(percentEncoded: false), isDirectory: &isDirectory

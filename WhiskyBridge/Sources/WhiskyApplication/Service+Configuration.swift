@@ -25,7 +25,7 @@ import WhiskyCore
 extension ApplicationService {
     func configurationCall(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
         switch method {
-        case "configuration.schema": return .array(Self.fields(params).map(Self.describe))
+        case "configuration.schema": return try .array(Self.schemaFields(params).map(Self.describe))
         case "configuration.read":
             let file = try configuration(params)
             return try await .object(file.values(for: Self.fields(params)).mapValues(Self.encode))
@@ -46,14 +46,7 @@ extension ApplicationService {
         let file = try configuration(params)
         let current = try await file.values(for: fields)
         if current[field.id] != value {
-            let hostFields: Set = [
-                "windowsVersion",
-                "virtualDesktopEnabled",
-                "resolutionPreset",
-                "customResolutionWidth",
-                "customResolutionHeight"
-            ]
-            if params["executable"] == nil, hostFields.contains(field.id) {
+            if params["executable"] == nil, field.requires.contains("wine.configuration") {
                 guard let native else { throw BridgeFailure(
                     "capability_unavailable",
                     "This setting requires the Wine host adapter"
@@ -70,10 +63,16 @@ extension ApplicationService {
     }
 
     private static func fields(_ params: [String: JSONValue]) -> [ConfigurationField] {
-        params["executable"] == nil ? containerFields : [
-            ContainerConfiguration.choice("programLocale", "语言区域", "locale", "", ContainerConfiguration.locales),
-            .init("arguments", "运行参数", path: "arguments", input: .text, defaultValue: .text(""))
-        ]
+        params["executable"] == nil ? containerFields : ContainerConfiguration.programFields
+    }
+
+    private static func schemaFields(_ params: [String: JSONValue]) throws -> [ConfigurationField] {
+        let base = fields(params)
+        guard let rawPlatform = params["platform"]?.string else { return base }
+        guard let platform = ConfigurationPlatform(rawValue: rawPlatform) else {
+            throw BridgeFailure("invalid_params", "Unknown configuration platform: \(rawPlatform)")
+        }
+        return base.compactMap { $0.filtered(for: platform) }
     }
 
     private nonisolated static func encode(_ value: ConfigurationValue) -> JSONValue {
@@ -96,20 +95,17 @@ extension ApplicationService {
         throw BridgeFailure("invalid_params", "Expected a boolean, integer or string setting")
     }
 
+    /// Emits the configuration schema. `titleKey` is the primary display string (a
+    /// localization key to be resolved by the client); `title` is only a plain-text fallback.
     private nonisolated static func describe(_ field: ConfigurationField) -> JSONValue {
         var result: [String: JSONValue] = [
             "id": .string(field.id),
             "title": .string(field.title),
-            "default": encode(field.defaultValue)
+            "titleKey": .string(field.titleKey),
+            "default": encode(field.defaultValue),
+            "requires": .array(field.requires.map(JSONValue.string)),
+            "platforms": .array(field.platforms.map(\.rawValue).sorted().map(JSONValue.string))
         ]
-        let hostFields: Set = [
-            "windowsVersion",
-            "virtualDesktopEnabled",
-            "resolutionPreset",
-            "customResolutionWidth",
-            "customResolutionHeight"
-        ]
-        result["requires"] = .array(hostFields.contains(field.id) ? [.string("wine.configuration")] : [])
         switch field.input {
         case .toggle: result["input"] = .string("toggle")
         case .text: result["input"] = .string("text")
@@ -119,7 +115,14 @@ extension ApplicationService {
             result["max"] = .integer(Int64(range.upperBound))
         case let .choice(options):
             result["input"] = .string("choice")
-            result["options"] = .array(options.map { .object(["id": .string($0.id), "title": .string($0.title)]) })
+            result["options"] = .array(options.map { option in
+                .object([
+                    "id": .string(option.id),
+                    "title": .string(option.title),
+                    "titleKey": .string(option.titleKey),
+                    "platforms": .array(option.platforms.map(\.rawValue).sorted().map(JSONValue.string))
+                ])
+            })
         }
         return .object(result)
     }

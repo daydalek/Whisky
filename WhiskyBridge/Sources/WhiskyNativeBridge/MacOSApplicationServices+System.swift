@@ -27,26 +27,23 @@ import WhiskyKit
 
 extension MacOSApplicationServices {
     func virtualDesktopResolution(_ values: [String: ConfigurationValue]) throws -> String {
-        switch values["resolutionPreset"] {
-        case .text("custom"):
-            guard case let .integer(width) = values["customResolutionWidth"],
-                  case let .integer(height) = values["customResolutionHeight"]
-            else {
-                throw BridgeFailure("invalid_params", "Custom resolution requires width and height")
-            }
-            return "\(width)x\(height)"
-        case .text("matchDisplay"):
-            guard let screen = NSScreen.main else { throw BridgeFailure(
-                "display_unavailable",
-                "Display dimensions are unavailable"
-            ) }
-            let scale = screen.backingScaleFactor
-            let width = Int(screen.frame.width * scale)
-            let height = Int(screen.frame.height * scale)
-            return "\(width)x\(height)"
-        case let .text(preset): return String(preset.dropFirst())
-        default: throw BridgeFailure("invalid_params", "Resolution preset is unavailable")
+        if values["resolutionPreset"] == .text("matchDisplay"), NSScreen.main == nil {
+            throw BridgeFailure("display_unavailable", "Display dimensions are unavailable")
         }
+        guard let resolution = ContainerConfiguration.virtualDesktopResolution(
+            from: values,
+            displayDimensions: {
+                guard let screen = NSScreen.main else { return nil }
+                let scale = screen.backingScaleFactor
+                return (
+                    width: Int(screen.frame.width * scale),
+                    height: Int(screen.frame.height * scale)
+                )
+            }
+        ) else {
+            throw BridgeFailure("invalid_params", "Resolution preset is unavailable")
+        }
+        return resolution
     }
 
     func systemCall(

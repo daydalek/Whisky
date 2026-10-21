@@ -46,12 +46,61 @@ public struct HostFileLock: ActivityFileLocking {
     }
 }
 
+public enum LinuxProcStatParser {
+    /// Parses field 22 (`starttime`) from `/proc/<pid>/stat` after the closing `)` of `comm`.
+    public static func startTime(from statContents: String) -> UInt64? {
+        guard let closeParen = statContents.lastIndex(of: ")") else { return nil }
+        let remainder = statContents[statContents.index(after: closeParen)...]
+        let fields = remainder.split(whereSeparator: \.isWhitespace)
+        guard fields.count > 19 else { return nil }
+        return UInt64(fields[19])
+    }
+}
+
+public struct HostProcessIdentityProvider: ProcessIdentityProviding {
+    public init() {}
+
+    public var currentProcess: HostProcessIdentity {
+        let pid = getpid()
+        return HostProcessIdentity(pid: pid, birth: Self.processBirth(for: pid))
+    }
+
+    public func isAlive(_ process: HostProcessIdentity) -> Bool {
+        let pid = process.pid
+        guard pid > 0 else { return false }
+        if kill(pid, 0) != 0 {
+            return errno == EPERM
+        }
+        guard process.birth > 0 else { return true }
+        let actual = Self.processBirth(for: pid)
+        return actual > 0 && actual == process.birth
+    }
+
+    public static func processBirth(for pid: Int32) -> UInt64 {
+        guard pid > 0 else { return 0 }
+        #if os(macOS)
+        var info = proc_bsdinfo()
+        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size))
+        guard size == MemoryLayout<proc_bsdinfo>.size else { return 0 }
+        return UInt64(info.pbi_start_tvsec) * 1_000_000 + UInt64(info.pbi_start_tvusec)
+        #elseif os(Linux)
+        guard let stat = try? String(contentsOfFile: "/proc/\(pid)/stat", encoding: .utf8) else { return 0 }
+        return LinuxProcStatParser.startTime(from: stat) ?? 0
+        #else
+        return 0
+        #endif
+    }
+}
+
 public enum HostPaths {
     /// The data identity stays fixed as the frontend's bundle identity changes.
     public static func registry(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL {
+        if let override = environment["WHISKY_REGISTRY"], !override.isEmpty {
+            return URL(fileURLWithPath: override)
+        }
         #if os(macOS)
         return home.appendingPathComponent("Library/Containers/com.franke.Whisky/BottleVM.plist")
         #else

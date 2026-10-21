@@ -16,7 +16,11 @@
 //  If not, see https://www.gnu.org/licenses/.
 //
 
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
 /// Captures whole UTF-8 output with bounded lifetime. Files avoid inherited-pipe EOF waits.

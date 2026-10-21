@@ -67,14 +67,7 @@ enum WorkspaceHost {
     ) async throws {
         #if os(macOS)
         guard !ProcessInfo.processInfo.arguments.contains("--browse-only") else { return }
-        let registryFields: Set = [
-            "windowsVersion",
-            "virtualDesktopEnabled",
-            "resolutionPreset",
-            "customResolutionWidth",
-            "customResolutionHeight"
-        ]
-        guard registryFields.contains(field.id) else { return }
+        guard field.requires.contains("wine.configuration") else { return }
         guard let bottle = bottle(at: container) else { throw CocoaError(.fileReadCorruptFile) }
         if field.id == "windowsVersion", case let .text(raw) = value, let version = WinVersion(rawValue: raw) {
             _ = try await Wine.changeWinVersion(bottle: bottle, win: version)
@@ -92,23 +85,21 @@ enum WorkspaceHost {
 
     #if os(macOS)
     private static func resolutionString(_ updated: [String: ConfigurationValue]) throws -> String {
-        switch updated["resolutionPreset"] {
-        case .text("custom"):
-            guard case let .integer(width) = updated["customResolutionWidth"],
-                  case let .integer(height) = updated["customResolutionHeight"]
-            else { throw CocoaError(.coderInvalidValue) }
-            return "\(width)x\(height)"
-        case .text("matchDisplay"):
-            if let screen = NSScreen.main {
-                let width = Int(screen.frame.width * screen.backingScaleFactor)
-                let height = Int(screen.frame.height * screen.backingScaleFactor)
-                return "\(width)x\(height)"
-            } else {
-                return "1920x1080"
+        guard let resolution = ContainerConfiguration.virtualDesktopResolution(
+            from: updated,
+            displayDimensions: {
+                if let screen = NSScreen.main {
+                    return (
+                        width: Int(screen.frame.width * screen.backingScaleFactor),
+                        height: Int(screen.frame.height * screen.backingScaleFactor)
+                    )
+                }
+                return (width: 1_920, height: 1_080)
             }
-        case let .text(raw): return String(raw.dropFirst())
-        default: throw CocoaError(.coderInvalidValue)
+        ) else {
+            throw CocoaError(.coderInvalidValue)
         }
+        return resolution
     }
     #endif
 }

@@ -36,10 +36,32 @@ enum WorkspaceSystem {
         #if os(macOS)
         guard NSWorkspace.shared.open(url) else { throw CocoaError(.fileReadUnsupportedScheme) }
         #elseif os(Linux)
+        guard let opener = locateXDGOpen() else {
+            throw CocoaError(.fileNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "xdg-open is unavailable on this host"])
+        }
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xdg-open")
-        process.arguments = [url.absoluteString]
+        process.executableURL = opener
+        process.arguments = [url.path]
+        process.terminationHandler = { _ in }
         try process.run()
         #endif
     }
+
+    #if os(Linux)
+    /// Mirrors the PATH lookup used by the bridge host's `xdgOpen` helper.
+    private static func locateXDGOpen() -> URL? {
+        var directories = ["/usr/bin", "/usr/local/bin", "/bin"].map { URL(fileURLWithPath: $0) }
+        if let path = ProcessInfo.processInfo.environment["PATH"] {
+            directories += path.split(separator: ":").filter { $0.hasPrefix("/") }
+                .map { URL(fileURLWithPath: String($0)) }
+        }
+        for directory in directories {
+            let candidate = directory.appendingPathComponent("xdg-open")
+            if FileManager.default.isExecutableFile(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
+    }
+    #endif
 }

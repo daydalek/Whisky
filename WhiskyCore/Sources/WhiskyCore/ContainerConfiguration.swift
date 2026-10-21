@@ -21,21 +21,37 @@ import Foundation
 public struct ConfigurationSection: Identifiable, Sendable {
     public let id: String
     public let title: String
+    public let titleKey: String
     public let fields: [ConfigurationField]
-    public init(id: String, title: String, fields: [ConfigurationField]) {
+    public init(id: String, title: String, titleKey: String? = nil, fields: [ConfigurationField]) {
         self.id = id
         self.title = title
+        self.titleKey = titleKey ?? "config.section.\(id)"
         self.fields = fields
+    }
+
+    public func filtered(for platform: ConfigurationPlatform) -> Self? {
+        let filteredFields = fields.compactMap { $0.filtered(for: platform) }
+        guard !filteredFields.isEmpty else { return nil }
+        return Self(id: id, title: title, titleKey: titleKey, fields: filteredFields)
     }
 }
 
 public enum ContainerConfiguration {
+    public static let wineConfigurationFields: Set<String> = [
+        "windowsVersion",
+        "virtualDesktopEnabled",
+        "resolutionPreset",
+        "customResolutionWidth",
+        "customResolutionHeight"
+    ]
+
     public static let sections: [ConfigurationSection] = [
         .init(id: "wine", title: "Wine", fields: [
             choice("windowsVersion", "Windows 版本", "wineConfig.windowsVersion", "win10", [
                 ("winxp64", "Windows XP"), ("win7", "Windows 7"), ("win8", "Windows 8"),
                 ("win81", "Windows 8.1"), ("win10", "Windows 10"), ("win11", "Windows 11")
-            ]),
+            ], requires: ["wine.configuration"]),
             choice("enhancedSync", "增强同步", "wineConfig.enhancedSync", "msync", [
                 ("none", "关闭"), ("esync", "ESync"), ("msync", "MSync")
             ], tagged: true),
@@ -78,34 +94,51 @@ public enum ContainerConfiguration {
             toggle("allowBackgroundEvents", "允许后台输入", "inputConfig.allowBackgroundEvents", false),
             toggle("disableControllerMapping", "停用控制器映射", "inputConfig.disableControllerMapping", false),
             toggle("useButtonLabels", "使用原生按钮标签", "inputConfig.useButtonLabels", false),
-            toggle("commandActsAsControl", "将 Command 映射为 Windows Ctrl", "inputConfig.commandActsAsControl", false)
+            toggle(
+                "commandActsAsControl",
+                "将 Command 映射为 Windows Ctrl",
+                "inputConfig.commandActsAsControl",
+                false,
+                platforms: [.macOS]
+            )
         ]),
         .init(id: "graphics", title: "图形", fields: [
-            choice("graphicsBackend", "图形后端", "graphicsConfig.backend", "recommended", [
-                ("recommended", "推荐"), ("d3dMetal", "D3DMetal"), ("dxvk", "DXVK"), ("dxmt", "DXMT"), (
-                    "wined3d",
-                    "WineD3D"
-                )
-            ]),
-            toggle("metalFX", "MetalFX 超分辨率", "graphicsConfig.metalFX", true),
-            toggle("frameGeneration", "帧生成", "graphicsConfig.frameGeneration", false),
-            toggle("metal4Enabled", "Metal 4", "metalConfig.metal4Enabled", true),
-            toggle("metalHud", "Metal 性能面板", "metalConfig.metalHud", false),
-            toggle("metalTrace", "Metal 跟踪", "metalConfig.metalTrace", false),
-            toggle("dxrEnabled", "DirectX 光线追踪", "metalConfig.dxrEnabled", false),
-            toggle("metalValidation", "Metal 验证", "metalConfig.metalValidation", false),
+            ConfigurationField(
+                "graphicsBackend",
+                "图形后端",
+                path: "graphicsConfig.backend",
+                input: .choice([
+                    .init("recommended", "推荐"),
+                    .init("d3dMetal", "D3DMetal", platforms: [.macOS]),
+                    .init("dxvk", "DXVK"),
+                    .init("dxmt", "DXMT", platforms: [.macOS]),
+                    .init("wined3d", "WineD3D")
+                ]),
+                defaultValue: .text("recommended")
+            ),
+            toggle("metalFX", "MetalFX 超分辨率", "graphicsConfig.metalFX", true, platforms: [.macOS]),
+            toggle("frameGeneration", "帧生成", "graphicsConfig.frameGeneration", false, platforms: [.macOS]),
+            toggle("metal4Enabled", "Metal 4", "metalConfig.metal4Enabled", true, platforms: [.macOS]),
+            toggle("metalHud", "Metal 性能面板", "metalConfig.metalHud", false, platforms: [.macOS]),
+            toggle("metalTrace", "Metal 跟踪", "metalConfig.metalTrace", false, platforms: [.macOS]),
+            toggle("dxrEnabled", "DirectX 光线追踪", "metalConfig.dxrEnabled", false, platforms: [.macOS]),
+            toggle("metalValidation", "Metal 验证", "metalConfig.metalValidation", false, platforms: [.macOS]),
             toggle("dxvkAsync", "DXVK 异步编译", "dxvkConfig.dxvkAsync", true),
             choice("dxvkHud", "DXVK 性能面板", "dxvkConfig.dxvkHud", "off", [
                 ("off", "关闭"), ("fps", "帧率"), ("partial", "简要"), ("full", "完整")
             ], tagged: true)
         ]),
         .init(id: "audio", title: "音频", fields: [
-            choice(
+            ConfigurationField(
                 "audioDriver",
                 "音频驱动",
-                "audioConfig.audioDriver",
-                "auto",
-                [("auto", "自动"), ("coreaudio", "CoreAudio"), ("disabled", "关闭")]
+                path: "audioConfig.audioDriver",
+                input: .choice([
+                    .init("auto", "自动"),
+                    .init("coreaudio", "CoreAudio", platforms: [.macOS]),
+                    .init("disabled", "关闭")
+                ]),
+                defaultValue: .text("auto")
             ),
             choice("audioLatencyPreset", "延迟预设", "audioConfig.latencyPreset", "defaultPreset", [
                 ("defaultPreset", "默认"), ("lowLatency", "低延迟"), ("stable", "稳定")
@@ -131,20 +164,40 @@ public enum ContainerConfiguration {
             toggle("discordBridge", "转发游戏 Rich Presence", "discordConfig.bridge", false)
         ]),
         .init(id: "display", title: "显示", fields: [
-            toggle("virtualDesktopEnabled", "虚拟桌面", "displayConfig.virtualDesktopEnabled", false),
+            toggle(
+                "virtualDesktopEnabled",
+                "虚拟桌面",
+                "displayConfig.virtualDesktopEnabled",
+                false,
+                requires: ["wine.configuration"]
+            ),
             choice("resolutionPreset", "分辨率", "displayConfig.resolutionPreset", "r1920x1080", [
                 ("r1280x720", "1280 × 720"), ("r1600x900", "1600 × 900"), ("r1920x1080", "1920 × 1080"),
                 ("r2560x1440", "2560 × 1440"), ("r3840x2160", "3840 × 2160"), ("matchDisplay", "匹配显示器"), (
                     "custom",
                     "自定义"
                 )
-            ]),
-            number("customResolutionWidth", "自定义宽度", "displayConfig.customWidth", 1_920, 640 ... 7_680),
-            number("customResolutionHeight", "自定义高度", "displayConfig.customHeight", 1_080, 480 ... 4_320)
+            ], requires: ["wine.configuration"]),
+            number(
+                "customResolutionWidth",
+                "自定义宽度",
+                "displayConfig.customWidth",
+                1_920,
+                640 ... 7_680,
+                requires: ["wine.configuration"]
+            ),
+            number(
+                "customResolutionHeight",
+                "自定义高度",
+                "displayConfig.customHeight",
+                1_080,
+                480 ... 4_320,
+                requires: ["wine.configuration"]
+            )
         ]),
         .init(id: "performance", title: "性能", fields: [
             toggle("shaderCacheEnabled", "着色器缓存", "performanceConfig.shaderCacheEnabled", true),
-            toggle("disableAppNap", "防止 App Nap 限制性能", "performanceConfig.disableAppNap", false)
+            toggle("disableAppNap", "防止 App Nap 限制性能", "performanceConfig.disableAppNap", false, platforms: [.macOS])
         ]),
         .init(id: "cleanup", title: "退出与清理", fields: [
             choice("clipboardPolicy", "剪贴板策略", "cleanupConfig.clipboardPolicy", "auto", [
@@ -189,8 +242,62 @@ public enum ContainerConfiguration {
         sections.flatMap(\.fields)
     }
 
-    public static func toggle(_ id: String, _ title: String, _ path: String, _ value: Bool) -> ConfigurationField {
-        .init(id, title, path: path, input: .toggle, defaultValue: .boolean(value))
+    public static let programFields: [ConfigurationField] = [
+        choice("programLocale", "语言区域", "locale", "", locales),
+        .init("arguments", "运行参数", path: "arguments", input: .text, defaultValue: .text(""))
+    ]
+
+    public static let programSections: [ConfigurationSection] = [
+        .init(id: "program", title: "程序配置", fields: programFields)
+    ]
+
+    public static func sections(for platform: ConfigurationPlatform) -> [ConfigurationSection] {
+        sections.compactMap { $0.filtered(for: platform) }
+    }
+
+    public static func fields(for platform: ConfigurationPlatform) -> [ConfigurationField] {
+        sections(for: platform).flatMap(\.fields)
+    }
+
+    public static func virtualDesktopResolution(
+        from values: [String: ConfigurationValue],
+        displayDimensions: () -> (width: Int, height: Int)? = { nil }
+    ) -> String? {
+        switch values["resolutionPreset"] {
+        case .text("custom"):
+            guard case let .integer(width) = values["customResolutionWidth"],
+                  case let .integer(height) = values["customResolutionHeight"]
+            else { return nil }
+            return "\(width)x\(height)"
+        case .text("matchDisplay"):
+            guard let dimensions = displayDimensions(),
+                  dimensions.width > 0, dimensions.height > 0
+            else { return nil }
+            return "\(dimensions.width)x\(dimensions.height)"
+        case let .text(preset) where preset.hasPrefix("r") && preset.count > 1:
+            return String(preset.dropFirst())
+        default:
+            return nil
+        }
+    }
+
+    public static func toggle(
+        _ id: String,
+        _ title: String,
+        _ path: String,
+        _ value: Bool,
+        requires: [String] = [],
+        platforms: Set<ConfigurationPlatform> = ConfigurationPlatform.all
+    ) -> ConfigurationField {
+        .init(
+            id,
+            title,
+            path: path,
+            input: .toggle,
+            defaultValue: .boolean(value),
+            requires: requires,
+            platforms: platforms
+        )
     }
 
     public static func choice(
@@ -199,7 +306,9 @@ public enum ContainerConfiguration {
         _ path: String,
         _ value: String,
         _ options: [(String, String)],
-        tagged: Bool = false
+        tagged: Bool = false,
+        requires: [String] = [],
+        platforms: Set<ConfigurationPlatform> = ConfigurationPlatform.all
     ) -> ConfigurationField {
         .init(
             id,
@@ -207,7 +316,9 @@ public enum ContainerConfiguration {
             path: path,
             input: .choice(options.map { .init($0.0, $0.1) }),
             defaultValue: .text(value),
-            taggedEnum: tagged
+            taggedEnum: tagged,
+            requires: requires,
+            platforms: platforms
         )
     }
 
@@ -216,8 +327,48 @@ public enum ContainerConfiguration {
         _ title: String,
         _ path: String,
         _ value: Int,
-        _ range: ClosedRange<Int>
+        _ range: ClosedRange<Int>,
+        requires: [String] = [],
+        platforms: Set<ConfigurationPlatform> = ConfigurationPlatform.all
     ) -> ConfigurationField {
-        .init(id, title, path: path, input: .number(range), defaultValue: .integer(value))
+        .init(
+            id,
+            title,
+            path: path,
+            input: .number(range),
+            defaultValue: .integer(value),
+            requires: requires,
+            platforms: platforms
+        )
+    }
+}
+
+public extension ConfigurationFile {
+    func clipboardPreflightConfiguration() throws -> (
+        launcher: LauncherType?,
+        policy: ClipboardPolicy,
+        threshold: Int
+    ) {
+        let fields = ContainerConfiguration.fields.filter {
+            ["detectedLauncher", "clipboardPolicy", "clipboardThreshold"].contains($0.id)
+        }
+        let values = try values(for: fields)
+        let launcher: LauncherType? = if case let .text(raw) = values["detectedLauncher"], !raw.isEmpty {
+            LauncherType(rawValue: raw)
+        } else {
+            nil
+        }
+        let policy: ClipboardPolicy = if case let .text(raw) = values["clipboardPolicy"],
+                                         let resolved = ClipboardPolicy(rawValue: raw) {
+            resolved
+        } else {
+            .auto
+        }
+        let threshold: Int = if case let .integer(value) = values["clipboardThreshold"] {
+            value
+        } else {
+            ClipboardPreflight.largeContentThreshold
+        }
+        return (launcher: launcher, policy: policy, threshold: threshold)
     }
 }

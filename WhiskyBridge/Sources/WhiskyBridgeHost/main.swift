@@ -93,10 +93,21 @@ struct BridgeHost {
             containers: argument("--container").map { [URL(fileURLWithPath: $0)] } ?? []
         )
         let preferencesDomain = argument("--preferences-domain") ?? "com.franke.Whisky"
+        // On corelibs-foundation (Linux), `UserDefaults(suiteName:)` does not provide real
+        // suite isolation/persistence semantics; it may be replaced by an XDG config file.
+        #if os(Linux)
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let dataHome = ProcessInfo.processInfo.environment["XDG_DATA_HOME"]
+            .flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
+            ?? home.appendingPathComponent(".local/share")
+        let defaultBottleDirectory = dataHome.appendingPathComponent("whisky/Bottles")
+        #else
+        let defaultBottleDirectory = workspace.registry.deletingLastPathComponent()
+            .appendingPathComponent("Bottles")
+        #endif
         let preferences = PreferencesService(
             defaults: UserDefaults(suiteName: preferencesDomain) ?? .standard,
-            defaultBottleDirectory: workspace.registry.deletingLastPathComponent()
-                .appendingPathComponent("Bottles")
+            defaultBottleDirectory: defaultBottleDirectory
         )
         let jobs = BridgeJobStore()
         #if os(macOS)
@@ -106,6 +117,13 @@ struct BridgeHost {
                 wineEnabled: arguments.contains("--enable-wine"), preferencesDomain: preferencesDomain, jobs: jobs
             ),
             preferences: preferences, jobs: jobs
+        )
+        #elseif os(Linux)
+        return ApplicationService(
+            workspace: workspace,
+            native: LinuxApplicationServices(),
+            preferences: preferences,
+            jobs: jobs
         )
         #else
         return ApplicationService(workspace: workspace, preferences: preferences, jobs: jobs)

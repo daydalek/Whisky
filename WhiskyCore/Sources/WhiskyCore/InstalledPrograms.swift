@@ -65,19 +65,21 @@ public enum InstalledPrograms {
         blocklist: Set<URL>
     ) -> [URL] {
         var found: [URL] = []
-        for folderName in ["Program Files", "Program Files (x86)"] {
-            let folderURL = driveC.appending(path: folderName)
+        let canonicalBlocklist = Set(blocklist.map { $0.resolvingSymlinksInPath().standardizedFileURL })
+        for folderName in ["Program Files", "Program Files (x86)", "Program Files (Arm)"] {
+            let folderURL = CaseInsensitivePath.resolve(base: driveC, components: [folderName])
             let enumerator = FileManager.default.enumerator(
                 at: folderURL, includingPropertiesForKeys: [.isExecutableKey], options: [.skipsHiddenFiles]
             )
 
             while let url = enumerator?.nextObject() as? URL {
-                guard !url.hasDirectoryPath, url.pathExtension == "exe" else { continue }
+                guard !url.hasDirectoryPath, url.pathExtension.lowercased() == "exe" else { continue }
                 // Skip ClickOnce cache executables (noisy internal artifacts)
-                guard !url.path.contains("/Apps/2.0/") else { continue }
+                guard !url.path.lowercased().contains("/apps/2.0/") else { continue }
                 // Skip known launcher helpers and crash reporters that pollute the list
+                let canonical = url.resolvingSymlinksInPath().standardizedFileURL
                 guard !noiseExecutableNames.contains(url.lastPathComponent.lowercased()),
-                      !blocklist.contains(url)
+                      !canonicalBlocklist.contains(canonical)
                 else { continue }
                 found.append(url)
             }

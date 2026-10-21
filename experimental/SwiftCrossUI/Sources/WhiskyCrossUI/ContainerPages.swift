@@ -226,10 +226,7 @@ struct ProgramSettingsPage: View {
     }
 
     private var sections: [ConfigurationSection] {
-        [.init(id: "program", title: "程序配置", fields: [
-            ContainerConfiguration.choice("programLocale", "语言区域", "locale", "", ContainerConfiguration.locales),
-            .init("arguments", "运行参数", path: "arguments", input: .text, defaultValue: .text(""))
-        ])]
+        ContainerConfiguration.programSections
     }
 
     var body: some View {

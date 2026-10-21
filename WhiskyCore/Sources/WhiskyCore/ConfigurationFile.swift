@@ -18,6 +18,24 @@
 
 import Foundation
 
+public enum ConfigurationPlatform: String, Codable, CaseIterable, Sendable {
+    case macOS = "macos"
+    case linux = "linux"
+
+    public static let all: Set<Self> = Set(allCases)
+
+    public static var current: Self {
+        #if os(Linux)
+        .linux
+        #elseif os(macOS)
+        .macOS
+        #else
+        // Unknown platforms are treated as Linux so macOS-only options stay hidden.
+        .linux
+        #endif
+    }
+}
+
 public enum ConfigurationValue: Equatable, Sendable {
     case boolean(Bool)
     case text(String)
@@ -27,13 +45,22 @@ public enum ConfigurationValue: Equatable, Sendable {
 public struct ConfigurationChoice: Equatable, Sendable, Identifiable, CustomStringConvertible {
     public let id: String
     public let title: String
+    public let titleKey: String
+    public let platforms: Set<ConfigurationPlatform>
     public var description: String {
         title
     }
 
-    public init(_ id: String, _ title: String) {
+    public init(
+        _ id: String,
+        _ title: String,
+        titleKey: String? = nil,
+        platforms: Set<ConfigurationPlatform> = ConfigurationPlatform.all
+    ) {
         self.id = id
         self.title = title
+        self.titleKey = titleKey ?? (id.isEmpty ? "config.option.auto" : "config.option.\(id)")
+        self.platforms = platforms
     }
 }
 
@@ -47,28 +74,56 @@ public struct ConfigurationField: Identifiable, Sendable {
 
     public let id: String
     public let title: String
+    public let titleKey: String
     public let path: [String]
     public let input: Input
     public let defaultValue: ConfigurationValue
     public let taggedEnum: Bool
     public let removesEmptyText: Bool
+    public let requires: [String]
+    public let platforms: Set<ConfigurationPlatform>
 
     public init(
         _ id: String,
         _ title: String,
+        titleKey: String? = nil,
         path: String,
         input: Input,
         defaultValue: ConfigurationValue,
         taggedEnum: Bool = false,
-        removesEmptyText: Bool = false
+        removesEmptyText: Bool = false,
+        requires: [String] = [],
+        platforms: Set<ConfigurationPlatform> = ConfigurationPlatform.all
     ) {
         self.id = id
         self.title = title
+        self.titleKey = titleKey ?? "config.field.\(id)"
         self.path = path.components(separatedBy: ".")
         self.input = input
         self.defaultValue = defaultValue
         self.taggedEnum = taggedEnum
         self.removesEmptyText = removesEmptyText
+        self.requires = requires
+        self.platforms = platforms
+    }
+
+    public func filtered(for platform: ConfigurationPlatform) -> Self? {
+        guard platforms.contains(platform) else { return nil }
+        guard case let .choice(options) = input else { return self }
+        let available = options.filter { $0.platforms.contains(platform) }
+        guard !available.isEmpty else { return nil }
+        return Self(
+            id,
+            title,
+            titleKey: titleKey,
+            path: path.joined(separator: "."),
+            input: .choice(available),
+            defaultValue: defaultValue,
+            taggedEnum: taggedEnum,
+            removesEmptyText: removesEmptyText,
+            requires: requires,
+            platforms: platforms
+        )
     }
 
     public func validate(_ value: ConfigurationValue) throws {
@@ -204,7 +259,7 @@ public actor ConfigurationFile {
         switch field.input {
         case .toggle:
             guard let number = node as? NSNumber,
-                  String(cString: number.objCType) == "c"
+                  Self.isBoolean(number)
             else { return field.defaultValue }
             value = .boolean(number.boolValue)
         case .number:
@@ -232,5 +287,16 @@ public actor ConfigurationFile {
         var child = document[head] as? [String: Any] ?? [:]
         try set(value, at: path.dropFirst(), in: &child)
         document[head] = child
+    }
+
+    private static let booleanObjCTypes: Set<String> = [
+        String(cString: NSNumber(value: true).objCType),
+        String(cString: NSNumber(value: false).objCType),
+        "c",
+        "B"
+    ]
+
+    private static func isBoolean(_ number: NSNumber) -> Bool {
+        booleanObjCTypes.contains(String(cString: number.objCType))
     }
 }
