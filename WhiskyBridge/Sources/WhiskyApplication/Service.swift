@@ -56,6 +56,7 @@ public final class ApplicationService {
         "folders.assign",
         "folders.exclude",
         "folders.executable",
+        "folders.candidates",
         "entry.rating",
         "entry.hidden",
         "configuration.schema",

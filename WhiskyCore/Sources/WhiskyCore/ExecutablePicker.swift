@@ -41,6 +41,63 @@ public enum ExecutableSelectionError: Error {
     case requiresExecutableFile
 }
 
+/// Recursive discovery of the executables a folder game could be started from.
+///
+/// A folder holds a whole installed game: the launcher is usually nested, so
+/// the search cannot stop at the top level the way `SteamLibrary` does.
+public enum ExecutableCandidateFinder {
+    /// Only `.exe` is a launch target.
+    ///
+    /// `folders.executable` rejects anything else, so a script the game ships
+    /// (`.bat`, `.cmd`, `.ps1`, `.vbs`, `.js`), a `.lnk` shortcut and an
+    /// `.msi` installer would be refused after the user picked them. Keeping
+    /// them out of the list is what makes it worth reading.
+    public static func isCandidate(_ url: URL) -> Bool {
+        url.pathExtension.lowercased() == "exe"
+    }
+
+    /// `.exe` files under `folder`, deepest directory first.
+    ///
+    /// Symlinks are skipped so a link back to an ancestor cannot loop, and a
+    /// bundle is not descended into because its executables are not the game.
+    /// `maxDepth` and `limit` bound the walk: an install directory can hold
+    /// tens of thousands of files.
+    public static func candidates(
+        in folder: URL,
+        maxDepth: Int = 6,
+        limit: Int = 200
+    ) -> [URL] {
+        let fileManager = FileManager.default
+        var found: [URL] = []
+        var directories: [(url: URL, depth: Int)] = [(folder, 0)]
+        while let directory = directories.popLast(), found.count < limit {
+            guard let items = try? fileManager.contentsOfDirectory(
+                at: directory.url,
+                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+            var deeper: [URL] = []
+            for item in items {
+                let values = try? item.resourceValues(
+                    forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey]
+                )
+                guard values?.isSymbolicLink != true else { continue }
+                if values?.isDirectory == true {
+                    if directory.depth + 1 < maxDepth, values?.isPackage != true {
+                        deeper.append(item)
+                    }
+                    continue
+                }
+                guard isCandidate(item) else { continue }
+                found.append(item)
+                guard found.count < limit else { break }
+            }
+            directories.append(contentsOf: deeper.map { ($0, directory.depth + 1) })
+        }
+        return found.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+}
+
 @MainActor
 extension FolderGameLibrary {
     /// Selection is asynchronous so each toolkit can use its native dialog lifecycle.

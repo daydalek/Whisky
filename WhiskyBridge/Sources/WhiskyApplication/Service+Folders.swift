@@ -57,6 +57,8 @@ extension ApplicationService {
             }
         case "folders.executable":
             return try setFolderExecutable(params, container: container)
+        case "folders.candidates":
+            return try folderCandidates(params, container: container)
         default:
             return try await nativeCall(method, params: params)
         }
@@ -98,6 +100,19 @@ extension ApplicationService {
         return try Self.mutateFolders(in: container) { library in
             library.executables[folderKey] = executableKey
         }
+    }
+
+    /// Every `.exe` under a folder, for a frontend that offers its own picker
+    /// instead of a platform file dialog.
+    private func folderCandidates(_ params: [String: JSONValue], container: URL) throws -> JSONValue {
+        let folder = try Self.validatedDirectory(try params.path("path"))
+        let found = ExecutableCandidateFinder.candidates(in: folder)
+        return .object([
+            "folder": .string(folder.path),
+            "candidates": .array(found.map {
+                .object(["path": .string($0.path), "name": .string($0.lastPathComponent)])
+            })
+        ])
     }
 
     private static func validatedDirectory(_ url: URL) throws -> URL {
