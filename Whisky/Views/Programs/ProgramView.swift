@@ -32,6 +32,7 @@ struct ProgramView: View {
     @AppStorage("overridesSectionExpanded") private var overridesSectionExpanded: Bool = false
     @AppStorage("consoleRunsSectionExpanded") private var consoleRunsSectionExpanded: Bool = false
     @State private var selectedRunId: UUID?
+    @State private var runHistory = RunLogHistory()
 
     private let sessionStore = TroubleshootingSessionStore()
 
@@ -73,7 +74,7 @@ struct ProgramView: View {
                 ConsoleRunHistoryView(
                     program: program,
                     bottle: program.bottle,
-                    selectedRunId: $selectedRunId
+                    selectedRunId: $selectedRunId, history: $runHistory
                 )
                 if let runId = selectedRunId,
                    let entry = findRunEntry(id: runId) {
@@ -165,8 +166,7 @@ struct ProgramView: View {
     }
 
     private func findRunEntry(id: UUID) -> RunLogEntry? {
-        let history = RunLogStore.load(for: program.name, in: program.bottle.url)
-        return history.entries.first(where: { $0.id == id })
+        runHistory.entries.first(where: { $0.id == id })
     }
 
     private func launchProgram() {

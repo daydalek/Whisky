@@ -151,6 +151,7 @@
 		K1A2B3C4E5F61401A9B0C1D2 /* TroubleshootingTargetPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = K1A2B3C4E5F61401A9B0C1D3 /* TroubleshootingTargetPicker.swift */; };
 		K1A2B3C4E5F61401A9B0C1D4 /* TroubleshootingEntryBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = K1A2B3C4E5F61401A9B0C1D5 /* TroubleshootingEntryBanner.swift */; };
 		63FBC2457D95CB0A0B6016A1 /* LibrarySidebarCounts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA60C3E7B4689DA7A654FA56 /* LibrarySidebarCounts.swift */; };
+		737B76A63405E92C1830DD28 /* DiagnosticLogRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B41617DD7FB4DA644AAFB89 /* DiagnosticLogRenderer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -352,6 +353,7 @@
 		K1A2B3C4E5F61401A9B0C1D3 /* TroubleshootingTargetPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TroubleshootingTargetPicker.swift; sourceTree = "<group>"; };
 		K1A2B3C4E5F61401A9B0C1D5 /* TroubleshootingEntryBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TroubleshootingEntryBanner.swift; sourceTree = "<group>"; };
 		DA60C3E7B4689DA7A654FA56 /* LibrarySidebarCounts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySidebarCounts.swift; sourceTree = "<group>"; };
+		2B41617DD7FB4DA644AAFB89 /* DiagnosticLogRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogRenderer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -684,6 +686,7 @@
 				D1A2B3C4E5F60504A9B0C1E0 /* DiagnosticExportSheet.swift */,
 				D1A2B3C4E5F60504A9B0C1D0 /* DiagnosticsView.swift */,
 				D1A2B3C4E5F60504A9B0C1D4 /* LogViewerView.swift */,
+				2B41617DD7FB4DA644AAFB89 /* DiagnosticLogRenderer.swift */,
 				D1A2B3C4E5F60504A9B0C1D2 /* RemediationCardView.swift */,
 			);
 			path = Diagnostics;
@@ -1080,6 +1083,7 @@
 				D1A2B3C4E5F60504A9B0C1D1 /* DiagnosticsView.swift in Sources */,
 				D1A2B3C4E5F60504A9B0C1D3 /* RemediationCardView.swift in Sources */,
 				D1A2B3C4E5F60504A9B0C1D5 /* LogViewerView.swift in Sources */,
+				737B76A63405E92C1830DD28 /* DiagnosticLogRenderer.swift in Sources */,
 				D1A2B3C4E5F60504A9B0C1E1 /* DiagnosticExportSheet.swift in Sources */,
 				D1A2B3C4E5F60504A9B0C1E3 /* DiagnosisHistoryView.swift in Sources */,
 				C1A2B3C4E5F60601A9B0C1D0 /* AudioStatusView.swift in Sources */,

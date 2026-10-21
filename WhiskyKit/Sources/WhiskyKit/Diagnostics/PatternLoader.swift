@@ -69,6 +69,12 @@ public enum PatternLoader {
     ///
     /// - Returns: Tuple of patterns array and remediations dictionary.
     public static func loadDefaults() -> ([CrashPattern], [String: RemediationAction]) {
+        defaults
+    }
+
+    private static let defaults: ([CrashPattern], [String: RemediationAction]) = readDefaults()
+
+    private static func readDefaults() -> ([CrashPattern], [String: RemediationAction]) {
         guard let patternsURL = Bundle.module.url(
             forResource: "patterns",
             withExtension: "json"

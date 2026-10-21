@@ -81,7 +81,7 @@ public struct RunLogEntry: Codable, Identifiable, Equatable, Sendable {
 /// is given the removed entries so it can clean up their log files.
 ///
 /// Follows the ``DiagnosisHistory`` persistence pattern from Phase 5.
-public struct RunLogHistory: Codable, Equatable {
+public struct RunLogHistory: Codable, Equatable, Sendable {
     /// Maximum number of run entries retained per program.
     public static let maxEntriesPerProgram = 10
 

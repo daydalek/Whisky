@@ -1,4 +1,3 @@
-// swiftlint:disable file_length
 //
 //  ConsoleLogView.swift
 //  Whisky
@@ -36,18 +35,7 @@ struct ConsoleLogView: View {
     @State private var showWineDebug = false
     @State private var currentExitCode: Int32?
     @State private var isStillRunning: Bool = false
-    @State private var lastFileOffset: UInt64 = 0
-    @State private var refreshTimer: Timer?
-
-    /// Regex patterns that indicate WINEDEBUG output.
-    private static let wineDebugPatterns: [String] = [
-        "^[0-9a-f]{4}:",
-        "^wine:",
-        "^fixme:",
-        "^err:",
-        "^trace:",
-        "^warn:"
-    ]
+    @State private var filteredLogLines: [ConsoleLogLine] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -57,15 +45,10 @@ struct ConsoleLogView: View {
             logFooter
             actionBar
         }
-        .onAppear { loadLog() }
-        .onDisappear { stopRefreshTimer() }
-        .task {
-            isStillRunning = runEntry.isRunning
-            currentExitCode = runEntry.exitCode
-            if runEntry.isRunning {
-                startRefreshTimer()
-            }
-        }
+        .task(id: runEntry.id) { await followLog() }
+        .onChange(of: showOutput) { updateFilter() }
+        .onChange(of: showStderr) { updateFilter() }
+        .onChange(of: showWineDebug) { updateFilter() }
     }
 
     // MARK: - Header
@@ -198,7 +181,11 @@ struct ConsoleLogView: View {
     }
 
     var filteredLines: [ConsoleLogLine] {
-        logLines.filter { line in
+        filteredLogLines
+    }
+
+    private func updateFilter() {
+        filteredLogLines = logLines.filter { line in
             switch line.channel {
             case .output: showOutput
             case .stderr: showStderr
@@ -305,86 +292,66 @@ extension ConsoleLogView {
         }
     }
 
-    func loadLog() {
-        let logURL = Wine.logsFolder.appending(path: runEntry.logFileName)
-        guard FileManager.default.fileExists(atPath: logURL.path(percentEncoded: false)) else {
-            logLines = [ConsoleLogLine(
-                text: String(localized: "console.log.fileNotFound"),
-                channel: .stderr
-            )]
-            return
-        }
-
-        do {
-            let content = try String(contentsOf: logURL, encoding: .utf8)
-            logLines = classifyLines(content)
-            if let attributes = try? FileManager.default.attributesOfItem(
-                atPath: logURL.path(percentEncoded: false)
-            ) {
-                lastFileOffset = (attributes[.size] as? UInt64) ?? 0
-            }
-        } catch {
-            logLines = [ConsoleLogLine(
-                text: String(localized: "console.log.loadError"),
-                channel: .stderr
-            )]
-        }
-    }
-
-    func loadNewContent() {
-        let logURL = Wine.logsFolder.appending(path: runEntry.logFileName)
-        guard FileManager.default.fileExists(atPath: logURL.path(percentEncoded: false)) else { return }
-
-        do {
-            let handle = try FileHandle(forReadingFrom: logURL)
-            defer { try? handle.close() }
-
-            handle.seek(toFileOffset: lastFileOffset)
-            guard let newData = try handle.readToEnd(), !newData.isEmpty else { return }
-
-            lastFileOffset += UInt64(newData.count)
-
-            if let newContent = String(data: newData, encoding: .utf8) {
-                let newLines = classifyLines(newContent)
-                logLines.append(contentsOf: newLines)
-            }
-        } catch {
-            // Best-effort: ignore read errors during live tailing
-        }
-
-        // Check if the process has exited
-        let history = RunLogStore.load(for: runEntry.programName, in: bottle.url)
-        if let updated = history.entries.first(where: { $0.id == runEntry.id }), !updated.isRunning {
-            isStillRunning = false
-            currentExitCode = updated.exitCode
-            stopRefreshTimer()
-        }
-    }
-
-    func classifyLines(_ content: String) -> [ConsoleLogLine] {
-        content
-            .components(separatedBy: .newlines)
-            .filter { !$0.isEmpty }
-            .map { line in
-                if isWineDebugLine(line) {
-                    ConsoleLogLine(text: line, channel: .wineDebug)
-                } else if isStderrLine(line) {
-                    ConsoleLogLine(text: line, channel: .stderr)
-                } else {
-                    ConsoleLogLine(text: line, channel: .output)
+    func followLog() async {
+        let reader = ConsoleLogReader(url: Wine.logsFolder.appending(path: runEntry.logFileName))
+        let entry = runEntry
+        let bottleURL = bottle.url
+        isStillRunning = entry.isRunning
+        currentExitCode = entry.exitCode
+        logLines = []
+        var hadPartial = false
+        var previousPartial: ConsoleLogLine?
+        while !Task.isCancelled {
+            do {
+                let batch = try await reader.read()
+                guard !Task.isCancelled else { return }
+                apply(batch, hadPartial: &hadPartial, previousPartial: &previousPartial)
+                if batch.hasMore {
+                    await Task.yield()
+                    continue
                 }
+                // A quiet log still checks the run's exit status.
+                let latest = await Task.detached(priority: .utility) {
+                    RunLogStore.load(for: entry.programName, in: bottleURL).entries.first { $0.id == entry.id }
+                }.value
+                guard !Task.isCancelled else { return }
+                if let latest {
+                    isStillRunning = latest.isRunning
+                    currentExitCode = latest.exitCode
+                }
+                if !isStillRunning {
+                    return
+                }
+                try await Task.sleep(for: .seconds(1))
+            } catch is CancellationError { return } catch {
+                logLines = [ConsoleLogLine(text: String(localized: "console.log.loadError"), channel: .stderr)]
+                updateFilter()
+                return
             }
-    }
-
-    func isWineDebugLine(_ line: String) -> Bool {
-        Self.wineDebugPatterns.contains { pattern in
-            line.range(of: pattern, options: .regularExpression) != nil
         }
     }
 
-    func isStderrLine(_ line: String) -> Bool {
-        let stderrIndicators = ["Error:", "error:", "FAILED", "fatal:", "FATAL:", "Exception:"]
-        return stderrIndicators.contains(where: { line.contains($0) })
+    private func apply(
+        _ batch: ConsoleLogReader.Batch,
+        hadPartial: inout Bool,
+        previousPartial: inout ConsoleLogLine?
+    ) {
+        if batch.reset || !batch.lines.isEmpty || batch.partial != previousPartial {
+            if batch.reset {
+                logLines.removeAll()
+                hadPartial = false
+            }
+            if hadPartial, !logLines.isEmpty {
+                logLines.removeLast()
+            }
+            logLines.append(contentsOf: batch.lines)
+            if let partial = batch.partial {
+                logLines.append(partial)
+            }
+            hadPartial = batch.partial != nil
+            previousPartial = batch.partial
+            updateFilter()
+        }
     }
 
     func copyToClipboard() {
@@ -417,52 +384,5 @@ extension ConsoleLogView {
                 // Best-effort export
             }
         }
-    }
-
-    func startRefreshTimer() {
-        stopRefreshTimer()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            Task { @MainActor in
-                loadNewContent()
-            }
-        }
-    }
-
-    func stopRefreshTimer() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
-    }
-}
-
-// MARK: - Supporting Types
-
-/// A single classified log line with channel attribution.
-struct ConsoleLogLine {
-    let text: String
-    let channel: ConsoleLogChannel
-}
-
-/// Channel classification for console output lines.
-enum ConsoleLogChannel {
-    /// Standard output (stdout) content.
-    case output
-    /// Standard error (stderr) content.
-    case stderr
-    /// WINEDEBUG diagnostic output.
-    case wineDebug
-}
-
-/// Pulse animation modifier for the live streaming indicator.
-private struct ConsoleLogPulseModifier: ViewModifier {
-    @State private var isPulsing = false
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(isPulsing ? 0.4 : 1.0)
-            .animation(
-                .easeInOut(duration: 0.6).repeatForever(autoreverses: true),
-                value: isPulsing
-            )
-            .onAppear { isPulsing = true }
     }
 }
