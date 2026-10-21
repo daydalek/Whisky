@@ -171,7 +171,7 @@ public enum Locales: String, Codable, CaseIterable, Sendable {
 /// settings.arguments = "-windowed -nosound"
 /// settings.environment["WINEDEBUG"] = "-all"
 /// ```
-public struct ProgramSettings: Codable {
+public struct ProgramSettings: Codable, Equatable, Sendable {
     /// The locale to use when running this program.
     ///
     /// Setting a specific locale can help with character encoding

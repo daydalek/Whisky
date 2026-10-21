@@ -146,9 +146,8 @@ struct ProgramsView: View {
         .onChange(of: bottle.programs) {
             loadData()
         }
-        .onChange(of: bottle.settings) {
-            loadData()
-        }
+        .onChange(of: bottle.settings.pins) { loadPrograms() }
+        .onChange(of: bottle.settings.blocklist) { loadData() }
     }
 
     private func loadData() {
@@ -159,9 +158,7 @@ struct ProgramsView: View {
     }
 
     private func loadPrograms() {
-        let programs = bottle.programs.filter {
-            FileManager.default.fileExists(atPath: $0.url.path(percentEncoded: false))
-        }
+        let programs = bottle.programs
         sortedPrograms = [
             programs.pinned.sorted { $0.name < $1.name },
             programs.unpinned.sorted { $0.name < $1.name }

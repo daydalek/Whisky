@@ -97,8 +97,16 @@ public final class Program: ObservableObject, Equatable, Hashable, Identifiable 
     /// These settings can override bottle-level defaults for locale
     /// and environment variables.
     @Published public var settings: ProgramSettings {
-        didSet { saveSettings() }
+        didSet {
+            settingsRevision &+= 1
+            if !applyingLoadedSettings {
+                saveSettings()
+            }
+        }
     }
+
+    public private(set) var settingsRevision: UInt64 = 0
+    private var applyingLoadedSettings = false
 
     /// Whether this program is pinned for quick access.
     ///
@@ -126,7 +134,7 @@ public final class Program: ObservableObject, Equatable, Hashable, Identifiable 
     ///
     /// This provides access to the executable's architecture, resources,
     /// and icon. May be `nil` if the file couldn't be parsed.
-    public let peFile: PEFile?
+    public private(set) var peFile: PEFile?
 
     // MARK: - Cross-actor access (nonisolated members on @MainActor type)
 
@@ -160,7 +168,11 @@ public final class Program: ObservableObject, Equatable, Hashable, Identifiable 
     /// the old plist to the identity-keyed name on first load, so downgrading
     /// loses nothing.
     static func settingsURL(for url: URL, in bottle: Bottle, legacyName: String) -> URL {
-        let locations = settingsLocations(for: url, bottleURL: bottle.url, legacyName: legacyName)
+        settingsURL(for: url, bottleURL: bottle.url, legacyName: legacyName)
+    }
+
+    private nonisolated static func settingsURL(for url: URL, bottleURL: URL, legacyName: String) -> URL {
+        let locations = settingsLocations(for: url, bottleURL: bottleURL, legacyName: legacyName)
         let fileManager = FileManager.default
         try? fileManager.createDirectory(
             at: locations.identity.deletingLastPathComponent(), withIntermediateDirectories: true
@@ -239,27 +251,48 @@ public final class Program: ObservableObject, Equatable, Hashable, Identifiable 
     ///   - url: The URL to the Windows executable (.exe) file.
     ///   - bottle: The ``Bottle`` that contains this program.
     ///   - peFile: The pre-parsed PE metadata, or `nil` if it couldn't be parsed.
-    public init(url: URL, bottle: Bottle, peFile: PEFile?) {
-        let name = url.lastPathComponent
+    public struct LoadedSettings: Sendable {
+        public let location: URL
+        public let settings: ProgramSettings
+    }
+
+    /// Settings preparation can accompany PE discovery on a background task.
+    public nonisolated static func loadSettings(for url: URL, bottleURL: URL) -> LoadedSettings {
+        let location = settingsURL(for: url, bottleURL: bottleURL, legacyName: url.lastPathComponent)
+        let settings: ProgramSettings
+        do { settings = try ProgramSettings.decode(from: location) } catch {
+            Logger.wineKit.error("Failed to load settings for `\(url.lastPathComponent)`: \(error)")
+            BottleSettings.quarantineCorruptedFile(at: location)
+            settings = ProgramSettings()
+        }
+        return LoadedSettings(location: location, settings: settings)
+    }
+
+    public init(url: URL, bottle: Bottle, peFile: PEFile?, loadedSettings: LoadedSettings? = nil) {
         self.bottle = bottle
         self.url = url
         self.pinned = bottle.settings.pins.contains(where: { $0.url == url })
-
-        let settingsUrl = Self.settingsURL(for: url, in: bottle, legacyName: name)
-        self.settingsURL = settingsUrl
-
-        do {
-            self.settings = try ProgramSettings.decode(from: settingsUrl)
-        } catch {
-            Logger.wineKit.error(
-                "Failed to load settings for `\(name)`: \(String(describing: error), privacy: .public)"
-            )
-            // Preserve the unreadable file before the next save overwrites it with defaults.
-            BottleSettings.quarantineCorruptedFile(at: settingsUrl)
-            self.settings = ProgramSettings()
-        }
-
+        let loaded = loadedSettings ?? Self.loadSettings(for: url, bottleURL: bottle.url)
+        self.settingsURL = loaded.location
+        self.settings = loaded.settings
         self.peFile = peFile
+    }
+
+    /// Applies an external refresh only while the editor still has its captured revision.
+    public func refreshLoadedSettings(_ loaded: LoadedSettings, expectedRevision: UInt64) {
+        guard expectedRevision == settingsRevision, loaded.location == settingsURL,
+              loaded.settings != settings
+        else { return }
+        applyingLoadedSettings = true
+        settings = loaded.settings
+        applyingLoadedSettings = false
+    }
+
+    /// Preserves the live editor and its settings when an executable's headers change.
+    public func updateScannedPE(_ file: PEFile?) {
+        guard peFile != file else { return }
+        objectWillChange.send()
+        peFile = file
     }
 
     /// Generates the environment variables for running this program.

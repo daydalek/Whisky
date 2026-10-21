@@ -111,8 +111,7 @@ extension Bottle {
     }
 
     @discardableResult
-    // swiftlint:disable:next function_body_length
-    func getStartMenuPrograms() -> [Program] {
+    func getStartMenuPrograms() async -> [Program] {
         let globalStartMenu = url
             .appending(path: "drive_c")
             .appending(path: "ProgramData")
@@ -131,32 +130,22 @@ extension Bottle {
             .appending(path: "Start Menu")
 
         var startMenuPrograms: [Program] = []
-        var linkURLs: [URL] = []
-        let globalEnumerator = FileManager.default.enumerator(
-            at: globalStartMenu,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        )
-        while let url = globalEnumerator?.nextObject() as? URL {
-            if url.pathExtension == "lnk" {
-                linkURLs.append(url)
-            }
-        }
-
-        let userEnumerator = FileManager.default.enumerator(
-            at: userStartMenu,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        )
-        while let url = userEnumerator?.nextObject() as? URL {
-            if url.pathExtension == "lnk" {
-                linkURLs.append(url)
-            }
-        }
-
-        linkURLs.sort(by: { $0.lastPathComponent.lowercased() < $1.lastPathComponent.lowercased() })
+        let linkURLs = await Task.detached(priority: .utility) {
+            [globalStartMenu, userStartMenu].flatMap { directory in
+                FileManager.default.enumerator(
+                    at: directory,
+                    includingPropertiesForKeys: [.isRegularFileKey],
+                    options: [.skipsHiddenFiles]
+                )?.compactMap { value -> URL? in
+                    guard let url = value as? URL, url.pathExtension == "lnk" else { return nil }
+                    return url
+                } ?? []
+            }.sorted { $0.lastPathComponent.lowercased() < $1.lastPathComponent.lowercased() }
+        }.value
 
         for link in linkURLs {
+            guard !Task.isCancelled else { break }
+            await Task.yield()
             do {
                 if let program = try ShellLinkHeader.getProgram(
                     url: link,
@@ -197,26 +186,41 @@ extension Bottle {
             defer { programsLoading = false }
 
             let driveC = url.appending(path: "drive_c")
-            // Snapshot main-actor state before crossing to the background task.
+            let bottleURL = url
             let blocklist = Set(settings.blocklist)
-
-            // Walk Program Files and parse each PE off the main actor (PEFile is Sendable).
-            let scanned: [(url: URL, peFile: PEFile?)] = await Task.detached(priority: .userInitiated) {
-                Bottle.discoverInstalledExecutables(driveC: driveC, blocklist: blocklist)
-                    .map { (url: $0, peFile: try? PEFile(url: $0)) }
+            let pins = settings.pins.compactMap(\.url)
+            let existing = Dictionary(self.programs.map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
+            let revisions = existing.mapValues(\.settingsRevision)
+            let scanned = await Task.detached(priority: .userInitiated) {
+                let discovered = Bottle.discoverInstalledExecutables(driveC: driveC, blocklist: blocklist)
+                let found = Set(discovered)
+                let all = discovered + pins.filter { !found.contains($0) }
+                return all.map { executable in
+                    (
+                        url: executable,
+                        peFile: try? PEFile(url: executable),
+                        loaded: Program.loadSettings(
+                            for: executable,
+                            bottleURL: bottleURL
+                        )
+                    )
+                }
             }.value
 
-            var foundURLS: Set<URL> = []
             var programs: [Program] = []
             for entry in scanned {
-                foundURLS.insert(entry.url)
-                programs.append(Program(url: entry.url, bottle: self, peFile: entry.peFile))
-            }
-
-            // Add missing programs from pins
-            for pin in settings.pins {
-                guard let url = pin.url, !foundURLS.contains(url) else { continue }
-                programs.append(Program(url: url, bottle: self))
+                if let current = existing[entry.url] {
+                    current.updateScannedPE(entry.peFile)
+                    current.refreshLoadedSettings(entry.loaded, expectedRevision: revisions[entry.url] ?? 0)
+                    programs.append(current)
+                } else {
+                    programs.append(Program(
+                        url: entry.url,
+                        bottle: self,
+                        peFile: entry.peFile,
+                        loadedSettings: entry.loaded
+                    ))
+                }
             }
 
             self.programs = programs.sorted { $0.name.lowercased() < $1.name.lowercased() }

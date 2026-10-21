@@ -160,11 +160,6 @@ struct BottleView: View {
                     }
                 }
             }
-            .onChange(of: bottle.settings) { oldValue, newValue in
-                guard oldValue != newValue else { return }
-                // Trigger a reload
-                BottleVM.shared.bottles = BottleVM.shared.bottles
-            }
             .navigationDestination(for: BottleStage.self) { stage in
                 switch stage {
                 case .config:
@@ -190,18 +185,29 @@ extension BottleView {
     private func updateStartMenu() async {
         await bottle.updateInstalledPrograms()
 
-        let startMenuPrograms = bottle.getStartMenuPrograms()
+        let startMenuPrograms = await bottle.getStartMenuPrograms()
+        let programsByPath = Dictionary(
+            bottle.programs.map { ($0.url.path().lowercased(), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var pinned = Set(bottle.settings.pins.compactMap(\.url))
+        var additions: [PinnedProgram] = []
+        var matched: [Program] = []
         for startMenuProgram in startMenuPrograms {
-            for program in bottle.programs where
-                // For some godforsaken reason "foo/bar" != "foo/Bar" so...
-                program.url.path().caseInsensitiveCompare(startMenuProgram.url.path()) == .orderedSame {
-                // Skip programs that are already pinned, but keep processing the
-                // rest. Using `return` here would stop pinning every remaining
-                // start-menu program after the first already-pinned one.
-                guard !bottle.settings.pins.contains(where: { $0.url == program.url }) else { continue }
-                // Setting `pinned` appends the pin to the bottle's settings.
-                program.pinned = true
-            }
+            guard let program = programsByPath[startMenuProgram.url.path().lowercased()],
+                  pinned.insert(program.url).inserted
+            else { continue }
+            additions.append(PinnedProgram(
+                name: program.name.replacingOccurrences(of: ".exe", with: ""),
+                url: program.url
+            ))
+            matched.append(program)
+        }
+        if !additions.isEmpty {
+            bottle.settings.pins.append(contentsOf: additions)
+        }
+        for program in matched {
+            program.pinned = true
         }
     }
 }
