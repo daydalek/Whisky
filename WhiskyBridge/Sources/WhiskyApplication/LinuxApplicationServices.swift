@@ -137,14 +137,14 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         return nil
     }
 
-    private static func defaultSearchPaths(
+    private nonisolated static func defaultSearchPaths(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [URL] {
         let raw = environment["PATH"] ?? "/usr/local/bin:/usr/bin:/bin"
         return raw.split(separator: ":").filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: String($0)) }
     }
 
-    private static func xdgOpen(_ url: URL) throws {
+    private nonisolated static func xdgOpen(_ url: URL) throws {
         guard let opener = defaultSearchPaths().map({ $0.appendingPathComponent("xdg-open") })
             .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })
         else {
