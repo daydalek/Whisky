@@ -135,3 +135,6 @@ WhiskyKit/Sources/WhiskyKit/Discord/Local/client-id.txt
 
 # Screenshots produced by local UI runs; never committed.
 /apps/whisky-gpui/screenshots/
+
+# Packaged app bundle (build output; never committed).
+/dist/
