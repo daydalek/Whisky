@@ -11,15 +11,18 @@ milestones replace the sample data with bridge-backed data; see
 
 ## Layout
 
-- `src/main.rs` — window, app state, library and settings surfaces.
-- `src/preview.rs` — page and sheet mockups for the bottle/program/configuration screens.
-- `src/games.rs` — sample library data.
+- `src/main.rs` — app entry, window options, root view composition, capture hook.
+- `src/theme.rs` — colours and animation durations shared by every surface.
+- `src/model.rs` — `Game` plus the demo library snapshot until M1b.
+- `src/state.rs` — `WhiskyApp`, page/sheet enums, navigation, filtering and sorting.
+- `src/controls.rs` — shared widgets (rows, icons, badges, round buttons).
+- `src/views/` — library, bottle, settings, and dialog surfaces.
 - `src/library_layout.rs` — cover grid geometry.
 - `src/motion_capture.rs` — `visual-test`-only scroll and motion measurements.
 - `assets/` — covers and pre-blurred backgrounds.
 
-The module layout is intentionally unchanged from the demo. Splitting it into
-domain modules is milestone M1.
+`src/games.rs` and `src/preview.rs` from M0 were split into these modules without
+changing any constant, layout, or copy.
 
 ## Build and test
 

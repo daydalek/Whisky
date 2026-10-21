@@ -1,5 +1,8 @@
 //! Native-window regression capture. Available only with `visual-test`.
 use super::*;
+use std::path::PathBuf;
+use crate::library_layout::CardRect;
+use crate::state::WhiskyApp;
 
 async fn advance(handle: AnyWindowHandle, cx: &mut AsyncApp, milliseconds: u64) {
     // Pump real render frames even while this test window is in the background.
@@ -16,7 +19,7 @@ async fn advance(handle: AnyWindowHandle, cx: &mut AsyncApp, milliseconds: u64) 
     }
 }
 
-fn active_scroll(demo: &Demo, stage: usize) -> ScrollHandle {
+fn active_scroll(demo: &WhiskyApp, stage: usize) -> ScrollHandle {
     match stage {
         0..=2 => demo.library_scroll[stage].clone(),
         3 => demo.detail_scroll.clone(),
@@ -28,7 +31,7 @@ fn active_scroll(demo: &Demo, stage: usize) -> ScrollHandle {
     }
 }
 
-pub(super) fn run(handle: AnyWindowHandle, view: Entity<Demo>, cx: &mut App) {
+pub(super) fn run(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut App) {
     cx.spawn(async move |cx| {
         let out = PathBuf::from(std::env::var_os("WHISKY_MOTION_CAPTURE").unwrap());
         std::fs::create_dir_all(&out).unwrap();
