@@ -16,10 +16,10 @@
 //  If not, see https://www.gnu.org/licenses/.
 //
 
-import CryptoKit
+import WhiskyCore
 import Foundation
 import os.log
-import SwiftUI
+import Combine
 
 /// Represents a Windows executable program within a ``Bottle``.
 ///
@@ -224,16 +224,7 @@ public final class Program: ObservableObject, Equatable, Hashable, Identifiable 
     /// relative path doesn't change) and across game updates (file contents
     /// don't participate).
     nonisolated static func settingsIdentity(for url: URL, bottleURL: URL) -> String {
-        let bottlePath = bottleURL.standardizedFileURL.path
-        let fullPath = url.standardizedFileURL.path
-        let relativePath = fullPath.hasPrefix(bottlePath)
-            ? String(fullPath.dropFirst(bottlePath.count))
-            : fullPath
-
-        let digest = SHA256.hash(data: Data(relativePath.utf8))
-        let shortHash = digest.prefix(4).map { String(format: "%02x", $0) }.joined()
-        let stem = url.deletingPathExtension().lastPathComponent
-        return "\(stem)-\(shortHash)"
+        ProgramStorageLayout.identity(for: url, containerURL: bottleURL)
     }
 
     /// Creates a new program instance from an already-parsed PE file.

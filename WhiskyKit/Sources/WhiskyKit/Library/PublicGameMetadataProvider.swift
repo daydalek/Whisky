@@ -18,6 +18,7 @@
 //
 
 import Foundation
+import WhiskyCore
 
 /// Direct public APIs, including the documented YMGal public OAuth client.
 public struct PublicGameMetadataProvider: GameMetadataProvider {

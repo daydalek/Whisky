@@ -31,13 +31,14 @@ let package = Package(
         )
     ],
     dependencies: [
+        .package(path: "../WhiskyCore"),
         .package(url: "https://github.com/SwiftPackageIndex/SemanticVersion.git", from: "0.4.0"),
         .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.4.3")
     ],
     targets: [
         .target(
             name: "WhiskyKit",
-            dependencies: ["SemanticVersion"],
+            dependencies: ["SemanticVersion", .product(name: "WhiskyCore", package: "WhiskyCore")],
             resources: [
                 .process("Diagnostics/Resources/"),
                 .process("GameDatabase/Resources/"),

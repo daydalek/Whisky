@@ -17,8 +17,9 @@
 //
 
 import Foundation
+import WhiskyCore
 import os.log
-import SwiftUI
+import Combine
 
 /// Represents an isolated Wine environment for running Windows applications.
 ///
@@ -235,70 +236,10 @@ public final class Bottle: ObservableObject, Equatable, Hashable, Identifiable, 
     /// Conservative: only unambiguously-noise binaries (helpers, crash reporters,
     /// redistributables). Generic `setup.exe`/`installer.exe` are intentionally
     /// excluded because users still need to launch installers.
-    public nonisolated static let noiseExecutableNames: Set<String> = [
-        "steamerrorreporter.exe",
-        "steamerrorreporter64.exe",
-        "steamservice.exe",
-        "steamwebhelper.exe",
-        "steam_monitor.exe",
-        "steamsysinfo.exe",
-        "steamxboxutil.exe",
-        "crashreporter.exe",
-        "crashhandler.exe",
-        "crashpad_handler.exe",
-        "gameoverlayui.exe",
-        "gameoverlayui64.exe",
-        "fossilize-replay.exe",
-        "fossilize-replay64.exe",
-        "gldriverquery.exe",
-        "gldriverquery64.exe",
-        "hardwareupdater.exe",
-        "secure_desktop_capture.exe",
-        "writeminidump.exe",
-        "vc_redist.x86.exe",
-        "vc_redist.x64.exe",
-        "vcredist_x86.exe",
-        "vcredist_x64.exe",
-        "ueprereqsetup_x86.exe",
-        "ueprereqsetup_x64.exe",
-        "crossover html engine.exe"
-    ]
+    public nonisolated static let noiseExecutableNames = InstalledPrograms.noiseExecutableNames
 
-    /// Walks the bottle's `Program Files` directories and returns the URLs of
-    /// installed `.exe` files, excluding ClickOnce cache artifacts, known noise
-    /// executables, and anything in `blocklist`.
-    ///
-    /// This is a pure filesystem read with no actor-isolated state, so callers
-    /// can run it off the main actor — it's the heavy part of repopulating
-    /// ``programs`` for a large bottle.
-    ///
-    /// - Parameters:
-    ///   - driveC: The bottle's `drive_c` directory.
-    ///   - blocklist: User-blocked program URLs to omit.
-    /// - Returns: Discovered executable URLs in filesystem-enumeration order.
-    public nonisolated static func discoverInstalledExecutables(
-        driveC: URL,
-        blocklist: Set<URL>
-    ) -> [URL] {
-        var found: [URL] = []
-        for folderName in ["Program Files", "Program Files (x86)"] {
-            let folderURL = driveC.appending(path: folderName)
-            let enumerator = FileManager.default.enumerator(
-                at: folderURL, includingPropertiesForKeys: [.isExecutableKey], options: [.skipsHiddenFiles]
-            )
-
-            while let url = enumerator?.nextObject() as? URL {
-                guard !url.hasDirectoryPath, url.pathExtension == "exe" else { continue }
-                // Skip ClickOnce cache executables (noisy internal artifacts)
-                guard !url.path.contains("/Apps/2.0/") else { continue }
-                // Skip known launcher helpers and crash reporters that pollute the list
-                guard !noiseExecutableNames.contains(url.lastPathComponent.lowercased()),
-                      !blocklist.contains(url)
-                else { continue }
-                found.append(url)
-            }
-        }
-        return found
+    public nonisolated static func discoverInstalledExecutables(driveC: URL, blocklist: Set<URL>) -> [URL] {
+        InstalledPrograms.discoverInstalledExecutables(driveC: driveC, blocklist: blocklist)
     }
 
     /// Runs a program rescan, coalescing concurrent callers onto one scan.

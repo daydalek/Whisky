@@ -19,33 +19,7 @@
 import AppKit
 import Foundation
 import os.log
-
-/// Per-bottle clipboard handling policy.
-///
-/// Controls how the clipboard is checked and managed before launching Wine programs.
-/// Each bottle can specify its own policy, or use the default `auto` behavior.
-public enum ClipboardPolicy: String, Codable, CaseIterable, Sendable {
-    /// Auto-clear for known multiplayer launchers, warn for others (default)
-    case auto
-    /// Always show a warning when clipboard content is large
-    case alwaysWarn = "warn"
-    /// Always clear the clipboard before launching
-    case alwaysClear = "clear"
-    /// Never warn or clear the clipboard
-    case never
-}
-
-/// Result of a clipboard check before launching a Wine program.
-///
-/// The app layer uses this to decide whether to show a toast, alert, or proceed silently.
-public enum ClipboardCheckResult: Sendable {
-    /// Content is small or empty, no action needed
-    case safe
-    /// Content was auto-cleared (for known multiplayer launchers or always-clear policy)
-    case autoCleared(contentType: String, sizeBytes: Int)
-    /// Content is large and needs user decision (show alert/sheet in app layer)
-    case needsUserDecision(contentType: String, sizeBytes: Int, textPreview: String?)
-}
+import WhiskyCore
 
 /// Manager for clipboard operations to prevent Wine-related freezes.
 ///
@@ -69,7 +43,7 @@ public enum ClipboardCheckResult: Sendable {
 /// All methods that touch `NSPasteboard` are isolated to `@MainActor` because
 /// `NSPasteboard` is documented as main-thread-only.
 @MainActor
-public final class ClipboardManager {
+public final class ClipboardManager: ClipboardAccess {
     public static let shared = ClipboardManager()
 
     private let pasteboard = NSPasteboard.general
@@ -79,7 +53,7 @@ public final class ClipboardManager {
     ///
     /// Marked `nonisolated` so it can serve as a default value for non-isolated
     /// types like `BottleCleanupConfig` without forcing them onto the main actor.
-    public nonisolated static let largeContentThreshold: Int = 10 * 1_024 // 10 KB
+    public nonisolated static let largeContentThreshold = ClipboardPreflight.largeContentThreshold
 
     /// Types of clipboard content.
     public enum ClipboardContent: @unchecked Sendable {
@@ -177,65 +151,33 @@ public final class ClipboardManager {
         policy: ClipboardPolicy,
         threshold: Int = ClipboardManager.largeContentThreshold
     ) -> ClipboardCheckResult {
-        // Never policy: skip all checks
-        if policy == .never {
-            return .safe
-        }
+        ClipboardPreflight.checkBeforeLaunch(clipboard: self, launcher: launcher, policy: policy, threshold: threshold)
+    }
 
+    public func snapshot() -> ClipboardSnapshot {
+        let before = pasteboard.changeCount
         let content = getContent()
-        let size = content.sizeInBytes
-
-        // Content below threshold is always safe
-        guard size > threshold else {
-            return .safe
+        let kind: ClipboardSnapshot.Kind = switch content {
+        case .empty: .empty
+        case .text: .text
+        case .image: .image
+        case .other: .other
         }
-
-        logger.warning("Large clipboard content detected (\(size) bytes)")
-
-        let contentType = Self.contentTypeName(for: content)
-        let textPreview = Self.textPreview(for: content)
-
-        // Always-clear policy: clear and report
-        if policy == .alwaysClear {
-            clear()
-            logger.info("Auto-cleared clipboard (always-clear policy)")
-            return .autoCleared(contentType: contentType, sizeBytes: size)
-        }
-
-        // Auto policy with known multiplayer launcher: auto-clear
-        if policy == .auto, launcher?.usesClipboard == true {
-            clear()
-            logger.info("Auto-cleared clipboard for multiplayer launcher '\(launcher?.displayName ?? "unknown")'")
-            return .autoCleared(contentType: contentType, sizeBytes: size)
-        }
-
-        // Always-warn policy or auto policy without launcher match: needs user decision
-        return .needsUserDecision(contentType: contentType, sizeBytes: size, textPreview: textPreview)
-    }
-
-    // MARK: - Private Helpers
-
-    /// Returns a human-readable content type name for the clipboard content.
-    private static func contentTypeName(for content: ClipboardContent) -> String {
-        switch content {
-        case .empty:
-            "empty"
-        case .text:
-            "text"
-        case .image:
-            "image"
-        case .other:
-            "other"
-        }
-    }
-
-    /// Returns a text preview (first 50 characters) for text content, nil otherwise.
-    private static func textPreview(for content: ClipboardContent) -> String? {
-        switch content {
-        case let .text(string):
-            String(string.prefix(50))
-        default:
+        let preview: String? = if case let .text(text) = content {
+            String(text.prefix(50))
+        } else {
             nil
         }
+        let size = content.sizeInBytes
+        return ClipboardSnapshot(
+            kind: kind, sizeBytes: size, textPreview: preview,
+            version: before == pasteboard.changeCount ? String(before) : nil
+        )
+    }
+
+    public func clear(ifMatches snapshot: ClipboardSnapshot) -> Bool {
+        guard let version = snapshot.version, version == String(pasteboard.changeCount) else { return false }
+        clear()
+        return true
     }
 }

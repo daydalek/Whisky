@@ -17,6 +17,7 @@
 //
 
 import Foundation
+import WhiskyCore
 
 // MARK: - Structured Fix Details
 

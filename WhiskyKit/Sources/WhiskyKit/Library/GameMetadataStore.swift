@@ -16,9 +16,9 @@
 //  If not, see https://www.gnu.org/licenses/.
 //
 
-import CryptoKit
 import Foundation
 import ImageIO
+import WhiskyCore
 
 /// Separate from ProgramSettings: attaching or removing artwork cannot change a launch.
 /// The caller supplies a bottle-relative identity so moving a bottle preserves metadata.
@@ -205,30 +205,12 @@ public actor GameMetadataStore {
     }
 
     public nonisolated func coverLocation(for url: URL) -> URL {
-        let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
-            .map { String(format: "%02x", $0) }.joined()
-        return directory.appendingPathComponent("Covers", isDirectory: true).appendingPathComponent(digest)
+        LibraryStorageLayout.cachedCover(url, directory: directory)
     }
 
     private nonisolated func location(for identity: String) -> URL {
-        let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+        let digest = LibraryStorageLayout.key(identity)
         return directory.appendingPathComponent(digest).appendingPathExtension("json")
-    }
-}
-
-extension LibraryEntry {
-    public var metadataIdentity: String {
-        switch launch {
-        case let .steam(appID): return "steam:\(appID)"
-        case let .program(url):
-            let root = bottleURL.standardizedFileURL.path + "/"
-            let path = url.standardizedFileURL.path
-            return "program:" + (path.hasPrefix(root) ? String(path.dropFirst(root.count)) : path)
-        }
-    }
-
-    public var metadataDirectory: URL {
-        bottleURL.appendingPathComponent("Game Metadata", isDirectory: true)
     }
 }
 
