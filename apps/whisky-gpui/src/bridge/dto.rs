@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use whisky_bridge::Capabilities;
 
 use crate::model::Game;
@@ -228,6 +229,111 @@ pub(crate) struct HiddenReplyDto {
     #[serde(rename = "entryID")]
     pub(crate) entry_id: String,
     pub(crate) hidden: bool,
+}
+
+/// `folders.read` and every `folders.*` mutation reply
+/// (`Service+Folders.encodeFolders`).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FoldersDto {
+    #[serde(default)]
+    pub(crate) roots: Vec<String>,
+    #[serde(default)]
+    pub(crate) assigned_folders: Vec<String>,
+    #[serde(default)]
+    pub(crate) excluded_folders: Vec<String>,
+    /// Folder path → executable path (or null when the selection was cleared).
+    #[serde(default)]
+    pub(crate) executables: BTreeMap<String, Option<String>>,
+    #[serde(default)]
+    pub(crate) known_folders: Vec<String>,
+    #[serde(default)]
+    pub(crate) automatic_metadata: bool,
+}
+
+impl FoldersDto {
+    pub(crate) fn is_assigned(&self, path: &str) -> bool {
+        self.assigned_folders.iter().any(|folder| folder == path)
+    }
+
+    pub(crate) fn is_excluded(&self, path: &str) -> bool {
+        self.excluded_folders.iter().any(|folder| folder == path)
+    }
+
+    pub(crate) fn executable_for(&self, path: &str) -> Option<&str> {
+        self.executables.get(path).and_then(Option::as_deref)
+    }
+}
+
+/// `library.scan` reply: a `BridgeJobStore` handle.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct JobStartDto {
+    #[serde(rename = "jobID")]
+    pub(crate) job_id: String,
+}
+
+/// `BridgeFailure` as `jobs.get` encodes it in `error`.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct BridgeFailureDto {
+    #[serde(default)]
+    pub(crate) code: String,
+    #[serde(default)]
+    pub(crate) message: String,
+}
+
+impl BridgeFailureDto {
+    pub(crate) fn reason(&self) -> String {
+        if self.code.is_empty() {
+            self.message.clone()
+        } else {
+            format!("{}: {}", self.code, self.message)
+        }
+    }
+}
+
+/// One `jobs.get` / `jobs.cancel` record. `status` is validated by
+/// `scan::JobStatus`; `progress` is the helper's opaque payload (`stage` for a
+/// scan); `result` is `{snapshotID, total}` once the scan succeeds.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct JobDto {
+    #[serde(default)]
+    pub(crate) status: String,
+    #[serde(default)]
+    pub(crate) progress: Value,
+    #[serde(default)]
+    pub(crate) result: Option<Value>,
+    #[serde(default)]
+    pub(crate) error: Option<BridgeFailureDto>,
+}
+
+impl JobDto {
+    pub(crate) fn stage(&self) -> Option<&str> {
+        self.progress.get("stage").and_then(Value::as_str)
+    }
+}
+
+/// The `library.scan` operation result, carried in `jobs.get`'s `result`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ScanResultDto {
+    #[serde(rename = "snapshotID")]
+    pub(crate) snapshot_id: String,
+    #[serde(default)]
+    pub(crate) total: u64,
+}
+
+/// One `library.page` reply (`ApplicationService.pageLibrary`).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LibraryPageDto {
+    #[serde(default)]
+    pub(crate) entries: Vec<EntryDto>,
+    #[serde(default)]
+    pub(crate) total: u64,
+    /// `null` ends the catalogue; the Rust side keeps it as `Option`.
+    #[serde(default)]
+    pub(crate) next_offset: Option<u64>,
 }
 
 /// One `library.entries` record (`EntryRecord` in `Workspace.swift`).
@@ -784,5 +890,85 @@ mod tests {
             serde_json::from_str(r#"{"entryID": "pinned:/a", "hidden": true}"#).expect("reply");
         assert_eq!(reply.entry_id, "pinned:/a");
         assert!(reply.hidden);
+    }
+
+    /// Shape of `folders.read` for the recorded `galgame` bottle.
+    const FOLDERS_FIXTURE: &str = r#"{
+        "roots": ["/Users/example/game"],
+        "assignedFolders": [],
+        "excludedFolders": ["/Users/example/game/Excluded Sample"],
+        "executables": {
+            "/Users/example/game/Sample": "/Users/example/game/Sample/sample.exe",
+            "/Users/example/game/Hollow": null
+        },
+        "knownFolders": ["/Users/example/game/Sample"],
+        "automaticMetadata": true
+    }"#;
+
+    #[test]
+    fn recorded_folders_payload_decodes_roots_assignments_and_exclusions() {
+        let folders: FoldersDto = serde_json::from_str(FOLDERS_FIXTURE).expect("folders");
+        assert_eq!(folders.roots.len(), 1);
+        assert!(!folders.is_assigned("/Users/example/game"));
+        assert!(folders.is_excluded("/Users/example/game/Excluded Sample"));
+        assert_eq!(
+            folders.executable_for("/Users/example/game/Sample"),
+            Some("/Users/example/game/Sample/sample.exe")
+        );
+        assert_eq!(folders.executable_for("/Users/example/game/Hollow"), None);
+        assert!(folders.automatic_metadata);
+    }
+
+    #[test]
+    fn a_completed_scan_job_carries_its_snapshot_and_stage() {
+        let job: JobDto = serde_json::from_str(
+            r#"{
+                "jobID": "J1", "name": "library.scan", "status": "completed",
+                "progress": {"stage": "scanning"},
+                "result": {"snapshotID": "S1", "total": 42},
+                "error": null, "futureField": 1
+            }"#,
+        )
+        .expect("job");
+        assert_eq!(job.status, "completed");
+        assert_eq!(job.stage(), Some("scanning"));
+        let result: ScanResultDto = serde_json::from_value(job.result.unwrap()).unwrap();
+        assert_eq!(result.snapshot_id, "S1");
+        assert_eq!(result.total, 42);
+        assert!(job.error.is_none());
+    }
+
+    #[test]
+    fn a_cancelled_scan_job_carries_the_bridge_failure() {
+        let job: JobDto = serde_json::from_str(
+            r#"{
+                "jobID": "J1", "name": "library.scan", "status": "cancelled",
+                "progress": null,
+                "result": null,
+                "error": {"code": "cancelled", "message": "Operation cancelled", "retryable": false}
+            }"#,
+        )
+        .expect("job");
+        assert_eq!(job.status, "cancelled");
+        assert_eq!(
+            job.error.as_ref().map(BridgeFailureDto::reason).as_deref(),
+            Some("cancelled: Operation cancelled")
+        );
+    }
+
+    #[test]
+    fn a_library_page_with_a_null_next_offset_is_the_last_page() {
+        let page: LibraryPageDto = serde_json::from_str(
+            r#"{"entries": [], "total": 0, "nextOffset": null}"#,
+        )
+        .expect("page");
+        assert_eq!(page.total, 0);
+        assert_eq!(page.next_offset, None);
+
+        let page: LibraryPageDto = serde_json::from_str(
+            r#"{"entries": [], "total": 120, "nextOffset": 100}"#,
+        )
+        .expect("page");
+        assert_eq!(page.next_offset, Some(100));
     }
 }

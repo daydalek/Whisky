@@ -1,14 +1,19 @@
 //! Modal sheets: run settings, scan folders, winetricks, create bottle, and diagnostics.
 
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::input::Input;
+use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::spinner::Spinner;
+use gpui_kit::component::{Disableable, Sizable};
+use gpui_kit::component::switch::Switch;
 use gpui_kit::{prelude::*, *};
 
 use super::Command;
-use crate::bridge::BridgeStatus;
+use crate::bridge::dto::FoldersDto;
+use crate::bridge::{BridgeStatus, FolderEdit};
 use crate::controls::*;
 use crate::runtime::ClipboardDecision;
-use crate::state::{PreviewSheet, WhiskyApp};
+use crate::scan::{self, JobStatus};
+use crate::state::{PreviewSheet, ScanState, WhiskyApp};
 use crate::theme::{MUTED, OVERLAY, RADIUS_LG, SURFACE, SURFACE_BORDER};
 
 impl WhiskyApp {
@@ -130,12 +135,306 @@ impl WhiskyApp {
             ],
         )
     }
+    /// Scan folders for one bottle. Roots, assignment, exclusion and the
+    /// executable are all `folders.*` calls; the scan itself is a bridge job.
+    fn scan_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if self.demo {
+            return self.demo_scan_settings(cx);
+        }
+        let Some(container) = self.scan_container() else {
+            return self.form(
+                "scan-settings-scroll",
+                vec![self.section(
+                    "scan-folders",
+                    "扫描文件夹",
+                    vec![muted("请先在侧边栏选择一个容器。").into_any_element()],
+                    cx,
+                )],
+            );
+        };
+        let mut rows: Vec<AnyElement> = Vec::new();
+        match self.folders.get(&container).cloned() {
+            Some(folders) => {
+                rows.push(self.info(
+                    "自动读取元数据",
+                    if folders.automatic_metadata {
+                        "已启用"
+                    } else {
+                        "已关闭"
+                    },
+                ));
+                if folders.roots.is_empty() {
+                    rows.push(muted("尚未添加扫描文件夹").into_any_element());
+                }
+                for root in folders.roots.clone() {
+                    rows.push(self.scan_root_row(&container, &folders, &root, window, cx));
+                }
+                rows.push(
+                    row()
+                        .gap(px(10.))
+                        .py(px(10.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .child(Input::new(&self.preview.inputs["scan-path"])),
+                        )
+                        .child(
+                            Button::new("scan-add")
+                                .label("添加文件夹")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let path =
+                                        this.preview.inputs["scan-path"].read(cx).value().to_string();
+                                    this.add_scan_root(&path, cx);
+                                })),
+                        )
+                        .into_any_element(),
+                );
+            }
+            None if self.folders_pending.contains(&container) => rows.push(
+                row()
+                    .gap(px(8.))
+                    .py(px(10.))
+                    .child(Spinner::new().with_size(px(14.)))
+                    .child(muted("正在读取扫描文件夹…"))
+                    .into_any_element(),
+            ),
+            None => {
+                let reason = self
+                    .folders_error
+                    .get(&container)
+                    .cloned()
+                    .unwrap_or_else(|| "尚未读取扫描文件夹。".to_owned());
+                rows.push(muted(reason).into_any_element());
+                rows.push(
+                    row()
+                        .py(px(8.))
+                        .child(
+                            Button::new("scan-folders-retry")
+                                .label("重试")
+                                .on_click(cx.listener(|this, _, _, cx| this.reload_folders(cx))),
+                        )
+                        .into_any_element(),
+                );
+            }
+        }
+        rows.extend(self.scan_controls(&container, cx));
+        self.form(
+            "scan-settings-scroll",
+            vec![self.section("scan-folders", "扫描文件夹", rows, cx)],
+        )
+    }
+
+    fn scan_root_row(
+        &mut self,
+        container: &str,
+        folders: &FoldersDto,
+        root: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let assigned = folders.is_assigned(root);
+        let excluded = folders.is_excluded(root);
+        let executable = folders.executable_for(root).unwrap_or_default().to_owned();
+        let display = if executable.is_empty() {
+            "未设置可执行文件".to_owned()
+        } else {
+            executable.clone()
+        };
+        let input = self.folder_input(root, &executable, window, cx);
+        let assign_root = root.to_owned();
+        let exclude_root = root.to_owned();
+        let remove_root = root.to_owned();
+        let executable_root = root.to_owned();
+        let executable_key = format!("scan-exe:{root}");
+        col()
+            .gap(px(8.))
+            .py(px(10.))
+            .child(
+                row()
+                    .gap(px(10.))
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(4.))
+                            .child(div().truncate().child(root.to_owned()))
+                            .child(muted(display).truncate()),
+                    )
+                    .child(
+                        Switch::new(format!("scan-assign:{root}"))
+                            .label("游戏库")
+                            .checked(assigned)
+                            .on_change(cx.listener(move |this, checked, _, cx| {
+                                this.edit_folder(
+                                    FolderEdit::Assign {
+                                        path: assign_root.clone(),
+                                        assigned: *checked,
+                                    },
+                                    cx,
+                                );
+                            })),
+                    )
+                    .child(
+                        Switch::new(format!("scan-exclude:{root}"))
+                            .label("排除")
+                            .checked(excluded)
+                            .on_change(cx.listener(move |this, checked, _, cx| {
+                                this.edit_folder(
+                                    FolderEdit::Exclude {
+                                        path: exclude_root.clone(),
+                                        excluded: *checked,
+                                    },
+                                    cx,
+                                );
+                            })),
+                    )
+                    .child(
+                        Button::new(format!("scan-remove:{root}"))
+                            .label("−")
+                            .ghost()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.edit_folder(
+                                    FolderEdit::RemoveRoot(remove_root.clone()),
+                                    cx,
+                                );
+                            })),
+                    ),
+            )
+            .child(
+                row()
+                    .gap(px(10.))
+                    .child(div().flex_1().child(Input::new(&input)))
+                    .child(
+                        Button::new(format!("scan-exe:{root}"))
+                            .label("设置可执行文件")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let text = this
+                                    .preview
+                                    .folder_inputs
+                                    .get(&executable_key)
+                                    .map(|input| input.read(cx).value().to_string())
+                                    .unwrap_or_default();
+                                let executable = (!text.trim().is_empty())
+                                    .then(|| text.trim().to_owned());
+                                this.edit_folder(
+                                    FolderEdit::Executable {
+                                        path: executable_root.clone(),
+                                        executable,
+                                    },
+                                    cx,
+                                );
+                            })),
+                    ),
+            )
+            .child(muted(format!("容器：{container}")).text_size(px(10.)))
+            .into_any_element()
+    }
+
+    fn folder_input(
+        &mut self,
+        root: &str,
+        value: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<InputState> {
+        let key = format!("scan-exe:{root}");
+        if let Some(input) = self.preview.folder_inputs.get(&key) {
+            return input.clone();
+        }
+        let entity = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("/路径/游戏.exe")
+                .default_value(value.to_owned())
+        });
+        self.preview.folder_inputs.insert(key, entity.clone());
+        entity
+    }
+
+    /// Start / progress / cancel, using the sheet's existing spinner treatment.
+    fn scan_controls(&self, container: &str, cx: &Context<Self>) -> Vec<AnyElement> {
+        let scan = self.scan_for(container);
+        let elsewhere = self
+            .scan
+            .as_ref()
+            .is_some_and(|scan| scan.container != container && scan.running());
+        let mut rows: Vec<AnyElement> = Vec::new();
+        if let Some(state) = scan {
+            let status = state.status.unwrap_or(JobStatus::Queued);
+            let label = scan::progress_label(status, state.stage.as_deref());
+            let counts = state
+                .total
+                .map(|total| format!("{} / {total}", state.loaded))
+                .unwrap_or_default();
+            let mut line = row()
+                .gap(px(8.))
+                .py(px(10.))
+                .child(if state.running() {
+                    Spinner::new().with_size(px(14.)).into_any_element()
+                } else {
+                    div().into_any_element()
+                })
+                .child(div().child(label));
+            if !counts.is_empty() {
+                line = line.child(muted(counts));
+            }
+            rows.push(line.into_any_element());
+            if let Some(error) = &state.error {
+                rows.push(muted(error.clone()).into_any_element());
+            }
+        }
+        if scan.is_some_and(ScanState::running) {
+            rows.push(
+                row()
+                    .py(px(6.))
+                    .child(
+                        Button::new("scan-cancel")
+                            .label("取消扫描")
+                            .on_click(cx.listener(|this, _, _, cx| this.cancel_scan(cx))),
+                    )
+                    .into_any_element(),
+            );
+        } else {
+            rows.push(
+                row()
+                    .gap(px(10.))
+                    .py(px(6.))
+                    .child(
+                        Button::new("scan-start")
+                            .label(if scan.is_some() { "再次扫描" } else { "立即扫描" })
+                            .primary()
+                            .disabled(elsewhere)
+                            .on_click(cx.listener(|this, _, _, cx| this.start_scan(cx))),
+                    )
+                    .when(elsewhere, |d| d.child(muted("另一个容器的扫描正在进行")))
+                    .into_any_element(),
+            );
+        }
+        rows
+    }
+
+    fn demo_scan_settings(&self, cx: &Context<Self>) -> AnyElement {
+        self.form(
+            "scan-settings-scroll",
+            vec![self.section(
+                "scan-folders",
+                "扫描文件夹",
+                vec![
+                    self.info("~/Games", "递归扫描"),
+                    self.field("scan-path", "添加文件夹"),
+                    self.action("scan-add", "添加文件夹", Command::Notice, cx),
+                ],
+                cx,
+            )],
+        )
+    }
+
     pub(crate) fn preview_sheet(
-        &self,
+        &mut self,
         sheet: PreviewSheet,
         width: f32,
         height: f32,
-        cx: &Context<Self>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
         let title = match sheet {
             PreviewSheet::RunSettings(_) => "运行设置",
@@ -149,21 +448,7 @@ impl WhiskyApp {
         };
         let content = match sheet {
             PreviewSheet::RunSettings(i) => self.run_settings(i, cx),
-            PreviewSheet::Scan => self.form(
-                "scan-settings-scroll",
-                vec![self.section(
-                    "scan-folders",
-                    "扫描文件夹",
-                    vec![
-                        self.info("~/Games", "递归扫描"),
-                        self.field("scan-path", "添加文件夹"),
-                        self.toggle("recursive", "包含子文件夹", "", cx),
-                        self.toggle("scan-startup", "启动时扫描", "", cx),
-                        self.action("scan-add", "添加文件夹", Command::Notice, cx),
-                    ],
-                    cx,
-                )],
-            ),
+            PreviewSheet::Scan => self.scan_settings(window, cx),
             PreviewSheet::Winetricks => self.form(
                 "winetricks-scroll",
                 vec![

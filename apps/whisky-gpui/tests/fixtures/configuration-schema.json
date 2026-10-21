@@ -1,0 +1,1161 @@
+[
+  {
+    "title": "Windows 版本",
+    "default": "win10",
+    "titleKey": "config.field.windowsVersion",
+    "input": "choice",
+    "options": [
+      {
+        "id": "winxp64",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.winxp64",
+        "title": "Windows XP"
+      },
+      {
+        "titleKey": "config.option.win7",
+        "id": "win7",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "Windows 7"
+      },
+      {
+        "titleKey": "config.option.win8",
+        "id": "win8",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "Windows 8"
+      },
+      {
+        "titleKey": "config.option.win81",
+        "id": "win81",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "Windows 8.1"
+      },
+      {
+        "titleKey": "config.option.win10",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "win10",
+        "title": "Windows 10"
+      },
+      {
+        "titleKey": "config.option.win11",
+        "id": "win11",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "Windows 11"
+      }
+    ],
+    "id": "windowsVersion",
+    "requires": [
+      "wine.configuration"
+    ],
+    "platforms": [
+      "linux",
+      "macos"
+    ]
+  },
+  {
+    "options": [
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.none",
+        "title": "关闭",
+        "id": "none"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.esync",
+        "id": "esync",
+        "title": "ESync"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.msync",
+        "title": "MSync",
+        "id": "msync"
+      }
+    ],
+    "titleKey": "config.field.enhancedSync",
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "input": "choice",
+    "default": "msync",
+    "id": "enhancedSync",
+    "title": "增强同步",
+    "requires": []
+  },
+  {
+    "titleKey": "config.field.avxEnabled",
+    "default": false,
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "id": "avxEnabled",
+    "title": "AVX 支持",
+    "requires": [],
+    "input": "toggle"
+  },
+  {
+    "titleKey": "config.field.launcherCompatibilityMode",
+    "default": false,
+    "input": "toggle",
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "requires": [],
+    "id": "launcherCompatibilityMode",
+    "title": "启动器兼容模式"
+  },
+  {
+    "options": [
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.auto",
+        "id": "auto",
+        "title": "自动检测"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.manual",
+        "id": "manual",
+        "title": "手动选择"
+      }
+    ],
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "default": "auto",
+    "requires": [],
+    "titleKey": "config.field.launcherMode",
+    "id": "launcherMode",
+    "title": "检测模式",
+    "input": "choice"
+  },
+  {
+    "options": [
+      {
+        "titleKey": "config.option.auto",
+        "id": "",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "自动检测"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "Steam",
+        "titleKey": "config.option.Steam",
+        "title": "Steam"
+      },
+      {
+        "id": "Rockstar Games Launcher",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.Rockstar Games Launcher",
+        "title": "Rockstar Games Launcher"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "EA App",
+        "titleKey": "config.option.EA App",
+        "title": "EA App"
+      },
+      {
+        "id": "Epic Games Store",
+        "titleKey": "config.option.Epic Games Store",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "Epic Games Store"
+      },
+      {
+        "id": "Ubisoft Connect",
+        "titleKey": "config.option.Ubisoft Connect",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "Ubisoft Connect"
+      },
+      {
+        "titleKey": "config.option.Battle.net",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "Battle.net",
+        "title": "Battle.net"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.Paradox Launcher",
+        "id": "Paradox Launcher",
+        "title": "Paradox Launcher"
+      }
+    ],
+    "default": "",
+    "requires": [],
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "id": "detectedLauncher",
+    "titleKey": "config.field.detectedLauncher",
+    "input": "choice",
+    "title": "启动器类型"
+  },
+  {
+    "default": "",
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "options": [
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "",
+        "titleKey": "config.option.auto",
+        "title": "自动"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.ja_JP.UTF-8",
+        "title": "日本語",
+        "id": "ja_JP.UTF-8"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "zh_CN.UTF-8",
+        "title": "简体中文",
+        "titleKey": "config.option.zh_CN.UTF-8"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.zh_TW.UTF-8",
+        "id": "zh_TW.UTF-8",
+        "title": "繁體中文"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "English",
+        "id": "en_US.UTF-8",
+        "titleKey": "config.option.en_US.UTF-8"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "de_DE.UTF-8",
+        "titleKey": "config.option.de_DE.UTF-8",
+        "title": "Deutsch"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.fr_FR.UTF-8",
+        "title": "Français",
+        "id": "fr_FR.UTF-8"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "Español",
+        "titleKey": "config.option.es_ES.UTF-8",
+        "id": "es_ES.UTF-8"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "Italiano",
+        "titleKey": "config.option.it_IT.UTF-8",
+        "id": "it_IT.UTF-8"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.ko_KR.UTF-8",
+        "id": "ko_KR.UTF-8",
+        "title": "한국어"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.ru_RU.UTF-8",
+        "id": "ru_RU.UTF-8",
+        "title": "Русский"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "uk_UA.UTF-8",
+        "title": "Українська",
+        "titleKey": "config.option.uk_UA.UTF-8"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "ไทย",
+        "titleKey": "config.option.th_TH.UTF-8",
+        "id": "th_TH.UTF-8"
+      }
+    ],
+    "title": "启动器语言区域",
+    "titleKey": "config.field.launcherLocale",
+    "requires": [],
+    "id": "launcherLocale",
+    "input": "choice"
+  },
+  {
+    "titleKey": "config.field.gpuSpoofing",
+    "title": "GPU 伪装",
+    "default": true,
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "id": "gpuSpoofing",
+    "requires": [],
+    "input": "toggle"
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "GPU 厂商",
+    "options": [
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.NVIDIA",
+        "id": "NVIDIA",
+        "title": "NVIDIA"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "AMD",
+        "title": "AMD",
+        "titleKey": "config.option.AMD"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "Intel",
+        "title": "Intel",
+        "titleKey": "config.option.Intel"
+      }
+    ],
+    "input": "choice",
+    "titleKey": "config.field.gpuVendor",
+    "default": "NVIDIA",
+    "id": "gpuVendor",
+    "requires": []
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "为 Rockstar 启动器使用 DXVK",
+    "input": "toggle",
+    "titleKey": "config.field.autoEnableDXVK",
+    "default": true,
+    "id": "autoEnableDXVK",
+    "requires": []
+  },
+  {
+    "title": "控制器兼容模式",
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "input": "toggle",
+    "titleKey": "config.field.controllerCompatibilityMode",
+    "default": false,
+    "requires": [],
+    "id": "controllerCompatibilityMode"
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "停用 HIDAPI",
+    "input": "toggle",
+    "titleKey": "config.field.disableHIDAPI",
+    "default": false,
+    "id": "disableHIDAPI",
+    "requires": []
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "允许后台输入",
+    "input": "toggle",
+    "titleKey": "config.field.allowBackgroundEvents",
+    "default": false,
+    "requires": [],
+    "id": "allowBackgroundEvents"
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "停用控制器映射",
+    "input": "toggle",
+    "titleKey": "config.field.disableControllerMapping",
+    "default": false,
+    "requires": [],
+    "id": "disableControllerMapping"
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "使用原生按钮标签",
+    "input": "toggle",
+    "titleKey": "config.field.useButtonLabels",
+    "default": false,
+    "requires": [],
+    "id": "useButtonLabels"
+  },
+  {
+    "platforms": [
+      "macos"
+    ],
+    "title": "将 Command 映射为 Windows Ctrl",
+    "input": "toggle",
+    "titleKey": "config.field.commandActsAsControl",
+    "default": false,
+    "id": "commandActsAsControl",
+    "requires": []
+  },
+  {
+    "title": "图形后端",
+    "options": [
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.recommended",
+        "id": "recommended",
+        "title": "推荐"
+      },
+      {
+        "platforms": [
+          "macos"
+        ],
+        "id": "d3dMetal",
+        "title": "D3DMetal",
+        "titleKey": "config.option.d3dMetal"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "DXVK",
+        "titleKey": "config.option.dxvk",
+        "id": "dxvk"
+      },
+      {
+        "platforms": [
+          "macos"
+        ],
+        "titleKey": "config.option.dxmt",
+        "title": "DXMT",
+        "id": "dxmt"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "wined3d",
+        "title": "WineD3D",
+        "titleKey": "config.option.wined3d"
+      }
+    ],
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "input": "choice",
+    "titleKey": "config.field.graphicsBackend",
+    "default": "recommended",
+    "requires": [],
+    "id": "graphicsBackend"
+  },
+  {
+    "platforms": [
+      "macos"
+    ],
+    "title": "MetalFX 超分辨率",
+    "input": "toggle",
+    "titleKey": "config.field.metalFX",
+    "default": true,
+    "id": "metalFX",
+    "requires": []
+  },
+  {
+    "platforms": [
+      "macos"
+    ],
+    "title": "帧生成",
+    "input": "toggle",
+    "titleKey": "config.field.frameGeneration",
+    "default": false,
+    "id": "frameGeneration",
+    "requires": []
+  },
+  {
+    "platforms": [
+      "macos"
+    ],
+    "title": "Metal 4",
+    "input": "toggle",
+    "titleKey": "config.field.metal4Enabled",
+    "default": true,
+    "requires": [],
+    "id": "metal4Enabled"
+  },
+  {
+    "platforms": [
+      "macos"
+    ],
+    "title": "Metal 性能面板",
+    "input": "toggle",
+    "titleKey": "config.field.metalHud",
+    "default": false,
+    "id": "metalHud",
+    "requires": []
+  },
+  {
+    "platforms": [
+      "macos"
+    ],
+    "title": "Metal 跟踪",
+    "input": "toggle",
+    "titleKey": "config.field.metalTrace",
+    "default": false,
+    "id": "metalTrace",
+    "requires": []
+  },
+  {
+    "platforms": [
+      "macos"
+    ],
+    "title": "DirectX 光线追踪",
+    "input": "toggle",
+    "titleKey": "config.field.dxrEnabled",
+    "default": false,
+    "requires": [],
+    "id": "dxrEnabled"
+  },
+  {
+    "platforms": [
+      "macos"
+    ],
+    "title": "Metal 验证",
+    "input": "toggle",
+    "titleKey": "config.field.metalValidation",
+    "default": false,
+    "id": "metalValidation",
+    "requires": []
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "DXVK 异步编译",
+    "input": "toggle",
+    "titleKey": "config.field.dxvkAsync",
+    "default": true,
+    "requires": [],
+    "id": "dxvkAsync"
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "options": [
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.off",
+        "id": "off",
+        "title": "关闭"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "帧率",
+        "titleKey": "config.option.fps",
+        "id": "fps"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "简要",
+        "id": "partial",
+        "titleKey": "config.option.partial"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "完整",
+        "titleKey": "config.option.full",
+        "id": "full"
+      }
+    ],
+    "title": "DXVK 性能面板",
+    "input": "choice",
+    "titleKey": "config.field.dxvkHud",
+    "default": "off",
+    "id": "dxvkHud",
+    "requires": []
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "音频驱动",
+    "options": [
+      {
+        "titleKey": "config.option.auto",
+        "id": "auto",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "自动"
+      },
+      {
+        "platforms": [
+          "macos"
+        ],
+        "id": "coreaudio",
+        "titleKey": "config.option.coreaudio",
+        "title": "CoreAudio"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.disabled",
+        "id": "disabled",
+        "title": "关闭"
+      }
+    ],
+    "input": "choice",
+    "titleKey": "config.field.audioDriver",
+    "default": "auto",
+    "id": "audioDriver",
+    "requires": []
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "延迟预设",
+    "options": [
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "defaultPreset",
+        "titleKey": "config.option.defaultPreset",
+        "title": "默认"
+      },
+      {
+        "id": "lowLatency",
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.lowLatency",
+        "title": "低延迟"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "stable",
+        "titleKey": "config.option.stable",
+        "title": "稳定"
+      }
+    ],
+    "input": "choice",
+    "titleKey": "config.field.audioLatencyPreset",
+    "default": "defaultPreset",
+    "requires": [],
+    "id": "audioLatencyPreset"
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "options": [
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "跟随系统",
+        "id": "followSystem",
+        "titleKey": "config.option.followSystem"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.pinned",
+        "id": "pinned",
+        "title": "指定设备"
+      }
+    ],
+    "title": "输出设备",
+    "input": "choice",
+    "titleKey": "config.field.outputDeviceMode",
+    "default": "followSystem",
+    "requires": [],
+    "id": "outputDeviceMode"
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "指定设备名称",
+    "input": "text",
+    "titleKey": "config.field.pinnedDeviceName",
+    "default": "",
+    "requires": [],
+    "id": "pinnedDeviceName"
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "发布当前游戏状态",
+    "input": "toggle",
+    "titleKey": "config.field.discordPresence",
+    "default": false,
+    "requires": [],
+    "id": "discordPresence"
+  },
+  {
+    "title": "转发游戏 Rich Presence",
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "input": "toggle",
+    "titleKey": "config.field.discordBridge",
+    "default": false,
+    "id": "discordBridge",
+    "requires": []
+  },
+  {
+    "title": "虚拟桌面",
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "input": "toggle",
+    "titleKey": "config.field.virtualDesktopEnabled",
+    "default": false,
+    "id": "virtualDesktopEnabled",
+    "requires": [
+      "wine.configuration"
+    ]
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "options": [
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "r1280x720",
+        "title": "1280 × 720",
+        "titleKey": "config.option.r1280x720"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "r1600x900",
+        "titleKey": "config.option.r1600x900",
+        "title": "1600 × 900"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.r1920x1080",
+        "title": "1920 × 1080",
+        "id": "r1920x1080"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "r2560x1440",
+        "title": "2560 × 1440",
+        "titleKey": "config.option.r2560x1440"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.r3840x2160",
+        "id": "r3840x2160",
+        "title": "3840 × 2160"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.matchDisplay",
+        "title": "匹配显示器",
+        "id": "matchDisplay"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "自定义",
+        "id": "custom",
+        "titleKey": "config.option.custom"
+      }
+    ],
+    "title": "分辨率",
+    "input": "choice",
+    "titleKey": "config.field.resolutionPreset",
+    "default": "r1920x1080",
+    "requires": [
+      "wine.configuration"
+    ],
+    "id": "resolutionPreset"
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "自定义宽度",
+    "min": 640,
+    "input": "number",
+    "titleKey": "config.field.customResolutionWidth",
+    "max": 7680,
+    "default": 1920,
+    "id": "customResolutionWidth",
+    "requires": [
+      "wine.configuration"
+    ]
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "自定义高度",
+    "min": 480,
+    "input": "number",
+    "titleKey": "config.field.customResolutionHeight",
+    "default": 1080,
+    "max": 4320,
+    "requires": [
+      "wine.configuration"
+    ],
+    "id": "customResolutionHeight"
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "着色器缓存",
+    "input": "toggle",
+    "titleKey": "config.field.shaderCacheEnabled",
+    "default": true,
+    "requires": [],
+    "id": "shaderCacheEnabled"
+  },
+  {
+    "platforms": [
+      "macos"
+    ],
+    "title": "防止 App Nap 限制性能",
+    "input": "toggle",
+    "titleKey": "config.field.disableAppNap",
+    "default": false,
+    "requires": [],
+    "id": "disableAppNap"
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "剪贴板策略",
+    "options": [
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "自动",
+        "titleKey": "config.option.auto",
+        "id": "auto"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "warn",
+        "titleKey": "config.option.warn",
+        "title": "始终询问"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "clear",
+        "title": "始终清理",
+        "titleKey": "config.option.clear"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "保留内容",
+        "id": "never",
+        "titleKey": "config.option.never"
+      }
+    ],
+    "input": "choice",
+    "titleKey": "config.field.clipboardPolicy",
+    "default": "auto",
+    "id": "clipboardPolicy",
+    "requires": []
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "title": "剪贴板大小阈值（字节）",
+    "min": 0,
+    "input": "number",
+    "titleKey": "config.field.clipboardThreshold",
+    "max": 16777216,
+    "default": 10240,
+    "requires": [],
+    "id": "clipboardThreshold"
+  },
+  {
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "options": [
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "跟随应用设置",
+        "id": "inherit",
+        "titleKey": "config.option.inherit"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.always",
+        "id": "always",
+        "title": "始终结束"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "titleKey": "config.option.never",
+        "title": "保留进程",
+        "id": "never"
+      }
+    ],
+    "title": "退出时结束进程",
+    "input": "choice",
+    "titleKey": "config.field.killOnQuit",
+    "default": "inherit",
+    "requires": [],
+    "id": "killOnQuit"
+  },
+  {
+    "title": "关闭容器时的进程处理",
+    "options": [
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "id": "ask",
+        "title": "询问",
+        "titleKey": "config.option.ask"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "继续运行",
+        "titleKey": "config.option.keepRunning",
+        "id": "keepRunning"
+      },
+      {
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "title": "结束进程",
+        "id": "stop",
+        "titleKey": "config.option.stop"
+      }
+    ],
+    "platforms": [
+      "linux",
+      "macos"
+    ],
+    "input": "choice",
+    "titleKey": "config.field.closeWithProcessesPolicy",
+    "default": "ask",
+    "id": "closeWithProcessesPolicy",
+    "requires": []
+  }
+]

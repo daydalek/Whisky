@@ -7,6 +7,7 @@ use gpui_kit::component::theme::{Theme, ThemeMode};
 use gpui_kit::{prelude::*, *};
 
 mod bridge;
+mod config;
 mod controls;
 mod library_layout;
 mod library_view;
@@ -15,6 +16,7 @@ mod model;
 mod motion_capture;
 mod preferences;
 mod runtime;
+mod scan;
 mod state;
 mod theme;
 mod views;
@@ -51,7 +53,7 @@ impl Render for WhiskyApp {
         let body = if self.settings {
             self.application_settings(cx)
         } else if self.preview.page != PreviewPage::Library {
-            self.preview_page(cx)
+            self.preview_page(window, cx)
         } else {
             self.library_page(width, window, cx)
         };
@@ -116,7 +118,7 @@ impl Render for WhiskyApp {
             }
         }
         if let Some(sheet) = self.preview.sheet {
-            root = root.child(self.preview_sheet(sheet, ww, wh, cx));
+            root = root.child(self.preview_sheet(sheet, ww, wh, window, cx));
         }
         if self.bridge_dialog {
             root = root.child(self.bridge_status_dialog(ww, wh, cx));
@@ -259,6 +261,28 @@ fn main() {
     }
     if arguments.iter().any(|argument| argument == "--print-runtime") {
         std::process::exit(bridge::print_runtime());
+    }
+    if arguments.iter().any(|argument| argument == "--print-config") {
+        const USAGE: &str = "usage: whisky-gpui --print-config [--bottle <name-or-path>]";
+        let bottle = match cli_value(&arguments, "--bottle") {
+            Ok(bottle) => bottle,
+            Err(()) => {
+                eprintln!("{USAGE}");
+                std::process::exit(2);
+            }
+        };
+        std::process::exit(bridge::print_config(bottle));
+    }
+    if arguments.iter().any(|argument| argument == "--print-folders") {
+        const USAGE: &str = "usage: whisky-gpui --print-folders [--bottle <name-or-path>]";
+        let bottle = match cli_value(&arguments, "--bottle") {
+            Ok(bottle) => bottle,
+            Err(()) => {
+                eprintln!("{USAGE}");
+                std::process::exit(2);
+            }
+        };
+        std::process::exit(bridge::print_folders(bottle));
     }
     if arguments.iter().any(|argument| argument == "--runtime-watch") {
         const USAGE: &str =

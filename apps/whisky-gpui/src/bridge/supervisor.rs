@@ -26,16 +26,18 @@ use whisky_bridge::Client;
 use super::{
     BridgeStatus,
     dto::{
-        ActivityDto, Container, ContainerList, DescribeResponse, EntryDto, EntryList,
-        HiddenReplyDto, LaunchReplyDto, PreferencesSchemaDto, RUNTIME_METHODS,
-        RUNTIME_SESSION_METHODS, RuntimeEventBatchDto, RuntimeEventPayloadDto,
-        RuntimeSnapshotDto,
+        ActivityDto, BridgeFailureDto, Container, ContainerList, DescribeResponse, EntryDto,
+        EntryList, FoldersDto, HiddenReplyDto, JobDto, JobStartDto, LaunchReplyDto,
+        LibraryPageDto, PreferencesSchemaDto, RUNTIME_METHODS, RUNTIME_SESSION_METHODS,
+        RuntimeEventBatchDto, RuntimeEventPayloadDto, RuntimeSnapshotDto, ScanResultDto,
     },
 };
+use crate::config::{self, ConfigField};
 use crate::runtime::{
     ClipboardDecision, ClipboardPrompt, LaunchOutcome, RuntimeState, RuntimeUpdate,
     interpret_launch_reply, poll_interval,
 };
+use crate::scan::{self, JobStatus, PageAccumulator};
 
 /// Executable product declared in `WhiskyBridge/Package.swift`.
 const HELPER_PRODUCT: &str = "whisky-bridge";
@@ -50,6 +52,71 @@ const PARK: Duration = Duration::from_secs(3_600);
 pub(crate) enum EntryMutation {
     Rating,
     Hidden,
+}
+
+/// One `folders.*` mutation. Every reply is the whole folder payload, so the UI
+/// never has to merge a local guess.
+#[derive(Debug, Clone)]
+pub(crate) enum FolderEdit {
+    AddRoot(String),
+    RemoveRoot(String),
+    Assign { path: String, assigned: bool },
+    Exclude { path: String, excluded: bool },
+    Executable { path: String, executable: Option<String> },
+}
+
+impl FolderEdit {
+    fn call(&self, container: &str) -> (&'static str, serde_json::Value) {
+        match self {
+            Self::AddRoot(path) => (
+                "folders.addRoot",
+                json!({"container": container, "path": path}),
+            ),
+            Self::RemoveRoot(path) => (
+                "folders.removeRoot",
+                json!({"container": container, "path": path}),
+            ),
+            Self::Assign { path, assigned } => (
+                "folders.assign",
+                json!({"container": container, "path": path, "assigned": assigned}),
+            ),
+            Self::Exclude { path, excluded } => (
+                "folders.exclude",
+                json!({"container": container, "path": path, "excluded": excluded}),
+            ),
+            Self::Executable { path, executable } => (
+                "folders.executable",
+                json!({
+                    "container": container,
+                    "path": path,
+                    "executable": executable.clone().map_or(serde_json::Value::Null, Into::into),
+                }),
+            ),
+        }
+    }
+}
+
+/// Scan lifecycle as the sheet renders it. `status` is always one of the
+/// `BridgeJobStore` strings; `stage` is `scanning` from the helper or `paging`
+/// while this frontend walks `library.page`.
+#[derive(Debug)]
+pub(crate) enum ScanUpdate {
+    Started {
+        job_id: String,
+    },
+    Progress {
+        status: JobStatus,
+        stage: Option<String>,
+        loaded: Option<usize>,
+        total: Option<u64>,
+    },
+    Completed {
+        entries: Vec<EntryDto>,
+    },
+    Failed {
+        status: JobStatus,
+        reason: String,
+    },
 }
 
 #[derive(Debug)]
@@ -108,6 +175,45 @@ pub(crate) enum BridgeEvent {
         entry_id: String,
         reason: String,
     },
+    /// `configuration.schema` plus `configuration.read` for one bottle.
+    Configuration {
+        container: String,
+        capabilities: Vec<String>,
+        schema: Vec<ConfigField>,
+        values: BTreeMap<String, serde_json::Value>,
+    },
+    /// One `configuration.set` succeeded; `values` is the helper's readback.
+    ConfigurationSaved {
+        container: String,
+        field: String,
+        values: BTreeMap<String, serde_json::Value>,
+    },
+    /// `field` is `None` when the whole page failed to load.
+    ConfigurationFailed {
+        container: String,
+        field: Option<String>,
+        reason: String,
+    },
+    Folders {
+        container: String,
+        folders: FoldersDto,
+    },
+    FoldersFailed {
+        container: String,
+        reason: String,
+    },
+    Environment {
+        container: String,
+        values: BTreeMap<String, String>,
+    },
+    EnvironmentFailed {
+        container: String,
+        reason: String,
+    },
+    Scan {
+        container: String,
+        update: ScanUpdate,
+    },
 }
 
 enum Command {
@@ -148,6 +254,27 @@ enum Command {
         key: String,
         value: serde_json::Value,
     },
+    LoadConfiguration(String),
+    SetConfiguration {
+        container: String,
+        field: String,
+        value: serde_json::Value,
+    },
+    LoadFolders(String),
+    EditFolders {
+        container: String,
+        edit: FolderEdit,
+    },
+    LoadEnvironment(String),
+    SetEnvironment {
+        container: String,
+        key: String,
+        value: Option<String>,
+        /// A renamed key: removed before the new one is written.
+        replacing: Option<String>,
+    },
+    StartScan(String),
+    CancelScan,
     /// Window activation: polling pauses while the app is in the background.
     SetActive(bool),
 }
@@ -271,6 +398,73 @@ impl BridgeSupervisor {
         });
     }
 
+    /// `configuration.schema` + `configuration.read` for one bottle.
+    pub(crate) fn load_configuration(&self, container: &str) {
+        let _ = self
+            .commands
+            .send(Command::LoadConfiguration(container.to_owned()));
+    }
+
+    /// `configuration.set` for one field; the reply is a whole-file readback.
+    pub(crate) fn set_configuration(
+        &self,
+        container: &str,
+        field: &str,
+        value: serde_json::Value,
+    ) {
+        let _ = self.commands.send(Command::SetConfiguration {
+            container: container.to_owned(),
+            field: field.to_owned(),
+            value,
+        });
+    }
+
+    pub(crate) fn load_folders(&self, container: &str) {
+        let _ = self
+            .commands
+            .send(Command::LoadFolders(container.to_owned()));
+    }
+
+    pub(crate) fn edit_folders(&self, container: &str, edit: FolderEdit) {
+        let _ = self.commands.send(Command::EditFolders {
+            container: container.to_owned(),
+            edit,
+        });
+    }
+
+    pub(crate) fn load_environment(&self, container: &str) {
+        let _ = self
+            .commands
+            .send(Command::LoadEnvironment(container.to_owned()));
+    }
+
+    /// `environment.set`. `value: None` removes `key`; `replacing` names an old
+    /// key that is removed first, because the bridge has no rename call.
+    pub(crate) fn set_environment(
+        &self,
+        container: &str,
+        key: &str,
+        value: Option<&str>,
+        replacing: Option<&str>,
+    ) {
+        let _ = self.commands.send(Command::SetEnvironment {
+            container: container.to_owned(),
+            key: key.to_owned(),
+            value: value.map(str::to_owned),
+            replacing: replacing.map(str::to_owned),
+        });
+    }
+
+    pub(crate) fn start_scan(&self, container: &str) {
+        let _ = self
+            .commands
+            .send(Command::StartScan(container.to_owned()));
+    }
+
+    pub(crate) fn cancel_scan(&self) {
+        let _ = self.commands.send(Command::CancelScan);
+    }
+
     pub(crate) fn set_active(&self, active: bool) {
         let _ = self.commands.send(Command::SetActive(active));
     }
@@ -356,13 +550,20 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
         // The configured runtime, if any. Dropped on reconfigure; kept across a
         // poll failure so the last known states stay on screen.
         let mut live: Option<LiveRuntime> = None;
+        // At most one scan job. Kept as state, not as a blocking loop, so a
+        // cancel command still reaches the worker between polls.
+        let mut scan: Option<LiveScan> = None;
         loop {
             // A live session blocks only until its next poll is due. Anything
             // else parks, and a command still wakes the worker immediately.
-            let wait_for = match (&live, foreground) {
-                (Some(live), true) => live.due.saturating_duration_since(Instant::now()),
-                _ => PARK,
-            };
+            let now = Instant::now();
+            let mut wait_for = PARK;
+            if foreground && let Some(live) = &live {
+                wait_for = wait_for.min(live.due.saturating_duration_since(now));
+            }
+            if let Some(scan) = &scan {
+                wait_for = wait_for.min(scan.due.saturating_duration_since(now));
+            }
             let command = match commands.recv_timeout(wait_for) {
                 Ok(command) => Some(command),
                 Err(RecvTimeoutError::Timeout) => None,
@@ -384,6 +585,73 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                 if session.failures == 1 {
                                     emit_event(&events, BridgeEvent::RuntimeFailed { reason });
                                 }
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                    if let Some(active) = scan.as_mut() {
+                        let container = active.container.clone();
+                        match poll_scan(&mut client, active, &events) {
+                            Ok(None) => {}
+                            Ok(Some(ScanTerminal::Completed {
+                                snapshot_id,
+                                total,
+                            })) => {
+                                match collect_pages(&mut client, &container, &snapshot_id, total, &events)
+                                {
+                                    Ok(entries) => {
+                                        cache = Some((container.clone(), entries.clone()));
+                                        let count = entries.len();
+                                        emit_event(
+                                            &events,
+                                            BridgeEvent::Scan {
+                                                container: container.clone(),
+                                                update: ScanUpdate::Completed { entries },
+                                            },
+                                        );
+                                        eprintln!(
+                                            "whisky-bridge: scan of {container} loaded {count} entries"
+                                        );
+                                        scan = None;
+                                    }
+                                    Err(CallFailure::Remote(reason)) => {
+                                        emit_event(
+                                            &events,
+                                            BridgeEvent::Scan {
+                                                container,
+                                                update: ScanUpdate::Failed {
+                                                    status: JobStatus::Failed,
+                                                    reason,
+                                                },
+                                            },
+                                        );
+                                        scan = None;
+                                    }
+                                    Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                                }
+                            }
+                            Ok(Some(ScanTerminal::Failed { status, reason })) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Scan {
+                                        container,
+                                        update: ScanUpdate::Failed { status, reason },
+                                    },
+                                );
+                                scan = None;
+                            }
+                            Err(CallFailure::Remote(reason)) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Scan {
+                                        container,
+                                        update: ScanUpdate::Failed {
+                                            status: JobStatus::Failed,
+                                            reason,
+                                        },
+                                    },
+                                );
+                                scan = None;
                             }
                             Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                         }
@@ -649,8 +917,219 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
                 }
+                Some(Command::LoadConfiguration(container)) => {
+                    match load_configuration(&mut client, &container, &describe) {
+                        Ok((schema, values)) => emit_event(
+                            &events,
+                            BridgeEvent::Configuration {
+                                container,
+                                capabilities: describe.capabilities.clone(),
+                                schema,
+                                values,
+                            },
+                        ),
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ConfigurationFailed {
+                                container,
+                                field: None,
+                                reason,
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::SetConfiguration {
+                    container,
+                    field,
+                    value,
+                }) => {
+                    let params = config::set_payload(&container, &field, &value);
+                    match client.call("configuration.set", params).map_err(classify) {
+                        Ok(reply) => match decode_values(&reply) {
+                            Ok(values) => emit_event(
+                                &events,
+                                BridgeEvent::ConfigurationSaved {
+                                    container,
+                                    field,
+                                    values,
+                                },
+                            ),
+                            Err(reason) => emit_event(
+                                &events,
+                                BridgeEvent::ConfigurationFailed {
+                                    container,
+                                    field: Some(field),
+                                    reason,
+                                },
+                            ),
+                        },
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ConfigurationFailed {
+                                container,
+                                field: Some(field),
+                                reason,
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::LoadFolders(container)) => {
+                    match load_folders(&mut client, &container) {
+                        Ok(folders) => {
+                            emit_event(&events, BridgeEvent::Folders { container, folders });
+                        }
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::FoldersFailed { container, reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::EditFolders { container, edit }) => {
+                    let (method, params) = edit.call(&container);
+                    match client.call(method, params).map_err(classify) {
+                        Ok(reply) => match serde_json::from_value::<FoldersDto>(reply) {
+                            Ok(folders) => {
+                                emit_event(&events, BridgeEvent::Folders { container, folders });
+                            }
+                            Err(error) => emit_event(
+                                &events,
+                                BridgeEvent::FoldersFailed {
+                                    container,
+                                    reason: format!("invalid folders payload: {error}"),
+                                },
+                            ),
+                        },
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::FoldersFailed { container, reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::LoadEnvironment(container)) => {
+                    match load_environment(&mut client, &container) {
+                        Ok(values) => {
+                            emit_event(&events, BridgeEvent::Environment { container, values });
+                        }
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::EnvironmentFailed { container, reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::SetEnvironment {
+                    container,
+                    key,
+                    value,
+                    replacing,
+                }) => {
+                    match write_environment(&mut client, &container, &key, value, replacing) {
+                        Ok(values) => {
+                            emit_event(&events, BridgeEvent::Environment { container, values });
+                        }
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::EnvironmentFailed { container, reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::StartScan(container)) => {
+                    if scan.is_some() {
+                        // The sheet disables Scan while a job is live; a second
+                        // start must not replace the id the UI cancels by.
+                        eprintln!("whisky-bridge: a scan is already running");
+                    } else {
+                        match start_scan(&mut client, &container) {
+                            Ok(job_id) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Scan {
+                                        container: container.clone(),
+                                        update: ScanUpdate::Started {
+                                            job_id: job_id.clone(),
+                                        },
+                                    },
+                                );
+                                scan = Some(LiveScan {
+                                    container,
+                                    job_id,
+                                    due: Instant::now() + SCAN_POLL,
+                                    last: None,
+                                });
+                            }
+                            Err(CallFailure::Remote(reason)) => emit_event(
+                                &events,
+                                BridgeEvent::Scan {
+                                    container,
+                                    update: ScanUpdate::Failed {
+                                        status: JobStatus::Failed,
+                                        reason,
+                                    },
+                                },
+                            ),
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                }
+                Some(Command::CancelScan) => {
+                    let cancelled = scan.as_ref().map(|active| active.job_id.clone());
+                    match cancelled {
+                        Some(job_id) => {
+                            match client
+                                .call("jobs.cancel", json!({"jobID": job_id}))
+                                .map_err(classify)
+                            {
+                                Ok(_) => {
+                                    // Poll on the next tick so the sheet sees
+                                    // `cancelling` and then `cancelled`.
+                                    if let Some(active) = scan.as_mut() {
+                                        active.due = Instant::now();
+                                    }
+                                }
+                                Err(CallFailure::Remote(reason)) => {
+                                    let container = scan
+                                        .as_ref()
+                                        .map(|active| active.container.clone())
+                                        .unwrap_or_default();
+                                    emit_event(
+                                        &events,
+                                        BridgeEvent::Scan {
+                                            container,
+                                            update: ScanUpdate::Failed {
+                                                status: JobStatus::Failed,
+                                                reason,
+                                            },
+                                        },
+                                    );
+                                    scan = None;
+                                }
+                                Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                            }
+                        }
+                        // Nothing to cancel: the sheet only offers it while a
+                        // job is live.
+                        None => eprintln!("whisky-bridge: no scan to cancel"),
+                    }
+                }
             }
             if let Some(reason) = reconnect {
+                if let Some(active) = scan.take() {
+                    emit_event(
+                        &events,
+                        BridgeEvent::Scan {
+                            container: active.container,
+                            update: ScanUpdate::Failed {
+                                status: JobStatus::Failed,
+                                reason: "The bridge session ended; the scan was abandoned".into(),
+                            },
+                        },
+                    );
+                }
                 client.close();
                 if fail_and_wait(&events, &commands, &mut attempt, reason, true, &mut foreground)
                 {
@@ -801,6 +1280,207 @@ fn poll_runtime(
     };
     emit_event(events, BridgeEvent::Runtime(update));
     Ok(())
+}
+
+/// Helpers for the bottle surfaces. Each returns a domain value or a classified
+/// failure so the caller decides between an event and a reconnect.
+
+fn load_configuration(
+    client: &mut Client,
+    container: &str,
+    describe: &DescribeResponse,
+) -> Result<(Vec<ConfigField>, BTreeMap<String, serde_json::Value>), CallFailure> {
+    let schema = client
+        .call(
+            "configuration.schema",
+            json!({ "container": container, "platform": describe.platform }),
+        )
+        .map_err(classify)?;
+    let fields =
+        config::decode_schema(&schema, &describe.platform).map_err(CallFailure::Remote)?;
+    let read = client
+        .call("configuration.read", json!({ "container": container }))
+        .map_err(classify)?;
+    let values = config::resolved_values(&fields, &read);
+    Ok((fields, values))
+}
+
+fn decode_values(reply: &serde_json::Value) -> Result<BTreeMap<String, serde_json::Value>, String> {
+    reply
+        .as_object()
+        .map(|map| {
+            map.iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect()
+        })
+        .ok_or_else(|| "configuration reply is not an object".to_owned())
+}
+
+fn load_folders(client: &mut Client, container: &str) -> Result<FoldersDto, CallFailure> {
+    let reply = client
+        .call("folders.read", json!({ "container": container }))
+        .map_err(classify)?;
+    serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid folders payload: {error}")))
+}
+
+fn load_environment(
+    client: &mut Client,
+    container: &str,
+) -> Result<BTreeMap<String, String>, CallFailure> {
+    let reply = client
+        .call("environment.read", json!({ "container": container }))
+        .map_err(classify)?;
+    serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid environment payload: {error}")))
+}
+
+fn write_environment(
+    client: &mut Client,
+    container: &str,
+    key: &str,
+    value: Option<String>,
+    replacing: Option<String>,
+) -> Result<BTreeMap<String, String>, CallFailure> {
+    // The bridge has no rename: remove the old key, then write the new one.
+    if let Some(previous) = replacing.filter(|previous| previous != key) {
+        client
+            .call(
+                "environment.set",
+                config::environment_payload(container, &previous, None),
+            )
+            .map_err(classify)?;
+    }
+    let reply = client
+        .call(
+            "environment.set",
+            config::environment_payload(container, key, value.as_deref()),
+        )
+        .map_err(classify)?;
+    serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid environment payload: {error}")))
+}
+
+fn start_scan(client: &mut Client, container: &str) -> Result<String, CallFailure> {
+    let reply = client
+        .call("library.scan", json!({ "container": container }))
+        .map_err(classify)?;
+    let start: JobStartDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid scan reply: {error}")))?;
+    Ok(start.job_id)
+}
+
+/// How often `jobs.get` is polled while a scan is queued or running.
+const SCAN_POLL: Duration = Duration::from_millis(250);
+
+struct LiveScan {
+    container: String,
+    job_id: String,
+    due: Instant,
+    /// Last reported `(status, stage)`, so the sheet is notified on change only.
+    last: Option<(JobStatus, Option<String>)>,
+}
+
+enum ScanTerminal {
+    Completed { snapshot_id: String, total: u64 },
+    Failed { status: JobStatus, reason: String },
+}
+
+fn poll_scan(
+    client: &mut Client,
+    scan: &mut LiveScan,
+    events: &smol::channel::Sender<BridgeEvent>,
+) -> Result<Option<ScanTerminal>, CallFailure> {
+    let reply = client
+        .call("jobs.get", json!({ "jobID": scan.job_id }))
+        .map_err(classify)?;
+    let job: JobDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid job payload: {error}")))?;
+    let status = JobStatus::from_wire(&job.status).ok_or_else(|| {
+        CallFailure::Remote(format!("unknown job status: {}", job.status))
+    })?;
+    let stage = job.stage().map(str::to_owned);
+    if scan.last.as_ref() != Some(&(status, stage.clone())) {
+        emit_event(
+            events,
+            BridgeEvent::Scan {
+                container: scan.container.clone(),
+                update: ScanUpdate::Progress {
+                    status,
+                    stage: stage.clone(),
+                    loaded: None,
+                    total: None,
+                },
+            },
+        );
+        scan.last = Some((status, stage));
+    }
+    scan.due = Instant::now() + SCAN_POLL;
+    match status {
+        JobStatus::Completed => {
+            let result = job
+                .result
+                .ok_or_else(|| CallFailure::Remote("completed scan has no result".into()))?;
+            let result: ScanResultDto = serde_json::from_value(result)
+                .map_err(|error| CallFailure::Remote(format!("invalid scan result: {error}")))?;
+            Ok(Some(ScanTerminal::Completed {
+                snapshot_id: result.snapshot_id,
+                total: result.total,
+            }))
+        }
+        JobStatus::Failed | JobStatus::Cancelled => {
+            let reason = job
+                .error
+                .as_ref()
+                .map(BridgeFailureDto::reason)
+                .unwrap_or_else(|| status.label().to_owned());
+            Ok(Some(ScanTerminal::Failed { status, reason }))
+        }
+        JobStatus::Queued | JobStatus::Running | JobStatus::Cancelling => Ok(None),
+    }
+}
+
+/// Walk `library.page` from offset 0 until `nextOffset` is null.
+fn collect_pages(
+    client: &mut Client,
+    container: &str,
+    snapshot_id: &str,
+    total: u64,
+    events: &smol::channel::Sender<BridgeEvent>,
+) -> Result<Vec<EntryDto>, CallFailure> {
+    let mut accumulator = PageAccumulator::start(total);
+    loop {
+        let reply = client
+            .call(
+                "library.page",
+                scan::page_payload(snapshot_id, accumulator.offset, config::PAGE_LIMIT),
+            )
+            .map_err(classify)?;
+        let page: LibraryPageDto = serde_json::from_value(reply)
+            .map_err(|error| CallFailure::Remote(format!("invalid library page: {error}")))?;
+        let next = accumulator.apply(&page).map_err(CallFailure::Remote)?;
+        // One event per ten pages keeps the channel quiet on a large catalogue
+        // without leaving the sheet frozen.
+        if accumulator.loaded() % (config::PAGE_LIMIT as usize * 10) == 0
+            || next.is_none()
+        {
+            emit_event(
+                events,
+                BridgeEvent::Scan {
+                    container: container.to_owned(),
+                    update: ScanUpdate::Progress {
+                        status: JobStatus::Running,
+                        stage: Some("paging".into()),
+                        loaded: Some(accumulator.loaded()),
+                        total: Some(accumulator.total),
+                    },
+                },
+            );
+        }
+        if next.is_none() {
+            return Ok(accumulator.into_entries());
+        }
+    }
 }
 
 fn runtime_launch(
@@ -1468,6 +2148,208 @@ pub(crate) fn print_library(bottle: Option<&str>, all: bool) -> i32 {
     0
 }
 
+/// `--print-config [--bottle <name-or-path>]`: read the schema and the stored
+/// values, then print the field count, the kind histogram and three samples as
+/// JSON. Read-only: it never calls `configuration.set` or a scan.
+pub(crate) fn print_config(bottle: Option<&str>) -> i32 {
+    let helper = match locate_helper() {
+        Ok(helper) => helper,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            return 1;
+        }
+    };
+    eprintln!("whisky-bridge: helper {}", helper.display());
+    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("whisky-bridge: handshake failed: {error}");
+            return 1;
+        }
+    };
+    let describe = DescribeResponse::from_capabilities(client.capabilities());
+    let missing = describe.missing_methods(&["configuration.schema", "configuration.read"]);
+    if !missing.is_empty() {
+        eprintln!(
+            "whisky-bridge: helper does not advertise configuration method(s): {}",
+            missing.join(", ")
+        );
+        client.close();
+        return 1;
+    }
+    let containers = match fetch_containers(&mut client) {
+        Ok(containers) => containers,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    let container = match pick_container(&containers, bottle) {
+        Ok(container) => container,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            client.close();
+            return 1;
+        }
+    };
+    let (fields, values) = match load_configuration(&mut client, &container.path, &describe) {
+        Ok(configuration) => configuration,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    let sections: Vec<serde_json::Value> = config::group_sections(&fields)
+        .into_iter()
+        .map(|section| {
+            json!({
+                "id": section.spec.id,
+                "title": section.spec.title,
+                "fields": section.fields.len(),
+            })
+        })
+        .collect();
+    let samples: Vec<serde_json::Value> = fields
+        .iter()
+        .take(3)
+        .map(|field| {
+            json!({
+                "id": field.id,
+                "title": field.title,
+                "titleKey": field.title_key,
+                "kind": field.kind.name(),
+                "default": field.default,
+                "value": values.get(&field.id).cloned().unwrap_or(serde_json::Value::Null),
+                "requires": field.requires,
+            })
+        })
+        .collect();
+    let report = json!({
+        "bottle": container.name,
+        "container": container.path,
+        "platform": describe.platform,
+        "fieldCount": fields.len(),
+        "kinds": config::kind_histogram(&fields),
+        "sections": sections,
+        "disabledFields": fields
+            .iter()
+            .filter(|field| !field.enabled(&describe.capabilities))
+            .map(|field| field.id.clone())
+            .collect::<Vec<_>>(),
+        "samples": samples,
+    });
+    match serde_json::to_string_pretty(&report) {
+        Ok(payload) => println!("{payload}"),
+        Err(error) => {
+            eprintln!("whisky-bridge: cannot encode the configuration report: {error}");
+            client.close();
+            return 1;
+        }
+    }
+    eprintln!(
+        "whisky-bridge: {} field(s), {} section(s)",
+        fields.len(),
+        config::group_sections(&fields).len()
+    );
+    let _ = client.shutdown(false);
+    0
+}
+
+/// `--print-folders [--bottle <name-or-path>]`: roots with their assignment,
+/// exclusion and executable, plus every list the helper stores. Read-only.
+pub(crate) fn print_folders(bottle: Option<&str>) -> i32 {
+    let helper = match locate_helper() {
+        Ok(helper) => helper,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            return 1;
+        }
+    };
+    eprintln!("whisky-bridge: helper {}", helper.display());
+    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("whisky-bridge: handshake failed: {error}");
+            return 1;
+        }
+    };
+    let describe = DescribeResponse::from_capabilities(client.capabilities());
+    let missing = describe.missing_methods(&["folders.read"]);
+    if !missing.is_empty() {
+        eprintln!(
+            "whisky-bridge: helper does not advertise folder method(s): {}",
+            missing.join(", ")
+        );
+        client.close();
+        return 1;
+    }
+    let containers = match fetch_containers(&mut client) {
+        Ok(containers) => containers,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    let container = match pick_container(&containers, bottle) {
+        Ok(container) => container,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            client.close();
+            return 1;
+        }
+    };
+    let folders = match load_folders(&mut client, &container.path) {
+        Ok(folders) => folders,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    let roots: Vec<serde_json::Value> = folders
+        .roots
+        .iter()
+        .map(|root| {
+            json!({
+                "path": root,
+                "assigned": folders.is_assigned(root),
+                "excluded": folders.is_excluded(root),
+                "executable": folders.executable_for(root),
+            })
+        })
+        .collect();
+    let report = json!({
+        "bottle": container.name,
+        "container": container.path,
+        "automaticMetadata": folders.automatic_metadata,
+        "rootCount": folders.roots.len(),
+        "roots": roots,
+        "assignedFolders": folders.assigned_folders,
+        "excludedFolders": folders.excluded_folders,
+        "executables": folders.executables,
+        "knownFolderCount": folders.known_folders.len(),
+    });
+    match serde_json::to_string_pretty(&report) {
+        Ok(payload) => println!("{payload}"),
+        Err(error) => {
+            eprintln!("whisky-bridge: cannot encode the folders report: {error}");
+            client.close();
+            return 1;
+        }
+    }
+    eprintln!(
+        "whisky-bridge: {} root(s), {} assigned, {} excluded",
+        folders.roots.len(),
+        folders.assigned_folders.len(),
+        folders.excluded_folders.len()
+    );
+    let _ = client.shutdown(false);
+    0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1479,5 +2361,29 @@ mod tests {
         assert!(schedule.iter().all(|delay| *delay <= Duration::from_millis(8_000)));
         assert!(schedule.windows(2).all(|pair| pair[0] <= pair[1]));
         assert_eq!(schedule.last(), Some(&Duration::from_millis(8_000)));
+    }
+
+    /// `configuration.read` and the `configuration.set` readback reply with the
+    /// whole file's values object. `decode_values` is the seam both the
+    /// saved-path merge and the rejection rollback read through, so the shape
+    /// is pinned here: a flat field→value map, and nothing else.
+    #[test]
+    fn configuration_readback_decodes_into_the_value_map() {
+        let reply = json!({
+            "windowsVersion": "win11",
+            "avxEnabled": true,
+            "customResolutionWidth": 2560,
+            "pinnedDeviceName": ""
+        });
+        let values = decode_values(&reply).expect("values");
+        assert_eq!(values.len(), 4);
+        assert_eq!(values["windowsVersion"], json!("win11"));
+        assert_eq!(values["avxEnabled"], json!(true));
+        assert_eq!(values["customResolutionWidth"], json!(2560));
+        assert_eq!(values["pinnedDeviceName"], json!(""));
+        // A non-object reply is a protocol error, never an empty map: an
+        // empty map would silently roll every field back to its default.
+        let error = decode_values(&json!([1, 2])).unwrap_err();
+        assert!(error.contains("not an object"), "{error}");
     }
 }

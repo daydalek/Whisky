@@ -9,9 +9,13 @@ use gpui_kit::component::input::InputState;
 use gpui_kit::{prelude::*, *};
 use serde_json::json;
 
-use crate::bridge::{BridgeEvent, BridgeStatus, BridgeSupervisor, EntryMutation};
+use crate::bridge::dto::FoldersDto;
+use crate::bridge::{
+    BridgeEvent, BridgeStatus, BridgeSupervisor, EntryMutation, FolderEdit, ScanUpdate,
+};
 #[cfg(feature = "visual-test")]
 use crate::library_layout::CardRect;
+use crate::config::{self, ConfigField};
 use crate::library_view::{self, Sort};
 use crate::model::{
     BottleVm, Game, demo_bottles, demo_data, demo_requested, empty_library_message,
@@ -21,6 +25,7 @@ use crate::runtime::{
     ClipboardDecision, ClipboardPrompt, ConfiguredBottles, PendingEdits, PrimaryAction,
     RuntimeAction, RuntimeState, RuntimeTable, primary_action_for,
 };
+use crate::scan::JobStatus;
 use crate::views::Command;
 
 /// Toast copy for the demo-only menu actions, which still do not mutate
@@ -29,6 +34,41 @@ pub(crate) const DEMO_NOTICE: &str = "外观演示 · 未启动游戏，也未�
 
 /// How long preference writes are coalesced before reaching the bridge.
 const PREFERENCE_DEBOUNCE: Duration = Duration::from_millis(300);
+/// Text and number rows wait this long after the last keystroke; toggles and
+/// pickers commit immediately.
+const CONFIG_DEBOUNCE: Duration = Duration::from_millis(400);
+
+/// `configuration.schema` + `configuration.read` for the selected bottle.
+#[derive(Clone)]
+pub(crate) struct ConfigPage {
+    pub(crate) container: String,
+    pub(crate) capabilities: Vec<String>,
+    pub(crate) fields: Vec<ConfigField>,
+    pub(crate) values: BTreeMap<String, serde_json::Value>,
+    pub(crate) loading: bool,
+    /// A page-level failure (schema or read); field rejections use the toast.
+    pub(crate) error: Option<String>,
+}
+
+/// One scan, as the sheet renders it. `finished` stays true after completion so
+/// the last result remains visible; starting another scan replaces it.
+#[derive(Clone, Default)]
+pub(crate) struct ScanState {
+    pub(crate) container: String,
+    pub(crate) job_id: Option<String>,
+    pub(crate) status: Option<JobStatus>,
+    pub(crate) stage: Option<String>,
+    pub(crate) loaded: usize,
+    pub(crate) total: Option<u64>,
+    pub(crate) error: Option<String>,
+    pub(crate) finished: bool,
+}
+
+impl ScanState {
+    pub(crate) fn running(&self) -> bool {
+        self.status.is_some_and(|status| !status.is_terminal())
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PreviewPage {
@@ -59,6 +99,15 @@ pub(crate) struct PreviewState {
     pub(crate) choices: BTreeMap<&'static str, SharedString>,
     pub(crate) collapsed: BTreeSet<&'static str>,
     pub(crate) inputs: BTreeMap<&'static str, Entity<InputState>>,
+    /// Schema text/number rows, created on first render because `InputState`
+    /// needs a window. Cleared when the bottle changes.
+    pub(crate) config_inputs: BTreeMap<String, Entity<InputState>>,
+    /// Per-root executable fields in the scan sheet, keyed `scan-exe:<root>`.
+    pub(crate) folder_inputs: BTreeMap<String, Entity<InputState>>,
+    /// Fields whose input must be rebuilt on the next render, after a rejected
+    /// or normalized write. Replacing the entity avoids `set_value`, which
+    /// would notify an observer while the root view is rendering.
+    pub(crate) config_resets: BTreeSet<String>,
     pub(crate) sort: usize,
     // Retained per document, including forms mounted inside settings sheets.
     pub(crate) scroll_handles: std::cell::RefCell<BTreeMap<&'static str, ScrollHandle>>,
@@ -97,6 +146,9 @@ impl PreviewState {
             sheet: None,
             sheet_history: vec![],
             inputs,
+            config_inputs: BTreeMap::new(),
+            folder_inputs: BTreeMap::new(),
+            config_resets: BTreeSet::new(),
             toggles: [
                 ("refresh", preferences::DEFAULT_REFRESH_AFTER_EXIT),
                 ("single-title", preferences::DEFAULT_SINGLE_LINE_TITLES),
@@ -180,6 +232,29 @@ pub(crate) struct WhiskyApp {
     prefs_supported: BTreeSet<String>,
     prefs_pending: BTreeMap<String, serde_json::Value>,
     prefs_generation: u64,
+    /// Bottle configuration for the selected bottle; `None` until the page is
+    /// opened or after a bottle switch.
+    pub(crate) config: Option<ConfigPage>,
+    /// Last committed value per field, for rolling back a rejected write.
+    config_writes: PendingEdits<serde_json::Value>,
+    /// Text/number drafts not yet sent, coalesced across fields.
+    config_text_pending: BTreeMap<String, String>,
+    config_text_generation: u64,
+    /// Folder state keyed by container path.
+    pub(crate) folders: BTreeMap<String, FoldersDto>,
+    pub(crate) folders_pending: BTreeSet<String>,
+    pub(crate) folders_error: BTreeMap<String, String>,
+    /// Container environment map keyed by container path.
+    pub(crate) environments: BTreeMap<String, BTreeMap<String, String>>,
+    pub(crate) environment_error: BTreeMap<String, String>,
+    /// The one scan job this session follows.
+    pub(crate) scan: Option<ScanState>,
+    /// Key that "编辑" put in the env inputs; saving with a different name
+    /// removes it first, because the bridge has no rename call.
+    env_original: Option<String>,
+    env_clear_on_reply: bool,
+    /// Text "编辑" staged for the two env inputs; applied on the next render.
+    pub(crate) env_fill: Option<(String, String)>,
     /// Last committed value per entry, for rolling back optimistic edits.
     rating_edits: PendingEdits<Option<u8>>,
     hidden_edits: PendingEdits<bool>,
@@ -248,6 +323,19 @@ impl WhiskyApp {
             prefs_supported: BTreeSet::new(),
             prefs_pending: BTreeMap::new(),
             prefs_generation: 0,
+            config: None,
+            config_writes: PendingEdits::default(),
+            config_text_pending: BTreeMap::new(),
+            config_text_generation: 0,
+            folders: BTreeMap::new(),
+            folders_pending: BTreeSet::new(),
+            folders_error: BTreeMap::new(),
+            environments: BTreeMap::new(),
+            environment_error: BTreeMap::new(),
+            scan: None,
+            env_original: None,
+            env_clear_on_reply: false,
+            env_fill: None,
             rating_edits: PendingEdits::default(),
             hidden_edits: PendingEdits::default(),
             sidebar: true,
@@ -287,7 +375,32 @@ impl WhiskyApp {
         self.rating_edits.clear();
         self.hidden_edits.clear();
         self.clipboard_prompt = None;
+        self.reset_bottle_surfaces();
         cx.notify();
+    }
+
+    /// Drop the bottle-page caches: a new helper session may have a different
+    /// configuration file, folder list, and environment.
+    fn reset_bottle_surfaces(&mut self) {
+        self.config = None;
+        self.config_writes.clear();
+        self.config_text_pending.clear();
+        self.config_text_generation = self.config_text_generation.wrapping_add(1);
+        self.preview.config_inputs.clear();
+        self.preview.folder_inputs.clear();
+        self.preview.config_resets.clear();
+        self.folders.clear();
+        self.folders_pending.clear();
+        self.folders_error.clear();
+        self.environments.clear();
+        self.environment_error.clear();
+        self.env_original = None;
+        self.env_clear_on_reply = false;
+        self.env_fill = None;
+        if self.scan.as_ref().is_some_and(ScanState::running) {
+            // The job lived in the previous session.
+            self.scan = None;
+        }
     }
 
     /// Route a supervisor event into the library view model. Errors never panic
@@ -360,6 +473,7 @@ impl WhiskyApp {
                     self.configured.clear();
                     self.rating_edits.clear();
                     self.hidden_edits.clear();
+                    self.reset_bottle_surfaces();
                     self.invalidate_view();
                     self.request_all();
                     // A reconnect must re-configure, or every card would stay
@@ -494,6 +608,201 @@ impl WhiskyApp {
                 if !self.demo {
                     self.roll_back(mutation, &container, &entry_id);
                     self.show_notice(reason, cx);
+                }
+            }
+            BridgeEvent::Configuration {
+                container,
+                capabilities,
+                schema,
+                values,
+            } => {
+                if !self.demo {
+                    let changed = self
+                        .config
+                        .as_ref()
+                        .is_none_or(|page| page.container != container);
+                    if changed {
+                        // A different bottle means different input entities.
+                        self.preview.config_inputs.clear();
+                        self.preview.config_resets.clear();
+                        self.config_writes.clear();
+                        self.config_text_pending.clear();
+                        self.config_text_generation =
+                            self.config_text_generation.wrapping_add(1);
+                    }
+                    self.config = Some(ConfigPage {
+                        container,
+                        capabilities,
+                        fields: schema,
+                        values,
+                        loading: false,
+                        error: None,
+                    });
+                }
+            }
+            BridgeEvent::ConfigurationSaved {
+                container,
+                field,
+                values,
+            } => {
+                if !self.demo {
+                    self.config_writes.succeed(&field);
+                    if let Some(page) = self
+                        .config
+                        .as_mut()
+                        .filter(|page| page.container == container)
+                    {
+                        // Apply only the field that was written: another
+                        // debounced edit may still be in flight and must not be
+                        // clobbered by this readback.
+                        if let Some(value) = values.get(&field) {
+                            page.values.insert(field, value.clone());
+                        }
+                    }
+                }
+            }
+            BridgeEvent::ConfigurationFailed {
+                container,
+                field,
+                reason,
+            } => {
+                if !self.demo {
+                    match field {
+                        None => {
+                            if let Some(page) = self
+                                .config
+                                .as_mut()
+                                .filter(|page| page.container == container)
+                            {
+                                page.loading = false;
+                                page.error = Some(reason.clone());
+                            }
+                        }
+                        Some(field) => {
+                            if let Some(previous) = self.config_writes.fail(&field) {
+                                if let Some(page) = self
+                                    .config
+                                    .as_mut()
+                                    .filter(|page| page.container == container)
+                                {
+                                    page.values.insert(field.clone(), previous.clone());
+                                    self.preview.config_resets.insert(field);
+                                }
+                            }
+                        }
+                    }
+                    self.show_notice(reason, cx);
+                }
+            }
+            BridgeEvent::Folders { container, folders } => {
+                if !self.demo {
+                    self.folders_pending.remove(&container);
+                    self.folders_error.remove(&container);
+                    self.folders.insert(container, folders);
+                }
+            }
+            BridgeEvent::FoldersFailed { container, reason } => {
+                if !self.demo {
+                    self.folders_pending.remove(&container);
+                    self.folders_error
+                        .insert(container, reason.clone());
+                    self.show_notice(reason, cx);
+                }
+            }
+            BridgeEvent::Environment { container, values } => {
+                if !self.demo {
+                    self.environment_error.remove(&container);
+                    self.environments.insert(container, values);
+                    if self.env_clear_on_reply {
+                        self.env_clear_on_reply = false;
+                        self.env_original = None;
+                        // Applied on the next render, which has a window.
+                        self.env_fill = Some((String::new(), String::new()));
+                    }
+                }
+            }
+            BridgeEvent::EnvironmentFailed { container, reason } => {
+                if !self.demo {
+                    self.env_clear_on_reply = false;
+                    self.environment_error
+                        .insert(container, reason.clone());
+                    self.show_notice(reason, cx);
+                }
+            }
+            BridgeEvent::Scan { container, update } => {
+                if !self.demo {
+                    match update {
+                        ScanUpdate::Started { job_id } => {
+                            let state = self.scan.get_or_insert_with(ScanState::default);
+                            state.container = container;
+                            state.job_id = Some(job_id);
+                            state.status = Some(JobStatus::Queued);
+                            state.stage = None;
+                            state.error = None;
+                            state.finished = false;
+                        }
+                        ScanUpdate::Progress {
+                            status,
+                            stage,
+                            loaded,
+                            total,
+                        } => {
+                            let state = self.scan.get_or_insert_with(ScanState::default);
+                            state.container = container;
+                            state.status = Some(status);
+                            state.stage = stage;
+                            if let Some(loaded) = loaded {
+                                state.loaded = loaded;
+                            }
+                            if total.is_some() {
+                                state.total = total;
+                            }
+                            state.error = None;
+                        }
+                        ScanUpdate::Completed { entries } => {
+                            let state = self.scan.get_or_insert_with(ScanState::default);
+                            state.container = container.clone();
+                            state.status = Some(JobStatus::Completed);
+                            state.stage = None;
+                            state.loaded = entries.len();
+                            state.total = Some(entries.len() as u64);
+                            state.finished = true;
+                            state.error = None;
+
+                            let index = self
+                                .bottles
+                                .iter()
+                                .position(|bottle| bottle.path == container);
+                            let slot = index.map_or(0, |index| index + 1);
+                            let games: Vec<Game> = entries
+                                .into_iter()
+                                .map(|entry| {
+                                    let mut game = entry.into_game(slot);
+                                    game.container = container.clone();
+                                    game
+                                })
+                                .collect();
+                            self.bottle_entries.insert(container.clone(), games);
+                            // A bottle that vanished mid-scan must not clear
+                            // another bottle's pending marker.
+                            if let Some(index) = index {
+                                self.pending.remove(&index);
+                                self.failures.remove(&index);
+                            }
+                            self.rebuild_entries();
+                        }
+                        ScanUpdate::Failed { status, reason } => {
+                            let state = self.scan.get_or_insert_with(ScanState::default);
+                            state.container = container;
+                            state.status = Some(status);
+                            state.stage = None;
+                            state.finished = true;
+                            state.error = Some(reason.clone());
+                            if status != JobStatus::Cancelled {
+                                self.show_notice(reason, cx);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -973,13 +1282,319 @@ impl WhiskyApp {
         self.invalidate_view();
     }
 
+    // MARK: - Bottle surfaces (configuration, environment, folders, scan)
+
+    /// The selected bottle when it is usable; the bottle page only exists for
+    /// one of those.
+    pub(crate) fn selected_container(&self) -> Option<String> {
+        self.selected_bottle
+            .and_then(|index| self.bottles.get(index))
+            .filter(|bottle| bottle.available)
+            .map(|bottle| bottle.path.clone())
+    }
+
+    /// The sheet's bottle: the selection, or the first available bottle.
+    pub(crate) fn scan_container(&self) -> Option<String> {
+        self.selected_container().or_else(|| {
+            self.bottles
+                .iter()
+                .find(|bottle| bottle.available)
+                .map(|bottle| bottle.path.clone())
+        })
+    }
+
+    /// Read the schema and values once per bottle, or again after a failure.
+    pub(crate) fn ensure_configuration(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        if let Some(page) = &self.config
+            && page.container == container
+            && (page.loading || page.error.is_none())
+        {
+            return;
+        }
+        if self
+            .config
+            .as_ref()
+            .is_none_or(|page| page.container != container)
+        {
+            // Input entities are per bottle: the same field id can hold a very
+            // different value in another bottle.
+            self.preview.config_inputs.clear();
+            self.preview.config_resets.clear();
+            self.config_writes.clear();
+            self.config_text_pending.clear();
+            self.config_text_generation = self.config_text_generation.wrapping_add(1);
+        }
+        self.config = Some(ConfigPage {
+            container: container.clone(),
+            capabilities: Vec::new(),
+            fields: Vec::new(),
+            values: BTreeMap::new(),
+            loading: true,
+            error: None,
+        });
+        self.bridge.load_configuration(&container);
+        if !self.environments.contains_key(&container) {
+            self.bridge.load_environment(&container);
+        }
+        cx.notify();
+    }
+
+    /// Read the folder payload for the sheet's bottle.
+    pub(crate) fn ensure_folders(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            return;
+        }
+        let Some(container) = self.scan_container() else {
+            return;
+        };
+        if self.folders.contains_key(&container) || self.folders_pending.contains(&container) {
+            return;
+        }
+        self.folders_pending.insert(container.clone());
+        self.bridge.load_folders(&container);
+        cx.notify();
+    }
+
+    /// Retry a failed `folders.read`.
+    pub(crate) fn reload_folders(&mut self, cx: &mut Context<Self>) {
+        let Some(container) = self.scan_container() else {
+            return;
+        };
+        self.folders_error.remove(&container);
+        self.folders_pending.insert(container.clone());
+        self.bridge.load_folders(&container);
+        cx.notify();
+    }
+
+    pub(crate) fn reload_config(&mut self, cx: &mut Context<Self>) {
+        self.ensure_configuration(cx);
+    }
+
+    /// Toggle and choice rows commit immediately. The value is shown first and
+    /// rolled back if the helper rejects it.
+    pub(crate) fn set_config_value(
+        &mut self,
+        field: &str,
+        next: serde_json::Value,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(page) = self.config.as_ref() else {
+            return;
+        };
+        let Some(config_field) = page.fields.iter().find(|candidate| candidate.id == field) else {
+            return;
+        };
+        if !config_field.enabled(&page.capabilities) {
+            return;
+        }
+        let current = page
+            .values
+            .get(field)
+            .cloned()
+            .unwrap_or_else(|| config_field.default.clone());
+        if current == next {
+            return;
+        }
+        let container = page.container.clone();
+        self.config_writes.begin(field, current);
+        if let Some(page) = self.config.as_mut() {
+            page.values.insert(field.to_owned(), next.clone());
+        }
+        self.bridge.set_configuration(&container, field, next);
+        cx.notify();
+    }
+
+    /// Called from the `InputState` observer on every notify; identical text is
+    /// ignored, and the newest draft is sent after [`CONFIG_DEBOUNCE`].
+    pub(crate) fn config_text_changed(&mut self, field: &str, text: &str, cx: &mut Context<Self>) {
+        let Some(page) = self.config.as_ref().filter(|page| !page.loading) else {
+            return;
+        };
+        let Some(config_field) = page.fields.iter().find(|candidate| candidate.id == field) else {
+            return;
+        };
+        if !config_field.kind.is_textual() || !config_field.enabled(&page.capabilities) {
+            return;
+        }
+        let committed = page
+            .values
+            .get(field)
+            .and_then(|value| config::display_value(config_field, value));
+        if committed.as_deref() == Some(text)
+            || self.config_text_pending.get(field).map(String::as_str) == Some(text)
+        {
+            return;
+        }
+        self.config_text_pending
+            .insert(field.to_owned(), text.to_owned());
+        self.config_text_generation = self.config_text_generation.wrapping_add(1);
+        let generation = self.config_text_generation;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(CONFIG_DEBOUNCE).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.config_text_generation != generation {
+                    return;
+                }
+                let pending = std::mem::take(&mut this.config_text_pending);
+                for (field, raw) in pending {
+                    this.commit_config_text(&field, &raw, cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn commit_config_text(&mut self, field: &str, raw: &str, cx: &mut Context<Self>) {
+        let Some(page) = self.config.as_ref().filter(|page| !page.loading) else {
+            return;
+        };
+        let Some(config_field) = page
+            .fields
+            .iter()
+            .find(|candidate| candidate.id == field)
+            .cloned()
+        else {
+            return;
+        };
+        let current = page
+            .values
+            .get(field)
+            .cloned()
+            .unwrap_or_else(|| config_field.default.clone());
+        let container = page.container.clone();
+        let value = match config::encode_edit(&config_field, raw) {
+            Ok(value) => value,
+            Err(reason) => {
+                // The value never reached the helper: restore the last good one
+                // and say why on the toast.
+                self.preview.config_resets.insert(field.to_owned());
+                self.show_notice(reason, cx);
+                return;
+            }
+        };
+        if value == current {
+            return;
+        }
+        self.config_writes.begin(field, current);
+        if let Some(page) = self.config.as_mut() {
+            page.values.insert(field.to_owned(), value.clone());
+        }
+        // Trimmed numbers and a typed " 1920 " must not read back as a new
+        // draft; normalize the field once the value is committed.
+        if value.is_number() {
+            self.preview.config_resets.insert(field.to_owned());
+        }
+        self.bridge.set_configuration(&container, field, value);
+        cx.notify();
+    }
+
+    /// Stage an "编辑" row into the two environment inputs. `set_value` needs a
+    /// window, which the click listener has.
+    pub(crate) fn begin_environment_edit(&mut self, key: &str, value: &str, cx: &mut Context<Self>) {
+        // Applied by replacing the two inputs on the next render.
+        self.env_fill = Some((key.to_owned(), value.to_owned()));
+        self.env_original = Some(key.to_owned());
+        cx.notify();
+    }
+
+    pub(crate) fn save_environment(&mut self, key: &str, value: &str, cx: &mut Context<Self>) {
+        let Some(container) = self.selected_container().or_else(|| self.scan_container()) else {
+            return;
+        };
+        let key = match config::validate_environment_name(key) {
+            Ok(key) => key.to_owned(),
+            Err(reason) => {
+                self.show_notice(reason, cx);
+                return;
+            }
+        };
+        let original = self.env_original.take();
+        self.env_clear_on_reply = true;
+        self.bridge
+            .set_environment(&container, &key, Some(value), original.as_deref());
+        cx.notify();
+    }
+
+    pub(crate) fn remove_environment(&mut self, key: &str, cx: &mut Context<Self>) {
+        let Some(container) = self.selected_container().or_else(|| self.scan_container()) else {
+            return;
+        };
+        if self.env_original.as_deref() == Some(key) {
+            self.env_original = None;
+        }
+        self.env_clear_on_reply = false;
+        self.bridge.set_environment(&container, key, None, None);
+        cx.notify();
+    }
+
+    /// Add a typed root. The native picker is M4; this milestone uses the
+    /// existing text field.
+    pub(crate) fn add_scan_root(&mut self, path: &str, cx: &mut Context<Self>) {
+        let path = path.trim();
+        if path.is_empty() {
+            self.show_notice("请输入文件夹路径", cx);
+            return;
+        }
+        self.edit_folder(FolderEdit::AddRoot(path.to_owned()), cx);
+    }
+
+    pub(crate) fn edit_folder(&mut self, edit: FolderEdit, cx: &mut Context<Self>) {
+        let Some(container) = self.scan_container() else {
+            return;
+        };
+        self.bridge.edit_folders(&container, edit);
+        cx.notify();
+    }
+
+    pub(crate) fn start_scan(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.scan_container() else {
+            return;
+        };
+        if let Some(active) = self.scan.as_ref().filter(|scan| scan.running()) {
+            if active.container != container {
+                self.show_notice("另一个容器的扫描正在进行", cx);
+            }
+            return;
+        }
+        self.scan = Some(ScanState {
+            container: container.clone(),
+            status: Some(JobStatus::Queued),
+            ..ScanState::default()
+        });
+        self.bridge.start_scan(&container);
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_scan(&mut self, cx: &mut Context<Self>) {
+        if self.scan.as_ref().is_some_and(ScanState::running) {
+            self.bridge.cancel_scan();
+            cx.notify();
+        }
+    }
+
+    /// The scan this sheet shows, if it belongs to `container`.
+    pub(crate) fn scan_for(&self, container: &str) -> Option<&ScanState> {
+        self.scan
+            .as_ref()
+            .filter(|scan| scan.container == container)
+    }
+
     /// Container path that owns this card's entry.
     fn bottle_path(&self, index: usize) -> Option<String> {
         self.game(index)
             .map(|game| game.container.clone())
             .filter(|path| !path.is_empty())
     }
-
     /// Per-entry runtime state. Cards for entries the helper has never
     /// configured (the Library page before any bottle is opened, or the demo)
     /// have no state yet.
@@ -1118,6 +1733,9 @@ impl WhiskyApp {
         self.detail_open = false;
         self.preview.sheet = None;
         self.hovered = None;
+        if page == PreviewPage::ConfigureBottle {
+            self.ensure_configuration(cx);
+        }
         cx.notify();
     }
     pub(crate) fn open_preview_sheet(&mut self, sheet: PreviewSheet, cx: &mut Context<Self>) {
@@ -1129,6 +1747,9 @@ impl WhiskyApp {
         self.preview.sheet = Some(sheet);
         self.detail_open = false;
         self.hovered = None;
+        if sheet == PreviewSheet::Scan {
+            self.ensure_folders(cx);
+        }
         cx.notify();
     }
     pub(crate) fn preview_title(&self) -> SharedString {

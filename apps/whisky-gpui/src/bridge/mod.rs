@@ -10,8 +10,8 @@ pub(crate) mod dto;
 mod supervisor;
 
 pub(crate) use supervisor::{
-    BridgeEvent, BridgeSupervisor, EntryMutation, print_library, print_runtime, print_status,
-    watch_runtime,
+    BridgeEvent, BridgeSupervisor, EntryMutation, FolderEdit, ScanUpdate, print_config,
+    print_folders, print_library, print_runtime, print_status, watch_runtime,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]

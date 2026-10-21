@@ -1,10 +1,18 @@
 //! Bottle surfaces: home, configuration, programs, processes, and game rules.
 
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::menu::ContextMenuExt;
+use gpui_kit::component::spinner::Spinner;
+use gpui_kit::component::{Disableable, Sizable};
+use gpui_kit::component::{
+    menu::{DropdownMenu, PopupMenuItem},
+    switch::Switch,
+};
 use gpui_kit::{prelude::*, *};
 
 use super::Command;
+use crate::config::{self, ConfigField};
 use crate::controls::*;
 use crate::state::{PreviewPage, PreviewSheet, WhiskyApp};
 use crate::theme::MUTED;
@@ -29,13 +37,17 @@ impl WhiskyApp {
             .child(self.action("bottle-run", "运行…", Command::Notice, cx))
             .into_any_element()
     }
-    pub(crate) fn preview_page(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn preview_page(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let body = match self.preview.page {
             PreviewPage::Bottle => match self.visible_load_error() {
                 Some(error) => self.library_error_surface(error, cx),
                 None => self.bottle_home(cx),
             },
-            PreviewPage::ConfigureBottle => self.bottle_config(cx),
+            PreviewPage::ConfigureBottle => self.bottle_config(window, cx),
             PreviewPage::Programs => self.programs(cx),
             PreviewPage::Processes => self.processes(cx),
             PreviewPage::GameConfigs => self.game_configs(cx),
@@ -166,7 +178,330 @@ impl WhiskyApp {
                 .child(muted("自动选择图形后端 · Windows 11 · WhiskyWine")),
         )
     }
-    fn bottle_config(&self, cx: &Context<Self>) -> AnyElement {
+    /// Configure Bottle. The demo keeps its static design snapshot; a live
+    /// bottle renders the bridge schema, one section at a time.
+    fn bottle_config(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if self.demo {
+            return self.demo_bottle_config(cx);
+        }
+        self.apply_pending_input_text(window, cx);
+        let Some(container) = self.selected_container() else {
+            return self.form(
+                "bottle-config-scroll",
+                vec![self.section(
+                    "config-empty",
+                    "容器配置",
+                    vec![muted("请先在侧边栏选择一个容器。").into_any_element()],
+                    cx,
+                )],
+            );
+        };
+        // A stale page belongs to the previously selected bottle.
+        let page = self
+            .config
+            .clone()
+            .filter(|page| page.container == container);
+        let Some(page) = page else {
+            return self.config_loading(cx);
+        };
+        if page.loading {
+            return self.config_loading(cx);
+        }
+        if let Some(reason) = &page.error {
+            return self.config_error(reason, cx);
+        }
+
+        let mut sections = Vec::new();
+        for group in config::group_sections(&page.fields) {
+            let mut rows = Vec::new();
+            for field in group.fields {
+                let value = page
+                    .values
+                    .get(&field.id)
+                    .cloned()
+                    .unwrap_or_else(|| field.default.clone());
+                let enabled = field.enabled(&page.capabilities);
+                rows.push(self.config_row(field, &value, enabled, window, cx));
+            }
+            sections.push(self.section(group.spec.id, group.spec.title, rows, cx));
+        }
+        sections.push(self.environment_section(&container, cx));
+        self.form("bottle-config-scroll", sections)
+    }
+
+    fn config_loading(&self, cx: &Context<Self>) -> AnyElement {
+        self.form(
+            "bottle-config-scroll",
+            vec![self.section(
+                "config-loading",
+                "容器配置",
+                vec![
+                    row()
+                        .gap(px(8.))
+                        .py(px(10.))
+                        .child(Spinner::new().with_size(px(14.)))
+                        .child(muted("正在读取配置…"))
+                        .into_any_element(),
+                ],
+                cx,
+            )],
+        )
+    }
+
+    fn config_error(&self, reason: &str, cx: &Context<Self>) -> AnyElement {
+        self.form(
+            "bottle-config-scroll",
+            vec![self.section(
+                "config-error",
+                "容器配置",
+                vec![
+                    muted(reason.to_owned()).into_any_element(),
+                    row()
+                        .py(px(8.))
+                        .child(
+                            Button::new("config-retry")
+                                .label("重试")
+                                .on_click(cx.listener(|this, _, _, cx| this.reload_config(cx))),
+                        )
+                        .into_any_element(),
+                ],
+                cx,
+            )],
+        )
+    }
+
+    /// One schema row. Toggles and pickers commit on click; text and number
+    /// rows are debounced by their `InputState` observer.
+    fn config_row(
+        &mut self,
+        field: &ConfigField,
+        value: &serde_json::Value,
+        enabled: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match &field.kind {
+            config::FieldKind::Toggle => {
+                let id = field.id.clone();
+                row()
+                    .gap(px(20.))
+                    .py(px(10.))
+                    .items_start()
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(4.))
+                            .child(field.title.clone())
+                            .when(!enabled, |d| {
+                                d.child(muted("需要 Wine 主机适配器").line_height(relative(1.4)))
+                            }),
+                    )
+                    .child(
+                        Switch::new(format!("config-toggle:{}", field.id))
+                            .checked(value.as_bool().unwrap_or(false))
+                            .disabled(!enabled)
+                            .on_change(cx.listener(move |this, checked, _, cx| {
+                                this.set_config_value(
+                                    &id,
+                                    serde_json::Value::Bool(*checked),
+                                    cx,
+                                );
+                            })),
+                    )
+                    .into_any_element()
+            }
+            config::FieldKind::Choice { options } => {
+                let id = field.id.clone();
+                let selected = value.as_str().unwrap_or_default().to_owned();
+                let title = config::display_value(field, value).unwrap_or_default();
+                let options: Vec<(String, String)> = options
+                    .iter()
+                    .map(|option| (option.id.clone(), option.title.clone()))
+                    .collect();
+                let view = cx.entity().downgrade();
+                row()
+                    .py(px(10.))
+                    .gap(px(16.))
+                    .child(div().flex_1().min_w_0().child(field.title.clone()))
+                    .child(
+                        Button::new(format!("config-choice:{}", field.id))
+                            .label(format!("{title}  ⌄"))
+                            .disabled(!enabled)
+                            .dropdown_menu(move |mut menu, _, _| {
+                                for (option_id, option_title) in &options {
+                                    let view = view.clone();
+                                    let id = id.clone();
+                                    let option_id = option_id.clone();
+                                    menu = menu.item(
+                                        PopupMenuItem::new(option_title.clone())
+                                            .checked(selected == option_id)
+                                            .on_click(move |_, _, cx| {
+                                                let _ = view.update(cx, |this, cx| {
+                                                    this.set_config_value(
+                                                        &id,
+                                                        serde_json::Value::String(
+                                                            option_id.clone(),
+                                                        ),
+                                                        cx,
+                                                    );
+                                                });
+                                            }),
+                                    );
+                                }
+                                menu
+                            }),
+                    )
+                    .into_any_element()
+            }
+            config::FieldKind::Text | config::FieldKind::Number { .. } => {
+                let text = config::display_value(field, value).unwrap_or_default();
+                let input = self.config_input(field, &text, window, cx);
+                let hint = match &field.kind {
+                    config::FieldKind::Number { min, max } => Some(format!("{min}–{max}")),
+                    _ => None,
+                };
+                col()
+                    .gap(px(7.))
+                    .py(px(8.))
+                    .child(
+                        row()
+                            .gap(px(8.))
+                            .child(div().flex_1().child(field.title.clone()))
+                            .when_some(hint, |d, hint| d.child(muted(hint))),
+                    )
+                    .child(Input::new(&input).disabled(!enabled))
+                    .into_any_element()
+            }
+        }
+    }
+
+    /// Schema text/number fields need an `InputState`, which requires a window;
+    /// create one on first render and observe it for debounced writes.
+    fn config_input(
+        &mut self,
+        field: &ConfigField,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<InputState> {
+        if let Some(input) = self.preview.config_inputs.get(&field.id) {
+            return input.clone();
+        }
+        let placeholder = match field.kind {
+            config::FieldKind::Number { .. } => "整数".to_owned(),
+            _ => field.title.clone(),
+        };
+        let entity = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(placeholder)
+                .default_value(text.to_owned())
+        });
+        self.preview
+            .config_inputs
+            .insert(field.id.clone(), entity.clone());
+        let id = field.id.clone();
+        let subscription = cx.observe(&entity, move |this, input, cx| {
+            let text = input.read(cx).value().to_string();
+            this.config_text_changed(&id, &text, cx);
+        });
+        self._subscriptions.push(subscription);
+        entity
+    }
+
+    /// Rebuild inputs that a rejected write touched. Creating a fresh
+    /// `InputState` with the committed value avoids mutating an input while the
+    /// root view is rendering (which would re-enter this view's observer).
+    fn apply_pending_input_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for field in std::mem::take(&mut self.preview.config_resets) {
+            self.preview.config_inputs.remove(&field);
+        }
+        if let Some((key, value)) = self.env_fill.take() {
+            let key_input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("变量名")
+                    .default_value(key)
+            });
+            let value_input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder("变量值")
+                    .default_value(value)
+            });
+            self.preview.inputs.insert("env-key", key_input);
+            self.preview.inputs.insert("env-value", value_input);
+        }
+    }
+
+    /// Container environment. The rows and the add form reuse the run-settings
+    /// sheet's layout; each save is one `environment.set` call.
+    fn environment_section(&self, container: &str, cx: &Context<Self>) -> AnyElement {
+        let values = self.environments.get(container).cloned().unwrap_or_default();
+        let mut rows: Vec<AnyElement> = Vec::new();
+        if values.is_empty() {
+            rows.push(muted("暂无环境变量").into_any_element());
+        }
+        for (key, value) in config::environment_rows(&values) {
+            let edit_key = key.to_owned();
+            let edit_value = value.to_owned();
+            let remove_key = key.to_owned();
+            rows.push(
+                row()
+                    .gap(px(12.))
+                    .py(px(10.))
+                    .child(div().w(px(180.)).truncate().child(key.to_owned()))
+                    .child(muted(value.to_owned()).flex_1().truncate())
+                    .child(
+                        Button::new(format!("env-edit:{key}"))
+                            .label("编辑")
+                            .ghost()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.begin_environment_edit(&edit_key, &edit_value, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new(format!("env-remove:{key}"))
+                            .label("移除")
+                            .ghost()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.remove_environment(&remove_key, cx);
+                            })),
+                    )
+                    .into_any_element(),
+            );
+        }
+        rows.push(
+            row()
+                .gap(px(10.))
+                .py(px(10.))
+                .child(
+                    div()
+                        .flex_1()
+                        .child(Input::new(&self.preview.inputs["env-key"])),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .child(Input::new(&self.preview.inputs["env-value"])),
+                )
+                .child(
+                    Button::new("env-save")
+                        .label("保存变量")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            let key = this.preview.inputs["env-key"].read(cx).value().to_string();
+                            let value =
+                                this.preview.inputs["env-value"].read(cx).value().to_string();
+                            this.save_environment(&key, &value, cx);
+                        })),
+                )
+                .into_any_element(),
+        );
+        if let Some(reason) = self.environment_error.get(container) {
+            rows.push(muted(reason.clone()).into_any_element());
+        }
+        self.section("environment", "环境变量", rows, cx)
+    }
+
+    fn demo_bottle_config(&self, cx: &Context<Self>) -> AnyElement {
         self.form(
             "bottle-config-scroll",
             vec![
