@@ -57,3 +57,5 @@ print('Linux XDG preferences survive real helper process restart: passed')
 PY
 python3 "$repo_root/apps/whisky-gpui/tools/check-programs.py" \
     --helper "$helper" --output "$output/programs"
+python3 "$repo_root/apps/whisky-gpui/tools/check-metadata.py" \
+    --helper "$helper" --output "$output/metadata"

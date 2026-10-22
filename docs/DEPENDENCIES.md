@@ -62,6 +62,14 @@ a source archive with the application and locked Swift package sources.
 
 ## Tracking cadence
 
+The Linux metadata service links the host's GdkPixbuf library and uses
+`webp-pixbuf-loader` for WebP covers. Ubuntu development setup is recorded in
+[`install-linux-deps.sh`](../apps/whisky-gpui/tools/install-linux-deps.sh), and
+the portable package boundary is described in
+[`WhiskyMetadata/README.md`](../WhiskyMetadata/README.md). These Linux host
+dependencies participate in the Linux distribution work tracked in
+[`gpui-port/LINUX.md`](gpui-port/LINUX.md).
+
 - **Wine:** check each January for the new stable (next: **Wine 12, ~Jan 2027**). Test before bundling.
 - **Wine / DXVK-macOS / DXMT:** `RuntimeTrack.yml` polls these GitHub release feeds weekly and opens an
   issue when a bundled version is behind. Triage; bumping is a deliberate, tested decision, not automatic.

@@ -20,6 +20,7 @@ output.mkdir(parents=True, exist_ok=True)
 report = {'platform': platform.platform(), 'checks': []}
 env = dict(os.environ, RUSTC_WRAPPER='')
 env.setdefault('CLANG_MODULE_CACHE_PATH', str(output / 'clang-cache'))
+swift_build_flags = ['--build-system', 'native'] if platform.system() == 'Linux' else []
 
 
 def check(name, command, extra_env=None):
@@ -36,6 +37,8 @@ def check(name, command, extra_env=None):
 
 check('core', ['swift', 'test', '--package-path', str(root / 'WhiskyCore'),
                '--scratch-path', str(output / 'core-build')])
+check('metadata', ['swift', 'test', '--package-path', str(root / 'WhiskyMetadata'),
+                   '--scratch-path', str(output / 'metadata-build')] + swift_build_flags)
 with tempfile.TemporaryDirectory(prefix='whisky-gpui-gate-') as temporary:
     bridge = root / 'WhiskyBridge'
     if platform.system() == 'Linux':
@@ -43,9 +46,10 @@ with tempfile.TemporaryDirectory(prefix='whisky-gpui-gate-') as temporary:
         bridge = Path(temporary) / 'WhiskyBridge'
         shutil.copytree(root / 'WhiskyBridge', bridge, ignore=shutil.ignore_patterns('.build', '.swiftpm', 'Package.resolved'))
         (Path(temporary) / 'WhiskyCore').symlink_to(root / 'WhiskyCore', target_is_directory=True)
+        (Path(temporary) / 'WhiskyMetadata').symlink_to(root / 'WhiskyMetadata', target_is_directory=True)
     scratch = output / 'bridge-build'
-    check('bridge', ['swift', 'test', '--package-path', str(bridge), '--scratch-path', str(scratch)])
-    result = subprocess.run(['swift', 'build', '--package-path', str(bridge), '--scratch-path', str(scratch), '--show-bin-path'],
+    check('bridge', ['swift', 'test', '--package-path', str(bridge), '--scratch-path', str(scratch)] + swift_build_flags)
+    result = subprocess.run(['swift', 'build', '--package-path', str(bridge), '--scratch-path', str(scratch), '--show-bin-path'] + swift_build_flags,
                             env=env, check=True, capture_output=True, text=True)
     helper = Path(result.stdout.strip()) / 'whisky-bridge'
     if not helper.is_file():

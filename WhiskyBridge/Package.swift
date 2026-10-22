@@ -19,7 +19,7 @@
 
 import PackageDescription
 
-var dependencies: [Package.Dependency] = [.package(path: "../WhiskyCore")]
+var dependencies: [Package.Dependency] = [.package(path: "../WhiskyCore"), .package(path: "../WhiskyMetadata")]
 var hostDependencies: [Target.Dependency] = ["WhiskyApplication", "WhiskyBridgeProtocol"]
 var nativeTargets: [Target] = []
 #if os(macOS)
@@ -46,11 +46,13 @@ let package = Package(
     dependencies: dependencies,
     targets: [
         .target(name: "WhiskyBridgeProtocol"),
-        .target(name: "WhiskyApplication", dependencies: ["WhiskyBridgeProtocol", "WhiskyCore"]),
+        .target(name: "WhiskyApplication", dependencies: ["WhiskyBridgeProtocol", "WhiskyCore",
+            .product(name: "WhiskyMetadata", package: "WhiskyMetadata")]),
         .executableTarget(name: "WhiskyBridgeHost", dependencies: hostDependencies),
         .testTarget(
             name: "WhiskyBridgeTests",
-            dependencies: ["WhiskyApplication", "WhiskyBridgeProtocol", "WhiskyCore"]
+            dependencies: ["WhiskyApplication", "WhiskyBridgeProtocol", "WhiskyCore",
+                .product(name: "WhiskyMetadata", package: "WhiskyMetadata")]
         )
     ] + nativeTargets,
     swiftLanguageModes: [.v6]

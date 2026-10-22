@@ -1,7 +1,7 @@
 // swiftlint:disable file_length
 //
 //  GameMetadataTests.swift
-//  WhiskyKitTests
+//  WhiskyMetadataTests
 //
 //  This file is part of Whisky.
 //
@@ -19,7 +19,11 @@
 
 import Foundation
 import Testing
-@testable import WhiskyKit
+import WhiskyCore
+@testable import WhiskyMetadata
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 @Suite("Game Metadata")
 struct GameMetadataTests {
@@ -470,4 +474,13 @@ private class VNDBNamesProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+}
+
+extension PublicGameMetadataProvider {
+    init(source: GameMetadataSource, session: URLSession = .shared) {
+        self.init(source: source, session: session, networkAccess: {})
+    }
+}
+extension GameMetadataStore {
+    init(directory: URL) { self.init(directory: directory, networkAccess: {}) }
 }

@@ -5,6 +5,7 @@ on:
     branches: [main, portability]
     paths:
       - 'WhiskyCore/**'
+      - 'WhiskyMetadata/**'
       - 'WhiskyKit/**'
       - 'WhiskyBridge/**'
       - 'crates/**'
@@ -15,6 +16,7 @@ on:
   pull_request:
     paths:
       - 'WhiskyCore/**'
+      - 'WhiskyMetadata/**'
       - 'WhiskyKit/**'
       - 'WhiskyBridge/**'
       - 'crates/**'
@@ -64,6 +66,14 @@ jobs:
               --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
               --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
               --output "$WHISKY_LINUX_OUTPUT/program-window" --scenario programs
+      - name: Edit metadata and artwork through the production window
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/metadata-window" --scenario metadata
       - name: Preserve Linux evidence
         if: always()
         uses: actions/upload-artifact@v7.0.2
@@ -78,6 +88,11 @@ jobs:
             /tmp/whisky-linux-gpui/window/report.json
             /tmp/whisky-linux-gpui/window/*.png
             /tmp/whisky-linux-gpui/programs/report.json
+            /tmp/whisky-linux-gpui/metadata/report.json
+            /tmp/whisky-linux-gpui/metadata/helper.log
+            /tmp/whisky-linux-gpui/metadata-window/*.log
+            /tmp/whisky-linux-gpui/metadata-window/report.json
+            /tmp/whisky-linux-gpui/metadata-window/*.png
             /tmp/whisky-linux-gpui/program-window/*.log
             /tmp/whisky-linux-gpui/program-window/report.json
             /tmp/whisky-linux-gpui/program-window/*.png
@@ -152,6 +167,7 @@ jobs:
     container: swift:6.0-noble
     steps:
       - uses: actions/checkout@v6
+      - run: apt-get update && apt-get install -y --no-install-recommends libgdk-pixbuf-2.0-dev webp-pixbuf-loader
       - run: python3 scripts/check-gpui-foundation.py --swift-only
       - uses: actions/upload-artifact@v7.0.2
         if: always()

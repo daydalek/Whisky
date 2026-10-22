@@ -39,6 +39,7 @@ public protocol NativeApplicationServices: AnyObject {
 public final class ApplicationService {
     public let workspace: ApplicationWorkspace
     private let preferences: PreferencesService?
+    private let metadataService: LibraryMetadataService
     private var closed = false
     private var catalogues: [String: [EntryRecord]] = [:]
     private var catalogueOrder: [String] = []
@@ -75,7 +76,7 @@ public final class ApplicationService {
         "processes.killAll",
         "environment.read",
         "environment.set"
-    ]
+    ] + LibraryMetadataService.methods
     public init(
         workspace: ApplicationWorkspace,
         native: (any NativeApplicationServices)? = nil,
@@ -89,7 +90,12 @@ public final class ApplicationService {
         self.runtime = runtime
         self.processes = processes
         self.preferences = preferences
-        self.jobs = jobs ?? BridgeJobStore()
+        let jobStore = jobs ?? BridgeJobStore()
+        self.jobs = jobStore
+        metadataService = LibraryMetadataService(jobs: jobStore, networkAccess: { [weak preferences] in
+            let values = try await preferences?.call("preferences.read", params: [:])
+            if values?.object?["offlineMode"] == .bool(true) { throw URLError(.notConnectedToInternet) }
+        })
     }
 
     public func respond(_ request: BridgeRequest) async -> BridgeResponse {
@@ -120,6 +126,7 @@ public final class ApplicationService {
         case "library", "workspace": return try await libraryCall(method, params: params)
         case "folders": return try await foldersCall(method, params: params)
         case "runtime": return try await runtimeCall(method, params: params)
+        case "metadata": return try await metadataService.call(method, params: params, workspace: workspace)
         default:
             if let result = try await scopedCall(scope, method: method, params: params) {
                 return result
@@ -197,6 +204,8 @@ extension ApplicationService {
                 "folders.edit",
                 "configuration.file",
                 "programs.edit",
+                "programs.settings",
+                "metadata.edit",
                 "activity.rating",
                 "visibility.edit"
             ] + extraCapabilities)).sorted().map(JSONValue.string)),

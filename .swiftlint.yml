@@ -11,6 +11,7 @@ excluded:
   # of thousands of violations from vendored dependency sources.
   - WhiskyCore/.build
   - WhiskyBridge/.build
+  - WhiskyMetadata/.build
   - experimental/**/.build
   - demos/**/.build
 

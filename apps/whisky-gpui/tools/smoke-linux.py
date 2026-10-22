@@ -2,6 +2,8 @@
 """Exercise the production GPUI X11 window and Linux shortcuts under Xvfb."""
 
 import argparse
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,7 +23,7 @@ def main():
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--helper', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--scenario', choices=['empty', 'programs'], default='empty')
+    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata'], default='empty')
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -33,10 +35,30 @@ def main():
     # Every acceptance run exercises the real helper and isolated empty registry.
     env.pop('WHISKY_GPUI_DEMO_DATA', None)
     program_identity = None
-    if args.scenario == 'programs':
+    metadata_path = None
+    if args.scenario in ('programs', 'metadata'):
         generator = runpy.run_path(str(Path(__file__).with_name('check-programs.py')))['fixture_at']
-        _, _, registry, program_identity = generator(fixture)
+        bottle, executable, registry, identity = generator(fixture)
         env['WHISKY_REGISTRY'] = str(registry)
+        if args.scenario == 'programs':
+            program_identity = identity
+        else:
+            params = dict(container=str(bottle), entryID='pinned:' + str(executable))
+            cover = fixture / 'cover.png'
+            cover.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP43+HyHxkzoAsAAHyRFlERVA2OAAAAAElFTkSuQmCC'))
+            metadata = dict(source='bangumi', sourceID='42', title='Linux Artwork Fixture',
+                            originalTitle='', summary='', developer='', releaseDate='', fetchedAt=1000)
+            requests = [('metadata.apply', dict(params, metadata=metadata)),
+                        ('metadata.cover.import', dict(params, path=str(cover))),
+                        ('preferences.set', dict(key='offlineMode', value=True)), ('bridge.shutdown', {})]
+            wire = ''.join(json.dumps(dict(version=1, id=str(index), method=method, params=values)) + '\n'
+                           for index, (method, values) in enumerate(requests))
+            result = subprocess.run([str(args.helper.resolve())], env=env, input=wire, text=True,
+                                    capture_output=True, check=True, timeout=20)
+            replies = [json.loads(line) for line in result.stdout.splitlines()]
+            assert len(replies) == len(requests) and all(reply.get('error') is None for reply in replies), replies
+            key = hashlib.sha256(b'program:drive_c/Program Files/Game/game.exe').hexdigest()
+            metadata_path = bottle / 'Game Metadata' / (key + '.json')
     report = {'steps': [], 'passed': False}
     app = None
     try:
@@ -68,6 +90,36 @@ def main():
                 return path
 
             library = snapshot('library')
+            if metadata_path is not None:
+                assert json.loads(metadata_path.read_text())['title'] == 'Linux Artwork Fixture'
+                run('xdotool', 'mousemove', '--window', window, '300', '150', 'click', '3')
+                time.sleep(0.5)
+                run('xdotool', 'mousemove', '--window', window, '375', '260', 'click', '1')
+                time.sleep(1)
+                snapshot('metadata-editor')
+                run('xdotool', 'mousemove', '--window', window, '904', '366', 'click', '1')
+                deadline = time.monotonic() + 10
+                while metadata_path.exists() and time.monotonic() < deadline:
+                    assert app.poll() is None, 'Application exited during metadata unlink'
+                    time.sleep(0.1)
+                assert not metadata_path.exists(), 'UI metadata unlink did not remove the snapshot'
+                cover_settings = Path(str(metadata_path) + '.cover-settings')
+                assert json.loads(cover_settings.read_text())['useCustomCover'] is True
+                time.sleep(0.5)
+                snapshot('metadata-unlinked')
+                run('xdotool', 'mousemove', '--window', window, '490', '482', 'click', '1')
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if json.loads(cover_settings.read_text())['useCustomCover'] is False:
+                        break
+                    assert app.poll() is None, 'Application exited during cover reset'
+                    time.sleep(0.1)
+                else:
+                    raise AssertionError('UI cover reset did not update the settings file')
+                snapshot('metadata-cover-reset')
+                report['steps'].append('metadata-ui-unlink-retains-artwork-and-reset-persists')
+                run('xdotool', 'mousemove', '--window', window, '974', '89', 'click', '1')
+                time.sleep(0.5)
             if program_identity is not None:
                 run('xdotool', 'mousemove', '--window', window, '300', '150', 'click', '3')
                 time.sleep(0.5)
