@@ -1391,8 +1391,26 @@ impl WhiskyApp {
                     self.refresh_library(cx);
                 }
             }
+            Command::StopAllProcesses => {
+                if self.demo {
+                    self.show_notice(DEMO_NOTICE, cx);
+                } else {
+                    self.stop_all_processes(cx);
+                }
+            }
         }
         cx.notify();
+    }
+
+    pub(crate) fn stop_all_processes(&mut self, cx: &mut Context<Self>) {
+        if let Some(bottle) = self.selected_bottle.and_then(|i| self.bottles.get(i)) {
+            let container = bottle.path.clone();
+            if let Some(page) = self.processes.as_mut().filter(|p| p.container == container) {
+                page.table.apply(Vec::new());
+            }
+            self.bridge.kill_all_processes(&container);
+            self.show_notice("已请求停止所有进程", cx);
+        }
     }
 
     /// The library's Refresh: SwiftUI reloads its bottles and re-reads every

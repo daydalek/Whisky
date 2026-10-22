@@ -944,7 +944,7 @@ impl WhiskyApp {
                 .on_click(cx.listener(|this, _, _, cx| this.refresh_processes(cx)))
                 .into_any_element(),
         );
-        rows.push(self.action("stop-processes", "停止所有进程", Command::Notice, cx));
+        rows.push(self.action("stop-processes", "停止所有进程", Command::StopAllProcesses, cx));
         self.form(
             "processes-scroll",
             vec![self.section("process-list", "运行中的进程", rows, cx)],
@@ -970,7 +970,7 @@ impl WhiskyApp {
                     self.info("进程名称", "PID"),
                     self.info("当前没有运行中的进程", "0"),
                     self.action("refresh-processes", "刷新", Command::Notice, cx),
-                    self.action("stop-processes", "停止所有进程", Command::Notice, cx),
+                    self.action("stop-processes", "停止所有进程", Command::StopAllProcesses, cx),
                 ],
                 cx,
             )],

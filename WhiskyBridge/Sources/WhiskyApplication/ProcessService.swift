@@ -70,6 +70,8 @@ public protocol ProcessSnapshotProviding: AnyObject {
     func listProcesses(in container: URL) async throws -> [ProcessRecord]
     /// Deliver one termination request (`taskkill.exe`, with `/F` when `force`).
     func terminateProcess(in container: URL, pid: Int32, force: Bool) async throws
+    /// Terminate all processes running in the container.
+    func terminateAllProcesses(in container: URL) async throws
 }
 
 /// Portable bridge adapter for `processes.list` and `processes.kill`.
@@ -81,7 +83,7 @@ public protocol ProcessSnapshotProviding: AnyObject {
 /// does not contain is answered `killed: false` without an error.
 @MainActor
 public final class ProcessService {
-    public static let methods = ["processes.list", "processes.kill"]
+    public static let methods = ["processes.list", "processes.kill", "processes.killAll"]
 
     private let host: (any ProcessSnapshotProviding)?
 
@@ -106,8 +108,13 @@ public final class ProcessService {
         switch method {
         case "processes.list":
             return try await list(host: host, container: container)
-        default:
+        case "processes.kill":
             return try await kill(host: host, container: container, params: params)
+        case "processes.killAll":
+            try await host.terminateAllProcesses(in: container)
+            return .object(["accepted": .bool(true)])
+        default:
+            throw BridgeFailure("method_unavailable", "Process method is unavailable: \(method)")
         }
     }
 

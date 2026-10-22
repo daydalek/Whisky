@@ -67,6 +67,7 @@ public final class ApplicationService {
         "programs.block",
         "processes.list",
         "processes.kill",
+        "processes.killAll",
         "environment.read",
         "environment.set"
     ]

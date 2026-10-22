@@ -38,6 +38,8 @@ pub(crate) enum Command {
     OpenDrive,
     /// Re-read the bottle catalogue and every bottle's entries.
     RefreshLibrary,
+    /// Terminate all running processes in the selected bottle.
+    StopAllProcesses,
 }
 #[derive(Clone)]
 struct MenuEntry {

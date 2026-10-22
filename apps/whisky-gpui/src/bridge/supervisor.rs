@@ -358,6 +358,7 @@ enum Command {
         container: String,
         pid: i64,
     },
+    KillAllProcesses(String),
     StartScan(String),
     CancelScan,
     /// Window activation: polling pauses while the app is in the background.
@@ -608,6 +609,11 @@ impl BridgeSupervisor {
             container: container.to_owned(),
             pid,
         });
+    }
+
+    /// `processes.killAll`: terminates all processes in the container.
+    pub(crate) fn kill_all_processes(&self, container: &str) {
+        let _ = self.commands.send(Command::KillAllProcesses(container.to_owned()));
     }
 
     pub(crate) fn set_active(&self, active: bool) {
@@ -1377,6 +1383,29 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                 pid,
                                 reason,
                             },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::KillAllProcesses(container)) => {
+                    let params = json!({ "container": container });
+                    match client.call("processes.killAll", params).map_err(classify) {
+                        Ok(_) => {
+                            // Immediately fetch updated processes list
+                            match fetch_processes(&mut client, &container) {
+                                Ok(processes) => {
+                                    emit_event(&events, BridgeEvent::Processes { container, processes });
+                                }
+                                Err(CallFailure::Remote(reason)) => emit_event(
+                                    &events,
+                                    BridgeEvent::ProcessesFailed { container, reason },
+                                ),
+                                Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                            }
+                        }
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ProcessesFailed { container, reason },
                         ),
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }

@@ -235,4 +235,13 @@ private final class WineProcessHost: ProcessSnapshotProviding {
             await Wine.gracefulKillProcess(winePID: pid, bottle: bottle)
         }
     }
+
+    func terminateAllProcesses(in container: URL) async throws {
+        guard let bottle = bottle(container) else { throw BridgeFailure(
+            "invalid_container",
+            "Wine settings are unreadable"
+        ) }
+        Wine.killBottle(bottle: bottle)
+        ProcessRegistry.shared.clearRegistry(for: bottle.url)
+    }
 }

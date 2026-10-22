@@ -41,6 +41,10 @@ private final class StubProcessHost: ProcessSnapshotProviding {
         terminations.append((pid, force))
         rows.removeAll { $0.pid == pid }
     }
+
+    func terminateAllProcesses(in container: URL) async throws {
+        rows.removeAll()
+    }
 }
 
 @MainActor
@@ -83,6 +87,7 @@ private func stubRows() -> [ProcessRecord] {
     let methods = values.compactMap(\.string)
     #expect(methods.contains("processes.list"))
     #expect(methods.contains("processes.kill"))
+    #expect(methods.contains("processes.killAll"))
     for method in ProcessService.methods {
         #expect(ApplicationService.methods.contains(method))
     }
