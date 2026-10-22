@@ -25,7 +25,7 @@ import WhiskyKit
 /// The helper publishes values; GPUI owns prompts and visual state.
 @MainActor
 public final class MacOSApplicationServices: NativeApplicationServices {
-    private var bottles: [URL: (Data, Bottle)] = [:]
+    var bottles: [URL: (Data, Bottle)] = [:]
     private let wineEnabled: Bool
     let jobs: BridgeJobStore
     private lazy var driver = WineLibraryRuntimeDriver(
@@ -61,7 +61,7 @@ public final class MacOSApplicationServices: NativeApplicationServices {
     }
 
     public var capabilities: [String] {
-        ["system.files", "programs.settings", "programs.shortcut"] +
+        ["system.files", "programs.settings", "programs.shortcut", "library.edit"] +
             (wineEnabled ? [
                 "bottle.create",
                 "wine.configuration",
@@ -76,7 +76,7 @@ public final class MacOSApplicationServices: NativeApplicationServices {
             "system.reveal", "system.open", "system.resources",
             "programs.settings.read", "programs.settings.set",
             "programs.history.read", "programs.history.delete",
-            "programs.shortcut.create"
+            "programs.shortcut.create", "entry.move"
         ] + (wineEnabled ? [
             "bottle.create",
             "winetricks.catalog",
@@ -140,6 +140,7 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         case "system": return try systemCall(method, params: params, workspace: workspace)
         case "bottle": return try await createBottle(params: params, workspace: workspace)
         case "programs": return try await programsCall(method, params: params, workspace: workspace)
+        case "entry": return try await entryMove(params, workspace: workspace)
         case "winetricks": return try await winetricksCall(method, params: params, workspace: workspace)
         case "runtime": return try await runtimeService.call(method, params: params, workspace: workspace)
         default: throw BridgeFailure("method_unavailable", "Native method is unavailable")
