@@ -48,7 +48,7 @@ class WaylandSession:
         else:
             raise AssertionError('Headless compositor did not publish its sockets')
         self.pointer_log = (self.output / 'pointer.log').open('w')
-        self.pointer = subprocess.Popen(['whisky-wayland-input'], env=self.env, stdin=subprocess.PIPE,
+        self.pointer = subprocess.Popen(['/usr/local/bin/whisky-wayland-input'], env=self.env, stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=self.pointer_log, text=True)
         assert select.select([self.pointer.stdout], [], [], 5)[0], 'Virtual pointer setup timed out'
         assert self.pointer.stdout.readline().strip() == 'ready', 'Virtual pointer setup failed'
