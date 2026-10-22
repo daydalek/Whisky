@@ -23,7 +23,7 @@ def main():
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--helper', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata'], default='empty')
+    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata', 'lifecycle'], default='empty')
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -36,13 +36,13 @@ def main():
     env.pop('WHISKY_GPUI_DEMO_DATA', None)
     program_identity = None
     metadata_path = None
-    if args.scenario in ('programs', 'metadata'):
+    if args.scenario in ('programs', 'metadata', 'lifecycle'):
         generator = runpy.run_path(str(Path(__file__).with_name('check-programs.py')))['fixture_at']
         bottle, executable, registry, identity = generator(fixture)
         env['WHISKY_REGISTRY'] = str(registry)
         if args.scenario == 'programs':
             program_identity = identity
-        else:
+        elif args.scenario == 'metadata':
             params = dict(container=str(bottle), entryID='pinned:' + str(executable))
             cover = fixture / 'cover.png'
             cover.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP43+HyHxkzoAsAAHyRFlERVA2OAAAAAElFTkSuQmCC'))
@@ -90,6 +90,32 @@ def main():
                 return path
 
             library = snapshot('library')
+            if args.scenario == 'lifecycle':
+                marker = bottle / 'Metadata.plist'
+                before = marker.read_bytes()
+                run('xdotool', 'mousemove', '--window', window, '90', '145', 'click', '3')
+                time.sleep(0.4)
+                snapshot('bottle-menu')
+                run('xdotool', 'mousemove', '--window', window, '140', '162', 'click', '1')
+                time.sleep(0.5)
+                snapshot('bottle-rename-dialog')
+                run('xdotool', 'mousemove', '--window', window, '600', '390', 'click', '1')
+                run('xdotool', 'key', '--clearmodifiers', 'ctrl+a')
+                run('xdotool', 'type', '--clearmodifiers', 'Linux UI Renamed')
+                run('xdotool', 'mousemove', '--window', window, '810', '505', 'click', '1')
+                deadline = time.monotonic() + 12
+                while time.monotonic() < deadline:
+                    document = plistlib.loads(marker.read_bytes())
+                    if document['info']['name'] == 'Linux UI Renamed':
+                        break
+                    assert app.poll() is None, 'Application exited during container rename'
+                    time.sleep(0.1)
+                else:
+                    raise AssertionError('UI rename did not persist the container name')
+                assert document['future'] == {'keep': 'opaque'}, document
+                assert marker.read_bytes() != before
+                snapshot('bottle-renamed')
+                report['steps'].append('production-sidebar-rename-persists-real-metadata')
             if metadata_path is not None:
                 assert json.loads(metadata_path.read_text())['title'] == 'Linux Artwork Fixture'
                 run('xdotool', 'mousemove', '--window', window, '300', '150', 'click', '3')

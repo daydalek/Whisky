@@ -81,3 +81,21 @@ void whisky_host_stop(pid_t pid) {
     kill(pid, SIGKILL);
     while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
 }
+
+#if defined(__linux__)
+#include <sys/syscall.h>
+#include <linux/fs.h>
+#elif defined(__APPLE__)
+#include <stdio.h>
+#endif
+
+int whisky_host_move(const char *source, const char *destination) {
+#if defined(__linux__)
+    if (syscall(SYS_renameat2, AT_FDCWD, source, AT_FDCWD, destination, RENAME_NOREPLACE) == 0) return 0;
+#elif defined(__APPLE__)
+    if (renamex_np(source, destination, RENAME_EXCL) == 0) return 0;
+#else
+    return ENOTSUP;
+#endif
+    return errno;
+}

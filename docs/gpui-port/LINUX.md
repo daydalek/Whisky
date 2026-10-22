@@ -10,7 +10,7 @@ and distribution gates below.
 OrbStack ARM64 Ubuntu 24.04, Swift 6.4, Rust 1.99.1, Xvfb/X11 and Mesa software
 rendering:
 
-- Shared core: 112 tests; portable bridge: 44 tests; shared metadata package: 20 tests.
+- Shared core: 112 tests; portable bridge: 52 tests; shared metadata package: 20 tests.
 - Rust SDK tests, including its real Swift helper integration test.
 - Production GPUI Linux build/link and 118 unit tests.
 - Production Rust client/helper handshake, capability list and isolated empty
@@ -151,6 +151,61 @@ snapshot was being replaced on the shared mount. The acceptance script now
 retries missing snapshots within its existing deadline and verifies the final
 persisted state. The repeat window run is recorded in `picker-gpui-final.log`.
 
+## Portable container lifecycle stage
+
+Linux now publishes `bottle.rename`, `bottle.duplicate`, `bottle.move`,
+`bottle.remove` and `bottle.export`, with `bottle.lifecycle.file` in the
+handshake. macOS keeps its existing native dispatch and runtime enablement
+boundary. File-only lifecycle tests also run directly against the shared
+service on macOS. Explicit `--container` workspaces retain their read-only
+registry boundary for lifecycle changes.
+
+A nonblocking registry lease serializes independent helpers. Registry writes
+preserve unknown plist fields, and rename preserves the registry bytes. Long
+operations use retained bridge jobs and release the main actor. Copy checks
+cancellation between files and removes its owned partial clone on cancellation
+or failure. Clone cleanup follows the existing native policy for root `logs/`
+files and diagnosis-history sidecars; nested game logs remain intact.
+
+Moves preserve relative program identities and rewrite declared absolute pins,
+blocklists, folder roots/executable mappings and internal absolute symlinks.
+External symlink targets remain intact. Registry aliases are resolved before
+the original directory moves. Same-filesystem moves use an atomic exclusive
+rename, preserving an existing destination. Cross-device moves complete the
+copy and metadata rewrite before committing the registry and cleaning the
+source. An exception before the registry commit restores the original move;
+cleanup/recovery failures report the retained path through `recovery_required`.
+
+Removal supports keeping the files or deleting the registered tree. Physical
+removal first stages the directory under a private sibling name; a registry
+write failure restores that directory. Exports create a private temporary
+archive and publish a completed gzip tar through an exclusive hard link.
+Archive members are rooted at the container's basename. These operations use
+isolated fixtures for acceptance; active Wine-process handling remains within
+the excluded runtime scope.
+
+Verification covers 52 shared bridge tests on macOS and ARM Ubuntu, 11 macOS
+native-adapter tests, the Rust SDK integration and 118 GPUI tests per platform.
+Real Linux helpers additionally verify restart readback, all five operations,
+copy cancellation, external symlink preservation, registry-field preservation,
+and cross-device moves using both the shared mount and `/dev/shm`. The
+production window renames a seeded container through its sidebar menu and
+reads back the actual metadata. Closing a lifecycle dialog restores root focus
+for Ctrl shortcuts. CI now runs these process and window checks.
+
+Evidence under `build/portability/gui-linux/` includes
+`lifecycle-macos.log`, `lifecycle-gpui-macos.log`, `lifecycle-full-linux.log`,
+`lifecycle-final-linux.log`, `lifecycle-window-final.log`, `lifecycle-swift60-final.log`,
+`lifecycle-tmpfs.log`, `lifecycle-tmpfs-report.json`,
+`linux-gpui/lifecycle/{report.json,helper.log}` and `linux-gpui/lifecycle-window/`.
+The first real-helper pass exposed a Linux URL directory-marker comparison;
+canonical container URLs now carry an explicit directory identity. The first
+window pass exposed lost focus after rename; the fixed window rerun passes.
+
+Interrupted-helper recovery and durable lifecycle journals, orphan discovery
+and import, portable route updates, and UI coverage for the remaining lifecycle
+actions continue as required work.
+
 ## Reproduce
 
 Use an Ubuntu 24.04 environment with Swift 6.4 and Rust 1.99.1. Install the
@@ -194,7 +249,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Library and configuration | Shared storage tests; empty production window and CLI | Seeded-library folder edits through the native chooser, persisted ratings/visibility and refresh/recovery |
 | Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux shortcut creation is tracked under host integration; broader UI override editing remains in the desktop gate |
 | Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
-| Container lifecycle | macOS native bridge implements rename/remove/move/duplicate/export | Portable lifecycle, import/orphan scan and filesystem acceptance on isolated fixtures |
+| Container lifecycle | Linux rename/remove/move/duplicate/export; isolated same/cross-device and cancellation acceptance; production rename UI | Durable journals and interrupted-helper recovery; import/orphan scan; portable route updates; remaining lifecycle UI actions |
 | Host integration | XDG registry/preferences; file open/reveal adapter; GTK file/folder/save dialogs | Terminal discovery, desktop/file associations and capability-aware settings |
 | Diagnostics | macOS report/check adapter | Linux host information, file export and appropriate platform checks |
 | Distribution | macOS `.app` packaging | Linux relocatable bundle, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |

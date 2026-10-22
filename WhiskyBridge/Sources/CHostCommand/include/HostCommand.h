@@ -10,3 +10,6 @@ typedef struct {
 int whisky_host_spawn(const char *executable, char *const arguments[], char *const environment[], whisky_host_child *child);
 int whisky_host_poll(pid_t pid, int *status, int *signalled);
 void whisky_host_stop(pid_t pid);
+
+// Moves a path only when the destination is absent; returns an errno value.
+int whisky_host_move(const char *source, const char *destination);

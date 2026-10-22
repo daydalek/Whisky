@@ -69,7 +69,7 @@ enum HostCommand {
                 if ProcessInfo.processInfo.systemUptime >= deadline {
                     throw BridgeFailure(
                         "host_timeout",
-                        "File selection timed out; open the picker again",
+                        "Host command timed out; retry the operation",
                         retryable: true
                     )
                 }

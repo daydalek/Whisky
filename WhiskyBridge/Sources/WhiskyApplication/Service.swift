@@ -39,6 +39,7 @@ public protocol NativeApplicationServices: AnyObject {
 public final class ApplicationService {
     public let workspace: ApplicationWorkspace
     private let preferences: PreferencesService?
+    private let lifecycleService: ContainerLifecycleService
     private let metadataService: LibraryMetadataService
     private var closed = false
     private var catalogues: [String: [EntryRecord]] = [:]
@@ -92,6 +93,7 @@ public final class ApplicationService {
         self.preferences = preferences
         let jobStore = jobs ?? BridgeJobStore()
         self.jobs = jobStore
+        lifecycleService = ContainerLifecycleService(jobs: jobStore)
         metadataService = LibraryMetadataService(jobs: jobStore, networkAccess: { [weak preferences] in
             let values = try await preferences?.call("preferences.read", params: [:])
             if values?.object?["offlineMode"] == .bool(true) { throw URLError(.notConnectedToInternet) }
@@ -126,6 +128,12 @@ public final class ApplicationService {
         case "library", "workspace": return try await libraryCall(method, params: params)
         case "folders": return try await foldersCall(method, params: params)
         case "runtime": return try await runtimeCall(method, params: params)
+        case "bottle":
+            if native?.methods.contains(method) == true { return try await nativeCall(method, params: params) }
+            if portableLifecycleMethods.contains(method) {
+                return try await lifecycleService.call(method, params: params, workspace: workspace)
+            }
+            return try await nativeCall(method, params: params)
         case "metadata": return try await metadataService.call(method, params: params, workspace: workspace)
         default:
             if let result = try await scopedCall(scope, method: method, params: params) {
@@ -188,12 +196,21 @@ extension ApplicationService {
         }
     }
 
+    private var portableLifecycleMethods: [String] {
+        #if os(Linux)
+        ContainerLifecycleService.methods
+        #else
+        native == nil ? ContainerLifecycleService.methods : []
+        #endif
+    }
+
     private func describe() -> JSONValue {
         let extraMethods = (preferences == nil ? [] : PreferencesService.methods)
             + (runtime == nil ? [] : RuntimeService.methods)
-            + (native?.methods ?? [])
+            + (native?.methods ?? []) + portableLifecycleMethods
         let extraCapabilities = (runtime == nil ? [] : RuntimeService.capabilities)
             + (native?.capabilities ?? [])
+            + (portableLifecycleMethods.isEmpty ? [] : ["bottle.lifecycle.file"])
         return .object([
             "protocolVersion": .integer(1),
             "platform": .string(Self.platform),

@@ -3168,20 +3168,27 @@ impl WhiskyApp {
                 .child(
                     Button::new("bottle-remove-cancel")
                         .label("取消")
-                        .on_click(cx.listener(|this, _, _, cx| {
+                        .on_click(cx.listener(|this, _, window, cx| {
                             this.command(Command::BottleDialogCancel, cx);
+                            this.focus_handle.focus(window, cx);
                         })),
                 )
                 .child(
                     Button::new("bottle-remove-keep")
                         .label("仅移除")
-                        .on_click(cx.listener(|this, _, _, cx| this.remove_bottle(false, cx))),
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.remove_bottle(false, cx);
+                            this.focus_handle.focus(window, cx);
+                        })),
                 )
                 .child(
                     Button::new("bottle-remove-delete")
                         .label("彻底删除")
                         .danger()
-                        .on_click(cx.listener(|this, _, _, cx| this.remove_bottle(true, cx))),
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.remove_bottle(true, cx);
+                            this.focus_handle.focus(window, cx);
+                        })),
                 )
         } else {
             let confirm = if kind == BottleDialogKind::Rename {
@@ -3200,16 +3207,20 @@ impl WhiskyApp {
                 .child(
                     Button::new("bottle-dialog-cancel")
                         .label("取消")
-                        .on_click(cx.listener(|this, _, _, cx| {
+                        .on_click(cx.listener(|this, _, window, cx| {
                             this.command(Command::BottleDialogCancel, cx);
+                            this.focus_handle.focus(window, cx);
                         })),
                 )
                 .child(
                     Button::new("bottle-dialog-confirm")
                         .label(confirm)
                         .primary()
-                        .on_click(cx.listener(|this, _, _, cx| {
+                        .on_click(cx.listener(|this, _, window, cx| {
                             this.command(Command::BottleDialogConfirm, cx);
+                            if this.bottle_dialog.is_none() {
+                                this.focus_handle.focus(window, cx);
+                            }
                         })),
                 )
         };
@@ -3226,7 +3237,10 @@ impl WhiskyApp {
                     .id("bottle-dialog-dismiss")
                     .absolute()
                     .inset_0()
-                    .on_click(cx.listener(|this, _, _, cx| this.dismiss_bottle_dialog(cx))),
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.dismiss_bottle_dialog(cx);
+                        this.focus_handle.focus(window, cx);
+                    })),
             )
             .child(
                 col()
