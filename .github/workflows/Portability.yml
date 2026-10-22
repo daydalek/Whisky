@@ -90,6 +90,14 @@ jobs:
               --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
               --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
               --output "$WHISKY_LINUX_OUTPUT/recovery-window" --scenario recovery
+      - name: Import an existing container through the native chooser
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/import-window" --scenario import
       - name: Exercise native file, directory, multiple and save dialogs
         run: |
           xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
@@ -113,6 +121,10 @@ jobs:
             /tmp/whisky-linux-gpui/recovery-window/*.log
             /tmp/whisky-linux-gpui/recovery-window/report.json
             /tmp/whisky-linux-gpui/recovery-window/*.png
+            /tmp/whisky-linux-gpui/import/report.json
+            /tmp/whisky-linux-gpui/import-window/*.log
+            /tmp/whisky-linux-gpui/import-window/report.json
+            /tmp/whisky-linux-gpui/import-window/*.png
             /tmp/whisky-linux-gpui/lifecycle/report.json
             /tmp/whisky-linux-gpui/lifecycle/helper.log
             /tmp/whisky-linux-gpui/lifecycle-window/*.log

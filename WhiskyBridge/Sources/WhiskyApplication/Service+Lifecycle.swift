@@ -51,6 +51,7 @@ extension ApplicationService {
             }
             return try ContainerRegistry.acquireShared(workspace)
         }
-        return method == "workspace.containers" ? try ContainerRegistry.acquireShared(workspace) : nil
+        return ["workspace.containers", "workspace.discover"].contains(method)
+            ? try ContainerRegistry.acquireShared(workspace) : nil
     }
 }

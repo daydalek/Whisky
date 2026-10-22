@@ -198,7 +198,7 @@ extension ApplicationService {
         let extraMethods = (preferences == nil ? [] : PreferencesService.methods)
             + (runtime == nil ? [] : RuntimeService.methods)
             + (native?.methods ?? []) + portableLifecycleMethods
-            + (portableLifecycleMethods.isEmpty ? [] : ["workspace.recover"])
+            + (portableLifecycleMethods.isEmpty ? [] : ["workspace.recover", "workspace.discover", "workspace.import"])
         let extraCapabilities = (runtime == nil ? [] : RuntimeService.capabilities)
             + (native?.capabilities ?? [])
             + (portableLifecycleMethods.isEmpty ? [] : ["bottle.lifecycle.file"])
@@ -246,6 +246,20 @@ extension ApplicationService {
         case "library.scan": return try scanLibrary(params)
         case "library.page": return try pageLibrary(params)
         case "library.entries": return try await listEntries(params)
+        case "workspace.import", "workspace.discover":
+            guard !portableLifecycleMethods.isEmpty else { return try await nativeCall(method, params: params) }
+            if method == "workspace.import" {
+                return try await ContainerLifecycleService.detached { [workspace] in
+                    try ContainerImportService.register(params, workspace: workspace)
+                }
+            }
+            let location = try preferences?.call("preferences.read", params: [:]).object?["defaultBottleLocation"]?.string
+            let roots = try params["path"].map { _ in [try params.path("path")] }
+                ?? [workspace.registry.deletingLastPathComponent().appendingPathComponent("Bottles")]
+                    + (location.map { [URL(fileURLWithPath: $0)] } ?? [])
+            return try await ContainerLifecycleService.detached { [workspace] in
+                try ContainerImportService.discover(roots: roots, workspace: workspace)
+            }
         case "workspace.recover":
             guard !portableLifecycleMethods.isEmpty else { return try await nativeCall(method, params: params) }
             return try lifecycleService.recover(workspace: workspace)

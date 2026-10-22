@@ -10,7 +10,7 @@ and distribution gates below.
 OrbStack ARM64 Ubuntu 24.04, Swift 6.4, Rust 1.99.1, Xvfb/X11 and Mesa software
 rendering:
 
-- Shared core: 112 tests; portable bridge: 60 tests; shared metadata package: 20 tests.
+- Shared core: 112 tests; portable bridge: 63 tests; shared metadata package: 20 tests.
 - Rust SDK tests, including its real Swift helper integration test.
 - Production GPUI Linux build/link and 118 unit tests.
 - Production Rust client/helper handshake, capability list and isolated empty
@@ -252,6 +252,43 @@ observed journal. The verified recovery scope is helper-process termination.
 Required work continues with orphan discovery/import, portable route updates,
 interrupted-export temporary-file cleanup and remaining lifecycle UI actions.
 
+## Existing-container discovery and import stage
+
+Linux exposes `workspace.discover` and `workspace.import`. Discovery scans direct
+children of the configured default bottle directory and the registry-adjacent
+`Bottles` directory, or an explicit `path`. It reads regular metadata files
+without constructing a native Bottle, skips malformed candidates, canonicalizes
+aliases and excludes registered containers. Candidates include device/inode
+strings; a caller can send these back during import to reject a changed folder.
+
+Import revalidates every selected path before a single registry commit. It
+accepts one `path` or up to 128 `paths`, registers existing prefixes in place,
+preserves unknown registry fields, and deduplicates aliases and concurrent
+imports. A missing registry is created on successful import; corrupt registries
+and pending recovery records retain their error boundary. Source metadata,
+program settings, game files and symlink targets remain intact.
+
+The Linux create-container panel now includes an existing-container import
+button. The native directory chooser supplies the selected path, and the
+production client reloads the persisted catalogue and library after registration.
+macOS retains its existing native method boundary.
+
+Verification adds three shared bridge regressions (63 total) on macOS and ARM
+Ubuntu Swift 6.0/6.4. Six independent Linux helpers import overlapping paths
+concurrently and retain exactly two canonical registrations plus unknown fields.
+Full source-file hashes and symlink targets match the pre-import snapshot.
+The real production window imports an orphan through GTK, displays its bottle
+and pinned game, and passes settings, sidebar and graceful-exit checks. CI runs
+the process gate and window scenario. Local evidence includes
+`import-full-linux.log`, `import-macos.log`, `import-swift60.log`,
+`import-gpui-macos.log`, `linux-gpui/import/report.json` and
+`linux-gpui/import-window/` under `build/portability/gui-linux/`.
+
+A dedicated discovered-candidate selection list remains part of the desktop
+work; the current UI supports selecting an existing prefix directly. Portable
+route updates, interrupted-export cleanup and remaining lifecycle UI actions
+also continue as required work.
+
 ## Reproduce
 
 Use an Ubuntu 24.04 environment with Swift 6.4 and Rust 1.99.1. Install the
@@ -295,7 +332,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Library and configuration | Shared storage tests; empty production window and CLI | Seeded-library folder edits through the native chooser, persisted ratings/visibility and refresh/recovery |
 | Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux shortcut creation is tracked under host integration; broader UI override editing remains in the desktop gate |
 | Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
-| Container lifecycle | Linux file lifecycle; SIGKILL recovery across commit boundaries; production rename and recovery UI | Import/orphan scan; portable route updates; interrupted-export cleanup; remaining lifecycle UI actions |
+| Container lifecycle | Linux file lifecycle, discovery/import and SIGKILL recovery; production rename, recovery and native import UI | Discovered-candidate selection UI; portable route updates; interrupted-export cleanup; remaining lifecycle UI actions |
 | Host integration | XDG registry/preferences; file open/reveal adapter; GTK file/folder/save dialogs | Terminal discovery, desktop/file associations and capability-aware settings |
 | Diagnostics | macOS report/check adapter | Linux host information, file export and appropriate platform checks |
 | Distribution | macOS `.app` packaging | Linux relocatable bundle, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |

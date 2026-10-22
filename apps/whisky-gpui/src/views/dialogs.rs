@@ -2800,6 +2800,17 @@ impl WhiskyApp {
                             .py(px(13.))
                             .border_t_1()
                             .border_color(rgba(0xffffff0c))
+                            .when(cfg!(target_os = "linux") && !self.demo
+                                && matches!(sheet, PreviewSheet::CreateBottle), |d| {
+                                d.child(Button::new("import-existing-bottle")
+                                    .label("导入已有容器…")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.preview.sheet = None;
+                                        this.focus_handle.focus(window, cx);
+                                        this.bridge.choose_path("import-bottle", "folder", None, None, &[]);
+                                        cx.notify();
+                                    })))
+                            })
                             .when(matches!(sheet, PreviewSheet::RunSettings(_)), |d| {
                                 let index = match sheet {
                                     PreviewSheet::RunSettings(index) => index,

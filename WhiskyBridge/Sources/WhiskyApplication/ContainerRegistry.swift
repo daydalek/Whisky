@@ -66,8 +66,14 @@ enum ContainerRegistry {
         private let format: PropertyListSerialization.PropertyListFormat
         var paths: [URL]
 
-        init(_ workspace: ApplicationWorkspace) throws {
+        init(_ workspace: ApplicationWorkspace, allowMissing: Bool = false) throws {
             url = workspace.registry
+            if allowMissing, !FileManager.default.fileExists(atPath: url.path) {
+                values = ["paths": []]
+                format = .binary
+                paths = []
+                return
+            }
             var format = PropertyListSerialization.PropertyListFormat.binary
             let data = try ApplicationWorkspace.read(url)
             guard let values = try PropertyListSerialization.propertyList(from: data, format: &format)

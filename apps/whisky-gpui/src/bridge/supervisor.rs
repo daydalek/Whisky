@@ -3246,6 +3246,22 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                 } else {
                                     reply.purpose
                                 };
+                                if purpose == "import-bottle" {
+                                    if let Some(path) = reply.path {
+                                        match client.call("workspace.import", json!({ "path": path })).map_err(classify) {
+                                            Ok(_) => match fetch_containers(&mut client) {
+                                                Ok(containers) => {
+                                                    cache = None;
+                                                    emit_event(&events, BridgeEvent::ContainersRefreshed(containers));
+                                                }
+                                                Err(CallFailure::Remote(reason)) => emit_event(&events, BridgeEvent::ActionFailed { reason }),
+                                                Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                                            },
+                                            Err(CallFailure::Remote(reason)) => emit_event(&events, BridgeEvent::ActionFailed { reason }),
+                                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                                        }
+                                    }
+                                } else {
                                 emit_event(
                                     &events,
                                     BridgeEvent::PathChosen {
@@ -3253,6 +3269,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                         path: reply.path,
                                     },
                                 );
+                                }
                             }
                             Err(error) => emit_event(
                                 &events,

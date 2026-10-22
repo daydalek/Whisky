@@ -23,7 +23,7 @@ def main():
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--helper', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata', 'lifecycle', 'recovery'], default='empty')
+    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata', 'lifecycle', 'recovery', 'import'], default='empty')
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -36,7 +36,7 @@ def main():
     env.pop('WHISKY_GPUI_DEMO_DATA', None)
     program_identity = None
     metadata_path = None
-    if args.scenario in ('programs', 'metadata', 'lifecycle', 'recovery'):
+    if args.scenario in ('programs', 'metadata', 'lifecycle', 'recovery', 'import'):
         generator = runpy.run_path(str(Path(__file__).with_name('check-programs.py')))['fixture_at']
         bottle, executable, registry, identity = generator(fixture)
         env['WHISKY_REGISTRY'] = str(registry)
@@ -59,6 +59,9 @@ def main():
             assert len(replies) == len(requests) and all(reply.get('error') is None for reply in replies), replies
             key = hashlib.sha256(b'program:drive_c/Program Files/Game/game.exe').hexdigest()
             metadata_path = bottle / 'Game Metadata' / (key + '.json')
+    if args.scenario == 'import':
+        original_metadata = (bottle / 'Metadata.plist').read_bytes()
+        registry.unlink()
     interrupted_destination = None
     if args.scenario == 'recovery':
         interrupt = runpy.run_path(str(Path(__file__).with_name('check-recovery.py')))['interrupt_copy']
@@ -95,6 +98,26 @@ def main():
                 return path
 
             library = snapshot('library')
+            if args.scenario == 'import':
+                run('xdotool', 'mousemove', '--window', window, '802', '26', 'click', '1')
+                time.sleep(0.5)
+                snapshot('create-with-import')
+                run('xdotool', 'mousemove', '--window', window, '840', '730', 'click', '1')
+                chooser_type = runpy.run_path(str(Path(__file__).with_name('smoke-pickers.py')))['GtkChooser']
+                chooser_type(output).select_path(bottle)
+                deadline = time.monotonic() + 12
+                while time.monotonic() < deadline:
+                    if registry.exists() and plistlib.loads(registry.read_bytes()).get('paths'):
+                        break
+                    assert app.poll() is None
+                    time.sleep(0.1)
+                else:
+                    raise AssertionError('UI import did not create the registry')
+                assert (bottle / 'Metadata.plist').read_bytes() == original_metadata
+                time.sleep(1)
+                run('xdotool', 'windowfocus', '--sync', window)
+                snapshot('container-imported')
+                report['steps'].append('native-directory-chooser-imports-existing-container-in-place')
             if interrupted_destination is not None:
                 assert not registry.with_suffix('.plist.lifecycle.plist').exists(), 'Startup recovery retained its journal'
                 assert bottle.exists() and not interrupted_destination.exists()
