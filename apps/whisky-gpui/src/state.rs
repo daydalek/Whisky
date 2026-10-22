@@ -2402,6 +2402,9 @@ impl WhiskyApp {
         indices
     }
 
+    /// Reverses the current order. Only the visual-test capture harness
+    /// still triggers this; the user-facing entry points were removed.
+    #[cfg(feature = "visual-test")]
     pub(crate) fn reorder_library(&mut self, cx: &mut Context<Self>) {
         self.reversed = !self.reversed;
         self.hovered = None;
@@ -2454,7 +2457,6 @@ impl WhiskyApp {
             Command::Toggle(key) => self.toggle_option(key, cx),
             Command::Choose(key, value) => self.choose(key, value, cx),
             Command::Sort(i) => self.set_sort(i, cx),
-            Command::Reorder => self.reorder_library(cx),
             Command::Hide(i) => {
                 if self.demo {
                     self.show_notice(DEMO_NOTICE, cx);

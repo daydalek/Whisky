@@ -306,12 +306,7 @@ impl WhiskyApp {
             .when(
                 self.preview.page == PreviewPage::Library && !self.settings,
                 |d| {
-                    d.child(modes).child(
-                        Button::new("reorder-library")
-                            .label("重排")
-                            .tooltip("反转卡片顺序 · ⌘R")
-                            .on_click(cx.listener(|this, _, _, cx| this.reorder_library(cx))),
-                    )
+                    d.child(modes)
                 },
             )
             .when(

@@ -43,7 +43,6 @@ gpui_kit::actions!(
     [
         DismissPreview,
         QuitPreview,
-        ReorderLibrary,
         ToggleMotion,
         RefreshLibrary,
         ShowAbout,
@@ -96,15 +95,6 @@ impl Render for WhiskyApp {
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
                 if let Some(path) = paths.0.first() {
                     this.open_external_file(path.clone(), cx);
-                }
-            }))
-            .on_action(cx.listener(|this, _: &ReorderLibrary, _, cx| {
-                if this.preview.page == PreviewPage::Library
-                    && !this.settings
-                    && !this.detail_open
-                    && this.preview.sheet.is_none()
-                {
-                    this.reorder_library(cx);
                 }
             }))
             .on_action(cx.listener(|this, _: &ToggleMotion, _, cx| {
@@ -343,7 +333,6 @@ fn install_menus(cx: &mut App) {
         ]),
         Menu::new("显示").items(vec![
             MenuItem::action("刷新游戏库", RefreshLibrary),
-            MenuItem::action("重排游戏", ReorderLibrary),
             MenuItem::separator(),
             MenuItem::action("显示/隐藏侧边栏", ToggleSidebar),
             MenuItem::separator(),
@@ -512,7 +501,6 @@ fn main() {
                 KeyBinding::new("escape", DismissPreview, None),
                 KeyBinding::new("cmd-q", QuitPreview, None),
                 KeyBinding::new("cmd-r", RefreshLibrary, None),
-                KeyBinding::new("cmd-shift-r", ReorderLibrary, None),
                 KeyBinding::new("cmd-shift-m", ToggleMotion, None),
                 KeyBinding::new("cmd-,", ShowSettings, None),
                 KeyBinding::new("cmd-ctrl-s", ToggleSidebar, None),

@@ -30,7 +30,6 @@ pub(crate) enum Command {
     Toggle(&'static str),
     Choose(&'static str, &'static str),
     Sort(usize),
-    Reorder,
     Notice,
     Hide(usize),
     /// Select the entry's executable (or folder) in Finder.
@@ -152,10 +151,6 @@ impl WhiskyApp {
             items.push(
                 self.menu_item("明显弹性（默认：柔和）", Command::Toggle("lively"), cx)
                     .checked(self.lively),
-            );
-            items.push(
-                self.menu_item("反转顺序 · ⌘R", Command::Reorder, cx)
-                    .checked(self.reversed),
             );
             items.push(MenuEntry::separator(cx.entity().downgrade()));
             {
