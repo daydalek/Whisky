@@ -10,7 +10,7 @@ and distribution gates below.
 OrbStack ARM64 Ubuntu 24.04, Swift 6.4, Rust 1.99.1, Xvfb/X11 and Mesa software
 rendering:
 
-- Shared core: 112 tests; portable bridge: 72 tests; shared metadata package: 20 tests.
+- Shared core: 112 tests; portable bridge: 76 tests; shared metadata package: 20 tests.
 - Rust SDK tests, including its real Swift helper integration test.
 - Production GPUI Linux build/link and 122 unit tests.
 - Production Rust client/helper handshake, capability list and isolated empty
@@ -434,6 +434,46 @@ request trace. Local evidence lives in `build/portability/gui-linux/`:
 `lifecycle-capability-macos.log`, `full-lifecycle-window-final.log` and
 `linux-gpui/full-lifecycle-window/`.
 
+## Linux host and file diagnostics stage
+
+Linux advertises `bottle.diagnostics.file` with three retained-job methods:
+`bottle.diagnostics`, `bottle.checks` and `bottle.exportDiagnostics`. Reports
+contain distribution, kernel, CPU architecture/count, physical memory, display
+session presence, registered container identity, pin count and available space.
+Four platform checks cover metadata readability, `drive_c`, reported write
+access and the 1 GiB free-space threshold. Read errors produce explicit warnings.
+The collector uses bounded regular-file reads with `O_NOFOLLOW`/`O_NONBLOCK`;
+symlinks, FIFOs, malformed and oversized metadata retain a bounded warning path.
+Environment contents, program arguments and program settings stay outside the
+report. Collection preserves all prefix file bytes and registry contents.
+
+Report jobs share the registry lease and respect pending lifecycle recovery.
+Exports use a private mode-0600 staging file, synchronize its complete contents,
+and publish by an exclusive hard link. Existing files and symlinks remain
+intact under concurrent exporters. Destinations use `.txt` outside the prefix
+and registry; failed publication cleans its staging file. macOS continues its
+native diagnostic dispatch, with portable collection available in shared tests.
+
+The Linux bottle toolbar opens the existing diagnostics sheet with host/file
+symptoms and localized check labels. It displays the collected report and
+exports through the GTK save chooser, initially positioned outside the prefix.
+Runtime audio probes remain in the Wine-dependent scope.
+
+Verification passes 76 shared bridge tests on macOS and ARM Ubuntu Swift
+6.0/6.4, plus 12 macOS native-adapter tests. The full Linux gate includes real
+host collection, FIFO handling, independent concurrent exporters, private-file
+permissions and complete source-hash comparisons. Both platforms pass 122 GPUI
+tests. The production Xvfb window runs all four checks, displays the report,
+exports it through GTK, validates its contents/permissions and source hashes,
+and passes settings, sidebar and graceful-exit checks. A transparent request
+trace confirms all three diagnostic methods and the file-only runtime boundary.
+CI runs and retains both process and window evidence.
+
+Local evidence under `build/portability/gui-linux/` includes
+`diagnostics-macos.log`, `diagnostics-gpui-macos.log`, `diagnostics-swift60.log`,
+`diagnostics-final-linux.log`, `diagnostics-window-final.log`,
+`linux-gpui/diagnostics/` and `linux-gpui/diagnostics-window/`.
+
 ## Reproduce
 
 Use an Ubuntu 24.04 environment with Swift 6.4 and Rust 1.99.1. Install the
@@ -479,7 +519,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
 | Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; complete production file-lifecycle window flow, recovery and candidate import UI | Additional platform coverage follows the desktop acceptance matrix |
 | Host integration | XDG registry/preferences; file open/reveal adapter; GTK file/folder/save dialogs | Terminal discovery, desktop/file associations and capability-aware settings |
-| Diagnostics | macOS report/check adapter | Linux host information, file export and appropriate platform checks |
+| Diagnostics | Native macOS adapter; Linux bounded host/file report, platform checks, exclusive export and production-window acceptance | Additional desktop platform coverage follows the acceptance matrix |
 | Distribution | macOS `.app` packaging | Linux relocatable bundle with both native helpers, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |
 | Desktop acceptance | ARM64 X11 virtual display with Mesa | Seeded end-to-end interactions, restart/recovery and Wayland coverage; x86_64 hosted CI evidence |
 

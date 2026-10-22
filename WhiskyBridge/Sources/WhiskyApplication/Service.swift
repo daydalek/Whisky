@@ -41,6 +41,7 @@ public final class ApplicationService {
     private let preferences: PreferencesService?
     let lifecycleService: ContainerLifecycleService
     private let metadataService: LibraryMetadataService
+    let diagnosticsService: FileDiagnosticsService
     private var closed = false
     private var catalogues: [String: [EntryRecord]] = [:]
     private var catalogueOrder: [String] = []
@@ -93,6 +94,7 @@ public final class ApplicationService {
         self.preferences = preferences
         let jobStore = jobs ?? BridgeJobStore()
         self.jobs = jobStore
+        diagnosticsService = FileDiagnosticsService(jobs: jobStore)
         lifecycleService = ContainerLifecycleService(jobs: jobStore)
         metadataService = LibraryMetadataService(jobs: jobStore, networkAccess: { [weak preferences] in
             let values = try await preferences?.call("preferences.read", params: [:])
@@ -195,13 +197,17 @@ extension ApplicationService {
     }
 
     private func describe() -> JSONValue {
-        let extraMethods = (preferences == nil ? [] : PreferencesService.methods)
-            + (runtime == nil ? [] : RuntimeService.methods)
-            + (native?.methods ?? []) + portableLifecycleMethods
-            + (portableLifecycleMethods.isEmpty ? [] : ["workspace.recover", "workspace.discover", "workspace.import"])
-        let extraCapabilities = (runtime == nil ? [] : RuntimeService.capabilities)
-            + (native?.capabilities ?? [])
-            + (portableLifecycleMethods.isEmpty ? [] : ["bottle.lifecycle.file"])
+        var extraMethods = native?.methods ?? []
+        extraMethods += preferences == nil ? [] : PreferencesService.methods
+        extraMethods += runtime == nil ? [] : RuntimeService.methods
+        extraMethods += portableLifecycleMethods + portableDiagnosticsMethods
+        extraMethods += portableLifecycleMethods.isEmpty ? [] : [
+            "workspace.recover", "workspace.discover", "workspace.import"
+        ]
+        var extraCapabilities = native?.capabilities ?? []
+        extraCapabilities += runtime == nil ? [] : RuntimeService.capabilities
+        extraCapabilities += portableLifecycleMethods.isEmpty ? [] : ["bottle.lifecycle.file"]
+        extraCapabilities += portableDiagnosticsMethods.isEmpty ? [] : ["bottle.diagnostics.file"]
         return .object([
             "protocolVersion": .integer(1),
             "platform": .string(Self.platform),

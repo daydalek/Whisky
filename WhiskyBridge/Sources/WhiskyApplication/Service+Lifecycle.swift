@@ -28,7 +28,18 @@ extension ApplicationService {
         #endif
     }
 
+    var portableDiagnosticsMethods: [String] {
+        #if os(Linux)
+        FileDiagnosticsService.methods
+        #else
+        native == nil ? FileDiagnosticsService.methods : []
+        #endif
+    }
+
     func lifecycleCall(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
+        if portableDiagnosticsMethods.contains(method) {
+            return try diagnosticsService.call(method, params: params, workspace: workspace)
+        }
         if native?.methods.contains(method) == true || !portableLifecycleMethods.contains(method) {
             return try await nativeCall(method, params: params)
         }

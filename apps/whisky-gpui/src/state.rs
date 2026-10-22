@@ -3207,10 +3207,17 @@ impl WhiskyApp {
         self.pending_path_action = Some(PathAction::DiagnosticsExport {
             container: container.clone(),
         });
+        #[cfg(target_os = "linux")]
+        let directory = std::path::Path::new(&container)
+            .parent()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|| container.clone());
+        #[cfg(not(target_os = "linux"))]
+        let directory = container.clone();
         self.bridge.choose_path(
             "diagnostics-export",
             "save",
-            Some(&container),
+            Some(&directory),
             Some(&name),
             &["txt"],
         );

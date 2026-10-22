@@ -41,6 +41,14 @@ impl WhiskyApp {
                 cx,
             ))
             .child(self.action("bottle-run", "运行…", Command::BottleRun, cx))
+            .when(cfg!(target_os = "linux"), |bar| {
+                bar.child(self.action(
+                    "bottle-diagnostics",
+                    "诊断…",
+                    Command::Sheet(PreviewSheet::Diagnostics),
+                    cx,
+                ))
+            })
             .into_any_element()
     }
     pub(crate) fn preview_page(

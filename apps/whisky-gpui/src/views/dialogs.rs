@@ -2399,7 +2399,9 @@ impl WhiskyApp {
             PreviewSheet::CreateBottle => "创建容器",
             PreviewSheet::MoveEntry(_) => "移动到容器",
             PreviewSheet::OpenFile => "运行文件",
-            PreviewSheet::Diagnostics => "故障排查",
+            PreviewSheet::Diagnostics => {
+                if cfg!(target_os = "linux") { "主机与容器诊断" } else { "故障排查" }
+            },
             PreviewSheet::Audio => "音频故障排查",
             PreviewSheet::Dll => "DLL 覆盖",
             PreviewSheet::Graphics => "高级图形设置",
@@ -2595,13 +2597,11 @@ impl WhiskyApp {
                     self.choice(
                         "diagnosis-symptom",
                         "遇到了什么问题？",
-                        &[
-                            "游戏无法启动",
-                            "黑屏或画面异常",
-                            "没有声音",
-                            "文字乱码",
-                            "游戏运行缓慢",
-                        ],
+                        if cfg!(target_os = "linux") {
+                            &["容器文件或导入异常", "文件权限或存储空间", "主机环境信息"][..]
+                        } else {
+                            &["游戏无法启动", "黑屏或画面异常", "没有声音", "文字乱码", "游戏运行缓慢"][..]
+                        },
                         cx,
                     ),
                     self.action(
@@ -2619,7 +2619,7 @@ impl WhiskyApp {
                         if self.diagnostics_pending {
                             "正在收集诊断信息…"
                         } else {
-                            "分析运行日志"
+                            if cfg!(target_os = "linux") { "收集主机与容器信息" } else { "分析运行日志" }
                         },
                         Command::RunDiagnostics,
                         cx,
@@ -2653,6 +2653,10 @@ impl WhiskyApp {
                             "audio.driver_check" => "音频驱动",
                             "game.config_available" => "GameDB 配置",
                             "diagnostics.can_enhance" => "诊断日志级别",
+                            "host.container_metadata" => "容器元数据",
+                            "host.drive_c" => "容器目录",
+                            "host.container_write" => "文件权限",
+                            "host.storage" => "可用空间",
                             _ => check.check_id.as_str(),
                         };
                         let mut detail = format!("{check_label}：{label} · {}", check.summary);
@@ -2706,12 +2710,14 @@ impl WhiskyApp {
                         cx,
                     ));
                 }
-                rows.push(self.action(
-                    "audio-link",
-                    "音频故障排查…",
-                    Command::Sheet(PreviewSheet::Audio),
-                    cx,
-                ));
+                if cfg!(target_os = "macos") {
+                    rows.push(self.action(
+                        "audio-link",
+                        "音频故障排查…",
+                        Command::Sheet(PreviewSheet::Audio),
+                        cx,
+                    ));
+                }
                 self.form(
                     "diagnostics-scroll",
                     vec![self.section(

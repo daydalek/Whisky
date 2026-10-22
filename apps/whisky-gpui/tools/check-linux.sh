@@ -69,3 +69,6 @@ python3 "$repo_root/apps/whisky-gpui/tools/check-import.py" \
     --helper "$helper" --output "$output/import"
 python3 "$repo_root/apps/whisky-gpui/tools/check-export-recovery.py" \
     --helper "$helper" --binary "$binary" --output "$output/export-recovery"
+
+python3 "$repo_root/apps/whisky-gpui/tools/check-diagnostics.py" \
+    --helper "$helper" --output "$output/diagnostics"
