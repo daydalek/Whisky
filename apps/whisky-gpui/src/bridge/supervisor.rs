@@ -35,6 +35,7 @@ use super::{
 };
 use crate::config::{self, ConfigField};
 use crate::create_bottle::BottleCreatedDto;
+use crate::program_settings::{HistoryDto, ProgramSettingsDto};
 use crate::runtime::{
     CAP_LAUNCH, ClipboardDecision, ClipboardPrompt, LaunchOutcome, RuntimeAction, RuntimeState,
     RuntimeUpdate, interpret_launch_reply, poll_interval, primary_action_for,
@@ -323,6 +324,35 @@ pub(crate) enum BridgeEvent {
         container: String,
         update: winetricks::InstallUpdate,
     },
+    /// `programs.settings.read` or a successful `programs.settings.set`.
+    ProgramSettings {
+        settings: ProgramSettingsDto,
+    },
+    ProgramSettingsFailed {
+        container: String,
+        executable: String,
+        reason: String,
+    },
+    ProgramHistory {
+        container: String,
+        executable: String,
+        history: HistoryDto,
+    },
+    ProgramHistoryFailed {
+        container: String,
+        executable: String,
+        reason: String,
+    },
+    ProgramShortcutCreated {
+        container: String,
+        executable: String,
+        path: String,
+    },
+    ProgramShortcutFailed {
+        container: String,
+        executable: String,
+        reason: String,
+    },
 }
 
 enum Command {
@@ -423,6 +453,29 @@ enum Command {
         verbs: Vec<String>,
     },
     CancelWinetricks,
+    LoadProgramSettings {
+        container: String,
+        executable: String,
+    },
+    SaveProgramSettings {
+        container: String,
+        executable: String,
+        patch: serde_json::Value,
+    },
+    LoadProgramHistory {
+        container: String,
+        executable: String,
+    },
+    DeleteProgramHistory {
+        container: String,
+        executable: String,
+        run_id: Option<String>,
+    },
+    CreateProgramShortcut {
+        container: String,
+        executable: String,
+        destination: String,
+    },
     /// Window activation: polling pauses while the app is in the background.
     SetActive(bool),
     /// Re-read the bottle catalogue and drop the cached entries, as the
@@ -664,6 +717,61 @@ impl BridgeSupervisor {
 
     pub(crate) fn cancel_winetricks(&self) {
         let _ = self.commands.send(Command::CancelWinetricks);
+    }
+
+    /// `programs.settings.read` for one executable.
+    pub(crate) fn load_program_settings(&self, container: &str, executable: &str) {
+        let _ = self.commands.send(Command::LoadProgramSettings {
+            container: container.to_owned(),
+            executable: executable.to_owned(),
+        });
+    }
+
+    /// `programs.settings.set`; the reply is the same shape as a read.
+    pub(crate) fn save_program_settings(
+        &self,
+        container: &str,
+        executable: &str,
+        patch: serde_json::Value,
+    ) {
+        let _ = self.commands.send(Command::SaveProgramSettings {
+            container: container.to_owned(),
+            executable: executable.to_owned(),
+            patch,
+        });
+    }
+
+    pub(crate) fn load_program_history(&self, container: &str, executable: &str) {
+        let _ = self.commands.send(Command::LoadProgramHistory {
+            container: container.to_owned(),
+            executable: executable.to_owned(),
+        });
+    }
+
+    pub(crate) fn delete_program_history(
+        &self,
+        container: &str,
+        executable: &str,
+        run_id: Option<&str>,
+    ) {
+        let _ = self.commands.send(Command::DeleteProgramHistory {
+            container: container.to_owned(),
+            executable: executable.to_owned(),
+            run_id: run_id.map(str::to_owned),
+        });
+    }
+
+    pub(crate) fn create_program_shortcut(
+        &self,
+        container: &str,
+        executable: &str,
+        destination: &str,
+    ) {
+        let _ = self.commands.send(Command::CreateProgramShortcut {
+            container: container.to_owned(),
+            executable: executable.to_owned(),
+            destination: destination.to_owned(),
+        });
     }
 
     /// `programs.list` for one bottle. The pin/block mutations reply with the
@@ -1852,6 +1960,107 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         None => eprintln!("whisky-bridge: no winetricks install to cancel"),
                     }
                 }
+                Some(Command::LoadProgramSettings { container, executable }) => {
+                    match read_program_settings(&mut client, &container, &executable) {
+                        Ok(settings) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramSettings { settings },
+                        ),
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramSettingsFailed {
+                                container,
+                                executable,
+                                reason,
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::SaveProgramSettings { container, executable, patch }) => {
+                    match write_program_settings(&mut client, &container, &executable, patch) {
+                        Ok(settings) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramSettings { settings },
+                        ),
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramSettingsFailed {
+                                container,
+                                executable,
+                                reason,
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::LoadProgramHistory { container, executable }) => {
+                    match read_program_history(&mut client, &container, &executable) {
+                        Ok(history) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramHistory {
+                                container,
+                                executable,
+                                history,
+                            },
+                        ),
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramHistoryFailed {
+                                container,
+                                executable,
+                                reason,
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::DeleteProgramHistory { container, executable, run_id }) => {
+                    match delete_program_history(&mut client, &container, &executable, run_id.as_deref()) {
+                        Ok(history) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramHistory {
+                                container,
+                                executable,
+                                history,
+                            },
+                        ),
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramHistoryFailed {
+                                container,
+                                executable,
+                                reason,
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::CreateProgramShortcut {
+                    container,
+                    executable,
+                    destination,
+                }) => {
+                    match write_program_shortcut(&mut client, &container, &executable, &destination) {
+                        Ok(path) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramShortcutCreated {
+                                container,
+                                executable,
+                                path,
+                            },
+                        ),
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramShortcutFailed {
+                                container,
+                                executable,
+                                reason,
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
                 Some(Command::ReloadLibrary) => {
                     // A refresh must re-read: the cached snapshot predates it.
                     cache = None;
@@ -2227,6 +2436,88 @@ struct LiveWinetricks {
 enum WinetricksTerminal {
     Completed(InstallResultDto),
     Failed { status: JobStatus, reason: String },
+}
+
+fn read_program_settings(
+    client: &mut Client,
+    container: &str,
+    executable: &str,
+) -> Result<ProgramSettingsDto, CallFailure> {
+    let reply = client
+        .call(
+            "programs.settings.read",
+            json!({ "container": container, "executable": executable }),
+        )
+        .map_err(classify)?;
+    serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid program settings: {error}")))
+}
+
+fn write_program_settings(
+    client: &mut Client,
+    container: &str,
+    executable: &str,
+    patch: serde_json::Value,
+) -> Result<ProgramSettingsDto, CallFailure> {
+    let reply = client
+        .call(
+            "programs.settings.set",
+            json!({ "container": container, "executable": executable, "patch": patch }),
+        )
+        .map_err(classify)?;
+    serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid program settings: {error}")))
+}
+
+fn read_program_history(
+    client: &mut Client,
+    container: &str,
+    executable: &str,
+) -> Result<HistoryDto, CallFailure> {
+    let reply = client
+        .call(
+            "programs.history.read",
+            json!({ "container": container, "executable": executable }),
+        )
+        .map_err(classify)?;
+    serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid program history: {error}")))
+}
+
+fn delete_program_history(
+    client: &mut Client,
+    container: &str,
+    executable: &str,
+    run_id: Option<&str>,
+) -> Result<HistoryDto, CallFailure> {
+    let mut params = json!({ "container": container, "executable": executable });
+    if let Some(run_id) = run_id {
+        params["runID"] = json!(run_id);
+    }
+    let reply = client
+        .call("programs.history.delete", params)
+        .map_err(classify)?;
+    serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid program history: {error}")))
+}
+
+fn write_program_shortcut(
+    client: &mut Client,
+    container: &str,
+    executable: &str,
+    destination: &str,
+) -> Result<String, CallFailure> {
+    let reply = client
+        .call(
+            "programs.shortcut.create",
+            json!({ "container": container, "executable": executable, "destination": destination }),
+        )
+        .map_err(classify)?;
+    reply
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| CallFailure::Remote("shortcut reply has no path".into()))
 }
 
 fn start_winetricks(

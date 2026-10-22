@@ -17,6 +17,7 @@ mod model;
 mod motion_capture;
 mod preferences;
 mod processes;
+mod program_settings;
 mod programs;
 mod runtime;
 mod scan;

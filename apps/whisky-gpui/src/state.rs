@@ -24,6 +24,7 @@ use crate::model::{
 };
 use crate::preferences;
 use crate::processes::{self, KillOutcome, ProcessTable};
+use crate::program_settings::{ProgramSettingsPage, settings_patch};
 use crate::programs::ProgramTable;
 use crate::runtime::{
     ClipboardDecision, ClipboardPrompt, ConfiguredBottles, PendingEdits, PrimaryAction,
@@ -145,6 +146,8 @@ pub(crate) struct PreviewState {
     pub(crate) config_inputs: BTreeMap<String, Entity<InputState>>,
     /// Per-root executable fields in the scan sheet, keyed `scan-exe:<root>`.
     pub(crate) folder_inputs: BTreeMap<String, Entity<InputState>>,
+    /// Run-settings fields, recreated whenever a read replaces the draft.
+    pub(crate) program_inputs: BTreeMap<String, Entity<InputState>>,
     /// Fields whose input must be rebuilt on the next render, after a rejected
     /// or normalized write. Replacing the entity avoids `set_value`, which
     /// would notify an observer while the root view is rendering.
@@ -189,6 +192,7 @@ impl PreviewState {
             inputs,
             config_inputs: BTreeMap::new(),
             folder_inputs: BTreeMap::new(),
+            program_inputs: BTreeMap::new(),
             config_resets: BTreeSet::new(),
             toggles: [
                 ("refresh", preferences::DEFAULT_REFRESH_AFTER_EXIT),
@@ -305,6 +309,8 @@ pub(crate) struct WhiskyApp {
     pub(crate) create_bottle: Option<CreateBottleState>,
     /// Winetricks catalog, per-bottle installed sets and the one install job.
     pub(crate) winetricks: WinetricksState,
+    /// Draft of the program whose run-settings sheet is open.
+    pub(crate) program_settings: ProgramSettingsPage,
     /// `defaultBottleLocation` from preferences, used as `bottle.create`'s parent.
     pub(crate) default_bottle_location: Option<String>,
     /// Key that "编辑" put in the env inputs; saving with a different name
@@ -400,6 +406,7 @@ impl WhiskyApp {
             scan: None,
             create_bottle: None,
             winetricks: WinetricksState::default(),
+            program_settings: ProgramSettingsPage::default(),
             default_bottle_location: Self::default_bottle_location(),
             env_original: None,
             env_clear_on_reply: false,
@@ -456,7 +463,9 @@ impl WhiskyApp {
         self.config_text_generation = self.config_text_generation.wrapping_add(1);
         self.preview.config_inputs.clear();
         self.preview.folder_inputs.clear();
+        self.preview.program_inputs.clear();
         self.preview.config_resets.clear();
+        self.program_settings = ProgramSettingsPage::default();
         self.folders.clear();
         self.folders_pending.clear();
         self.folders_error.clear();
@@ -1191,6 +1200,71 @@ impl WhiskyApp {
                     }
                 }
             }
+            BridgeEvent::ProgramSettings { settings } => {
+                if self.program_target_matches(&settings.container, &settings.executable) {
+                    let close = self.program_settings.close_after_save;
+                    self.program_settings.apply_settings(settings);
+                    self.preview.program_inputs.clear();
+                    if close {
+                        self.preview.sheet = None;
+                        self.preview.sheet_history.clear();
+                        self.show_notice("程序设置已保存", cx);
+                    }
+                }
+            }
+            BridgeEvent::ProgramSettingsFailed {
+                container,
+                executable,
+                reason,
+            } => {
+                if self.program_target_matches(&container, &executable) {
+                    let was_saving = self.program_settings.saving;
+                    self.program_settings.fail(reason.clone());
+                    if was_saving {
+                        self.show_notice(reason, cx);
+                    }
+                }
+            }
+            BridgeEvent::ProgramHistory {
+                container,
+                executable,
+                history,
+            } => {
+                if self.program_target_matches(&container, &executable) {
+                    self.program_settings.apply_history(history);
+                }
+            }
+            BridgeEvent::ProgramHistoryFailed {
+                container,
+                executable,
+                reason,
+            } => {
+                if self.program_target_matches(&container, &executable) {
+                    self.program_settings.history_loading = false;
+                    self.program_settings.history_error = Some(reason);
+                }
+            }
+            BridgeEvent::ProgramShortcutCreated {
+                container,
+                executable,
+                path,
+            } => {
+                if self.program_target_matches(&container, &executable) {
+                    self.program_settings.shortcut_path = Some(path);
+                    self.program_settings.shortcut_error = None;
+                    self.show_notice("快捷方式已创建", cx);
+                }
+            }
+            BridgeEvent::ProgramShortcutFailed {
+                container,
+                executable,
+                reason,
+            } => {
+                if self.program_target_matches(&container, &executable) {
+                    self.program_settings.shortcut_error = Some(reason.clone());
+                    self.show_notice(reason, cx);
+                }
+            }
         }
         self.loading = self.compute_loading();
         cx.notify();
@@ -1556,6 +1630,13 @@ impl WhiskyApp {
                 {
                     self.bridge
                         .reveal(&game.container, &path.to_string_lossy());
+                }
+            }
+            Command::Shortcut => {
+                if self.demo {
+                    self.show_notice(DEMO_NOTICE, cx);
+                } else {
+                    self.create_program_shortcut(cx);
                 }
             }
             Command::OpenDrive => {
@@ -1959,6 +2040,429 @@ impl WhiskyApp {
         if self.winetricks.job.as_ref().is_some_and(InstallJob::running) {
             self.bridge.cancel_winetricks();
         }
+        cx.notify();
+    }
+
+    fn program_target_matches(&self, container: &str, executable: &str) -> bool {
+        self.program_settings.container.as_deref() == Some(container)
+            && self.program_settings.executable.as_deref() == Some(executable)
+    }
+
+    /// Open the real run-settings draft for the game at `index`.
+    pub(crate) fn open_program_settings(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.demo {
+            return;
+        }
+        self.preview.program_inputs.clear();
+        let Some(game) = self.game(index).cloned() else {
+            return;
+        };
+        let executable = game
+            .executable
+            .as_ref()
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+            })
+            .map(|path| path.to_string_lossy().into_owned());
+        let Some(executable) = executable.filter(|_| !game.container.is_empty()) else {
+            self.program_settings = ProgramSettingsPage::default();
+            self.program_settings.title = game.title;
+            self.program_settings.loading = false;
+            self.program_settings.error =
+                Some("该条目没有可用的 .exe，无法编辑程序设置。".to_owned());
+            cx.notify();
+            return;
+        };
+        self.program_settings
+            .start(&game.container, &executable, &game.title);
+        self.bridge
+            .load_program_settings(&game.container, &executable);
+        self.bridge.load_program_history(&game.container, &executable);
+        cx.notify();
+    }
+
+    /// Retry both reads after the sheet failed to open.
+    pub(crate) fn retry_program_settings(&mut self, cx: &mut Context<Self>) {
+        let (Some(container), Some(executable)) = (
+            self.program_settings.container.clone(),
+            self.program_settings.executable.clone(),
+        ) else {
+            return;
+        };
+        self.program_settings.loading = true;
+        self.program_settings.saving = false;
+        self.program_settings.error = None;
+        self.program_settings.history_loading = true;
+        self.program_settings.history_error = None;
+        self.preview.program_inputs.clear();
+        self.bridge.load_program_settings(&container, &executable);
+        self.bridge.load_program_history(&container, &executable);
+        cx.notify();
+    }
+
+    /// Read the text inputs, build one patch and save on the current target.
+    pub(crate) fn save_program_settings(&mut self, cx: &mut Context<Self>) {
+        let (Some(container), Some(executable), Some(mut settings)) = (
+            self.program_settings.container.clone(),
+            self.program_settings.executable.clone(),
+            self.program_settings.settings.clone(),
+        ) else {
+            return;
+        };
+        if settings.display_enabled()
+            && settings
+                .overrides
+                .as_ref()
+                .and_then(|overrides| overrides.resolution_preset.as_deref())
+                == Some("custom")
+        {
+            let width = self
+                .preview
+                .program_inputs
+                .get("ps-res-width")
+                .map(|input| input.read(cx).value().to_string())
+                .unwrap_or_else(|| {
+                    settings
+                        .defaults
+                        .custom_resolution_width
+                        .unwrap_or(1920)
+                        .to_string()
+                });
+            let height = self
+                .preview
+                .program_inputs
+                .get("ps-res-height")
+                .map(|input| input.read(cx).value().to_string())
+                .unwrap_or_else(|| {
+                    settings
+                        .defaults
+                        .custom_resolution_height
+                        .unwrap_or(1080)
+                        .to_string()
+                });
+            let (Ok(width), Ok(height)) = (width.trim().parse::<i64>(), height.trim().parse::<i64>())
+            else {
+                self.show_notice("自定义分辨率必须是整数", cx);
+                return;
+            };
+            if !(200..=16_384).contains(&width) || !(200..=16_384).contains(&height) {
+                self.show_notice("自定义分辨率超出范围", cx);
+                return;
+            }
+            if let Some(overrides) = settings.overrides.as_mut() {
+                overrides.custom_resolution_width = Some(width);
+                overrides.custom_resolution_height = Some(height);
+            }
+        }
+        let arguments = self
+            .preview
+            .program_inputs
+            .get("ps-args")
+            .map(|input| input.read(cx).value().to_string())
+            .unwrap_or_else(|| settings.arguments.clone());
+        let mut environment = BTreeMap::new();
+        for row in self.program_settings.env_rows.clone() {
+            let key = self
+                .preview
+                .program_inputs
+                .get(&format!("ps-env-key-{}", row.id))
+                .map(|input| input.read(cx).value().to_string())
+                .unwrap_or(row.key);
+            let value = self
+                .preview
+                .program_inputs
+                .get(&format!("ps-env-value-{}", row.id))
+                .map(|input| input.read(cx).value().to_string())
+                .unwrap_or(row.value);
+            let key = key.trim().to_owned();
+            if key.is_empty() {
+                continue;
+            }
+            if key.contains('=') || key.contains('\0') {
+                self.show_notice("环境变量名不能包含 = 或 NUL", cx);
+                return;
+            }
+            if environment.insert(key.clone(), value).is_some() {
+                self.show_notice(format!("环境变量 {key} 重复"), cx);
+                return;
+            }
+        }
+        let patch = settings_patch(&settings, &arguments, &environment);
+        self.program_settings.saving = true;
+        self.program_settings.close_after_save = true;
+        self.program_settings.error = None;
+        self.bridge
+            .save_program_settings(&container, &executable, patch);
+        cx.notify();
+    }
+
+    pub(crate) fn create_program_shortcut(&mut self, cx: &mut Context<Self>) {
+        let (Some(container), Some(executable)) = (
+            self.program_settings.container.clone(),
+            self.program_settings.executable.clone(),
+        ) else {
+            return;
+        };
+        let destination = self
+            .preview
+            .program_inputs
+            .get("ps-shortcut-dest")
+            .map(|input| input.read(cx).value().to_string())
+            .unwrap_or_else(|| self.program_settings.shortcut_destination.clone());
+        let destination = crate::program_settings::expand_home(destination.trim());
+        if !destination.starts_with('/') {
+            self.program_settings.shortcut_error =
+                Some("快捷方式目标必须是绝对路径。".to_owned());
+            cx.notify();
+            return;
+        }
+        self.program_settings.shortcut_destination = destination.clone();
+        self.program_settings.shortcut_error = None;
+        self.bridge
+            .create_program_shortcut(&container, &executable, &destination);
+        cx.notify();
+    }
+
+    pub(crate) fn delete_program_run(&mut self, run_id: String, cx: &mut Context<Self>) {
+        let (Some(container), Some(executable)) = (
+            self.program_settings.container.clone(),
+            self.program_settings.executable.clone(),
+        ) else {
+            return;
+        };
+        self.program_settings.history_loading = true;
+        self.bridge
+            .delete_program_history(&container, &executable, Some(&run_id));
+        cx.notify();
+    }
+
+    pub(crate) fn clear_program_history(&mut self, cx: &mut Context<Self>) {
+        let (Some(container), Some(executable)) = (
+            self.program_settings.container.clone(),
+            self.program_settings.executable.clone(),
+        ) else {
+            return;
+        };
+        self.program_settings.history_loading = true;
+        self.bridge
+            .delete_program_history(&container, &executable, None);
+        cx.notify();
+    }
+
+    pub(crate) fn reload_program_history(&mut self, cx: &mut Context<Self>) {
+        let (Some(container), Some(executable)) = (
+            self.program_settings.container.clone(),
+            self.program_settings.executable.clone(),
+        ) else {
+            return;
+        };
+        self.program_settings.history_loading = true;
+        self.program_settings.history_error = None;
+        self.bridge.load_program_history(&container, &executable);
+        cx.notify();
+    }
+
+    pub(crate) fn add_program_env_row(&mut self, cx: &mut Context<Self>) {
+        let id = self.program_settings.next_env_id;
+        self.program_settings.next_env_id += 1;
+        self.program_settings.env_rows.push(crate::program_settings::EnvRow {
+            id,
+            key: String::new(),
+            value: String::new(),
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn remove_program_env_row(&mut self, id: u64, cx: &mut Context<Self>) {
+        self.program_settings.env_rows.retain(|row| row.id != id);
+        self.preview
+            .program_inputs
+            .remove(&format!("ps-env-key-{id}"));
+        self.preview
+            .program_inputs
+            .remove(&format!("ps-env-value-{id}"));
+        cx.notify();
+    }
+
+    pub(crate) fn set_program_choice(&mut self, field: &str, raw: &str) {
+        if field == "locale" {
+            // The locale row has its own environment side effects; it is
+            // handled by `set_program_locale` from the click listener.
+            return;
+        }
+        if field == "dllNewMode" {
+            self.program_settings.dll_new_mode = raw.to_owned();
+            return;
+        }
+        let Some(settings) = self.program_settings.settings.as_mut() else {
+            return;
+        };
+        let overrides = settings.overrides_mut();
+        match field {
+            "graphicsBackend" => overrides.graphics_backend = Some(raw.to_owned()),
+            "dxvkHud" => overrides.dxvk_hud = Some(raw.to_owned()),
+            "enhancedSync" => overrides.enhanced_sync = Some(raw.to_owned()),
+            "resolutionPreset" => overrides.resolution_preset = Some(raw.to_owned()),
+            _ => {}
+        }
+    }
+
+    pub(crate) fn set_program_override_bool(&mut self, field: &str, value: bool) {
+        let Some(settings) = self.program_settings.settings.as_mut() else {
+            return;
+        };
+        let overrides = settings.overrides_mut();
+        match field {
+            "dxvkAsync" => overrides.dxvk_async = Some(value),
+            "metal4Enabled" => overrides.metal4_enabled = Some(value),
+            "shaderCacheEnabled" => overrides.shader_cache_enabled = Some(value),
+            "controllerCompatibilityMode" => overrides.controller_compatibility_mode = Some(value),
+            "disableHIDAPI" => overrides.disable_hidapi = Some(value),
+            "allowBackgroundEvents" => overrides.allow_background_events = Some(value),
+            "disableControllerMapping" => overrides.disable_controller_mapping = Some(value),
+            "useButtonLabels" => overrides.use_button_labels = Some(value),
+            "virtualDesktopEnabled" => overrides.virtual_desktop_enabled = Some(value),
+            _ => {}
+        }
+    }
+
+    /// Turn a whole override group on with the bottle's current values, or
+    /// clear every field in it. `groupName` matches the UI section.
+    pub(crate) fn set_program_override_group(&mut self, group: &str, on: bool) {
+        let Some(settings) = self.program_settings.settings.as_mut() else {
+            return;
+        };
+        let defaults = settings.defaults.clone();
+        let overrides = settings.overrides_mut();
+        match group {
+            "graphics" if on => {
+                overrides.graphics_backend =
+                    Some(defaults.graphics_backend.unwrap_or_else(|| "recommended".into()));
+                overrides.dxvk = None;
+                overrides.dxvk_async = defaults.dxvk_async;
+                overrides.dxvk_hud = defaults.dxvk_hud;
+                overrides.metal4_enabled = defaults.metal4_enabled;
+            }
+            "graphics" => {
+                overrides.graphics_backend = None;
+                overrides.dxvk = None;
+                overrides.dxvk_async = None;
+                overrides.dxvk_hud = None;
+                overrides.metal4_enabled = None;
+            }
+            "sync" => {
+                overrides.enhanced_sync = on.then_some(defaults.enhanced_sync).flatten();
+            }
+            "performance" => {
+                overrides.shader_cache_enabled =
+                    on.then_some(defaults.shader_cache_enabled).flatten();
+            }
+            "input" if on => {
+                overrides.controller_compatibility_mode = defaults.controller_compatibility_mode;
+                overrides.disable_hidapi = defaults.disable_hidapi;
+                overrides.allow_background_events = defaults.allow_background_events;
+                overrides.disable_controller_mapping = defaults.disable_controller_mapping;
+                overrides.use_button_labels = defaults.use_button_labels;
+            }
+            "input" => {
+                overrides.controller_compatibility_mode = None;
+                overrides.disable_hidapi = None;
+                overrides.allow_background_events = None;
+                overrides.disable_controller_mapping = None;
+                overrides.use_button_labels = None;
+            }
+            "display" if on => {
+                overrides.virtual_desktop_enabled = defaults.virtual_desktop_enabled;
+                overrides.resolution_preset = defaults.resolution_preset;
+                overrides.custom_resolution_width = defaults.custom_resolution_width;
+                overrides.custom_resolution_height = defaults.custom_resolution_height;
+            }
+            "display" => {
+                overrides.virtual_desktop_enabled = None;
+                overrides.resolution_preset = None;
+                overrides.custom_resolution_width = None;
+                overrides.custom_resolution_height = None;
+            }
+            "dll" => {
+                overrides.dll_overrides = on.then(|| defaults.dll_overrides.unwrap_or_default());
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn add_program_dll_override(&mut self, name: String, cx: &mut Context<Self>) {
+        let name = name.trim().to_owned();
+        if name.is_empty()
+            || name.contains(char::is_whitespace)
+            || name.contains('=')
+            || name.contains(',')
+        {
+            self.show_notice("DLL 名称不能为空或包含空格、=、,", cx);
+            return;
+        }
+        let Some(settings) = self.program_settings.settings.as_mut() else {
+            return;
+        };
+        let overrides = settings.overrides_mut();
+        overrides.dll_overrides.get_or_insert_with(Vec::new).push(
+            crate::program_settings::DllOverrideDto {
+                dll_name: name,
+                mode: self.program_settings.dll_new_mode.clone(),
+            },
+        );
+        self.preview.program_inputs.remove("ps-dll-name");
+        cx.notify();
+    }
+
+    pub(crate) fn remove_program_dll_override(&mut self, index: usize) {
+        let Some(settings) = self.program_settings.settings.as_mut() else {
+            return;
+        };
+        let Some(overrides) = settings.overrides.as_mut() else {
+            return;
+        };
+        let Some(entries) = overrides.dll_overrides.as_mut() else {
+            return;
+        };
+        if index < entries.len() {
+            entries.remove(index);
+        }
+    }
+
+    /// Locale presets also own LANG and LC_ALL, matching the SwiftUI editor.
+    pub(crate) fn set_program_locale(&mut self, locale: String, cx: &mut Context<Self>) {
+        let Some(settings) = self.program_settings.settings.as_mut() else {
+            return;
+        };
+        settings.locale = locale.clone();
+        if locale.is_empty() {
+            self.program_settings
+                .env_rows
+                .retain(|row| row.key != "LANG" && row.key != "LC_ALL");
+        } else {
+            for key in ["LANG", "LC_ALL"] {
+                if let Some(row) = self
+                    .program_settings
+                    .env_rows
+                    .iter_mut()
+                    .find(|row| row.key == key)
+                {
+                    row.value = locale.clone();
+                } else {
+                    let id = self.program_settings.next_env_id;
+                    self.program_settings.next_env_id += 1;
+                    self.program_settings.env_rows.push(crate::program_settings::EnvRow {
+                        id,
+                        key: key.to_owned(),
+                        value: locale.clone(),
+                    });
+                }
+            }
+        }
+        self.preview
+            .program_inputs
+            .retain(|key, _| !key.starts_with("ps-env-"));
         cx.notify();
     }
 
@@ -2704,6 +3208,9 @@ impl WhiskyApp {
         self.hovered = None;
         if sheet == PreviewSheet::Scan {
             self.ensure_folders(cx);
+        }
+        if let PreviewSheet::RunSettings(index) = sheet {
+            self.open_program_settings(index, cx);
         }
         if sheet == PreviewSheet::Winetricks {
             // A finished job is a result surface, not a permanent lock: opening

@@ -34,6 +34,8 @@ pub(crate) enum Command {
     Hide(usize),
     /// Select the entry's executable (or folder) in Finder.
     Reveal(usize),
+    /// Create a macOS shortcut for the entry's executable.
+    Shortcut,
     /// Open the selected bottle's `drive_c` in Finder.
     OpenDrive,
     /// Re-read the bottle catalogue and every bottle's entries.

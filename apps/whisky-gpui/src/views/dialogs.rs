@@ -2,6 +2,7 @@
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Disableable, Sizable};
 use gpui_kit::component::switch::Switch;
@@ -12,13 +13,64 @@ use crate::bridge::dto::FoldersDto;
 use crate::bridge::{BridgeStatus, FolderEdit};
 use crate::controls::*;
 use crate::runtime::ClipboardDecision;
+use crate::program_settings::{self, ProgramSettingsDto, RunEntryDto};
 use crate::scan::{self, JobStatus};
 use crate::state::{PreviewSheet, ScanState, WhiskyApp};
 use crate::theme::{MUTED, OVERLAY, RADIUS_LG, SURFACE, SURFACE_BORDER};
 use crate::winetricks::{category_label, filtered_verbs};
 
+const PROGRAM_LOCALES: &[(&str, &str)] = &[
+    ("", "自动"),
+    ("ja_JP.UTF-8", "日本語"),
+    ("zh_CN.UTF-8", "简体中文"),
+    ("zh_TW.UTF-8", "繁體中文"),
+    ("en_US.UTF-8", "English"),
+    ("de_DE.UTF-8", "Deutsch"),
+    ("es_ES.UTF-8", "Español"),
+    ("fr_FR.UTF-8", "Français"),
+    ("it_IT.UTF-8", "Italiano"),
+    ("ko_KR.UTF-8", "한국어"),
+    ("ru_RU.UTF-8", "Русский"),
+    ("uk_UA.UTF-8", "Українська"),
+    ("th_TH.UTF-8", "ไทย"),
+];
+const GRAPHICS_BACKENDS: &[(&str, &str)] = &[
+    ("recommended", "自动推荐"),
+    ("d3dMetal", "D3DMetal"),
+    ("dxvk", "DXVK"),
+    ("dxmt", "DXMT"),
+    ("wined3d", "WineD3D"),
+];
+const DXVK_HUDS: &[(&str, &str)] = &[
+    ("full", "完整"),
+    ("partial", "部分"),
+    ("fps", "仅 FPS"),
+    ("off", "关闭"),
+];
+const SYNC_MODES: &[(&str, &str)] = &[
+    ("none", "关闭"),
+    ("esync", "ESync"),
+    ("msync", "MSync"),
+];
+const RESOLUTIONS: &[(&str, &str)] = &[
+    ("r1280x720", "1280 × 720"),
+    ("r1600x900", "1600 × 900"),
+    ("r1920x1080", "1920 × 1080"),
+    ("r2560x1440", "2560 × 1440"),
+    ("r3840x2160", "3840 × 2160"),
+    ("matchDisplay", "匹配显示器"),
+    ("custom", "自定义"),
+];
+const DLL_MODES: &[(&str, &str)] = &[
+    ("b", "仅内建"),
+    ("n", "仅原生"),
+    ("n,b", "原生优先"),
+    ("b,n", "内建优先"),
+    ("", "禁用"),
+];
+
 impl WhiskyApp {
-    fn run_settings(&self, index: usize, cx: &Context<Self>) -> AnyElement {
+    fn demo_run_settings(&self, index: usize, cx: &Context<Self>) -> AnyElement {
         self.form(
             "run-settings-scroll",
             vec![
@@ -136,6 +188,836 @@ impl WhiskyApp {
             ],
         )
     }
+    /// Real run settings: the draft lives in `program_settings`, and the
+    /// footer's save sends one `programs.settings.set` patch.
+    fn run_settings(
+        &mut self,
+        _index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if self.demo {
+            return self.demo_run_settings(_index, cx);
+        }
+        if self.program_settings.loading && self.program_settings.settings.is_none() {
+            return self.form(
+                "run-settings-scroll",
+                vec![self.section(
+                    "program-loading",
+                    "程序配置",
+                    vec![
+                        row()
+                            .gap(px(8.))
+                            .py(px(12.))
+                            .child(Spinner::new().with_size(px(14.)))
+                            .child(muted("正在读取程序设置…"))
+                            .into_any_element(),
+                    ],
+                    cx,
+                )],
+            );
+        }
+        let Some(settings) = self.program_settings.settings.clone() else {
+            let reason = self
+                .program_settings
+                .error
+                .clone()
+                .unwrap_or_else(|| "没有可用的程序设置。".to_owned());
+            return self.form(
+                "run-settings-scroll",
+                vec![self.section(
+                    "program-load-error",
+                    "程序配置",
+                    vec![
+                        muted(reason).py(px(10.)).into_any_element(),
+                        Button::new("program-settings-retry")
+                            .label("重试")
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.retry_program_settings(cx)),
+                            )
+                            .into_any_element(),
+                    ],
+                    cx,
+                )],
+            );
+        };
+
+        let mut sections = Vec::new();
+        if let Some(error) = &self.program_settings.error {
+            sections.push(self.section(
+                "program-settings-error",
+                "保存失败",
+                vec![muted(error.clone()).into_any_element()],
+                cx,
+            ));
+        }
+        sections.push(self.program_config_section(&settings, window, cx));
+        sections.push(self.program_env_section(window, cx));
+        sections.extend(self.program_override_sections(&settings, window, cx));
+        sections.push(self.program_history_section(cx));
+        sections.push(self.program_shortcut_section(window, cx));
+        self.form("run-settings-scroll", sections)
+    }
+
+    fn program_input(
+        &mut self,
+        key: &str,
+        value: &str,
+        placeholder: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<InputState> {
+        let key = key.to_owned();
+        if let Some(input) = self.preview.program_inputs.get(&key) {
+            return input.clone();
+        }
+        let value = value.to_owned();
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(placeholder)
+                .default_value(value)
+        });
+        self.preview.program_inputs.insert(key, input.clone());
+        input
+    }
+
+    fn program_switch(
+        &self,
+        id: String,
+        label: &'static str,
+        checked: bool,
+        on_change: impl Fn(&mut WhiskyApp, bool) + 'static,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        Switch::new(id)
+            .label(label)
+            .checked(checked)
+            .on_change(cx.listener(move |this, checked, _, cx| {
+                on_change(this, *checked);
+                cx.notify();
+            }))
+            .into_any_element()
+    }
+
+    fn program_choice(
+        &self,
+        id: String,
+        current: String,
+        options: &'static [(&'static str, &'static str)],
+        field: &'static str,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let view = cx.entity().downgrade();
+        Button::new(id)
+            .label(format!("{current}  ⌄"))
+            .dropdown_menu(move |mut menu, _, _| {
+                for &(raw, display) in options {
+                    let view = view.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(display).on_click(move |_, _, cx| {
+                            let _ = view.update(cx, |this, cx| {
+                                if field == "locale" {
+                                    this.set_program_locale(raw.to_owned(), cx);
+                                } else {
+                                    this.set_program_choice(field, raw);
+                                    cx.notify();
+                                }
+                            });
+                        }),
+                    );
+                }
+                menu
+            })
+            .into_any_element()
+    }
+
+    fn program_choice_row(&self, label: &'static str, control: AnyElement) -> AnyElement {
+        row()
+            .gap(px(16.))
+            .py(px(10.))
+            .child(div().flex_1().min_w_0().child(label))
+            .child(control)
+            .into_any_element()
+    }
+
+    fn program_config_section(
+        &mut self,
+        settings: &ProgramSettingsDto,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let arguments = self.program_input(
+            "ps-args",
+            &settings.arguments,
+            "启动参数，例如 -windowed",
+            window,
+            cx,
+        );
+        let locale = self.program_choice(
+            "ps-locale".into(),
+            program_settings::locale_label(&settings.locale).to_owned(),
+            PROGRAM_LOCALES,
+            "locale",
+            cx,
+        );
+        self.section(
+            "program-config",
+            "程序配置",
+            vec![
+                self.info("程序", settings.program_name.clone()),
+                self.info(
+                    "可执行文件",
+                    if settings.available {
+                        "可用"
+                    } else {
+                        "文件已缺失"
+                    },
+                ),
+                self.program_choice_row("语言区域", locale),
+                col()
+                    .gap(px(7.))
+                    .py(px(8.))
+                    .child("启动参数")
+                    .child(Input::new(&arguments))
+                    .into_any_element(),
+            ],
+            cx,
+        )
+    }
+
+    fn program_env_section(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let rows = self.program_settings.env_rows.clone();
+        let mut children: Vec<AnyElement> = Vec::new();
+        if rows.is_empty() {
+            children.push(muted("没有程序专属环境变量。").py(px(8.)).into_any_element());
+        }
+        for env_row in rows {
+            let key = self.program_input(
+                &format!("ps-env-key-{}", env_row.id),
+                &env_row.key,
+                "变量名",
+                window,
+                cx,
+            );
+            let value = self.program_input(
+                &format!("ps-env-value-{}", env_row.id),
+                &env_row.value,
+                "变量值",
+                window,
+                cx,
+            );
+            let id = env_row.id;
+            children.push(
+                row()
+                    .gap(px(10.))
+                    .py(px(5.))
+                    .child(div().flex_1().min_w_0().child(Input::new(&key)))
+                    .child(div().flex_1().min_w_0().child(Input::new(&value)))
+                    .child(
+                        Button::new(format!("ps-env-remove-{id}"))
+                            .label("−")
+                            .ghost()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.remove_program_env_row(id, cx);
+                            })),
+                    )
+                    .into_any_element(),
+            );
+        }
+        children.push(
+            row()
+                .py(px(6.))
+                .child(
+                    Button::new("ps-env-add")
+                        .label("添加环境变量")
+                        .on_click(cx.listener(|this, _, _, cx| this.add_program_env_row(cx))),
+                )
+                .into_any_element(),
+        );
+        self.section("program-env", "环境变量", children, cx)
+    }
+
+    fn program_override_sections(
+        &mut self,
+        settings: &ProgramSettingsDto,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        vec![
+            self.program_graphics_section(settings, cx),
+            self.program_sync_section(settings, cx),
+            self.program_performance_section(settings, cx),
+            self.program_input_section(settings, cx),
+            self.program_display_section(settings, window, cx),
+            self.program_dll_section(settings, window, cx),
+        ]
+    }
+
+    fn program_graphics_section(
+        &self,
+        settings: &ProgramSettingsDto,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let enabled = settings.graphics_enabled();
+        let overrides = settings.overrides.as_ref();
+        let defaults = &settings.defaults;
+        let mut children = vec![self.program_switch(
+            "ps-override-graphics".into(),
+            "覆盖图形设置",
+            enabled,
+            |this, on| this.set_program_override_group("graphics", on),
+            cx,
+        )];
+        if enabled {
+            let backend = overrides
+                .and_then(|value| value.graphics_backend.clone())
+                .or_else(|| defaults.graphics_backend.clone())
+                .unwrap_or_else(|| "recommended".into());
+            children.push(self.program_choice_row(
+                "图形后端",
+                self.program_choice(
+                    "ps-graphics-backend".into(),
+                    program_settings::graphics_label(&backend).to_owned(),
+                    GRAPHICS_BACKENDS,
+                    "graphicsBackend",
+                    cx,
+                ),
+            ));
+            let async_on = overrides
+                .and_then(|value| value.dxvk_async)
+                .or(defaults.dxvk_async)
+                .unwrap_or(true);
+            children.push(self.program_switch(
+                "ps-dxvk-async".into(),
+                "DXVK Async",
+                async_on,
+                |this, on| this.set_program_override_bool("dxvkAsync", on),
+                cx,
+            ));
+            let hud = overrides
+                .and_then(|value| value.dxvk_hud.clone())
+                .or_else(|| defaults.dxvk_hud.clone())
+                .unwrap_or_else(|| "off".into());
+            children.push(self.program_choice_row(
+                "DXVK HUD",
+                self.program_choice(
+                    "ps-dxvk-hud".into(),
+                    program_settings::hud_label(&hud).to_owned(),
+                    DXVK_HUDS,
+                    "dxvkHud",
+                    cx,
+                ),
+            ));
+            let metal4 = overrides
+                .and_then(|value| value.metal4_enabled)
+                .or(defaults.metal4_enabled)
+                .unwrap_or(false);
+            children.push(self.program_switch(
+                "ps-metal4".into(),
+                "Metal 4 命令编码",
+                metal4,
+                |this, on| this.set_program_override_bool("metal4Enabled", on),
+                cx,
+            ));
+        } else {
+            let backend = defaults.graphics_backend.as_deref().unwrap_or("recommended");
+            let hud = defaults.dxvk_hud.as_deref().unwrap_or("off");
+            children.push(
+                muted(format!(
+                    "继承：{} · HUD {}",
+                    program_settings::graphics_label(backend),
+                    program_settings::hud_label(hud)
+                ))
+                .into_any_element(),
+            );
+        }
+        self.section("override-graphics", "图形", children, cx)
+    }
+
+    fn program_sync_section(
+        &self,
+        settings: &ProgramSettingsDto,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let enabled = settings.sync_enabled();
+        let defaults = &settings.defaults;
+        let mut children = vec![self.program_switch(
+            "ps-override-sync".into(),
+            "覆盖同步设置",
+            enabled,
+            |this, on| this.set_program_override_group("sync", on),
+            cx,
+        )];
+        if enabled {
+            let sync = settings
+                .overrides
+                .as_ref()
+                .and_then(|value| value.enhanced_sync.clone())
+                .or_else(|| defaults.enhanced_sync.clone())
+                .unwrap_or_else(|| "msync".into());
+            children.push(self.program_choice_row(
+                "同步模式",
+                self.program_choice(
+                    "ps-sync-mode".into(),
+                    program_settings::sync_label(&sync).to_owned(),
+                    SYNC_MODES,
+                    "enhancedSync",
+                    cx,
+                ),
+            ));
+        } else {
+            let sync = defaults.enhanced_sync.as_deref().unwrap_or("msync");
+            children.push(
+                muted(format!("继承：{}", program_settings::sync_label(sync))).into_any_element(),
+            );
+        }
+        self.section("override-sync", "同步", children, cx)
+    }
+
+    fn program_performance_section(
+        &self,
+        settings: &ProgramSettingsDto,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let enabled = settings.performance_enabled();
+        let defaults = &settings.defaults;
+        let mut children = vec![self.program_switch(
+            "ps-override-performance".into(),
+            "覆盖性能设置",
+            enabled,
+            |this, on| this.set_program_override_group("performance", on),
+            cx,
+        )];
+        if enabled {
+            let shader_cache = settings
+                .overrides
+                .as_ref()
+                .and_then(|value| value.shader_cache_enabled)
+                .or(defaults.shader_cache_enabled)
+                .unwrap_or(true);
+            children.push(self.program_switch(
+                "ps-shader-cache".into(),
+                "着色器缓存",
+                shader_cache,
+                |this, on| this.set_program_override_bool("shaderCacheEnabled", on),
+                cx,
+            ));
+        } else {
+            children.push(
+                muted(format!(
+                    "继承：着色器缓存 {}",
+                    if defaults.shader_cache_enabled.unwrap_or(true) { "开" } else { "关" }
+                ))
+                .into_any_element(),
+            );
+        }
+        self.section("override-performance", "性能", children, cx)
+    }
+
+    fn program_input_section(
+        &self,
+        settings: &ProgramSettingsDto,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let enabled = settings.input_enabled();
+        let defaults = &settings.defaults;
+        let overrides = settings.overrides.as_ref();
+        let mut children = vec![self.program_switch(
+            "ps-override-input".into(),
+            "覆盖输入设置",
+            enabled,
+            |this, on| this.set_program_override_group("input", on),
+            cx,
+        )];
+        if enabled {
+            for (id, label, field) in [
+                ("ps-controller-compat", "控制器兼容模式", "controllerCompatibilityMode"),
+                ("ps-disable-hidapi", "禁用 HIDAPI", "disableHIDAPI"),
+                ("ps-background-events", "后台允许手柄事件", "allowBackgroundEvents"),
+                ("ps-disable-mapping", "禁用 SDL 映射", "disableControllerMapping"),
+                ("ps-button-labels", "使用原生按键标签", "useButtonLabels"),
+            ] {
+                let checked = match field {
+                    "controllerCompatibilityMode" => overrides
+                        .and_then(|value| value.controller_compatibility_mode)
+                        .or(defaults.controller_compatibility_mode)
+                        .unwrap_or(false),
+                    "disableHIDAPI" => overrides
+                        .and_then(|value| value.disable_hidapi)
+                        .or(defaults.disable_hidapi)
+                        .unwrap_or(false),
+                    "allowBackgroundEvents" => overrides
+                        .and_then(|value| value.allow_background_events)
+                        .or(defaults.allow_background_events)
+                        .unwrap_or(false),
+                    "disableControllerMapping" => overrides
+                        .and_then(|value| value.disable_controller_mapping)
+                        .or(defaults.disable_controller_mapping)
+                        .unwrap_or(false),
+                    _ => overrides
+                        .and_then(|value| value.use_button_labels)
+                        .or(defaults.use_button_labels)
+                        .unwrap_or(false),
+                };
+                children.push(self.program_switch(
+                    id.to_owned(),
+                    label,
+                    checked,
+                    move |this, on| this.set_program_override_bool(field, on),
+                    cx,
+                ));
+            }
+        } else {
+            children.push(
+                muted(format!(
+                    "继承：控制器兼容 {} · 原生标签 {}",
+                    if defaults.controller_compatibility_mode.unwrap_or(false) {
+                        "开"
+                    } else {
+                        "关"
+                    },
+                    if defaults.use_button_labels.unwrap_or(false) {
+                        "开"
+                    } else {
+                        "关"
+                    }
+                ))
+                .into_any_element(),
+            );
+        }
+        self.section("override-input", "输入", children, cx)
+    }
+
+    fn program_display_section(
+        &mut self,
+        settings: &ProgramSettingsDto,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let enabled = settings.display_enabled();
+        let defaults = &settings.defaults;
+        let overrides = settings.overrides.as_ref();
+        let mut children = vec![self.program_switch(
+            "ps-override-display".into(),
+            "覆盖显示设置",
+            enabled,
+            |this, on| this.set_program_override_group("display", on),
+            cx,
+        )];
+        if enabled {
+            let virtual_desktop = overrides
+                .and_then(|value| value.virtual_desktop_enabled)
+                .or(defaults.virtual_desktop_enabled)
+                .unwrap_or(false);
+            children.push(self.program_switch(
+                "ps-virtual-desktop".into(),
+                "启用虚拟桌面",
+                virtual_desktop,
+                |this, on| this.set_program_override_bool("virtualDesktopEnabled", on),
+                cx,
+            ));
+            if virtual_desktop {
+                let preset = overrides
+                    .and_then(|value| value.resolution_preset.clone())
+                    .or_else(|| defaults.resolution_preset.clone())
+                    .unwrap_or_else(|| "r1920x1080".into());
+                children.push(self.program_choice_row(
+                    "分辨率",
+                    self.program_choice(
+                        "ps-resolution".into(),
+                        program_settings::resolution_label(&preset).to_owned(),
+                        RESOLUTIONS,
+                        "resolutionPreset",
+                        cx,
+                    ),
+                ));
+                if preset == "custom" {
+                    let width = overrides
+                        .and_then(|value| value.custom_resolution_width)
+                        .or(defaults.custom_resolution_width)
+                        .unwrap_or(1920);
+                    let height = overrides
+                        .and_then(|value| value.custom_resolution_height)
+                        .or(defaults.custom_resolution_height)
+                        .unwrap_or(1080);
+                    let width_input = self.program_input(
+                        "ps-res-width",
+                        &width.to_string(),
+                        "1920",
+                        window,
+                        cx,
+                    );
+                    let height_input = self.program_input(
+                        "ps-res-height",
+                        &height.to_string(),
+                        "1080",
+                        window,
+                        cx,
+                    );
+                    children.push(
+                        row()
+                            .gap(px(10.))
+                            .py(px(6.))
+                            .child(div().w(px(110.)).child(Input::new(&width_input)))
+                            .child(muted("×"))
+                            .child(div().w(px(110.)).child(Input::new(&height_input)))
+                            .into_any_element(),
+                    );
+                }
+            }
+        } else {
+            children.push(
+                muted(format!(
+                    "继承：{} · {}",
+                    if defaults.virtual_desktop_enabled.unwrap_or(false) {
+                        "虚拟桌面开"
+                    } else {
+                        "虚拟桌面关"
+                    },
+                    program_settings::resolution_label(
+                        defaults.resolution_preset.as_deref().unwrap_or("r1920x1080")
+                    )
+                ))
+                .into_any_element(),
+            );
+        }
+        self.section("override-display", "显示", children, cx)
+    }
+
+    fn program_dll_section(
+        &mut self,
+        settings: &ProgramSettingsDto,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let enabled = settings.dll_enabled();
+        let mut children = vec![self.program_switch(
+            "ps-override-dll".into(),
+            "覆盖 DLL 设置",
+            enabled,
+            |this, on| this.set_program_override_group("dll", on),
+            cx,
+        )];
+        if enabled {
+            let entries = settings
+                .overrides
+                .as_ref()
+                .and_then(|value| value.dll_overrides.clone())
+                .unwrap_or_default();
+            if entries.is_empty() {
+                children.push(muted("没有程序专属 DLL 覆盖。").py(px(6.)).into_any_element());
+            }
+            for (index, entry) in entries.iter().enumerate() {
+                let mode = program_settings::dll_mode_label(&entry.mode);
+                children.push(
+                    row()
+                        .gap(px(12.))
+                        .py(px(5.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .font_family("monospace")
+                                .truncate()
+                                .child(entry.dll_name.clone()),
+                        )
+                        .child(muted(mode.to_owned()))
+                        .child(
+                            Button::new(format!("ps-dll-remove-{index}"))
+                                .label("−")
+                                .ghost()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.remove_program_dll_override(index);
+                                    cx.notify();
+                                })),
+                        )
+                        .into_any_element(),
+                );
+            }
+            let name = self.program_input("ps-dll-name", "", "例如 dxgi", window, cx);
+            let mode = self.program_settings.dll_new_mode.clone();
+            let mode_control = self.program_choice(
+                "ps-dll-new-mode".into(),
+                program_settings::dll_mode_label(&mode).to_owned(),
+                DLL_MODES,
+                "dllNewMode",
+                cx,
+            );
+            children.push(
+                row()
+                    .gap(px(10.))
+                    .py(px(8.))
+                    .child(div().flex_1().min_w_0().child(Input::new(&name)))
+                    .child(mode_control)
+                    .child(
+                        Button::new("ps-dll-add")
+                            .label("添加")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let name = this
+                                    .preview
+                                    .program_inputs
+                                    .get("ps-dll-name")
+                                    .map(|input| input.read(cx).value().to_string())
+                                    .unwrap_or_default();
+                                this.add_program_dll_override(name, cx);
+                            })),
+                    )
+                    .into_any_element(),
+            );
+        } else {
+            let count = settings
+                .defaults
+                .dll_overrides
+                .as_ref()
+                .map_or(0, Vec::len);
+            children.push(
+                muted(format!("继承：容器级 {count} 条 DLL 覆盖")).into_any_element(),
+            );
+        }
+        self.section("override-dll", "DLL 覆盖", children, cx)
+    }
+
+    fn program_history_section(&self, cx: &Context<Self>) -> AnyElement {
+        let mut children: Vec<AnyElement> = Vec::new();
+        if self.program_settings.history_loading {
+            children.push(
+                row()
+                    .gap(px(8.))
+                    .py(px(10.))
+                    .child(Spinner::new().with_size(px(14.)))
+                    .child(muted("正在读取运行历史…"))
+                    .into_any_element(),
+            );
+        } else if let Some(error) = &self.program_settings.history_error {
+            children.push(muted(error.clone()).py(px(8.)).into_any_element());
+            children.push(
+                Button::new("program-history-retry")
+                    .label("重试")
+                    .on_click(cx.listener(|this, _, _, cx| this.reload_program_history(cx)))
+                    .into_any_element(),
+            );
+        } else if self.program_settings.history.is_empty() {
+            children.push(muted("还没有运行记录。").py(px(8.)).into_any_element());
+        } else {
+            let container = self.program_settings.container.clone().unwrap_or_default();
+            for entry in self
+                .program_settings
+                .history_entries_newest_first()
+                .into_iter()
+                .cloned()
+                .collect::<Vec<RunEntryDto>>()
+            {
+                children.push(self.program_history_row(&container, &entry, cx));
+            }
+            children.push(
+                row()
+                    .py(px(6.))
+                    .child(
+                        Button::new("program-history-clear")
+                            .label("清空历史")
+                            .ghost()
+                            .on_click(cx.listener(|this, _, _, cx| this.clear_program_history(cx))),
+                    )
+                    .into_any_element(),
+            );
+        }
+        self.section("program-history", "运行历史", children, cx)
+    }
+
+    fn program_history_row(
+        &self,
+        container: &str,
+        entry: &RunEntryDto,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let log_path = entry.log_path.clone();
+        let container = container.to_owned();
+        let run_id = entry.id.clone();
+        let exit = entry
+            .exit_code
+            .map(|code| format!("退出 {code}"))
+            .unwrap_or_else(|| "运行中".to_owned());
+        row()
+            .gap(px(12.))
+            .py(px(8.))
+            .border_b_1()
+            .border_color(rgba(0xffffff08))
+            .child(
+                col()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(2.))
+                    .child(program_settings::relative_time(entry.start_time))
+                    .child(
+                        muted(format!(
+                            "{} · {}",
+                            program_settings::duration_label(entry.duration),
+                            exit
+                        ))
+                        .truncate(),
+                    ),
+            )
+            .when(!log_path.is_empty(), |d| {
+                d.child(
+                    Button::new(format!("program-log-{run_id}"))
+                        .label("打开日志")
+                        .ghost()
+                        .on_click(cx.listener(move |this, _, _, _| {
+                            this.bridge.open(&container, &log_path);
+                        })),
+                )
+            })
+            .child(
+                Button::new(format!("program-run-delete-{run_id}"))
+                    .label("删除")
+                    .ghost()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.delete_program_run(run_id.clone(), cx);
+                    })),
+            )
+            .into_any_element()
+    }
+
+    fn program_shortcut_section(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let destination = self.program_settings.shortcut_destination.clone();
+        let input = self.program_input("ps-shortcut-dest", &destination, "~/Applications", window, cx);
+        let mut children: Vec<AnyElement> = vec![
+            col()
+                .gap(px(7.))
+                .py(px(8.))
+                .child("快捷方式位置")
+                .child(Input::new(&input))
+                .into_any_element(),
+            muted("在目标目录创建可双击启动该程序的 .app。")
+                .into_any_element(),
+        ];
+        if let Some(path) = &self.program_settings.shortcut_path {
+            children.push(muted(format!("已创建：{path}")).into_any_element());
+        }
+        if let Some(error) = &self.program_settings.shortcut_error {
+            children.push(muted(error.clone()).into_any_element());
+        }
+        children.push(
+            row()
+                .py(px(6.))
+                .child(
+                    Button::new("ps-shortcut-create")
+                        .label("创建快捷方式")
+                        .on_click(cx.listener(|this, _, _, cx| this.create_program_shortcut(cx))),
+                )
+                .into_any_element(),
+        );
+        self.section("program-shortcut", "快捷方式", children, cx)
+    }
+
     /// Scan folders for one bottle. Roots, assignment, exclusion and the
     /// executable are all `folders.*` calls; the scan itself is a bridge job.
     fn scan_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -933,7 +1815,7 @@ impl WhiskyApp {
             PreviewSheet::Graphics => "高级图形设置",
         };
         let content = match sheet {
-            PreviewSheet::RunSettings(i) => self.run_settings(i, cx),
+            PreviewSheet::RunSettings(i) => self.run_settings(i, window, cx),
             PreviewSheet::Scan => self.scan_settings(window, cx),
             PreviewSheet::Executable => self.executable_picker(cx),
             PreviewSheet::Winetricks => self.winetricks_sheet(cx),
@@ -1159,22 +2041,34 @@ impl WhiskyApp {
                             .border_t_1()
                             .border_color(rgba(0xffffff0c))
                             .when(matches!(sheet, PreviewSheet::RunSettings(_)), |d| {
+                                let index = match sheet {
+                                    PreviewSheet::RunSettings(index) => index,
+                                    _ => 0,
+                                };
                                 d.child(self.action(
                                     "shortcut",
                                     "创建快捷方式",
-                                    Command::Notice,
+                                    Command::Shortcut,
                                     cx,
                                 ))
                                 .child(self.action(
                                     "reveal",
                                     "在访达中显示",
-                                    Command::Notice,
+                                    Command::Reveal(index),
                                     cx,
                                 ))
                             })
                             .child(
                                 Button::new("sheet-done")
-                                    .label(if matches!(sheet, PreviewSheet::CreateBottle) {
+                                    .label(if !self.demo
+                                        && matches!(sheet, PreviewSheet::RunSettings(_))
+                                    {
+                                        if self.program_settings.saving {
+                                            "保存中…"
+                                        } else {
+                                            "保存"
+                                        }
+                                    } else if matches!(sheet, PreviewSheet::CreateBottle) {
                                         let state = self.create_bottle.as_ref();
                                         if state.is_some_and(|s| s.running()) {
                                             "创建中…"
@@ -1200,6 +2094,11 @@ impl WhiskyApp {
                                         (matches!(sheet, PreviewSheet::CreateBottle)
                                             && self.create_bottle.as_ref().is_some_and(|s| s.running()))
                                             || (!self.demo
+                                                && matches!(sheet, PreviewSheet::RunSettings(_))
+                                                && (self.program_settings.loading
+                                                    || self.program_settings.saving
+                                                    || self.program_settings.settings.is_none()))
+                                            || (!self.demo
                                                 && matches!(sheet, PreviewSheet::Winetricks)
                                                 && self.winetricks_job().is_some_and(crate::winetricks::InstallJob::running))
                                             || (!self.demo
@@ -1224,6 +2123,14 @@ impl WhiskyApp {
                                                 // Submit the form
                                                 this.submit_create_bottle(cx);
                                             }
+                                        } else if matches!(this.preview.sheet, Some(PreviewSheet::RunSettings(_))) {
+                                            if this.demo {
+                                                this.preview.sheet = None;
+                                                this.preview.sheet_history.clear();
+                                                cx.notify();
+                                                return;
+                                            }
+                                            this.save_program_settings(cx);
                                         } else if matches!(this.preview.sheet, Some(PreviewSheet::Winetricks)) {
                                             if this.demo {
                                                 this.preview.sheet = None;

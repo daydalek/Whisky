@@ -1,8 +1,8 @@
 # GPUI port plan
 
-Status: M2 complete; M3 bottle creation and winetricks are wired. Full
-ProgramSettings and `entry.move` remain the open M3 items. This document
-tracks remaining work against the live `apps/whisky-gpui/` tree (ahead of the
+Status: M2 complete; M3 bottle creation, full ProgramSettings and winetricks
+are wired. `entry.move` remains the open M3 item. This document tracks
+remaining work against the live `apps/whisky-gpui/` tree (ahead of the
 M1-only checklist that previously lived here).
 
 ## Goal
@@ -48,7 +48,8 @@ GPUI product alongside it.
   - [x] create bottle (bridge job with refreshed catalogue)
   - [x] winetricks list/install (catalog + installed reads, headless install
         job with progress, cancel and per-verb results)
-  - [ ] full ProgramSettings (args, locale, DLL overrides, shortcuts, history)
+  - [x] full ProgramSettings (args, locale, environment, overrides, DLL
+        overrides, shortcut creation, run history)
   - [ ] `entry.move`
 - [ ] **M4** application settings, localization, native menus, menu-bar extra,
       about, file-open/drag-drop, window restore
@@ -70,7 +71,6 @@ when new.
 | Metadata search, attach, detach, custom cover | `GameMetadata`, … | M5 | |
 | Bottle rename, import, delete, copy, migrate, scan orphans | `BottleSettings`, registry | M5 | `bottle.create` exists (native, `--enable-wine`) |
 | Move a library entry to another bottle | New `entry.move` | M3 | |
-| Full `ProgramSettings` | `ProgramSettings`, … | M3 | Run-settings sheet is still demo |
 | Activity write side beyond rating | `GameActivity`, … | M2 note | Rating write done; play time via tracker |
 | Steam download snapshot and subscribe | `SteamDownloadSnapshot`, … | M5 | |
 | Diagnostics report, log, fixes | `TroubleshootingSession`, … | M5 | |
