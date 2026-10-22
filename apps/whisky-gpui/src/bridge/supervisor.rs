@@ -2169,6 +2169,10 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                     }
                 }
                 Some(Command::ConfigureRuntime(container)) => {
+                    // File-only hosts can select containers and complete lifecycle jobs.
+                    if !describe.methods.iter().any(|method| method == "runtime.configure") {
+                        continue;
+                    }
                     match configure_runtime(&mut client, &container) {
                         Ok(snapshot) => {
                             // Configure is the only wholesale replace: the new

@@ -88,6 +88,10 @@ def main():
         interrupt = runpy.run_path(str(Path(__file__).with_name('check-recovery.py')))['interrupt_copy']
         with (output / 'interruption-helper.log').open('w') as interruption_log:
             interrupted_destination = interrupt(args.helper.resolve(), bottle, registry, env, interruption_log)
+    if args.scenario == 'lifecycle':
+        env['WHISKY_REAL_HELPER'] = env['WHISKY_BRIDGE_HELPER']
+        env['WHISKY_REQUEST_LOG'] = str(fixture / 'requests.jsonl')
+        env['WHISKY_BRIDGE_HELPER'] = str(Path(__file__).with_name('record-helper.py').resolve())
     report = {'steps': [], 'passed': False}
     app = None
     try:
@@ -218,6 +222,9 @@ def main():
                 assert marker.read_bytes() != before
                 snapshot('bottle-renamed')
                 report['steps'].append('production-sidebar-rename-persists-real-metadata')
+                exercise = runpy.run_path(str(Path(__file__).with_name('lifecycle-window.py')))['exercise']
+                exercise(window, app, fixture, bottle, registry, snapshot)
+                report['steps'].append('production-sidebar-export-cancel-move-duplicate-deregister-delete-preserves-external-data')
             if metadata_path is not None:
                 assert json.loads(metadata_path.read_text())['title'] == 'Linux Artwork Fixture'
                 run('xdotool', 'mousemove', '--window', window, '300', '150', 'click', '3')
@@ -322,6 +329,13 @@ def main():
             saved = json.loads((fixture / 'window.json').read_text())
             assert saved['width'] >= 800 and saved['height'] >= 580, saved
             report['steps'].append('ctrl-q-and-window-persistence')
+            if args.scenario == 'lifecycle':
+                requests = [json.loads(line) for line in (fixture / 'requests.jsonl').read_text().splitlines()]
+                methods = {request['method'] for request in requests}
+                assert {'bottle.move', 'bottle.duplicate', 'bottle.export', 'bottle.remove'}.issubset(methods), methods
+                assert 'runtime.configure' not in methods, methods
+                report['recordedMethods'] = sorted(methods)
+                report['steps'].append('recorded-production-requests-honor-file-only-host-capabilities')
             report['passed'] = True
     except Exception as error:
         report['error'] = str(error)

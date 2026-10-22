@@ -250,8 +250,8 @@ Evidence under `build/portability/gui-linux/` includes
 observed journal. The verified recovery scope is helper-process termination.
 
 The subsequent stages below cover orphan discovery/import, portable route
-updates and interrupted-export cleanup. Remaining lifecycle UI actions continue
-as required work.
+updates and interrupted-export cleanup. The complete file-lifecycle window
+stage below supplies the remaining file-operation UI acceptance.
 
 ## Existing-container discovery and import stage
 
@@ -287,7 +287,8 @@ the process gate and window scenario. Local evidence includes
 
 The candidate-selection stage below adds batch import to this discovery API.
 Portable route updates and interrupted-export cleanup are covered by the
-subsequent stages; remaining lifecycle UI actions continue as required work.
+subsequent stages; file-operation UI acceptance appears in the complete
+lifecycle window stage.
 
 ## Portable route consistency stage
 
@@ -325,7 +326,7 @@ records remain under `linux-gpui/lifecycle/` and `linux-gpui/recovery/`. The new
 route assertions run through the existing CI process gates.
 
 The export stage below covers interruption cleanup. Required work continues
-with the remaining lifecycle UI and the other desktop/host services.
+with the complete lifecycle window stage and the other desktop/host services.
 
 ## Export interruption and process supervision stage
 
@@ -369,8 +370,8 @@ under `build/portability/gui-linux/` includes `export-macos.log`,
 `export-final-tests-linux.log`, `linux-gpui/export-recovery/`,
 `linux-gpui/pickers-export/` and `linux-gpui/export-import-window/`.
 
-Required work continues with the remaining lifecycle UI, library, metadata,
-diagnostics, host and distribution gates below.
+Subsequent stages cover the lifecycle window. Required work continues with the
+library, metadata, diagnostics, host and distribution gates below.
 
 ## Discovered-container selection stage
 
@@ -405,6 +406,33 @@ evidence under `build/portability/gui-linux/` includes
 `candidates-final-macos-bridge.log`, `candidates-final-macos-rust.log`,
 `candidates-final-windows.log`, `linux-gpui/candidates-window/` and
 `linux-gpui/candidates-manual-window/`.
+
+## Complete container file-lifecycle window stage
+
+The production Linux sidebar now has headless acceptance for rename, archive
+export, move cancellation, move through a GTK directory chooser, duplicate,
+deregistration with retained files, and physical deletion. The test reads back
+the real registry after each operation, checks migrated pinned paths, preserved
+opaque metadata and program settings, verifies the archived payload hash, and
+confirms that external symlink targets and the deregistered clone survive
+physical deletion. All fixture data stays under a fresh test directory.
+
+Window acceptance exposed an automatic `runtime.configure` call when a moved
+or duplicated container became selected on a file-only host. The supervisor
+now checks the session's advertised methods before issuing that call. A test-only
+transparent recorder forwards requests to the real Swift helper; the complete
+window run asserts that file lifecycle requests reach production and that the
+file-only session issues zero runtime configuration requests. Runtime-enabled
+hosts retain the existing configuration flow.
+
+Verification runs 122 GPUI tests on macOS and ARM Ubuntu, rebuilds the Linux
+frontend, and drives the full lifecycle window under Xvfb. Screenshots cover the
+archive chooser, moved and duplicated bottles, both deletion dialogs and their
+persisted results, followed by settings/sidebar shortcuts and graceful exit.
+CI's existing lifecycle-window step runs this expanded scenario and retains the
+request trace. Local evidence lives in `build/portability/gui-linux/`:
+`lifecycle-capability-macos.log`, `full-lifecycle-window-final.log` and
+`linux-gpui/full-lifecycle-window/`.
 
 ## Reproduce
 
@@ -449,7 +477,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Library and configuration | Shared storage tests; empty production window and CLI | Seeded-library folder edits through the native chooser, persisted ratings/visibility and refresh/recovery |
 | Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux shortcut creation is tracked under host integration; broader UI override editing remains in the desktop gate |
 | Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
-| Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; production rename, recovery, native import and candidate batch-selection UI | Remaining lifecycle UI actions |
+| Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; complete production file-lifecycle window flow, recovery and candidate import UI | Additional platform coverage follows the desktop acceptance matrix |
 | Host integration | XDG registry/preferences; file open/reveal adapter; GTK file/folder/save dialogs | Terminal discovery, desktop/file associations and capability-aware settings |
 | Diagnostics | macOS report/check adapter | Linux host information, file export and appropriate platform checks |
 | Distribution | macOS `.app` packaging | Linux relocatable bundle with both native helpers, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |
