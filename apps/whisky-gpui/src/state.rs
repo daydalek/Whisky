@@ -547,6 +547,16 @@ impl WhiskyApp {
                     }
                 }
             }
+            BridgeEvent::ContainersRefreshed(containers) => {
+                if !self.demo {
+                    self.apply_refreshed_containers(containers);
+                }
+            }
+            BridgeEvent::ActionFailed { reason } => {
+                if !self.demo {
+                    self.show_notice(reason, cx);
+                }
+            }
             BridgeEvent::Runtime(update) => {
                 if !self.demo {
                     // A poll for the previous container must not leak into the
@@ -1356,8 +1366,82 @@ impl WhiskyApp {
                     self.open_executable_picker(i, false, cx);
                 }
             }
+            Command::Reveal(i) => {
+                if self.demo {
+                    self.show_notice(DEMO_NOTICE, cx);
+                } else if let Some(game) = self.game(i)
+                    && let Some(path) = game.executable.as_ref()
+                {
+                    self.bridge
+                        .reveal(&game.container, &path.to_string_lossy());
+                }
+            }
+            Command::OpenDrive => {
+                if self.demo {
+                    self.show_notice(DEMO_NOTICE, cx);
+                } else if let Some(bottle) = self.selected_bottle.and_then(|i| self.bottles.get(i)) {
+                    let drive = std::path::Path::new(&bottle.path).join("drive_c");
+                    self.bridge.open(&bottle.path, &drive.to_string_lossy());
+                }
+            }
+            Command::RefreshLibrary => {
+                if self.demo {
+                    self.show_notice(DEMO_NOTICE, cx);
+                } else {
+                    self.refresh_library(cx);
+                }
+            }
         }
         cx.notify();
+    }
+
+    /// The library's Refresh: SwiftUI reloads its bottles and re-reads every
+    /// entry. Cards stay on screen while each bottle's reply replaces them.
+    pub(crate) fn refresh_library(&mut self, cx: &mut Context<Self>) {
+        match self.bridge_status {
+            BridgeStatus::Connected { .. } => {
+                self.load_error = None;
+                self.bridge.reload_library();
+            }
+            // Without a session a refresh is a reconnect, as the retry path is.
+            _ => self.retry_library(cx),
+        }
+    }
+
+    /// Apply a catalogue re-read without discarding the runtime session:
+    /// bottles keep their selection by path, caches of removed bottles are
+    /// dropped, and every remaining bottle is re-read.
+    fn apply_refreshed_containers(&mut self, containers: Vec<crate::bridge::dto::Container>) {
+        let previous = self
+            .selected_bottle
+            .and_then(|index| self.bottles.get(index).map(|bottle| bottle.path.clone()));
+        self.bottles = containers
+            .into_iter()
+            .map(|container| BottleVm {
+                path: container.path,
+                name: container.name,
+                available: container.available,
+            })
+            .collect();
+        self.selected_bottle =
+            previous.and_then(|path| self.bottles.iter().position(|bottle| bottle.path == path));
+        let bottles = &self.bottles;
+        self.bottle_entries.retain(|path, games| {
+            match bottles.iter().position(|bottle| &bottle.path == path) {
+                Some(index) => {
+                    // Slots are positional, so a reordered catalogue renumbers.
+                    for game in games.iter_mut() {
+                        game.bottle = index + 1;
+                    }
+                    true
+                }
+                None => false,
+            }
+        });
+        self.failures.clear();
+        self.pending.clear();
+        self.rebuild_entries();
+        self.request_all();
     }
 
     fn toggle_option(&mut self, key: &'static str, cx: &mut Context<Self>) {

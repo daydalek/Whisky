@@ -27,7 +27,7 @@ impl WhiskyApp {
             .p(px(14.))
             .border_t_1()
             .border_color(rgba(0xffffff0d))
-            .child(self.action("bottle-c-drive", "打开 C: 盘", Command::Notice, cx))
+            .child(self.action("bottle-c-drive", "打开 C: 盘", Command::OpenDrive, cx))
             .child(self.action(
                 "bottle-tricks",
                 "Winetricks…",

@@ -133,6 +133,13 @@ pub(crate) enum BridgeEvent {
     Status(BridgeStatus),
     /// The container catalogue, emitted once per connected session.
     Containers(Vec<Container>),
+    /// The catalogue re-read by an explicit Refresh in the same session: the
+    /// runtime session survives, unlike `Containers`.
+    ContainersRefreshed(Vec<Container>),
+    /// A one-shot host action (reveal, open, …) the helper refused.
+    ActionFailed {
+        reason: String,
+    },
     /// Entries for one container path, in bridge order.
     Entries {
         container: String,
@@ -355,6 +362,16 @@ enum Command {
     CancelScan,
     /// Window activation: polling pauses while the app is in the background.
     SetActive(bool),
+    /// Re-read the bottle catalogue and drop the cached entries, as the
+    /// SwiftUI library's Refresh reloads its bottles.
+    ReloadLibrary,
+    /// `system.reveal` (Finder selection) or `system.open`. `path` defaults to
+    /// the container itself on the helper side.
+    System {
+        container: String,
+        path: Option<String>,
+        reveal: bool,
+    },
 }
 
 enum Wake {
@@ -595,6 +612,29 @@ impl BridgeSupervisor {
 
     pub(crate) fn set_active(&self, active: bool) {
         let _ = self.commands.send(Command::SetActive(active));
+    }
+
+    /// Re-read `workspace.containers`; the reply is `ContainersRefreshed`.
+    pub(crate) fn reload_library(&self) {
+        let _ = self.commands.send(Command::ReloadLibrary);
+    }
+
+    /// Select `path` in Finder (`system.reveal`).
+    pub(crate) fn reveal(&self, container: &str, path: &str) {
+        let _ = self.commands.send(Command::System {
+            container: container.to_owned(),
+            path: Some(path.to_owned()),
+            reveal: true,
+        });
+    }
+
+    /// Open `path` with its default application (`system.open`).
+    pub(crate) fn open(&self, container: &str, path: &str) {
+        let _ = self.commands.send(Command::System {
+            container: container.to_owned(),
+            path: Some(path.to_owned()),
+            reveal: false,
+        });
     }
 }
 
@@ -1417,6 +1457,38 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         // Nothing to cancel: the sheet only offers it while a
                         // job is live.
                         None => eprintln!("whisky-bridge: no scan to cancel"),
+                    }
+                }
+                Some(Command::ReloadLibrary) => {
+                    // A refresh must re-read: the cached snapshot predates it.
+                    cache = None;
+                    match fetch_containers(&mut client) {
+                        Ok(containers) => {
+                            log_container_names(&containers);
+                            emit_event(&events, BridgeEvent::ContainersRefreshed(containers));
+                        }
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::ActionFailed { reason });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::System {
+                    container,
+                    path,
+                    reveal,
+                }) => {
+                    let method = if reveal { "system.reveal" } else { "system.open" };
+                    let mut params = json!({ "container": container });
+                    if let Some(path) = path {
+                        params["path"] = json!(path);
+                    }
+                    match client.call(method, params).map_err(classify) {
+                        Ok(_) => {}
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::ActionFailed { reason });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
                 }
             }

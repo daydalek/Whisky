@@ -32,6 +32,12 @@ pub(crate) enum Command {
     Reorder,
     Notice,
     Hide(usize),
+    /// Select the entry's executable (or folder) in Finder.
+    Reveal(usize),
+    /// Open the selected bottle's `drive_c` in Finder.
+    OpenDrive,
+    /// Re-read the bottle catalogue and every bottle's entries.
+    RefreshLibrary,
 }
 #[derive(Clone)]
 struct MenuEntry {
@@ -132,7 +138,7 @@ impl WhiskyApp {
                     .checked(self.flag("show-hidden")),
             );
             items.push(MenuEntry::separator(cx.entity().downgrade()));
-            items.push(self.menu_item("刷新", Command::Notice, cx));
+            items.push(self.menu_item("刷新", Command::RefreshLibrary, cx));
         } else {
             items.push(self.menu_item(
                 "Configure Bottle",
@@ -167,6 +173,9 @@ impl WhiskyApp {
         let game = self.game(index);
         let hidden = game.is_some_and(|game| game.hidden);
         let is_folder = game.is_some_and(|game| game.is_folder);
+        // SwiftUI offers Show in Finder only for program entries (pinned or
+        // folder), which are exactly the ones that carry a path.
+        let has_path = game.is_some_and(|game| game.executable.is_some());
         let mut items = vec![
             self.menu_item("运行", Command::Runtime(index), cx),
             MenuEntry::separator(cx.entity().downgrade()),
@@ -181,10 +190,14 @@ impl WhiskyApp {
                 Command::Sheet(PreviewSheet::RunSettings(index)),
                 cx,
             ),
-            self.menu_item("在访达中显示", Command::Notice, cx),
+        ];
+        if has_path {
+            items.push(self.menu_item("在访达中显示", Command::Reveal(index), cx));
+        }
+        items.extend([
             MenuEntry::separator(cx.entity().downgrade()),
             self.menu_item("配置容器", Command::Configure(index), cx),
-        ];
+        ]);
         // Only a folder entry runs something the user picked; a pin or a Steam
         // app already names its own executable.
         if is_folder {
