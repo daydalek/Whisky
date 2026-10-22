@@ -9,7 +9,10 @@ import threading
 
 
 child = subprocess.Popen([os.environ['WHISKY_REAL_HELPER']], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-Path(os.environ['WHISKY_SETTINGS_CHILD_PID']).write_text(str(child.pid))
+pid_file = Path(os.environ['WHISKY_SETTINGS_CHILD_PID'])
+pending_pid = pid_file.with_name(pid_file.name + '.' + str(os.getpid()))
+pending_pid.write_text(str(child.pid))
+pending_pid.replace(pid_file)
 excluded = set(json.loads(Path(os.environ['WHISKY_SETTINGS_EXCLUDED']).read_text()))
 
 

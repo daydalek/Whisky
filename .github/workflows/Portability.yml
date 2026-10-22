@@ -34,7 +34,7 @@ jobs:
     name: GPUI / Linux / headless
     runs-on: ubuntu-latest
     container: swift:6.4.0-noble
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       CC: /usr/bin/clang-21
       CXX: /usr/bin/clang-21
@@ -151,6 +151,16 @@ jobs:
             python3 apps/whisky-gpui/tools/smoke-pickers.py \
               --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
               --output "$WHISKY_LINUX_OUTPUT/pickers"
+      - name: Build a relocatable Linux release archive with sources
+        env:
+          WHISKY_LINUX_RELEASE_OUTPUT: /tmp/whisky-linux-release
+        run: bash apps/whisky-gpui/tools/build-linux-release.sh
+      - name: Preserve Linux release archive
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: linux-gpui-release
+          compression-level: 0
+          path: /tmp/whisky-linux-release/whisky-linux-*.tar.gz
       - name: Preserve Linux evidence
         if: always()
         uses: actions/upload-artifact@v7.0.2
@@ -320,3 +330,44 @@ jobs:
         with:
           name: macos-bridge-evidence
           path: build/portability/gpui-foundation/*.log
+
+  linux-package-runtime:
+    name: Linux release / clean Ubuntu runtime
+    needs: linux-gpui
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux-gpui-release
+          path: linux-release
+      - name: Build the clean runtime acceptance image
+        run: |
+          docker build --target acceptance -t whisky-package-acceptance \
+            -f apps/whisky-gpui/tools/linux-runtime.Dockerfile apps/whisky-gpui/tools
+      - name: Verify the relocated release as an unprivileged user with network disabled
+        run: |
+          archive="$(find "$PWD/linux-release" -maxdepth 1 -name 'whisky-linux-*.tar.gz' -print -quit)"
+          test -f "$archive"
+          docker run --name whisky-package-acceptance --network none \
+            --mount "type=bind,src=$archive,dst=/archive.tar.gz,readonly" \
+            --mount "type=bind,src=$PWD/apps/whisky-gpui/tools,dst=/tests,readonly" \
+            whisky-package-acceptance python3 /tests/check-linux-package.py \
+              --archive /archive.tar.gz --output /evidence --gui
+      - name: Collect clean-runtime evidence
+        if: always()
+        run: docker cp whisky-package-acceptance:/evidence package-evidence
+      - name: Preserve clean-runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: linux-package-runtime-evidence
+          path: |
+            package-evidence/report.json
+            package-evidence/*.log
+            package-evidence/*/report.json
+            package-evidence/*/*.log
+            package-evidence/*/*.png
+            package-evidence/*/fixture-*/requests.jsonl
+            package-evidence/*/fixture-*/data/applications/*.desktop

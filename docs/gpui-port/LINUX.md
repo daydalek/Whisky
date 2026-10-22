@@ -709,6 +709,96 @@ runtime exclusion throughout this flow. Local evidence includes
 `linux-gpui/settings-window/` under `build/portability/gui-linux/`.
 CI retains the scenario report, screenshots, application log and request trace.
 
+## Relocatable Linux release bundle
+
+`apps/whisky-gpui/tools/build-linux-release.sh` builds the production Rust
+frontend and all three SwiftPM executable products in Release mode. SwiftPM
+resolution takes place in an isolated source copy, keeping the checkout's
+platform-specific lock graph intact. Packaging requires `patchelf`; development
+dependency installation includes it. Choose a fresh
+`WHISKY_LINUX_RELEASE_OUTPUT` for each artifact set.
+
+The archive contains a `Whisky/` directory with a `Whisky` shell launcher,
+`bin/whisky-gpui`, `bin/whisky-bridge`, `bin/whisky-file-picker`,
+`bin/whisky-host-command` and the resolved Swift runtime closure under
+`lib/swift`. Copied programs use `$ORIGIN/../lib/swift`; copied runtime libraries
+use `$ORIGIN`. Both the launcher and the direct frontend binary resolve the
+sibling helper after the entire directory moves. Launcher symlinks resolve to
+the current bundle location. GTK, graphics drivers, fonts, certificates and
+host tools, including GIO from `libglib2.0-bin`, come from the Ubuntu 24.04 packages listed in
+`linux-runtime-packages.txt`; `install-linux-runtime-deps.sh` installs that list.
+
+All payloads have explicit archive permissions: directories and program entry
+points use `0755`, ordinary files use `0644`. This covers OrbStack shared volumes
+whose new-file mode can otherwise be `0666`. Existing artifact paths are
+preserved and packaging requires new bundle/archive destinations. The archive
+is published by an exclusive hard link after compression finishes.
+
+`manifest.json` records file sizes, modes, SHA-256 hashes, architecture,
+compiler versions, original binary/runtime hashes, source commit, dirty-tree
+status and the exact application source snapshot hash. The bundle carries
+application sources plus the resolved Rust `.crate` source archives, each
+checked against `Cargo.lock`, and supplied crate license/notice texts and
+manifest declarations. The Swift toolchain license and the full
+[upstream ICU 76.1 license and notices](https://github.com/unicode-org/icu/blob/release-76-1/LICENSE)
+are preserved. Packaging checks the installed Foundation ICU header against the
+available license version. Copied ELF RUNPATH modifications are documented.
+
+The `linux-runtime.Dockerfile` builds a separate Ubuntu 24.04 runtime image and
+an acceptance stage with virtual-display tools. The acceptance checker requires
+an ordinary user and verifies that Swift/Cargo and the source/build workspace
+are absent. Its container runs with network disabled. It safely unpacks the
+archive, validates all payloads, starts both entry points with helper/runtime
+overrides cleared, moves the whole bundle to a Unicode path containing quotes,
+spaces, shell characters and `%f`, then launches through an external symlink.
+ELF dependency resolution must point into the moved Swift library directory.
+An intentional payload edit verifies manifest rejection before fixture repair.
+
+The same checker runs the packaged native picker modes, settings service
+reconnects, desktop upgrade/GIO second-window handoff and real interactive
+terminal flow, then checks that bundle files retain their original contents.
+The settings test helper publishes its child PID by atomic replacement so
+reconnect observation sees complete records on both shared and native volumes.
+CI uploads the release archive and passes it to a separate clean-runtime job;
+that job retains reports, logs, request traces, generated entries and screenshots.
+The download step follows the
+[official artifact action usage](https://github.com/actions/download-artifact#usage).
+
+Build and check on Ubuntu 24.04:
+
+```sh
+WHISKY_LINUX_RELEASE_OUTPUT="$PWD/build/linux-release-run" \
+  bash apps/whisky-gpui/tools/build-linux-release.sh
+docker build --target acceptance -t whisky-package-acceptance \
+  -f apps/whisky-gpui/tools/linux-runtime.Dockerfile apps/whisky-gpui/tools
+docker run --name whisky-package-acceptance --network none \
+  --mount "type=bind,src=$PWD/build/linux-release-run/whisky-linux-$(uname -m).tar.gz,dst=/archive.tar.gz,readonly" \
+  --mount "type=bind,src=$PWD/apps/whisky-gpui/tools,dst=/tests,readonly" \
+  whisky-package-acceptance python3 /tests/check-linux-package.py \
+    --archive /archive.tar.gz --output /evidence --gui
+docker cp whisky-package-acceptance:/evidence build/linux-package-evidence
+```
+
+Local artifacts live under `build/portability/gui-linux/linux-release/`.
+Evidence includes `package-release-build.log`, `package-distribution-build.log`,
+`package-runtime-image-final.log`, `package-runtime-complete-build.log` and
+`package-runtime-complete-check.log`. The final ARM64 run passes all 13 checks
+in 60.14 seconds as UID 10001 with network disabled. Its complete evidence is
+under `package-runtime-verified/`, including the root report, picker report,
+three production-window reports, request traces and screenshots. The tested
+archive is `linux-release/whisky-linux-aarch64-runtime-complete.tar.gz`, SHA-256
+`b4d513173dbd638bb472bd11a3214bc20fac062a9b96e9a2738d654be4b5e1d7`.
+It contains four executable products, 16 Swift libraries, 557 locked Rust source
+archives and 1,486 manifest payloads. Application binaries were compiled from
+`95ae744`; the manifest records the local packaging-tool work as a dirty source
+tree and hashes the corresponding source snapshot. Existing-output and invalid
+ELF checks also pass, with evidence in `package-input-check.log` and
+`linux-release/input-validation.json`.
+
+The local gate proves ARM64 Ubuntu 24.04/X11 software-rendered operation.
+The x86_64 hosted job is configured and awaits its first remote run; additional
+distributions and Wayland remain in the desktop acceptance matrix.
+
 ## Reproduce
 
 Use an Ubuntu 24.04 environment with Swift 6.4 and Rust 1.99.1. Install the
@@ -755,7 +845,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; complete production file-lifecycle window flow, recovery and candidate import UI | Additional platform coverage follows the desktop acceptance matrix |
 | Host integration | XDG preferences; file open/reveal; GTK dialogs; real terminal/window acceptance; managed desktop updates, legacy shortcut upgrade and stable relocation | Additional terminal/desktop environments; settings now follow connected helper services |
 | Diagnostics | Native macOS adapter; Linux bounded host/file report, platform checks, exclusive export and production-window acceptance | Additional desktop platform coverage follows the acceptance matrix |
-| Distribution | macOS `.app` packaging | Linux relocatable bundle with both native helpers, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |
+| Distribution | macOS `.app` packaging; ARM64 Linux Release archive with Swift libraries, native helpers, source/license evidence and unprivileged clean-Ubuntu CLI/window acceptance | First x86_64 hosted archive/runtime run and additional distributions |
 | Desktop acceptance | ARM64 X11 virtual display with Mesa | Seeded end-to-end interactions, restart/recovery and Wayland coverage; x86_64 hosted CI evidence |
 
 Wine installation, Windows process execution and game compatibility follow the
