@@ -29,7 +29,7 @@ struct SettingsView: View {
     @AppStorage("libraryDetailBlurredBackground") private var blurredDetailBackground = true
     @AppStorage("librarySingleLineTitles") private var singleLineTitles = false
     @AppStorage("libraryCenterWideCoverText") private var centerCoverText = false
-    @AppStorage("libraryMixedCoverLayout") private var mixedCoverLayout = false
+    @AppStorage("libraryMixedCoverLayout") private var mixedCoverLayout = true
     @AppStorage("libraryCoverFillStyle") private var coverFillStyle = "blurred"
     @AppStorage("libraryBlurredCoverFill") private var blurredCoverFill = true
     @AppStorage("preferredTerminal") var preferredTerminal = "terminal"

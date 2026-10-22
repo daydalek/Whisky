@@ -313,6 +313,45 @@ private struct Fixture {
     ) }
 }
 
+@Test @MainActor func preferenceSchemaCoversTheSwiftUIAppStorageSurface() throws {
+    let name = "com.whisky.preferences.schema.\(UUID())"
+    let defaults = try #require(UserDefaults(suiteName: name))
+    defer { defaults.removePersistentDomain(forName: name) }
+    let service = PreferencesService(defaults: defaults, defaultBottleDirectory: URL(fileURLWithPath: "/tmp/Bottles"))
+    let schema = try service.call("preferences.schema", params: [:])
+    let booleans = try #require(schema.object?["booleans"]?.object)
+    let strings = try #require(schema.object?["strings"]?.object)
+    for key in [
+        "offlineMode", "killOnTerminate", "showMenuBarExtra", "checkWhiskyWineUpdates",
+        "libraryRefreshAfterExit", "libraryDetailBlurredBackground", "librarySingleLineTitles",
+        "libraryCenterWideCoverText", "libraryMixedCoverLayout", "libraryBlurredCoverFill"
+    ] {
+        #expect(booleans[key] != nil)
+    }
+    for key in [
+        "preferredTerminal", "libraryCoverFillStyle", "libraryDisplayMode", "librarySort",
+        "libraryDetailLayoutStyle", "libraryMetadataEnabledSources", "telemetryConsent"
+    ] {
+        #expect(strings[key] != nil)
+    }
+    #expect(booleans["libraryMixedCoverLayout"] == .bool(true))
+    #expect(strings["libraryDisplayMode"] == .string("covers"))
+    let read = try service.call("preferences.read", params: [:])
+    #expect(read.object?["librarySort"] == .string("recent"))
+    #expect(read.object?["defaultBottleLocation"] == .string("/tmp/Bottles"))
+    defaults.set("/tmp/Chosen Bottles", forKey: "defaultBottleLocation")
+    _ = try service.call("preferences.set", params: [
+        "key": .string("libraryDisplayMode"), "value": .string("timeline")
+    ])
+    let updated = try service.call("preferences.read", params: [:])
+    #expect(updated.object?["libraryDisplayMode"] == .string("timeline"))
+    #expect(updated.object?["defaultBottleLocation"] == .string("/tmp/Chosen Bottles"))
+    #expect(throws: BridgeFailure.self) { try service.call(
+        "preferences.set",
+        params: ["key": .string("telemetryConsent"), "value": .bool(true)]
+    ) }
+}
+
 @Test @MainActor func explicitShutdownClosesSessionAndRemainsIdempotent() async {
     let service = ApplicationService(workspace: ApplicationWorkspace())
     let reply = await service.respond(.init(id: "1", method: "bridge.shutdown"))

@@ -24,13 +24,25 @@ public final class PreferencesService {
     public static let methods = ["preferences.read", "preferences.set", "preferences.schema"]
     private let defaults: UserDefaults
     private let defaultBottleDirectory: URL
+    /// Every boolean `@AppStorage` the SwiftUI app reads. `libraryMixedCoverLayout`
+    /// defaults to `true` here because that is the value `LibraryView` renders
+    /// with when the key is absent; the settings form must show the same state.
     private static let flags: [String: Bool] = [
         "offlineMode": false, "killOnTerminate": true, "showMenuBarExtra": false,
         "checkWhiskyWineUpdates": true, "libraryRefreshAfterExit": true,
         "libraryDetailBlurredBackground": true, "librarySingleLineTitles": false,
-        "libraryCenterWideCoverText": false, "libraryMixedCoverLayout": false, "libraryBlurredCoverFill": true
+        "libraryCenterWideCoverText": false, "libraryMixedCoverLayout": true, "libraryBlurredCoverFill": true
     ]
-    private static let texts: [String: String] = ["preferredTerminal": "terminal", "libraryCoverFillStyle": "blurred"]
+    /// String-backed preferences. Values mirror the Swift enums (`LibraryDisplayMode`,
+    /// `LibrarySort`, `LibraryDetailLayoutStyle`) and `TerminalApp` raw values.
+    private static let texts: [String: String] = [
+        "preferredTerminal": "terminal", "libraryCoverFillStyle": "blurred",
+        "libraryDisplayMode": "covers", "librarySort": "recent",
+        "libraryDetailLayoutStyle": "hero",
+        "libraryMetadataEnabledSources": "bangumi,vndb,steam,ymgal",
+        "telemetryConsent": "undecided"
+    ]
+    private static let pathKeys = ["defaultBottleLocation"]
     public init(defaults: UserDefaults, defaultBottleDirectory: URL) {
         self.defaults = defaults
         self.defaultBottleDirectory = defaultBottleDirectory
@@ -41,7 +53,7 @@ public final class PreferencesService {
             return .object([
                 "booleans": .object(Self.flags.mapValues(JSONValue.bool)),
                 "strings": .object(Self.texts.mapValues(JSONValue.string)),
-                "paths": .array([.string("defaultBottleLocation")])
+                "paths": .array(Self.pathKeys.map(JSONValue.string))
             ])
         }
         if method == "preferences.set" {
@@ -66,8 +78,9 @@ public final class PreferencesService {
         for (key, fallback) in Self.texts {
             values[key] = .string(defaults.string(forKey: key) ?? fallback)
         }
-        values["defaultBottleLocation"] =
-            .string((defaults.url(forKey: "defaultBottleLocation") ?? defaultBottleDirectory).path)
+        let storedLocation = defaults.url(forKey: "defaultBottleLocation")?.path
+            ?? defaults.string(forKey: "defaultBottleLocation")
+        values["defaultBottleLocation"] = .string(storedLocation ?? defaultBottleDirectory.path)
         return .object(values)
     }
 }
