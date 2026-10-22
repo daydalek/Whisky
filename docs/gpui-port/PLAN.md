@@ -1,9 +1,10 @@
 # GPUI port plan
 
-Status: M2 complete; M3 bottle creation, full ProgramSettings and winetricks
-are wired. `entry.move` remains the open M3 item. This document tracks
-remaining work against the live `apps/whisky-gpui/` tree (ahead of the
-M1-only checklist that previously lived here).
+Status: M2 and M3 complete. The GPUI client covers the library, runtime,
+bottle creation, full ProgramSettings, Winetricks and `entry.move`. M4 is
+next. This document tracks remaining work against the live
+`apps/whisky-gpui/` tree (ahead of the M1-only checklist that previously
+lived here).
 
 ## Goal
 
@@ -42,7 +43,7 @@ GPUI product alongside it.
       drive, folder executable picker
   - Remaining M2 notes: activity write APIs beyond rating are tracker side
     effects + library reload; `entry.move` deferred to M3 gap table
-- [ ] **M3** bottle surfaces
+- [x] **M3** bottle surfaces
   - [x] schema-driven configuration, folder scan jobs, programs, processes,
         environment
   - [x] create bottle (bridge job with refreshed catalogue)
@@ -50,7 +51,7 @@ GPUI product alongside it.
         job with progress, cancel and per-verb results)
   - [x] full ProgramSettings (args, locale, environment, overrides, DLL
         overrides, shortcut creation, run history)
-  - [ ] `entry.move`
+  - [x] `entry.move`
 - [ ] **M4** application settings, localization, native menus, menu-bar extra,
       about, file-open/drag-drop, window restore
 - [ ] **M5** remaining parity: metadata search/attach, DLL overrides, shortcuts,
@@ -70,7 +71,6 @@ when new.
 | --- | --- | --- | --- |
 | Metadata search, attach, detach, custom cover | `GameMetadata`, … | M5 | |
 | Bottle rename, import, delete, copy, migrate, scan orphans | `BottleSettings`, registry | M5 | `bottle.create` exists (native, `--enable-wine`) |
-| Move a library entry to another bottle | New `entry.move` | M3 | |
 | Activity write side beyond rating | `GameActivity`, … | M2 note | Rating write done; play time via tracker |
 | Steam download snapshot and subscribe | `SteamDownloadSnapshot`, … | M5 | |
 | Diagnostics report, log, fixes | `TroubleshootingSession`, … | M5 | |

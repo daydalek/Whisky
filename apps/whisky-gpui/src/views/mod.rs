@@ -36,6 +36,8 @@ pub(crate) enum Command {
     Reveal(usize),
     /// Create a macOS shortcut for the entry's executable.
     Shortcut,
+    /// Move an entry into another bottle.
+    Move(usize),
     /// Open the selected bottle's `drive_c` in Finder.
     OpenDrive,
     /// Re-read the bottle catalogue and every bottle's entries.
@@ -202,15 +204,15 @@ impl WhiskyApp {
             MenuEntry::separator(cx.entity().downgrade()),
             self.menu_item("配置容器", Command::Configure(index), cx),
         ]);
+        if has_path && !game.is_some_and(|game| game.id.starts_with("steam:")) {
+            items.push(self.menu_item("移动到容器…", Command::Move(index), cx));
+        }
         // Only a folder entry runs something the user picked; a pin or a Steam
         // app already names its own executable.
         if is_folder {
             items.push(MenuEntry::separator(cx.entity().downgrade()));
             items.push(self.menu_item("选择启动程序…", Command::Executable(index), cx));
         }
-        // `entry.move` is not exposed by the bridge, so there is deliberately
-        // no "target bottle" submenu: a local-only move would be a lie. It is
-        // recorded as an M3 gap instead.
         move |mut menu, _, _| {
             for item in &items {
                 menu = menu.item(item.build());

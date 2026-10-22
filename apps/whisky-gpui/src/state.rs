@@ -127,10 +127,22 @@ pub(crate) enum PreviewSheet {
     Executable,
     Winetricks,
     CreateBottle,
+    /// Choose another bottle to re-home one library entry.
+    MoveEntry(usize),
     Diagnostics,
     Audio,
     Dll,
     Graphics,
+}
+
+/// One `entry.move` request while its target picker is open.
+pub(crate) struct MoveEntryState {
+    pub(crate) title: String,
+    pub(crate) source_container: String,
+    pub(crate) entry_id: String,
+    pub(crate) pending: bool,
+    pub(crate) target_container: Option<String>,
+    pub(crate) error: Option<String>,
 }
 pub(crate) struct PreviewState {
     pub(crate) page: PreviewPage,
@@ -311,6 +323,8 @@ pub(crate) struct WhiskyApp {
     pub(crate) winetricks: WinetricksState,
     /// Draft of the program whose run-settings sheet is open.
     pub(crate) program_settings: ProgramSettingsPage,
+    /// The pending library-entry move, while its target picker is open.
+    pub(crate) move_entry: Option<MoveEntryState>,
     /// `defaultBottleLocation` from preferences, used as `bottle.create`'s parent.
     pub(crate) default_bottle_location: Option<String>,
     /// Key that "编辑" put in the env inputs; saving with a different name
@@ -407,6 +421,7 @@ impl WhiskyApp {
             create_bottle: None,
             winetricks: WinetricksState::default(),
             program_settings: ProgramSettingsPage::default(),
+            move_entry: None,
             default_bottle_location: Self::default_bottle_location(),
             env_original: None,
             env_clear_on_reply: false,
@@ -466,6 +481,11 @@ impl WhiskyApp {
         self.preview.program_inputs.clear();
         self.preview.config_resets.clear();
         self.program_settings = ProgramSettingsPage::default();
+        self.move_entry = None;
+        if matches!(self.preview.sheet, Some(PreviewSheet::MoveEntry(_))) {
+            self.preview.sheet = None;
+            self.preview.sheet_history.clear();
+        }
         self.folders.clear();
         self.folders_pending.clear();
         self.folders_error.clear();
@@ -1265,6 +1285,36 @@ impl WhiskyApp {
                     self.show_notice(reason, cx);
                 }
             }
+            BridgeEvent::EntryMoved {
+                source_container,
+                target_container,
+            } => {
+                let matches = self.move_entry.as_ref().is_some_and(|state| {
+                    state.source_container == source_container
+                        && state.target_container.as_deref() == Some(target_container.as_str())
+                });
+                if matches {
+                    self.move_entry = None;
+                    self.preview.sheet = None;
+                    self.preview.sheet_history.clear();
+                    self.show_notice("已移动条目，正在刷新游戏库", cx);
+                    self.refresh_library(cx);
+                }
+            }
+            BridgeEvent::EntryMoveFailed {
+                source_container,
+                target_container,
+                reason,
+            } => {
+                if let Some(state) = self.move_entry.as_mut()
+                    && state.source_container == source_container
+                    && state.target_container.as_deref() == Some(target_container.as_str())
+                {
+                    state.pending = false;
+                    state.error = Some(reason.clone());
+                }
+                self.show_notice(reason, cx);
+            }
         }
         self.loading = self.compute_loading();
         cx.notify();
@@ -1637,6 +1687,13 @@ impl WhiskyApp {
                     self.show_notice(DEMO_NOTICE, cx);
                 } else {
                     self.create_program_shortcut(cx);
+                }
+            }
+            Command::Move(i) => {
+                if self.demo {
+                    self.show_notice(DEMO_NOTICE, cx);
+                } else {
+                    self.open_preview_sheet(PreviewSheet::MoveEntry(i), cx);
                 }
             }
             Command::OpenDrive => {
@@ -2040,6 +2097,48 @@ impl WhiskyApp {
         if self.winetricks.job.as_ref().is_some_and(InstallJob::running) {
             self.bridge.cancel_winetricks();
         }
+        cx.notify();
+    }
+
+    /// Capture the entry the move picker will act on.
+    pub(crate) fn prepare_move_entry(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.demo {
+            return;
+        }
+        let Some(game) = self.game(index).cloned() else {
+            return;
+        };
+        if game.id.starts_with("steam:") || game.executable.is_none() {
+            self.move_entry = None;
+            self.preview.sheet = None;
+            self.preview.sheet_history.clear();
+            self.show_notice("Steam 条目不能移动到其他容器", cx);
+            return;
+        }
+        self.move_entry = Some(MoveEntryState {
+            title: game.title,
+            source_container: game.container,
+            entry_id: game.id,
+            pending: false,
+            target_container: None,
+            error: None,
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn start_move_entry(&mut self, target: String, cx: &mut Context<Self>) {
+        let Some(state) = self.move_entry.as_mut() else {
+            return;
+        };
+        if state.pending {
+            return;
+        }
+        state.pending = true;
+        state.error = None;
+        state.target_container = Some(target.clone());
+        let source = state.source_container.clone();
+        let entry_id = state.entry_id.clone();
+        self.bridge.move_entry(&source, &entry_id, &target);
         cx.notify();
     }
 
@@ -3211,6 +3310,9 @@ impl WhiskyApp {
         }
         if let PreviewSheet::RunSettings(index) = sheet {
             self.open_program_settings(index, cx);
+        }
+        if let PreviewSheet::MoveEntry(index) = sheet {
+            self.prepare_move_entry(index, cx);
         }
         if sheet == PreviewSheet::Winetricks {
             // A finished job is a result surface, not a permanent lock: opening

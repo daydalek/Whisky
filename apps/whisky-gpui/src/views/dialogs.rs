@@ -1795,6 +1795,81 @@ impl WhiskyApp {
     }
 
 
+    fn move_entry_sheet(&self, cx: &Context<Self>) -> AnyElement {
+        let Some(state) = self.move_entry.as_ref() else {
+            return self.form(
+                "move-entry-scroll",
+                vec![self.section(
+                    "move-entry",
+                    "选择目标容器",
+                    vec![muted("没有待移动的条目。").into_any_element()],
+                    cx,
+                )],
+            );
+        };
+        let mut rows: Vec<AnyElement> = vec![self.info("条目", state.title.clone())];
+        if state.pending {
+            rows.push(
+                row()
+                    .gap(px(8.))
+                    .py(px(8.))
+                    .child(Spinner::new().with_size(px(14.)))
+                    .child(muted("正在移动并复制设置、元数据与游玩记录…"))
+                    .into_any_element(),
+            );
+        }
+        if let Some(error) = &state.error {
+            rows.push(muted(error.clone()).py(px(8.)).into_any_element());
+        }
+        let mut targets = 0;
+        for bottle in self
+            .bottles
+            .iter()
+            .filter(|bottle| bottle.path != state.source_container)
+        {
+            targets += 1;
+            let path = bottle.path.clone();
+            let selected = state.target_container.as_deref() == Some(path.as_str());
+            let button = if selected {
+                Button::new(format!("move-target:{path}"))
+                    .label(if state.pending { "移动中…" } else { "移动" })
+                    .primary()
+            } else {
+                Button::new(format!("move-target:{path}"))
+                    .label("移动")
+            };
+            rows.push(
+                row()
+                    .gap(px(14.))
+                    .p(px(10.))
+                    .my(px(3.))
+                    .rounded(px(8.))
+                    .bg(rgba(0xffffff05))
+                    .border_1()
+                    .border_color(rgba(0xffffff08))
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(3.))
+                            .child(div().font_weight(FontWeight::MEDIUM).child(bottle.name.clone()))
+                            .child(muted(bottle.path.clone()).truncate()),
+                    )
+                    .child(button.disabled(state.pending).on_click(cx.listener(
+                        move |this, _, _, cx| this.start_move_entry(path.clone(), cx),
+                    )))
+                    .into_any_element(),
+            );
+        }
+        if targets == 0 {
+            rows.push(muted("没有其他容器可接收该条目。").py(px(8.)).into_any_element());
+        }
+        self.form(
+            "move-entry-scroll",
+            vec![self.section("move-entry", "选择目标容器", rows, cx)],
+        )
+    }
+
     pub(crate) fn preview_sheet(
         &mut self,
         sheet: PreviewSheet,
@@ -1809,6 +1884,7 @@ impl WhiskyApp {
             PreviewSheet::Executable => "选择启动程序",
             PreviewSheet::Winetricks => "Winetricks",
             PreviewSheet::CreateBottle => "创建容器",
+            PreviewSheet::MoveEntry(_) => "移动到容器",
             PreviewSheet::Diagnostics => "故障排查",
             PreviewSheet::Audio => "音频故障排查",
             PreviewSheet::Dll => "DLL 覆盖",
@@ -1816,6 +1892,7 @@ impl WhiskyApp {
         };
         let content = match sheet {
             PreviewSheet::RunSettings(i) => self.run_settings(i, window, cx),
+            PreviewSheet::MoveEntry(_) => self.move_entry_sheet(cx),
             PreviewSheet::Scan => self.scan_settings(window, cx),
             PreviewSheet::Executable => self.executable_picker(cx),
             PreviewSheet::Winetricks => self.winetricks_sheet(cx),
@@ -2068,6 +2145,12 @@ impl WhiskyApp {
                                         } else {
                                             "保存"
                                         }
+                                    } else if matches!(sheet, PreviewSheet::MoveEntry(_)) {
+                                        if self.move_entry.as_ref().is_some_and(|state| state.pending) {
+                                            "移动中…"
+                                        } else {
+                                            "取消"
+                                        }
                                     } else if matches!(sheet, PreviewSheet::CreateBottle) {
                                         let state = self.create_bottle.as_ref();
                                         if state.is_some_and(|s| s.running()) {
@@ -2098,6 +2181,8 @@ impl WhiskyApp {
                                                 && (self.program_settings.loading
                                                     || self.program_settings.saving
                                                     || self.program_settings.settings.is_none()))
+                                            || (matches!(sheet, PreviewSheet::MoveEntry(_))
+                                                && self.move_entry.as_ref().is_some_and(|state| state.pending))
                                             || (!self.demo
                                                 && matches!(sheet, PreviewSheet::Winetricks)
                                                 && self.winetricks_job().is_some_and(crate::winetricks::InstallJob::running))

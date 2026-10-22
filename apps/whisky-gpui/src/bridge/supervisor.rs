@@ -353,6 +353,15 @@ pub(crate) enum BridgeEvent {
         executable: String,
         reason: String,
     },
+    EntryMoved {
+        source_container: String,
+        target_container: String,
+    },
+    EntryMoveFailed {
+        source_container: String,
+        target_container: String,
+        reason: String,
+    },
 }
 
 enum Command {
@@ -475,6 +484,11 @@ enum Command {
         container: String,
         executable: String,
         destination: String,
+    },
+    MoveEntry {
+        source_container: String,
+        entry_id: String,
+        target_container: String,
     },
     /// Window activation: polling pauses while the app is in the background.
     SetActive(bool),
@@ -771,6 +785,20 @@ impl BridgeSupervisor {
             container: container.to_owned(),
             executable: executable.to_owned(),
             destination: destination.to_owned(),
+        });
+    }
+
+    /// `entry.move`: re-home a pinned or folder entry in another bottle.
+    pub(crate) fn move_entry(
+        &self,
+        source_container: &str,
+        entry_id: &str,
+        target_container: &str,
+    ) {
+        let _ = self.commands.send(Command::MoveEntry {
+            source_container: source_container.to_owned(),
+            entry_id: entry_id.to_owned(),
+            target_container: target_container.to_owned(),
         });
     }
 
@@ -2055,6 +2083,40 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                             BridgeEvent::ProgramShortcutFailed {
                                 container,
                                 executable,
+                                reason,
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::MoveEntry {
+                    source_container,
+                    entry_id,
+                    target_container,
+                }) => {
+                    match client
+                        .call(
+                            "entry.move",
+                            json!({
+                                "container": source_container,
+                                "entryID": entry_id,
+                                "targetContainer": target_container,
+                            }),
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(_) => emit_event(
+                            &events,
+                            BridgeEvent::EntryMoved {
+                                source_container,
+                                target_container,
+                            },
+                        ),
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::EntryMoveFailed {
+                                source_container,
+                                target_container,
                                 reason,
                             },
                         ),
