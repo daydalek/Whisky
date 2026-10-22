@@ -276,6 +276,12 @@ pub(crate) struct FoldersDto {
     pub(crate) known_folders: Vec<String>,
     #[serde(default)]
     pub(crate) automatic_metadata: bool,
+    #[serde(default = "default_true")]
+    pub(crate) include_pinned_and_steam: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl FoldersDto {
@@ -387,6 +393,202 @@ pub(crate) struct JobStartDto {
     pub(crate) job_id: String,
 }
 
+/// `system.choosePath`: the caller's purpose echoed back plus the selection.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PathReplyDto {
+    #[serde(default)]
+    pub(crate) purpose: String,
+    #[serde(default)]
+    pub(crate) path: Option<String>,
+}
+
+/// The completed result of a `bottle.*` lifecycle job. Fields the operation
+/// does not produce are absent.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BottleOperationResultDto {
+    #[serde(default)]
+    pub(crate) path: Option<String>,
+    #[serde(default)]
+    pub(crate) name: Option<String>,
+}
+
+/// `bottle.diagnostics` job result.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct DiagnosticsReportDto {
+    #[serde(default)]
+    pub(crate) report: String,
+}
+
+/// One finding from the Wine audio probe.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AudioFindingDto {
+    #[serde(default)]
+    pub(crate) description: String,
+    #[serde(default)]
+    pub(crate) suggested_action: Option<String>,
+}
+
+/// `audio.test` job result: the Wine stack probe plus any findings.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AudioResultDto {
+    #[serde(default)]
+    pub(crate) status: String,
+    #[serde(default)]
+    pub(crate) summary: String,
+    #[serde(default)]
+    pub(crate) evidence: Vec<String>,
+    #[serde(default)]
+    pub(crate) findings: Vec<AudioFindingDto>,
+}
+
+/// One troubleshooting check result from `bottle.checks`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TroubleshootingCheckDto {
+    #[serde(rename = "checkID", default)]
+    pub(crate) check_id: String,
+    #[serde(default)]
+    pub(crate) outcome: String,
+    #[serde(default)]
+    pub(crate) summary: String,
+    #[serde(default)]
+    pub(crate) evidence: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct ChecksReplyDto {
+    #[serde(default)]
+    pub(crate) checks: Vec<TroubleshootingCheckDto>,
+}
+
+/// `setup.status` and the completed `setup.install` job.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SetupStatusDto {
+    #[serde(default)]
+    pub(crate) installed: bool,
+    #[serde(default)]
+    pub(crate) version: Option<String>,
+    #[serde(default)]
+    pub(crate) path: String,
+    #[serde(default)]
+    pub(crate) rosetta_installed: bool,
+    #[serde(default)]
+    pub(crate) apple_silicon: bool,
+}
+
+/// One provider's slice of a `metadata.search` job result. `games` stay as
+/// raw JSON so applying a candidate echoes the provider snapshot verbatim.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct MetadataSearchGroupDto {
+    #[serde(default)]
+    pub(crate) source: String,
+    #[serde(default)]
+    pub(crate) error: Option<String>,
+    #[serde(default)]
+    pub(crate) games: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct MetadataSearchReplyDto {
+    #[serde(default)]
+    pub(crate) results: Vec<MetadataSearchGroupDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct MetadataSyncReplyDto {
+    #[serde(default)]
+    pub(crate) matched: u64,
+    #[serde(default)]
+    pub(crate) failed: u64,
+}
+
+/// One GameDB recommendation and the diff it would apply.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GameDbMatchDto {
+    #[serde(default)]
+    pub(crate) entry: Value,
+    #[serde(default)]
+    pub(crate) confidence: f64,
+    #[serde(default)]
+    pub(crate) explanation: String,
+    #[serde(default)]
+    pub(crate) variant_id: String,
+    #[serde(default)]
+    pub(crate) changes: Vec<ConfigChangeDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ConfigChangeDto {
+    #[serde(default)]
+    pub(crate) category: String,
+    #[serde(default)]
+    pub(crate) setting: String,
+    #[serde(default)]
+    pub(crate) current: String,
+    #[serde(default)]
+    pub(crate) next: String,
+    #[serde(default)]
+    pub(crate) high_impact: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GameConfigMatchReplyDto {
+    #[serde(default)]
+    pub(crate) matches: Vec<GameDbMatchDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GameConfigApplyReplyDto {
+    #[serde(default)]
+    pub(crate) pending_verbs: Vec<String>,
+    #[serde(default)]
+    pub(crate) changes: Vec<ConfigChangeDto>,
+}
+
+/// A search hit with its provider snapshot retained for `metadata.apply`.
+#[derive(Debug, Clone)]
+pub(crate) struct MetadataCandidate {
+    pub(crate) raw: Value,
+    pub(crate) title: String,
+    pub(crate) developer: String,
+    pub(crate) release_date: String,
+    pub(crate) summary: String,
+}
+
+impl MetadataCandidate {
+    pub(crate) fn from_value(value: Value) -> Option<Self> {
+        let title = value.get("title")?.as_str()?.to_owned();
+        Some(Self {
+            developer: value
+                .get("developer")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            release_date: value
+                .get("releaseDate")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            summary: value
+                .get("summary")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            raw: value,
+            title,
+        })
+    }
+}
+
 /// `BridgeFailure` as `jobs.get` encodes it in `error`.
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct BridgeFailureDto {
@@ -479,6 +681,10 @@ pub(crate) struct EntryDto {
     pub(crate) icon: Option<String>,
     #[serde(default)]
     pub(crate) hidden: bool,
+    /// A storefront client rather than a game; sorted below the games
+    /// (`LibraryEntry.isLauncher`, `EntryRecord.isLauncher`).
+    #[serde(default)]
+    pub(crate) is_launcher: bool,
     #[serde(default)]
     pub(crate) metadata: Option<MetadataDto>,
     #[serde(default)]
@@ -560,14 +766,14 @@ impl EntryDto {
             .find_map(existing_file)
     }
 
+    /// A linked metadata title wins over the folder-derived name.
     pub(crate) fn title(&self) -> &str {
-        if !self.name.is_empty() {
-            return &self.name;
-        }
         self.metadata
             .as_ref()
             .and_then(|metadata| metadata.title.as_deref())
-            .unwrap_or("")
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .unwrap_or(&self.name)
     }
 
     /// Map a wire entry onto the view model. `bottle` is the one-based sidebar
@@ -611,6 +817,7 @@ impl EntryDto {
             needs_executable: self.needs_executable,
             container: self.container.unwrap_or_default(),
             last_session_ended_at: self.activity.last_session_ended_at(),
+            is_launcher: self.is_launcher,
         }
     }
 }
@@ -912,7 +1119,9 @@ mod tests {
         assert_eq!(air.executable, None);
 
         let eden = entries[2].clone().into_game(1);
-        assert_eq!(eden.title, "eden*");
+        // `title()` prefers the linked metadata title over the folder-derived
+        // name, so the scraped full title wins here.
+        assert_eq!(eden.title, "Saltlight");
         assert_eq!(eden.rating, Some(8));
         assert_eq!(eden.play_time, Some(84));
         assert!(eden.last_played.is_some());
@@ -1025,6 +1234,7 @@ mod tests {
             source: None,
             icon: Some("/definitely/missing-icon.png".into()),
             hidden: false,
+            is_launcher: false,
             metadata: None,
             activity: ActivityDto::default(),
             cover: Some(cover.into()),

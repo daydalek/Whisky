@@ -15,7 +15,7 @@ use crate::controls::*;
 use crate::runtime::ClipboardDecision;
 use crate::program_settings::{self, ProgramSettingsDto, RunEntryDto};
 use crate::scan::{self, JobStatus};
-use crate::state::{PreviewSheet, ScanState, WhiskyApp};
+use crate::state::{BottleDialogKind, PreviewSheet, ScanState, WhiskyApp};
 use crate::theme::{MUTED, OVERLAY, RADIUS_LG, SURFACE, SURFACE_BORDER};
 use crate::winetricks::{category_label, filtered_verbs};
 
@@ -391,7 +391,7 @@ impl WhiskyApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let rows = self.program_settings.env_rows.clone();
-        let mut children: Vec<AnyElement> = Vec::new();
+        let mut children: Vec<AnyElement> = vec![self.program_env_presets(cx)];
         if rows.is_empty() {
             children.push(muted("没有程序专属环境变量。").py(px(8.)).into_any_element());
         }
@@ -439,6 +439,110 @@ impl WhiskyApp {
                 .into_any_element(),
         );
         self.section("program-env", "环境变量", children, cx)
+    }
+
+    /// One selectable pill of the quick-add presets.
+    fn preset_chip(
+        &self,
+        id: String,
+        label: &'static str,
+        selected: bool,
+        on_click: impl Fn(&mut WhiskyApp, &mut Context<WhiskyApp>) + 'static,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        row()
+            .id(SharedString::from(id))
+            .gap(px(5.))
+            .items_center()
+            .h(px(26.))
+            .px(px(11.))
+            .rounded(px(13.))
+            .border_1()
+            .cursor_pointer()
+            .text_size(px(12.))
+            .border_color(rgba(if selected { 0xff891b99 } else { 0xffffff1f }))
+            .bg(rgba(if selected { 0xff891b26 } else { 0xffffff08 }))
+            .text_color(rgb(if selected { 0xffffff } else { 0xc4c4c9 }))
+            .hover(|s| s.bg(rgba(if selected { 0xff891b33 } else { 0xffffff14 })))
+            .when(selected, |d| {
+                d.child(icon("check", 11.).text_color(rgb(crate::theme::ACCENT)))
+            })
+            .child(label)
+            .on_click(cx.listener(move |this, _, _, cx| on_click(this, cx)))
+            .into_any_element()
+    }
+
+    /// Quick presets from the SwiftUI editor: locale and WineD3D renderer.
+    /// They rewrite LANG/LC_ALL and WINE_D3D_CONFIG in the draft rows below.
+    fn program_env_presets(&self, cx: &Context<Self>) -> AnyElement {
+        let locale = self
+            .program_settings
+            .settings
+            .as_ref()
+            .map(|settings| settings.locale.clone())
+            .unwrap_or_default();
+        let lang = self.program_env_value("LANG").map(str::to_owned);
+        let lc_all = self.program_env_value("LC_ALL").map(str::to_owned);
+        let locale_selected = |value: &str| {
+            if value.is_empty() {
+                locale.is_empty() && lang.is_none() && lc_all.is_none()
+            } else {
+                locale == value
+                    && lang.as_deref() == Some(value)
+                    && lc_all.as_deref() == Some(value)
+            }
+        };
+        let mut locales = row().gap(px(8.)).flex_wrap();
+        for (value, label) in [
+            ("ja_JP.UTF-8", "日本語"),
+            ("zh_CN.UTF-8", "简体中文"),
+            ("zh_TW.UTF-8", "繁體中文"),
+            ("", "自动"),
+        ] {
+            locales = locales.child(self.preset_chip(
+                format!("env-locale-{value}"),
+                label,
+                locale_selected(value),
+                move |this, cx| this.set_program_locale(value.to_owned(), cx),
+                cx,
+            ));
+        }
+        let renderer = self.program_d3d_renderer();
+        let mut renderers = row().gap(px(8.)).flex_wrap();
+        for (value, label) in [
+            ("", "默认"),
+            ("gdi", "GDI"),
+            ("gl", "OpenGL"),
+            ("vulkan", "Vulkan"),
+        ] {
+            renderers = renderers.child(self.preset_chip(
+                format!("env-renderer-{value}"),
+                label,
+                renderer.as_deref() == Some(value),
+                move |this, cx| this.set_program_renderer(value, cx),
+                cx,
+            ));
+        }
+        let group = |title: &'static str, chips: Div| {
+            col()
+                .gap(px(7.))
+                .child(muted(title).text_size(px(11.)).font_weight(FontWeight::SEMIBOLD))
+                .child(chips)
+        };
+        col()
+            .gap(px(14.))
+            .py(px(8.))
+            .child(group("语言区域", locales))
+            .child(
+                group("WineD3D 渲染器", renderers)
+            )
+            .child(
+                muted("预设会写入下方的 LANG、LC_ALL 与 WINE_D3D_CONFIG；渲染器仅在使用 WineD3D 时生效，其他 WineD3D 选项会保留。")
+                    .text_size(px(11.))
+                    .line_height(relative(1.4)),
+            )
+            .child(div().h(px(1.)).bg(rgba(SURFACE_BORDER)).mt(px(2.)))
+            .into_any_element()
     }
 
     fn program_override_sections(
@@ -1038,14 +1142,44 @@ impl WhiskyApp {
         let mut rows: Vec<AnyElement> = Vec::new();
         match self.folders.get(&container).cloned() {
             Some(folders) => {
-                rows.push(self.info(
-                    "自动读取元数据",
-                    if folders.automatic_metadata {
-                        "已启用"
-                    } else {
-                        "已关闭"
-                    },
-                ));
+                rows.push(
+                    row()
+                        .py(px(10.))
+                        .gap(px(16.))
+                        .child(div().flex_1().min_w_0().child("自动读取元数据"))
+                        .child(
+                            Switch::new("scan-automatic-metadata")
+                                .checked(folders.automatic_metadata)
+                                .on_change(cx.listener(|this, checked, _, cx| {
+                                    this.edit_folder(
+                                        FolderEdit::AutomaticMetadata(*checked),
+                                        cx,
+                                    );
+                                })),
+                        )
+                        .into_any_element(),
+                );
+                rows.push(
+                    row()
+                        .py(px(10.))
+                        .gap(px(16.))
+                        .child(
+                            col()
+                                .flex_1()
+                                .min_w_0()
+                                .gap(px(3.))
+                                .child("包含固定程序与 Steam 游戏")
+                                .child(muted("关闭后游戏库只显示扫描文件夹中的游戏。").text_size(px(11.))),
+                        )
+                        .child(
+                            Switch::new("scan-include-pinned-steam")
+                                .checked(folders.include_pinned_and_steam)
+                                .on_change(cx.listener(|this, checked, _, cx| {
+                                    this.edit_folder(FolderEdit::Visibility(*checked), cx);
+                                })),
+                        )
+                        .into_any_element(),
+                );
                 if folders.roots.is_empty() {
                     rows.push(muted("尚未添加扫描文件夹").into_any_element());
                 }
@@ -1057,13 +1191,28 @@ impl WhiskyApp {
                         .gap(px(10.))
                         .py(px(10.))
                         .child(
+                            Button::new("scan-add-picker")
+                                .label("选择文件夹…")
+                                .primary()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.choose_scan_roots(cx);
+                                })),
+                        )
+                        .child(muted("可多选，从容器 C: 盘开始").text_size(px(11.)))
+                        .into_any_element(),
+                );
+                rows.push(
+                    row()
+                        .gap(px(10.))
+                        .py(px(10.))
+                        .child(
                             div()
                                 .flex_1()
                                 .child(Input::new(&self.preview.inputs["scan-path"])),
                         )
                         .child(
                             Button::new("scan-add")
-                                .label("添加文件夹")
+                                .label("添加路径")
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     let path =
                                         this.preview.inputs["scan-path"].read(cx).value().to_string();
@@ -1129,6 +1278,38 @@ impl WhiskyApp {
         let remove_root = root.to_owned();
         let executable_root = root.to_owned();
         let executable_key = format!("scan-exe:{root}");
+        let other_bottles: Vec<(usize, String)> = self
+            .bottles
+            .iter()
+            .enumerate()
+            .filter(|(_, bottle)| bottle.available && bottle.path != container)
+            .map(|(index, bottle)| (index, bottle.name.clone()))
+            .collect();
+        let move_button = if other_bottles.is_empty() {
+            None
+        } else {
+            let view = cx.entity().downgrade();
+            let menu_root = root.to_owned();
+            Some(
+                Button::new(format!("scan-move:{root}"))
+                    .label("移动…")
+                    .ghost()
+                    .dropdown_menu(move |mut menu, _, _| {
+                        for (index, name) in other_bottles.clone() {
+                            let view = view.clone();
+                            let menu_root = menu_root.clone();
+                            menu = menu.item(PopupMenuItem::new(name).on_click(
+                                move |_, _, cx| {
+                                    let _ = view.update(cx, |this, cx| {
+                                        this.move_scan_root(&menu_root, index, cx);
+                                    });
+                                },
+                            ));
+                        }
+                        menu
+                    }),
+            )
+        };
         col()
             .gap(px(8.))
             .py(px(10.))
@@ -1171,6 +1352,7 @@ impl WhiskyApp {
                                 );
                             })),
                     )
+                    .when_some(move_button, |d, button| d.child(button))
                     .child(
                         Button::new(format!("scan-remove:{root}"))
                             .label("−")
@@ -1922,6 +2104,259 @@ impl WhiskyApp {
         )
     }
 
+    /// Metadata search, cover choice and local GameDB recommendations for the
+    /// card that opened the sheet.
+    fn game_info_sheet(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let Some(page) = self.game_info.as_ref() else {
+            return div().into_any_element();
+        };
+        let title = page.title.clone();
+        let searching = page.searching;
+        let applying = page.applying;
+        let error = page.error.clone();
+        let groups = page.groups.clone();
+        let matches = page.matches.clone();
+        let config_message = page.config_message.clone();
+        let input = self.game_info_input(window, cx);
+
+        let search_row = row()
+            .id("metadata-search-row")
+            .gap(px(8.))
+            .py(px(8.))
+            .child(div().flex_1().min_w_0().child(Input::new(&input)))
+            .child(
+                Button::new("metadata-search")
+                    .label(if searching { "搜索中…" } else { "搜索" })
+                    .primary()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.command(Command::MetadataSearch, cx);
+                    })),
+            )
+            .into_any_element();
+
+        let mut metadata_rows = vec![
+            self.info("当前标题", title.clone()),
+            search_row,
+            self.metadata_source_row(cx),
+        ];
+        if searching {
+            metadata_rows.push(
+                row()
+                    .gap(px(8.))
+                    .py(px(8.))
+                    .child(Spinner::new().with_size(px(14.)))
+                    .child(muted("正在向 Steam、Bangumi、VNDB 与月幕查询…"))
+                    .into_any_element(),
+            );
+        }
+        if let Some(error) = &error {
+            metadata_rows.push(muted(error.clone()).into_any_element());
+        }
+        for (group_index, group) in groups.iter().enumerate() {
+            metadata_rows.push(
+                muted(source_label(&group.source))
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .mt(px(6.))
+                    .into_any_element(),
+            );
+            if let Some(provider_error) = &group.error {
+                metadata_rows
+                    .push(muted(format!("查询失败：{provider_error}")).text_size(px(11.)).into_any_element());
+            }
+            for (game_index, candidate) in group.games.iter().enumerate() {
+                let mut details = candidate.developer.clone();
+                if !candidate.release_date.is_empty() {
+                    if !details.is_empty() {
+                        details.push_str(" · ");
+                    }
+                    details.push_str(&candidate.release_date);
+                }
+                metadata_rows.push(
+                    row()
+                        .gap(px(12.))
+                        .p(px(10.))
+                        .my(px(3.))
+                        .rounded(px(8.))
+                        .bg(rgba(0xffffff05))
+                        .border_1()
+                        .border_color(rgba(0xffffff08))
+                        .child(
+                            col()
+                                .flex_1()
+                                .min_w_0()
+                                .gap(px(3.))
+                                .child(
+                                    div()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .truncate()
+                                        .child(candidate.title.clone()),
+                                )
+                                .when(!details.is_empty(), |d| d.child(muted(details).text_size(px(11.))))
+                                .when(!candidate.summary.is_empty(), |d| {
+                                    d.child(
+                                        muted(candidate.summary.clone())
+                                            .text_size(px(11.))
+                                            .line_clamp(2),
+                                    )
+                                }),
+                        )
+                        .child(
+                            Button::new(format!("metadata-apply:{group_index}:{game_index}"))
+                                .label("应用")
+                                .disabled(applying)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.command(
+                                        Command::MetadataApply(group_index, game_index),
+                                        cx,
+                                    );
+                                })),
+                        )
+                        .into_any_element(),
+                );
+            }
+        }
+        if groups.is_empty() && !searching {
+            metadata_rows.push(
+                muted("输入名称开始搜索；候选资料来自各站点的公开接口。")
+                    .text_size(px(11.))
+                    .into_any_element(),
+            );
+        }
+        metadata_rows.push(
+            row()
+                .justify_end()
+                .py(px(6.))
+                .child(self.action(
+                    "metadata-clear",
+                    "取消关联元数据",
+                    Command::MetadataClear,
+                    cx,
+                ))
+                .into_any_element(),
+        );
+
+        let cover_rows = vec![
+            muted("自定义封面优先于在线元数据封面；导入后图片会复制到容器内，原文件可以移动或删除。")
+                .text_size(px(11.))
+                .into_any_element(),
+            row()
+                .gap(px(8.))
+                .py(px(8.))
+                .child(self.action("cover-import", "选择本地图片…", Command::MetadataCover, cx))
+                .child(self.action(
+                    "cover-reset",
+                    "恢复默认封面",
+                    Command::MetadataCoverReset,
+                    cx,
+                ))
+                .when(applying, |d| d.child(Spinner::new().with_size(px(14.))))
+                .into_any_element(),
+        ];
+
+        let mut config_rows: Vec<AnyElement> = Vec::new();
+        match matches {
+            None => {
+                config_rows.push(
+                    row()
+                        .gap(px(8.))
+                        .py(px(8.))
+                        .child(Spinner::new().with_size(px(14.)))
+                        .child(muted("正在匹配本地 GameDB…"))
+                        .into_any_element(),
+                );
+            }
+            Some(matches) if matches.is_empty() => {
+                config_rows.push(
+                    muted("本地 GameDB 中没有匹配条目。仍可使用在线元数据或手动调整运行设置。")
+                        .into_any_element(),
+                );
+            }
+            Some(matches) => {
+                for (index, matched) in matches.iter().enumerate() {
+                    let entry_title = matched
+                        .entry
+                        .get("title")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("GameDB 条目");
+                    let rating = matched
+                        .entry
+                        .get("rating")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("");
+                    let mut detail = format!("{:.0}% 匹配", matched.confidence * 100.);
+                    if !rating.is_empty() {
+                        detail.push_str(" · ");
+                        detail.push_str(&compat_label(rating));
+                    }
+                    let mut rows = vec![
+                        row()
+                            .gap(px(12.))
+                            .child(
+                                col()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .gap(px(3.))
+                                    .child(div().font_weight(FontWeight::MEDIUM).child(entry_title.to_owned()))
+                                    .child(muted(detail).text_size(px(11.)))
+                                    .when(!matched.explanation.is_empty(), |d| {
+                                        d.child(muted(matched.explanation.clone()).text_size(px(11.)))
+                                    }),
+                            )
+                            .child(
+                                Button::new(format!("gamedb-apply:{index}"))
+                                    .label("应用推荐配置")
+                                    .primary()
+                                    .disabled(applying)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.command(Command::GameDbApply(index), cx);
+                                    })),
+                            )
+                            .into_any_element(),
+                    ];
+                    for change in &matched.changes {
+                        rows.push(
+                            muted(format!(
+                                "{}{} · {}：{} → {}",
+                                if change.high_impact { "⚠ " } else { "" },
+                                change.category,
+                                change.setting,
+                                change.current,
+                                change.next
+                            ))
+                            .text_size(px(11.))
+                            .into_any_element(),
+                        );
+                    }
+                    config_rows.push(
+                        col()
+                            .gap(px(6.))
+                            .p(px(10.))
+                            .my(px(3.))
+                            .rounded(px(8.))
+                            .bg(rgba(0xffffff05))
+                            .border_1()
+                            .border_color(rgba(0xffffff08))
+                            .children(rows)
+                            .into_any_element(),
+                    );
+                }
+            }
+        }
+        if let Some(message) = config_message {
+            config_rows.push(muted(message).into_any_element());
+        }
+
+        self.form(
+            "game-info-scroll",
+            vec![
+                self.section("game-metadata", "在线元数据", metadata_rows, cx),
+                self.section("game-cover", "封面", cover_rows, cx),
+                self.section("game-gamedb", "GameDB 推荐配置", config_rows, cx),
+            ],
+        )
+    }
+
     pub(crate) fn preview_sheet(
         &mut self,
         sheet: PreviewSheet,
@@ -1930,6 +2365,9 @@ impl WhiskyApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if !matches!(sheet, PreviewSheet::GameInfo(_)) {
+            self.game_info = None;
+        }
         let title = match sheet {
             PreviewSheet::RunSettings(_) => "运行设置",
             PreviewSheet::Scan => "管理扫描文件夹",
@@ -1942,6 +2380,7 @@ impl WhiskyApp {
             PreviewSheet::Audio => "音频故障排查",
             PreviewSheet::Dll => "DLL 覆盖",
             PreviewSheet::Graphics => "高级图形设置",
+            PreviewSheet::GameInfo(_) => "游戏资料",
         };
         let content = match sheet {
             PreviewSheet::RunSettings(i) => self.run_settings(i, window, cx),
@@ -2015,6 +2454,7 @@ impl WhiskyApp {
                     )
                 }
             }
+            PreviewSheet::GameInfo(_) => self.game_info_sheet(window, cx),
             PreviewSheet::Dll => self.form(
                 "dll-scroll",
                 vec![self.section(
@@ -2054,50 +2494,201 @@ impl WhiskyApp {
                     cx,
                 )],
             ),
-            PreviewSheet::Audio => self.form(
-                "audio-wizard-scroll",
-                vec![self.section(
-                    "audio-check",
-                    "检查音频输出",
-                    vec![
-                        self.info("1. 输出设备", "系统默认输出"),
-                        self.info("2. 采样率", "48,000 Hz"),
-                        self.info("3. 游戏音频组件", "等待测试"),
-                        self.action("test-audio", "播放测试音频", Command::Notice, cx),
-                    ],
+            PreviewSheet::Audio => {
+                let mut rows = vec![
+                    self.info("1. 输出设备", "系统默认输出"),
+                    self.info("2. 测试方式", "Wine WinMM 440 Hz 测试音"),
+                    self.action(
+                        "test-audio",
+                        if self.audio_pending {
+                            "正在播放测试音…"
+                        } else {
+                            "播放测试音频"
+                        },
+                        Command::TestAudio,
+                        cx,
+                    ),
+                ];
+                if self.audio_pending {
+                    rows.push(
+                        row()
+                            .gap(px(8.))
+                            .py(px(8.))
+                            .child(Spinner::new().with_size(px(14.)))
+                            .child(muted("正在启动 Wine 音频测试…"))
+                            .into_any_element(),
+                    );
+                }
+                if let Some(error) = &self.audio_error {
+                    rows.push(muted(error.clone()).into_any_element());
+                }
+                if let Some(result) = &self.audio_result {
+                    let status = match result.status.as_str() {
+                        "passed" => "通过",
+                        "warning" => "警告",
+                        "error" => "错误",
+                        "skipped" => "跳过",
+                        _ => result.status.as_str(),
+                    };
+                    rows.push(self.info("测试结果", status));
+                    rows.push(self.info("摘要", result.summary.clone()));
+                    for line in result.evidence.iter().take(12) {
+                        rows.push(muted(line.clone()).text_size(px(11.)).into_any_element());
+                    }
+                    for finding in &result.findings {
+                        rows.push(
+                            self.info(
+                                finding.description.clone(),
+                                finding
+                                    .suggested_action
+                                    .clone()
+                                    .unwrap_or_else(|| "检查 Wine 音频驱动设置".to_owned()),
+                            ),
+                        );
+                    }
+                    rows.push(
+                        muted("若能听到测试音，说明 Wine 音频链路正常；若没有声音，请检查系统输出设备与音频驱动。")
+                            .text_size(px(11.))
+                            .into_any_element(),
+                    );
+                }
+                self.form(
+                    "audio-wizard-scroll",
+                    vec![self.section("audio-check", "检查音频输出", rows, cx)],
+                )
+            }
+            PreviewSheet::Diagnostics => {
+                let mut rows = vec![
+                    self.choice(
+                        "diagnosis-symptom",
+                        "遇到了什么问题？",
+                        &[
+                            "游戏无法启动",
+                            "黑屏或画面异常",
+                            "没有声音",
+                            "文字乱码",
+                            "游戏运行缓慢",
+                        ],
+                        cx,
+                    ),
+                    self.action(
+                        "checks",
+                        if self.checks_pending {
+                            "正在运行自动检查…"
+                        } else {
+                            "运行自动检查"
+                        },
+                        Command::RunBottleChecks,
+                        cx,
+                    ),
+                    self.action(
+                        "analyze",
+                        if self.diagnostics_pending {
+                            "正在收集诊断信息…"
+                        } else {
+                            "分析运行日志"
+                        },
+                        Command::RunDiagnostics,
+                        cx,
+                    ),
+                ];
+                if self.checks_pending {
+                    rows.push(
+                        row()
+                            .gap(px(8.))
+                            .py(px(8.))
+                            .child(Spinner::new().with_size(px(14.)))
+                            .child(muted("正在收集预检数据并运行检查项…"))
+                            .into_any_element(),
+                    );
+                }
+                if let Some(checks) = &self.diagnostic_checks {
+                    for check in checks {
+                        let (label, symbol) = match check.outcome.as_str() {
+                            "pass" => ("通过", "check"),
+                            "already_configured" => ("已配置", "check"),
+                            "fail" => ("未通过", "info"),
+                            "warning" => ("警告", "info"),
+                            "error" => ("错误", "x"),
+                            _ => ("未知", "info"),
+                        };
+                        let check_label = match check.check_id.as_str() {
+                            "crash.log_classify" => "崩溃日志",
+                            "launcher.type_check" => "启动器类型",
+                            "process.running_check" => "运行中的 Wine 进程",
+                            "audio.device_check" => "音频设备",
+                            "audio.driver_check" => "音频驱动",
+                            "game.config_available" => "GameDB 配置",
+                            "diagnostics.can_enhance" => "诊断日志级别",
+                            _ => check.check_id.as_str(),
+                        };
+                        let mut detail = format!("{check_label}：{label} · {}", check.summary);
+                        for (_, value) in check.evidence.iter().take(2) {
+                            detail.push_str(" · ");
+                            detail.push_str(value);
+                        }
+                        rows.push(
+                            row()
+                                .gap(px(8.))
+                                .py(px(5.))
+                                .child(icon(symbol, 13.).text_color(rgb(crate::theme::MUTED)))
+                                .child(muted(detail).text_size(px(11.)))
+                                .into_any_element(),
+                        );
+                    }
+                }
+                if self.diagnostics_pending {
+                    rows.push(
+                        row()
+                            .gap(px(8.))
+                            .py(px(8.))
+                            .child(Spinner::new().with_size(px(14.)))
+                            .child(muted("正在读取系统信息与最近日志…"))
+                            .into_any_element(),
+                    );
+                }
+                if let Some(error) = &self.diagnostics_error {
+                    rows.push(muted(error.clone()).into_any_element());
+                }
+                if let Some(report) = &self.diagnostics_report {
+                    rows.push(
+                        div()
+                            .id("diagnostics-report")
+                            .max_h(px(280.))
+                            .overflow_y_scroll()
+                            .p(px(10.))
+                            .rounded(px(8.))
+                            .bg(rgba(0x00000040))
+                            .border_1()
+                            .border_color(rgba(0xffffff10))
+                            .text_size(px(11.))
+                            .line_height(relative(1.45))
+                            .child(report.clone())
+                            .into_any_element(),
+                    );
+                    rows.push(self.action(
+                        "export",
+                        "导出诊断报告…",
+                        Command::ExportDiagnostics,
+                        cx,
+                    ));
+                }
+                rows.push(self.action(
+                    "audio-link",
+                    "音频故障排查…",
+                    Command::Sheet(PreviewSheet::Audio),
                     cx,
-                )],
-            ),
-            PreviewSheet::Diagnostics => self.form(
-                "diagnostics-scroll",
-                vec![self.section(
-                    "guided-diagnostics",
-                    "引导式故障排查",
-                    vec![
-                        self.choice(
-                            "diagnosis-symptom",
-                            "遇到了什么问题？",
-                            &[
-                                "游戏无法启动",
-                                "黑屏或画面异常",
-                                "没有声音",
-                                "文字乱码",
-                                "游戏运行缓慢",
-                            ],
-                            cx,
-                        ),
-                        self.info("最近一次运行", "正常退出"),
-                        self.action("analyze", "分析运行日志", Command::Notice, cx),
-                        self.action(
-                            "audio-link",
-                            "音频故障排查…",
-                            Command::Sheet(PreviewSheet::Audio),
-                            cx,
-                        ),
-                    ],
-                    cx,
-                )],
-            ),
+                ));
+                self.form(
+                    "diagnostics-scroll",
+                    vec![self.section(
+                        "guided-diagnostics",
+                        "引导式故障排查",
+                        rows,
+                        cx,
+                    )],
+                )
+            }
         };
         let pw = (width - 64.).min(740.);
         let ph = (height - 64.).min(700.);
@@ -2120,6 +2711,9 @@ impl WhiskyApp {
             )
             .child(
                 col()
+                    .id("preview-sheet-card")
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .absolute()
                     .left(px((width - pw) / 2.))
                     .top(px((height - ph) / 2.))
@@ -2342,6 +2936,9 @@ impl WhiskyApp {
             )
             .child(
                 col()
+                    .id("clipboard-dialog-card")
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .absolute()
                     .left(px((width - pw) / 2.))
                     .top(px((height - ph) / 2.))
@@ -2477,6 +3074,381 @@ impl WhiskyApp {
         cx.notify();
     }
 
+    /// Sidebar rename/duplicate/remove modal. Rename and duplicate share one
+    /// text field; remove offers the two outcomes the SwiftUI alert exposes:
+    /// deregister only, or delete the prefix as well.
+    pub(crate) fn bottle_dialog_view(
+        &mut self,
+        width: f32,
+        height: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(dialog) = self.bottle_dialog.as_ref() else {
+            return div().into_any_element();
+        };
+        let kind = dialog.kind;
+        let name = dialog.name.clone();
+        let container = dialog.container.clone();
+        let title = match kind {
+            BottleDialogKind::Rename => "重命名容器",
+            BottleDialogKind::Duplicate => "复制容器",
+            BottleDialogKind::Remove => "删除容器",
+        };
+        let body: AnyElement = match kind {
+            BottleDialogKind::Rename | BottleDialogKind::Duplicate => {
+                let input = self.bottle_dialog_input(window, cx);
+                col()
+                    .gap(px(12.))
+                    .child(muted(if kind == BottleDialogKind::Rename {
+                        format!("为「{name}」输入新的名称。")
+                    } else {
+                        format!("将「{name}」克隆到同一位置，并复制全部设置与已安装程序。")
+                    }))
+                    .child(Input::new(&input))
+                    .into_any_element()
+            }
+            BottleDialogKind::Remove => col()
+                .gap(px(10.))
+                .child(
+                    div()
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(format!("确定要移除「{name}」吗？")),
+                )
+                .child(muted("仅移除会保留磁盘上的容器文件；彻底删除会同时删除整个 Wine 前缀，且无法撤销。"))
+                .child(muted(container).text_size(px(11.)))
+                .into_any_element(),
+        };
+        let footer = if kind == BottleDialogKind::Remove {
+            row()
+                .flex_shrink_0()
+                .justify_end()
+                .gap(px(8.))
+                .px(px(18.))
+                .py(px(13.))
+                .border_t_1()
+                .border_color(rgba(SURFACE_BORDER))
+                .child(
+                    Button::new("bottle-remove-cancel")
+                        .label("取消")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.command(Command::BottleDialogCancel, cx);
+                        })),
+                )
+                .child(
+                    Button::new("bottle-remove-keep")
+                        .label("仅移除")
+                        .on_click(cx.listener(|this, _, _, cx| this.remove_bottle(false, cx))),
+                )
+                .child(
+                    Button::new("bottle-remove-delete")
+                        .label("彻底删除")
+                        .danger()
+                        .on_click(cx.listener(|this, _, _, cx| this.remove_bottle(true, cx))),
+                )
+        } else {
+            let confirm = if kind == BottleDialogKind::Rename {
+                "重命名"
+            } else {
+                "复制"
+            };
+            row()
+                .flex_shrink_0()
+                .justify_end()
+                .gap(px(8.))
+                .px(px(18.))
+                .py(px(13.))
+                .border_t_1()
+                .border_color(rgba(SURFACE_BORDER))
+                .child(
+                    Button::new("bottle-dialog-cancel")
+                        .label("取消")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.command(Command::BottleDialogCancel, cx);
+                        })),
+                )
+                .child(
+                    Button::new("bottle-dialog-confirm")
+                        .label(confirm)
+                        .primary()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.command(Command::BottleDialogConfirm, cx);
+                        })),
+                )
+        };
+        let pw = 460_f32.min(width - 48.);
+        let ph = 260_f32.min(height - 48.);
+        div()
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .bg(rgba(OVERLAY))
+            .child(
+                div()
+                    .id("bottle-dialog-dismiss")
+                    .absolute()
+                    .inset_0()
+                    .on_click(cx.listener(|this, _, _, cx| this.dismiss_bottle_dialog(cx))),
+            )
+            .child(
+                col()
+                    .id("clipboard-dialog-card")
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .absolute()
+                    .left(px((width - pw) / 2.))
+                    .top(px((height - ph) / 2.))
+                    .w(px(pw))
+                    .h(px(ph))
+                    .rounded(px(RADIUS_LG))
+                    .overflow_hidden()
+                    .bg(rgb(SURFACE))
+                    .border_1()
+                    .border_color(rgba(SURFACE_BORDER))
+                    .shadow_xl()
+                    .child(
+                        row()
+                            .flex_shrink_0()
+                            .h(px(46.))
+                            .px(px(16.))
+                            .border_b_1()
+                            .border_color(rgba(SURFACE_BORDER))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(title),
+                            ),
+                    )
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_h_0()
+                            .px(px(20.))
+                            .py(px(18.))
+                            .children([body]),
+                    )
+                    .child(footer),
+            )
+            .into_any_element()
+    }
+
+    /// First-run WhiskyWine runtime setup. The helper owns the download and
+    /// install job; this surface only reports the stage.
+    pub(crate) fn setup_dialog_view(
+        &self,
+        width: f32,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let installed = self
+            .setup_status
+            .as_ref()
+            .is_some_and(|status| status.installed);
+        let version = self
+            .setup_status
+            .as_ref()
+            .and_then(|status| status.version.clone());
+        let stage = self.setup_stage.as_deref().map(|stage| match stage {
+            "checking" => "正在检查最新运行时版本…",
+            "downloading" => "正在下载 Wine 运行时…",
+            "verifying" => "正在校验下载完整性…",
+            "installing" => "正在解压并安装运行时…",
+            "rosetta" => "正在安装 Rosetta 2…",
+            _ => "正在准备…",
+        });
+        let mut rows: Vec<AnyElement> = vec![
+            muted("Whisky 需要一个 Wine 运行时才能运行 Windows 程序。安装包来自项目的公开发布渠道，并会校验 SHA-256。")
+                .line_height(relative(1.5))
+                .into_any_element(),
+        ];
+        let apple_silicon = self
+            .setup_status
+            .as_ref()
+            .is_some_and(|status| status.apple_silicon);
+        let rosetta_installed = self
+            .setup_status
+            .as_ref()
+            .is_some_and(|status| status.rosetta_installed);
+        if apple_silicon {
+            if rosetta_installed {
+                rows.push(
+                    row()
+                        .gap(px(8.))
+                        .child(icon("check", 14.).text_color(rgb(crate::theme::SUCCESS)))
+                        .child(muted("Rosetta 2 已安装").text_size(px(11.)))
+                        .into_any_element(),
+                );
+            } else {
+                rows.push(
+                    row()
+                        .gap(px(8.))
+                        .child(muted("未检测到 Rosetta 2；运行 x86_64 游戏前需要安装。").text_size(px(11.)))
+                        .child(
+                            Button::new("setup-rosetta")
+                                .label("安装 Rosetta 2")
+                                .disabled(self.setup_installing)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.command(Command::InstallRosetta, cx);
+                                })),
+                        )
+                        .into_any_element(),
+                );
+            }
+        }
+        if self.setup_installing {
+            let progress_text = self.setup_progress.map(|(received, total)| {
+                let mib = |bytes: u64| bytes as f64 / 1_048_576.0;
+                if total > 0 {
+                    format!(
+                        "{:.0}%  ·  {:.1} / {:.1} MB",
+                        (received as f64 / total as f64 * 100.0).min(100.0),
+                        mib(received),
+                        mib(total)
+                    )
+                } else {
+                    format!("{:.1} MB", mib(received))
+                }
+            });
+            rows.push(
+                row()
+                    .gap(px(10.))
+                    .py(px(10.))
+                    .child(Spinner::new().with_size(px(16.)))
+                    .child(stage.unwrap_or("正在安装…").to_owned())
+                    .into_any_element(),
+            );
+            if let Some((received, total)) = self.setup_progress.filter(|(_, total)| *total > 0) {
+                let fraction = (received as f32 / total as f32).clamp(0., 1.);
+                rows.push(
+                    div()
+                        .h(px(6.))
+                        .w_full()
+                        .rounded(px(3.))
+                        .bg(rgba(0xffffff14))
+                        .child(
+                            div()
+                                .h_full()
+                                .w(relative(fraction))
+                                .rounded(px(3.))
+                                .bg(rgb(crate::theme::SUCCESS)),
+                        )
+                        .into_any_element(),
+                );
+            }
+            if let Some(text) = progress_text {
+                rows.push(muted(text).text_size(px(11.)).into_any_element());
+            }
+        } else if let Some(error) = &self.setup_error {
+            rows.push(muted(error.clone()).into_any_element());
+        } else if installed || version.is_some() {
+            rows.push(
+                row()
+                    .gap(px(10.))
+                    .py(px(10.))
+                    .child(icon("check", 16.).text_color(rgb(crate::theme::SUCCESS)))
+                    .child(version.clone().map_or_else(
+                        || "Wine 运行时已安装".to_owned(),
+                        |version| format!("Wine 运行时 {version} 已就绪"),
+                    ))
+                    .into_any_element(),
+            );
+        }
+        let footer = row()
+            .flex_shrink_0()
+            .justify_end()
+            .gap(px(8.))
+            .px(px(18.))
+            .py(px(13.))
+            .border_t_1()
+            .border_color(rgba(SURFACE_BORDER))
+            .when(
+                !self.setup_installing && (installed || version.is_some()),
+                |d| {
+                    d.child(
+                        Button::new("setup-done")
+                            .label("完成")
+                            .primary()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.command(Command::DismissSetup, cx);
+                            })),
+                    )
+                },
+            )
+            .when(!self.setup_installing && !installed, |d| {
+                d.child(
+                    Button::new("setup-later")
+                        .label("稍后")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.command(Command::DismissSetup, cx);
+                        })),
+                )
+                .child(
+                    Button::new("setup-install")
+                        .label(if self.setup_error.is_some() {
+                            "重试安装"
+                        } else {
+                            "下载并安装"
+                        })
+                        .primary()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.command(Command::InstallWineRuntime, cx);
+                        })),
+                )
+            });
+        let pw = 480_f32.min(width - 48.);
+        let ph = 320_f32.min(height - 48.);
+        div()
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .bg(rgba(OVERLAY))
+            .child(
+                col()
+                    .id("clipboard-dialog-card")
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .absolute()
+                    .left(px((width - pw) / 2.))
+                    .top(px((height - ph) / 2.))
+                    .w(px(pw))
+                    .h(px(ph))
+                    .rounded(px(RADIUS_LG))
+                    .overflow_hidden()
+                    .bg(rgb(SURFACE))
+                    .border_1()
+                    .border_color(rgba(SURFACE_BORDER))
+                    .shadow_xl()
+                    .child(
+                        row()
+                            .flex_shrink_0()
+                            .h(px(46.))
+                            .px(px(16.))
+                            .border_b_1()
+                            .border_color(rgba(SURFACE_BORDER))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("安装 Wine 运行时"),
+                            ),
+                    )
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_h_0()
+                            .px(px(20.))
+                            .py(px(18.))
+                            .gap(px(10.))
+                            .children(rows),
+                    )
+                    .child(footer),
+            )
+            .into_any_element()
+    }
+
     pub(crate) fn about_dialog(
         &self,
         width: f32,
@@ -2556,6 +3528,9 @@ impl WhiskyApp {
             )
             .child(
                 col()
+                    .id("clipboard-dialog-card")
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .absolute()
                     .left(px((width - pw) / 2.))
                     .top(px((height - ph) / 2.))
@@ -2677,6 +3652,9 @@ impl WhiskyApp {
             )
             .child(
                 col()
+                    .id("clipboard-dialog-card")
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .absolute()
                     .left(px((width - pw) / 2.))
                     .top(px((height - ph) / 2.))
@@ -2751,6 +3729,49 @@ impl WhiskyApp {
                     ),
             )
             .into_any_element()
+    }
+}
+
+impl WhiskyApp {
+    /// Scraper source switches shared by the manual search and the bulk sync.
+    fn metadata_source_row(&self, cx: &mut Context<Self>) -> AnyElement {
+        let mut line = row().gap(px(14.)).py(px(6.)).items_center().child(
+            muted("刮削源").text_size(px(11.)),
+        );
+        for (key, _, label) in crate::state::METADATA_SOURCES {
+            let checked = self.flag(key);
+            line = line.child(
+                row()
+                    .gap(px(6.))
+                    .items_center()
+                    .child(Switch::new(key).checked(checked).on_change(cx.listener(
+                        move |this, _, _, cx| this.command(Command::Toggle(key), cx),
+                    )))
+                    .child(muted(label).text_size(px(11.))),
+            );
+        }
+        line.into_any_element()
+    }
+}
+
+fn source_label(source: &str) -> &str {
+    match source {
+        "bangumi" => "Bangumi",
+        "vndb" => "VNDB",
+        "steam" => "Steam",
+        "ymgal" => "月幕",
+        "hikarinagi" => "Hikarinagi",
+        _ => source,
+    }
+}
+
+fn compat_label(rating: &str) -> &str {
+    match rating {
+        "verified" => "已验证",
+        "playable" => "可玩",
+        "runs" => "可运行",
+        "unplayable" => "不可玩",
+        _ => rating,
     }
 }
 

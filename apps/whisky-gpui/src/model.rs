@@ -44,6 +44,9 @@ pub(crate) struct Game {
     pub(crate) container: String,
     /// `GameActivity.lastSessionEndedAt`; the Swift `recent` sort key.
     pub(crate) last_session_ended_at: Option<u64>,
+    /// A storefront client (Steam etc.) rather than a game; grouped below the
+    /// games unless the timeline presentation is active (`isLauncher`).
+    pub(crate) is_launcher: bool,
 }
 
 impl Game {
@@ -67,6 +70,7 @@ impl Game {
             needs_executable: false,
             container: String::new(),
             last_session_ended_at: None,
+            is_launcher: false,
         }
     }
 

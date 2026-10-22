@@ -45,6 +45,48 @@ pub(crate) enum Command {
     RefreshLibrary,
     /// Terminate all running processes in the selected bottle.
     StopAllProcesses,
+    /// Sidebar bottle actions.
+    BottleRename(usize),
+    BottleDuplicate(usize),
+    BottleRemove(usize),
+    BottleMove(usize),
+    BottleExport(usize),
+    BottleReveal(usize),
+    /// Close the rename/duplicate/remove modal.
+    BottleDialogCancel,
+    /// Accept the rename/duplicate modal.
+    BottleDialogConfirm,
+    /// Run a Windows file in the selected bottle through the native picker.
+    BottleRun,
+    /// Choose an arbitrary Windows file and add it to the library as a pin.
+    AddProgram,
+    /// Launch a Wine builtin (winecfg, regedit, control, terminal).
+    BottleTool(&'static str),
+    BottleRepair,
+    CleanShaderCache,
+    /// Collect `bottle.diagnostics` into the Diagnostics sheet.
+    RunDiagnostics,
+    /// Write the stability report to a chosen file.
+    ExportDiagnostics,
+    /// Run `audio.test` with the 440 Hz tone.
+    TestAudio,
+    /// Run the curated troubleshooting checks.
+    RunBottleChecks,
+    /// Re-read `processes.list` for the selected bottle.
+    RefreshProcesses,
+    /// Metadata, cover and GameDB sheet for one library card.
+    GameInfo(usize),
+    MetadataSearch,
+    MetadataApply(usize, usize),
+    MetadataClear,
+    MetadataCover,
+    MetadataCoverReset,
+    GameDbApply(usize),
+    /// Auto-match metadata for every folder entry in the selected bottle.
+    SyncMetadata,
+    InstallWineRuntime,
+    InstallRosetta,
+    DismissSetup,
 }
 #[derive(Clone)]
 struct MenuEntry {
@@ -138,7 +180,7 @@ impl WhiskyApp {
                 );
             }
             items.push(MenuEntry::separator(cx.entity().downgrade()));
-            items.push(self.menu_item("扫描并同步游戏信息", Command::Notice, cx));
+            items.push(self.menu_item("扫描并同步游戏信息", Command::SyncMetadata, cx));
             items.push(self.menu_item("管理扫描文件夹…", Command::Sheet(PreviewSheet::Scan), cx));
             items.push(
                 self.menu_item("显示隐藏的游戏", Command::Toggle("show-hidden"), cx)
@@ -192,6 +234,7 @@ impl WhiskyApp {
                 cx,
             ),
             self.menu_item("游戏详情", Command::Details(index), cx),
+            self.menu_item("游戏资料与封面…", Command::GameInfo(index), cx),
             self.menu_item(
                 "运行设置…",
                 Command::Sheet(PreviewSheet::RunSettings(index)),
@@ -214,6 +257,31 @@ impl WhiskyApp {
             items.push(MenuEntry::separator(cx.entity().downgrade()));
             items.push(self.menu_item("选择启动程序…", Command::Executable(index), cx));
         }
+        move |mut menu, _, _| {
+            for item in &items {
+                menu = menu.item(item.build());
+            }
+            menu
+        }
+    }
+    /// Sidebar context menu, mirroring the SwiftUI bottle list entry.
+    pub(crate) fn bottle_menu(
+        &self,
+        index: usize,
+        cx: &Context<Self>,
+    ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+        let available = self.bottles.get(index).is_some_and(|bottle| bottle.available);
+        let mut items = vec![];
+        if available {
+            items.push(self.menu_item("重命名…", Command::BottleRename(index), cx));
+            items.push(self.menu_item("删除…", Command::BottleRemove(index), cx));
+            items.push(MenuEntry::separator(cx.entity().downgrade()));
+            items.push(self.menu_item("移动容器…", Command::BottleMove(index), cx));
+            items.push(self.menu_item("复制容器…", Command::BottleDuplicate(index), cx));
+            items.push(self.menu_item("导出容器…", Command::BottleExport(index), cx));
+            items.push(MenuEntry::separator(cx.entity().downgrade()));
+        }
+        items.push(self.menu_item("在访达中显示", Command::BottleReveal(index), cx));
         move |mut menu, _, _| {
             for item in &items {
                 menu = menu.item(item.build());

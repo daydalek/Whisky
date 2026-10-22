@@ -171,6 +171,7 @@ mod tests {
             source: None,
             icon: None,
             hidden: false,
+            is_launcher: false,
             metadata: None,
             activity: Default::default(),
             cover: None,

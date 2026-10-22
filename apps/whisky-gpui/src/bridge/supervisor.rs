@@ -19,6 +19,7 @@ use std::sync::mpsc::{
 };
 use std::time::{Duration, Instant};
 
+use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
 use whisky_bridge::Client;
@@ -26,11 +27,16 @@ use whisky_bridge::Client;
 use super::{
     BridgeStatus,
     dto::{
-        ActivityDto, BridgeFailureDto, CandidatesDto, Container, ContainerList, DescribeResponse,
-        EntryDto, EntryList, FoldersDto, HiddenReplyDto, JobDto, JobStartDto, KillReplyDto,
-        LaunchReplyDto, LibraryPageDto, PreferencesSchemaDto, ProcessDto, ProgramDto,
-        RUNTIME_METHODS, RUNTIME_SESSION_METHODS, RuntimeEntryDto, RuntimeEventBatchDto,
-        RuntimeEventPayloadDto, RuntimeSnapshotDto, ScanResultDto, SystemInfoDto,
+        ActivityDto, AudioResultDto, BottleOperationResultDto, BridgeFailureDto, CandidatesDto,
+        ChecksReplyDto, ConfigChangeDto, Container, ContainerList, DescribeResponse,
+        DiagnosticsReportDto,
+        EntryDto, EntryList, FoldersDto, GameConfigApplyReplyDto, GameConfigMatchReplyDto,
+        HiddenReplyDto, JobDto, JobStartDto, KillReplyDto, LaunchReplyDto, LibraryPageDto,
+        MetadataSearchGroupDto, MetadataSearchReplyDto, MetadataSyncReplyDto, PathReplyDto,
+        PreferencesSchemaDto, SetupStatusDto,
+        ProcessDto, ProgramDto, RUNTIME_METHODS, RUNTIME_SESSION_METHODS, RuntimeEntryDto,
+        RuntimeEventBatchDto, RuntimeEventPayloadDto, RuntimeSnapshotDto, ScanResultDto,
+        SystemInfoDto,
     },
 };
 use crate::config::{self, ConfigField};
@@ -66,6 +72,162 @@ pub(crate) enum ProgramMutation {
     Block,
 }
 
+/// A bottle lifecycle action. `Rename` and `CleanCache` are answered directly;
+/// the rest return a `BridgeJobStore` job and are polled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BottleOperation {
+    Rename,
+    Remove,
+    Move,
+    Duplicate,
+    Export,
+    Repair,
+    CleanCache,
+}
+
+impl BottleOperation {
+    fn method(self) -> &'static str {
+        match self {
+            Self::Rename => "bottle.rename",
+            Self::Remove => "bottle.remove",
+            Self::Move => "bottle.move",
+            Self::Duplicate => "bottle.duplicate",
+            Self::Export => "bottle.export",
+            Self::Repair => "bottle.repair",
+            Self::CleanCache => "bottle.cleanCache",
+        }
+    }
+
+    fn is_job(self) -> bool {
+        !matches!(self, Self::Rename)
+    }
+
+    /// A mutation that changes the container catalogue and must re-read it.
+    fn refreshes_catalogue(self) -> bool {
+        matches!(self, Self::Rename | Self::Remove | Self::Move | Self::Duplicate)
+    }
+}
+
+/// One lifecycle operation as the UI sees it.
+#[derive(Debug)]
+pub(crate) enum BottleOperationUpdate {
+    Started,
+    Completed {
+        path: Option<String>,
+        name: Option<String>,
+    },
+    Failed {
+        reason: String,
+    },
+}
+
+/// The three `bottle.diagnostics` / `audio.test` jobs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DiagnosticKind {
+    Report,
+    Export,
+    Checks,
+    Audio,
+}
+
+/// One diagnostics/audio job as the UI sees it.
+#[derive(Debug)]
+pub(crate) enum DiagnosticUpdate {
+    Started,
+    Report {
+        report: String,
+    },
+    Exported {
+        path: String,
+    },
+    Audio {
+        result: crate::bridge::dto::AudioResultDto,
+    },
+    Checks {
+        results: Vec<crate::bridge::dto::TroubleshootingCheckDto>,
+    },
+    Failed {
+        reason: String,
+    },
+}
+
+/// WhiskyWine runtime setup state.
+#[derive(Debug)]
+pub(crate) enum SetupUpdate {
+    Status {
+        installed: bool,
+        version: Option<String>,
+        rosetta_installed: bool,
+        apple_silicon: bool,
+    },
+    Installing {
+        stage: Option<String>,
+        /// Bytes received and expected during the download stage.
+        progress: Option<(u64, u64)>,
+    },
+    Installed {
+        version: Option<String>,
+    },
+    RosettaInstalled,
+    /// `setup.checkUpdate` found a newer runtime; `local`/`remote` are
+    /// dotted version strings.
+    WineUpdate {
+        local: String,
+        remote: String,
+    },
+    Failed {
+        reason: String,
+    },
+}
+
+/// `metadata.*` and `gameConfig.*` answers for the Game Info sheet.
+#[derive(Debug)]
+pub(crate) enum MetadataUpdate {
+    SearchStarted {
+        container: String,
+        entry_id: String,
+    },
+    Results {
+        container: String,
+        entry_id: String,
+        results: Vec<MetadataSearchGroupDto>,
+    },
+    /// A metadata write or cover change; the entry needs a library re-read.
+    Applied {
+        container: String,
+        entry_id: String,
+    },
+    Matches {
+        container: String,
+        entry_id: String,
+        matches: Vec<crate::bridge::dto::GameDbMatchDto>,
+    },
+    ConfigApplied {
+        container: String,
+        entry_id: String,
+        changes: Vec<ConfigChangeDto>,
+        pending_verbs: Vec<String>,
+    },
+    /// `metadata.sync` finished; the whole bottle needs a re-read. Automatic
+    /// runs are silent: their cards were patched through `EntrySynced`.
+    Synced {
+        container: String,
+        matched: u64,
+        failed: u64,
+        automatic: bool,
+    },
+    /// `metadata.sync` matched one entry; the payload carries the refreshed
+    /// record so the card updates without waiting for the whole bottle
+    /// re-read (Swift: `loadMetadata` writes each match into the grid).
+    EntrySynced {
+        container: String,
+        entry: crate::bridge::dto::EntryDto,
+    },
+    Failed {
+        reason: String,
+    },
+}
+
 /// One `folders.*` mutation. Every reply is the whole folder payload, so the UI
 /// never has to merge a local guess.
 #[derive(Debug, Clone)]
@@ -75,6 +237,8 @@ pub(crate) enum FolderEdit {
     Assign { path: String, assigned: bool },
     Exclude { path: String, excluded: bool },
     Executable { path: String, executable: Option<String> },
+    AutomaticMetadata(bool),
+    Visibility(bool),
 }
 
 impl FolderEdit {
@@ -103,6 +267,14 @@ impl FolderEdit {
                     "path": path,
                     "executable": executable.clone().map_or(serde_json::Value::Null, Into::into),
                 }),
+            ),
+            Self::AutomaticMetadata(enabled) => (
+                "folders.automaticMetadata",
+                json!({ "container": container, "enabled": enabled }),
+            ),
+            Self::Visibility(included) => (
+                "folders.visibility",
+                json!({ "container": container, "included": included }),
             ),
         }
     }
@@ -258,6 +430,16 @@ pub(crate) enum BridgeEvent {
         container: String,
         reason: String,
     },
+    /// `system.chooseFolders`: the native multi-folder picker reply.
+    FoldersChosen {
+        purpose: String,
+        paths: Vec<String>,
+    },
+    /// `folders.moveRoot`: a scanned root now belongs to another bottle.
+    ScanRootMoved {
+        source: String,
+        target: String,
+    },
     Environment {
         container: String,
         values: BTreeMap<String, String>,
@@ -378,6 +560,37 @@ pub(crate) enum BridgeEvent {
     ProgramRunFailed {
         name: String,
         reason: String,
+    },
+    /// One `bottle.*` lifecycle action, synchronous or job-backed.
+    BottleOperation {
+        operation: BottleOperation,
+        container: String,
+        update: BottleOperationUpdate,
+    },
+    /// `system.choosePath`: a file, folder or save destination (or `None` on
+    /// cancel) with the caller's purpose echoed back.
+    PathChosen {
+        purpose: String,
+        path: Option<String>,
+    },
+    /// `bottle.tools` accepted a Wine tool launch.
+    BottleToolOpened {
+        container: String,
+        tool: String,
+    },
+    /// `bottle.diagnostics` / `bottle.exportDiagnostics` / `audio.test`.
+    Diagnostics {
+        kind: DiagnosticKind,
+        container: String,
+        update: DiagnosticUpdate,
+    },
+    /// `metadata.*` / `gameConfig.*`.
+    Metadata {
+        update: MetadataUpdate,
+    },
+    /// `setup.status` / `setup.install`.
+    Setup {
+        update: SetupUpdate,
     },
 }
 
@@ -519,6 +732,114 @@ enum Command {
     },
     /// `system.chooseFolder` starting at the current default location.
     ChooseFolder(String),
+    /// `system.chooseFolders` with a purpose echoed back.
+    ChooseFolders {
+        purpose: String,
+        path: String,
+    },
+    /// `folders.addRoots`: one atomic mutation for several picked folders.
+    AddScanRoots {
+        container: String,
+        paths: Vec<String>,
+    },
+    /// `folders.moveRoot`: move a scanned root to another container.
+    MoveScanRoot {
+        source: String,
+        root: String,
+        target: String,
+    },
+    /// `bottle.rename` / `bottle.remove` / `bottle.move` / `bottle.duplicate`
+    /// / `bottle.export` / `bottle.repair` / `bottle.cleanCache`.
+    BottleOperation {
+        operation: BottleOperation,
+        container: String,
+        name: Option<String>,
+        destination: Option<String>,
+        delete_files: bool,
+    },
+    /// `bottle.tools` (winecfg, regedit, control, terminal).
+    OpenBottleTool {
+        container: String,
+        tool: String,
+    },
+    /// `system.choosePath` with the purpose echoed back in `PathChosen`.
+    ChoosePath {
+        purpose: String,
+        mode: String,
+        path: Option<String>,
+        name: Option<String>,
+        extensions: Vec<String>,
+    },
+    /// `bottle.diagnostics`: collect a stability report.
+    LoadDiagnostics {
+        container: String,
+    },
+    /// `bottle.exportDiagnostics`: write the stability report to a file.
+    ExportDiagnostics {
+        container: String,
+        destination: String,
+    },
+    /// `audio.test`: run the Wine audio stack probe, optionally with a beep.
+    TestAudio {
+        container: String,
+        beep: bool,
+    },
+    /// `bottle.checks`: run the curated troubleshooting checks.
+    RunBottleChecks {
+        container: String,
+    },
+    /// `metadata.search`: a job because providers talk to the network.
+    SearchMetadata {
+        container: String,
+        entry_id: String,
+        query: String,
+        sources: Vec<String>,
+    },
+    ApplyMetadata {
+        container: String,
+        entry_id: String,
+        metadata: serde_json::Value,
+    },
+    ClearMetadata {
+        container: String,
+        entry_id: String,
+    },
+    ImportMetadataCover {
+        container: String,
+        entry_id: String,
+        path: String,
+    },
+    ResetMetadataCover {
+        container: String,
+        entry_id: String,
+    },
+    /// `metadata.sync`: automatic matching for folder entries. `automatic`
+    /// restricts the job to entries the folder library still marks pending
+    /// and honours its automatic-metadata switch; manual sync matches every
+    /// folder entry that has no metadata yet.
+    SyncMetadata {
+        container: String,
+        sources: Vec<String>,
+        automatic: bool,
+    },
+    /// `setup.status` at connection time.
+    LoadSetupStatus,
+    /// `setup.checkUpdate`: is a newer WhiskyWine published?
+    CheckWineUpdate,
+    /// `setup.install`: download and install the Wine runtime.
+    InstallSetup,
+    /// `setup.installRosetta`: install Rosetta 2 on Apple Silicon.
+    InstallRosetta,
+    MatchGameConfig {
+        container: String,
+        entry_id: String,
+    },
+    ApplyGameConfig {
+        container: String,
+        entry_id: String,
+        game_id: String,
+        variant_id: String,
+    },
     /// Window activation: polling pauses while the app is in the background.
     SetActive(bool),
     /// Re-read the bottle catalogue and drop the cached entries, as the
@@ -695,6 +1016,31 @@ impl BridgeSupervisor {
         let _ = self.commands.send(Command::EditFolders {
             container: container.to_owned(),
             edit,
+        });
+    }
+
+    /// `system.chooseFolders`: multi-select directory picker for scan roots.
+    pub(crate) fn choose_folders(&self, purpose: &str, path: &str) {
+        let _ = self.commands.send(Command::ChooseFolders {
+            purpose: purpose.to_owned(),
+            path: path.to_owned(),
+        });
+    }
+
+    /// `folders.addRoots`: adds every selected directory in one write.
+    pub(crate) fn add_scan_roots(&self, container: &str, paths: &[String]) {
+        let _ = self.commands.send(Command::AddScanRoots {
+            container: container.to_owned(),
+            paths: paths.to_vec(),
+        });
+    }
+
+    /// `folders.moveRoot`: reassign a scanned root to another bottle.
+    pub(crate) fn move_scan_root(&self, source: &str, root: &str, target: &str) {
+        let _ = self.commands.send(Command::MoveScanRoot {
+            source: source.to_owned(),
+            root: root.to_owned(),
+            target: target.to_owned(),
         });
     }
 
@@ -929,6 +1275,186 @@ impl BridgeSupervisor {
     pub(crate) fn choose_folder(&self, path: &str) {
         let _ = self.commands.send(Command::ChooseFolder(path.to_owned()));
     }
+
+    /// One bottle lifecycle mutation. The event carries the helper's own
+    /// result; a job-backed operation reports `Started` first.
+    pub(crate) fn bottle_operation(
+        &self,
+        operation: BottleOperation,
+        container: &str,
+        name: Option<&str>,
+        destination: Option<&str>,
+        delete_files: bool,
+    ) {
+        let _ = self.commands.send(Command::BottleOperation {
+            operation,
+            container: container.to_owned(),
+            name: name.map(str::to_owned),
+            destination: destination.map(str::to_owned),
+            delete_files,
+        });
+    }
+
+    /// `bottle.tools`: winecfg, regedit, control or a terminal session.
+    pub(crate) fn open_bottle_tool(&self, container: &str, tool: &str) {
+        let _ = self.commands.send(Command::OpenBottleTool {
+            container: container.to_owned(),
+            tool: tool.to_owned(),
+        });
+    }
+
+    /// `bottle.diagnostics`: a job whose report arrives as `Diagnostics`.
+    pub(crate) fn load_diagnostics(&self, container: &str) {
+        let _ = self.commands.send(Command::LoadDiagnostics {
+            container: container.to_owned(),
+        });
+    }
+
+    /// `bottle.exportDiagnostics`: writes the report to `destination`.
+    pub(crate) fn export_diagnostics(&self, container: &str, destination: &str) {
+        let _ = self.commands.send(Command::ExportDiagnostics {
+            container: container.to_owned(),
+            destination: destination.to_owned(),
+        });
+    }
+
+    /// `bottle.checks`: curated preflight checks for the troubleshooting sheet.
+    pub(crate) fn run_bottle_checks(&self, container: &str) {
+        let _ = self.commands.send(Command::RunBottleChecks {
+            container: container.to_owned(),
+        });
+    }
+
+    /// `audio.test`: the Wine stack probe; `beep` plays the 440 Hz tone.
+    pub(crate) fn test_audio(&self, container: &str, beep: bool) {
+        let _ = self.commands.send(Command::TestAudio {
+            container: container.to_owned(),
+            beep,
+        });
+    }
+
+    /// `metadata.search`: network providers, answered by a job.
+    pub(crate) fn search_metadata(
+        &self,
+        container: &str,
+        entry_id: &str,
+        query: &str,
+        sources: Vec<String>,
+    ) {
+        let _ = self.commands.send(Command::SearchMetadata {
+            container: container.to_owned(),
+            entry_id: entry_id.to_owned(),
+            query: query.to_owned(),
+            sources,
+        });
+    }
+
+    /// Store one provider snapshot as the entry's metadata.
+    pub(crate) fn apply_metadata(
+        &self,
+        container: &str,
+        entry_id: &str,
+        metadata: serde_json::Value,
+    ) {
+        let _ = self.commands.send(Command::ApplyMetadata {
+            container: container.to_owned(),
+            entry_id: entry_id.to_owned(),
+            metadata,
+        });
+    }
+
+    pub(crate) fn clear_metadata(&self, container: &str, entry_id: &str) {
+        let _ = self.commands.send(Command::ClearMetadata {
+            container: container.to_owned(),
+            entry_id: entry_id.to_owned(),
+        });
+    }
+
+    pub(crate) fn import_metadata_cover(&self, container: &str, entry_id: &str, path: &str) {
+        let _ = self.commands.send(Command::ImportMetadataCover {
+            container: container.to_owned(),
+            entry_id: entry_id.to_owned(),
+            path: path.to_owned(),
+        });
+    }
+
+    pub(crate) fn reset_metadata_cover(&self, container: &str, entry_id: &str) {
+        let _ = self.commands.send(Command::ResetMetadataCover {
+            container: container.to_owned(),
+            entry_id: entry_id.to_owned(),
+        });
+    }
+
+    pub(crate) fn load_setup_status(&self) {
+        let _ = self.commands.send(Command::LoadSetupStatus);
+    }
+
+    /// `setup.install`: a job that downloads and installs the Wine runtime.
+    pub(crate) fn install_setup(&self) {
+        let _ = self.commands.send(Command::InstallSetup);
+    }
+
+    /// `setup.installRosetta`: installs Rosetta 2 on Apple Silicon.
+    pub(crate) fn install_rosetta(&self) {
+        let _ = self.commands.send(Command::InstallRosetta);
+    }
+
+    /// `setup.checkUpdate`: compares the installed runtime against the
+    /// published manifest. Silent when the shared update-check default is off.
+    pub(crate) fn check_wine_update(&self) {
+        let _ = self.commands.send(Command::CheckWineUpdate);
+    }
+
+    /// `metadata.sync`: automatic matching for folder entries.
+    pub(crate) fn sync_metadata(&self, container: &str, sources: Vec<String>, automatic: bool) {
+        let _ = self.commands.send(Command::SyncMetadata {
+            container: container.to_owned(),
+            sources,
+            automatic,
+        });
+    }
+
+    /// `gameConfig.match`: the local database, so it is answered directly.
+    pub(crate) fn match_game_config(&self, container: &str, entry_id: &str) {
+        let _ = self.commands.send(Command::MatchGameConfig {
+            container: container.to_owned(),
+            entry_id: entry_id.to_owned(),
+        });
+    }
+
+    pub(crate) fn apply_game_config(
+        &self,
+        container: &str,
+        entry_id: &str,
+        game_id: &str,
+        variant_id: &str,
+    ) {
+        let _ = self.commands.send(Command::ApplyGameConfig {
+            container: container.to_owned(),
+            entry_id: entry_id.to_owned(),
+            game_id: game_id.to_owned(),
+            variant_id: variant_id.to_owned(),
+        });
+    }
+
+    /// `system.choosePath`: file, folder or save panels. `purpose` comes back
+    /// on `BridgeEvent::PathChosen`.
+    pub(crate) fn choose_path(
+        &self,
+        purpose: &str,
+        mode: &str,
+        path: Option<&str>,
+        name: Option<&str>,
+        extensions: &[&str],
+    ) {
+        let _ = self.commands.send(Command::ChoosePath {
+            purpose: purpose.to_owned(),
+            mode: mode.to_owned(),
+            path: path.map(str::to_owned),
+            name: name.map(str::to_owned),
+            extensions: extensions.iter().map(|value| (*value).to_owned()).collect(),
+        });
+    }
 }
 
 impl Drop for BridgeSupervisor {
@@ -1006,6 +1532,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
         );
         log_container_names(&containers);
         emit_event(&events, BridgeEvent::Containers(containers));
+        fetch_setup_status(&mut client, &events);
         // One bottle at a time is enough: a request for another container
         // invalidates the cached snapshot, matching "invalidate on switch".
         let mut cache: Option<(String, EntryList)> = None;
@@ -1020,6 +1547,18 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
         let mut create: Option<LiveCreate> = None;
         // At most one winetricks install job.
         let mut tricks: Option<LiveWinetricks> = None;
+        // At most one WhiskyWine update-check job.
+        let mut update_check: Option<LiveUpdateCheck> = None;
+        // At most one bottle lifecycle job (move, duplicate, export, …).
+        let mut bottle_op: Option<LiveBottleOperation> = None;
+        // At most one diagnostics or audio job.
+        let mut diagnostic: Option<LiveDiagnostic> = None;
+        // At most one metadata search job.
+        let mut metadata_search: Option<LiveMetadataSearch> = None;
+        // At most one automatic metadata sync job.
+        let mut metadata_sync: Option<LiveMetadataSync> = None;
+        // At most one Wine runtime installation job.
+        let mut setup: Option<LiveSetup> = None;
         // The one opened file being watched for startup failures.
         let mut program_run: Option<LiveProgramRun> = None;
         loop {
@@ -1041,6 +1580,21 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
             }
             if let Some(run) = &program_run {
                 wait_for = wait_for.min(run.due.saturating_duration_since(now));
+            }
+            if let Some(operation) = &bottle_op {
+                wait_for = wait_for.min(operation.due.saturating_duration_since(now));
+            }
+            if let Some(job) = &diagnostic {
+                wait_for = wait_for.min(job.due.saturating_duration_since(now));
+            }
+            if let Some(job) = &metadata_search {
+                wait_for = wait_for.min(job.due.saturating_duration_since(now));
+            }
+            if let Some(job) = &metadata_sync {
+                wait_for = wait_for.min(job.due.saturating_duration_since(now));
+            }
+            if let Some(job) = &setup {
+                wait_for = wait_for.min(job.due.saturating_duration_since(now));
             }
             let command = match commands.recv_timeout(wait_for) {
                 Ok(command) => Some(command),
@@ -1262,6 +1816,273 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                             Err(CallFailure::Remote(reason)) => {
                                 eprintln!("whisky-bridge: programs.run poll failed: {reason}");
                                 program_run = None;
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                    if let Some(active) = bottle_op.as_mut() {
+                        match poll_bottle_operation(&mut client, active) {
+                            Ok(None) => {}
+                            Ok(Some(BottleOperationTerminal::Completed { path, name })) => {
+                                let operation = active.operation;
+                                let container = active.container.clone();
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::BottleOperation {
+                                        operation,
+                                        container,
+                                        update: BottleOperationUpdate::Completed {
+                                            path,
+                                            name,
+                                        },
+                                    },
+                                );
+                                bottle_op = None;
+                                if operation.refreshes_catalogue() {
+                                    cache = None;
+                                    match fetch_containers(&mut client) {
+                                        Ok(containers) => {
+                                            log_container_names(&containers);
+                                            emit_event(
+                                                &events,
+                                                BridgeEvent::ContainersRefreshed(containers),
+                                            );
+                                        }
+                                        Err(CallFailure::Remote(reason)) => {
+                                            emit_event(&events, BridgeEvent::ActionFailed { reason });
+                                        }
+                                        Err(CallFailure::Session(reason)) => {
+                                            reconnect = Some(reason)
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(Some(BottleOperationTerminal::Failed { reason })) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::BottleOperation {
+                                        operation: active.operation,
+                                        container: active.container.clone(),
+                                        update: BottleOperationUpdate::Failed { reason },
+                                    },
+                                );
+                                bottle_op = None;
+                            }
+                            Err(CallFailure::Remote(reason)) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::BottleOperation {
+                                        operation: active.operation,
+                                        container: active.container.clone(),
+                                        update: BottleOperationUpdate::Failed { reason },
+                                    },
+                                );
+                                bottle_op = None;
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                    if let Some(active) = diagnostic.as_mut() {
+                        match poll_diagnostic(&mut client, active) {
+                            Ok(None) => {}
+                            Ok(Some(terminal)) => {
+                                let kind = active.kind;
+                                let container = active.container.clone();
+                                let update = match terminal {
+                                    DiagnosticTerminal::Report(report) => {
+                                        DiagnosticUpdate::Report { report }
+                                    }
+                                    DiagnosticTerminal::Exported(path) => {
+                                        DiagnosticUpdate::Exported { path }
+                                    }
+                                    DiagnosticTerminal::Audio(result) => {
+                                        DiagnosticUpdate::Audio { result }
+                                    }
+                                    DiagnosticTerminal::Checks(results) => {
+                                        DiagnosticUpdate::Checks { results }
+                                    }
+                                    DiagnosticTerminal::Failed(reason) => {
+                                        DiagnosticUpdate::Failed { reason }
+                                    }
+                                };
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Diagnostics {
+                                        kind,
+                                        container,
+                                        update,
+                                    },
+                                );
+                                diagnostic = None;
+                            }
+                            Err(CallFailure::Remote(reason)) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Diagnostics {
+                                        kind: active.kind,
+                                        container: active.container.clone(),
+                                        update: DiagnosticUpdate::Failed { reason },
+                                    },
+                                );
+                                diagnostic = None;
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                    if let Some(active) = setup.as_mut() {
+                        match poll_setup(&mut client, active, &events) {
+                            Ok(None) => {}
+                            Ok(Some(SetupTerminal::Completed { version })) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Setup {
+                                        update: SetupUpdate::Installed { version },
+                                    },
+                                );
+                                setup = None;
+                            }
+                            Ok(Some(SetupTerminal::RosettaCompleted)) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Setup {
+                                        update: SetupUpdate::RosettaInstalled,
+                                    },
+                                );
+                                setup = None;
+                            }
+                            Ok(Some(SetupTerminal::Failed(reason))) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Setup {
+                                        update: SetupUpdate::Failed { reason },
+                                    },
+                                );
+                                setup = None;
+                            }
+                            Err(CallFailure::Remote(reason)) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Setup {
+                                        update: SetupUpdate::Failed { reason },
+                                    },
+                                );
+                                setup = None;
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                    if let Some(active) = update_check.as_mut() {
+                        match poll_update_check(&mut client, active) {
+                            Ok(Some(UpdateCheckTerminal::Available { local, remote })) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Setup {
+                                        update: SetupUpdate::WineUpdate { local, remote },
+                                    },
+                                );
+                                update_check = None;
+                            }
+                            Ok(Some(UpdateCheckTerminal::Current)) => {
+                                update_check = None;
+                            }
+                            Ok(Some(UpdateCheckTerminal::Failed(reason))) => {
+                                // A failed check is not worth a surface; the
+                                // next launch tries again.
+                                eprintln!("whisky-bridge: WhiskyWine update check failed: {reason}");
+                                update_check = None;
+                            }
+                            Ok(None) => {}
+                            Err(CallFailure::Remote(reason)) => {
+                                eprintln!("whisky-bridge: WhiskyWine update check failed: {reason}");
+                                update_check = None;
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                    if let Some(active) = metadata_sync.as_mut() {
+                        match poll_metadata_sync(&mut client, active) {
+                            Ok((None, entry)) => {
+                                if let Some(entry) = entry {
+                                    emit_event(
+                                        &events,
+                                        BridgeEvent::Metadata {
+                                            update: MetadataUpdate::EntrySynced {
+                                                container: active.container.clone(),
+                                                entry,
+                                            },
+                                        },
+                                    );
+                                }
+                            }
+                            Ok((Some(MetadataSyncTerminal::Completed { matched, failed }), _)) => {
+                                cache = None;
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Metadata {
+                                        update: MetadataUpdate::Synced {
+                                            container: active.container.clone(),
+                                            matched,
+                                            failed,
+                                            automatic: active.automatic,
+                                        },
+                                    },
+                                );
+                                metadata_sync = None;
+                            }
+                            Ok((Some(MetadataSyncTerminal::Failed(reason)), _)) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Metadata {
+                                        update: MetadataUpdate::Failed { reason },
+                                    },
+                                );
+                                metadata_sync = None;
+                            }
+                            Err(CallFailure::Remote(reason)) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Metadata {
+                                        update: MetadataUpdate::Failed { reason },
+                                    },
+                                );
+                                metadata_sync = None;
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                    if let Some(active) = metadata_search.as_mut() {
+                        match poll_metadata_search(&mut client, active) {
+                            Ok(None) => {}
+                            Ok(Some(MetadataSearchTerminal::Completed(results))) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Metadata {
+                                        update: MetadataUpdate::Results {
+                                            container: active.container.clone(),
+                                            entry_id: active.entry_id.clone(),
+                                            results,
+                                        },
+                                    },
+                                );
+                                metadata_search = None;
+                            }
+                            Ok(Some(MetadataSearchTerminal::Failed(reason))) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Metadata {
+                                        update: MetadataUpdate::Failed { reason },
+                                    },
+                                );
+                                metadata_search = None;
+                            }
+                            Err(CallFailure::Remote(reason)) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::Metadata {
+                                        update: MetadataUpdate::Failed { reason },
+                                    },
+                                );
+                                metadata_search = None;
                             }
                             Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                         }
@@ -1650,6 +2471,66 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         Err(CallFailure::Remote(reason)) => emit_event(
                             &events,
                             BridgeEvent::FoldersFailed { container, reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::AddScanRoots { container, paths }) => {
+                    match client
+                        .call(
+                            "folders.addRoots",
+                            json!({ "container": container, "paths": paths }),
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(reply) => match serde_json::from_value::<FoldersDto>(reply) {
+                            Ok(folders) => {
+                                emit_event(&events, BridgeEvent::Folders { container, folders });
+                            }
+                            Err(error) => emit_event(
+                                &events,
+                                BridgeEvent::FoldersFailed {
+                                    container,
+                                    reason: format!("invalid folders payload: {error}"),
+                                },
+                            ),
+                        },
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::FoldersFailed { container, reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::MoveScanRoot {
+                    source,
+                    root,
+                    target,
+                }) => {
+                    match client
+                        .call(
+                            "folders.moveRoot",
+                            json!({
+                                "container": source,
+                                "path": root,
+                                "targetContainer": target,
+                            }),
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(_) => emit_event(
+                            &events,
+                            BridgeEvent::ScanRootMoved {
+                                source,
+                                target,
+                            },
+                        ),
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::FoldersFailed {
+                                container: source,
+                                reason,
+                            },
                         ),
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
@@ -2302,6 +3183,743 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
                 }
+                Some(Command::ChooseFolders { purpose, path }) => {
+                    match client
+                        .call("system.chooseFolders", json!({ "path": path }))
+                        .map_err(classify)
+                    {
+                        Ok(reply) => {
+                            let paths = reply
+                                .get("paths")
+                                .and_then(serde_json::Value::as_array)
+                                .map(|items| {
+                                    items
+                                        .iter()
+                                        .filter_map(serde_json::Value::as_str)
+                                        .map(str::to_owned)
+                                        .collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default();
+                            emit_event(&events, BridgeEvent::FoldersChosen { purpose, paths });
+                        }
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::ActionFailed { reason });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::ChoosePath {
+                    purpose,
+                    mode,
+                    path,
+                    name,
+                    extensions,
+                }) => {
+                    let mut params = json!({ "purpose": purpose, "mode": mode });
+                    if let Some(path) = &path {
+                        params["path"] = json!(path);
+                    }
+                    if let Some(name) = &name {
+                        params["name"] = json!(name);
+                    }
+                    if !extensions.is_empty() {
+                        params["extensions"] = json!(extensions);
+                    }
+                    match client.call("system.choosePath", params).map_err(classify) {
+                        Ok(reply) => match serde_json::from_value::<PathReplyDto>(reply) {
+                            Ok(reply) => {
+                                let purpose = if reply.purpose.is_empty() {
+                                    purpose
+                                } else {
+                                    reply.purpose
+                                };
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::PathChosen {
+                                        purpose,
+                                        path: reply.path,
+                                    },
+                                );
+                            }
+                            Err(error) => emit_event(
+                                &events,
+                                BridgeEvent::ActionFailed {
+                                    reason: format!("invalid path reply: {error}"),
+                                },
+                            ),
+                        },
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::ActionFailed { reason });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::OpenBottleTool { container, tool }) => {
+                    match client
+                        .call(
+                            "bottle.tools",
+                            json!({ "container": container, "tool": tool }),
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(_) => emit_event(
+                            &events,
+                            BridgeEvent::BottleToolOpened { container, tool },
+                        ),
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::ActionFailed { reason });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::BottleOperation {
+                    operation,
+                    container,
+                    name,
+                    destination,
+                    delete_files,
+                }) => {
+                    if bottle_op.is_some() {
+                        emit_event(
+                            &events,
+                            BridgeEvent::BottleOperation {
+                                operation,
+                                container,
+                                update: BottleOperationUpdate::Failed {
+                                    reason: "另一个容器操作正在进行，请稍后再试".into(),
+                                },
+                            },
+                        );
+                    } else {
+                        let params = bottle_operation_params(
+                            operation,
+                            &container,
+                            name.as_deref(),
+                            destination.as_deref(),
+                            delete_files,
+                        );
+                        match client.call(operation.method(), params).map_err(classify) {
+                            Ok(reply) if operation.is_job() => {
+                                match serde_json::from_value::<JobStartDto>(reply) {
+                                    Ok(start) => {
+                                        emit_event(
+                                            &events,
+                                            BridgeEvent::BottleOperation {
+                                                operation,
+                                                container: container.clone(),
+                                                update: BottleOperationUpdate::Started,
+                                            },
+                                        );
+                                        bottle_op = Some(LiveBottleOperation {
+                                            operation,
+                                            container,
+                                            job_id: start.job_id,
+                                            due: Instant::now() + SCAN_POLL,
+                                        });
+                                    }
+                                    Err(error) => emit_event(
+                                        &events,
+                                        BridgeEvent::BottleOperation {
+                                            operation,
+                                            container,
+                                            update: BottleOperationUpdate::Failed {
+                                                reason: format!(
+                                                    "invalid bottle operation reply: {error}"
+                                                ),
+                                            },
+                                        },
+                                    ),
+                                }
+                            }
+                            Ok(reply) => {
+                                let result = serde_json::from_value::<BottleOperationResultDto>(
+                                    reply,
+                                )
+                                .unwrap_or_default();
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::BottleOperation {
+                                        operation,
+                                        container: container.clone(),
+                                        update: BottleOperationUpdate::Completed {
+                                            path: result.path,
+                                            name: result.name,
+                                        },
+                                    },
+                                );
+                                if operation.refreshes_catalogue() {
+                                    cache = None;
+                                    match fetch_containers(&mut client) {
+                                        Ok(containers) => {
+                                            log_container_names(&containers);
+                                            emit_event(
+                                                &events,
+                                                BridgeEvent::ContainersRefreshed(containers),
+                                            );
+                                        }
+                                        Err(CallFailure::Remote(reason)) => {
+                                            emit_event(&events, BridgeEvent::ActionFailed { reason });
+                                        }
+                                        Err(CallFailure::Session(reason)) => {
+                                            reconnect = Some(reason)
+                                        }
+                                    }
+                                }
+                            }
+                            Err(CallFailure::Remote(reason)) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::BottleOperation {
+                                        operation,
+                                        container,
+                                        update: BottleOperationUpdate::Failed { reason },
+                                    },
+                                );
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                }
+                Some(Command::LoadSetupStatus) => {
+                    fetch_setup_status(&mut client, &events);
+                }
+                Some(Command::CheckWineUpdate) => {
+                    if update_check.is_none() {
+                        match client
+                            .call("setup.checkUpdate", json!({}))
+                            .map_err(classify)
+                        {
+                            Ok(reply) => match serde_json::from_value::<JobStartDto>(reply) {
+                                Ok(start) => {
+                                    update_check = Some(LiveUpdateCheck {
+                                        job_id: start.job_id,
+                                        due: Instant::now() + SCAN_POLL,
+                                    });
+                                }
+                                Err(error) => emit_event(
+                                    &events,
+                                    BridgeEvent::Setup {
+                                        update: SetupUpdate::Failed {
+                                            reason: format!("invalid update-check reply: {error}"),
+                                        },
+                                    },
+                                ),
+                            },
+                            Err(CallFailure::Remote(reason)) => emit_event(
+                                &events,
+                                BridgeEvent::Setup {
+                                    update: SetupUpdate::Failed { reason },
+                                },
+                            ),
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                }
+                Some(Command::InstallSetup) => {
+                    if setup.is_some() {
+                        emit_event(
+                            &events,
+                            BridgeEvent::Setup {
+                                update: SetupUpdate::Failed {
+                                    reason: "Wine 运行时安装正在进行".into(),
+                                },
+                            },
+                        );
+                    } else {
+                        match client.call("setup.install", json!({})).map_err(classify) {
+                            Ok(reply) => match serde_json::from_value::<JobStartDto>(reply) {
+                                Ok(start) => {
+                                    emit_event(
+                                        &events,
+                                        BridgeEvent::Setup {
+                                            update: SetupUpdate::Installing {
+                                                stage: Some("checking".into()),
+                                                progress: None,
+                                            },
+                                        },
+                                    );
+                                    setup = Some(LiveSetup {
+                                        kind: SetupKind::Runtime,
+                                        job_id: start.job_id,
+                                        due: Instant::now() + SCAN_POLL,
+                                        last_stage: Some("checking".into()),
+                                        last_progress: None,
+                                    });
+                                }
+                                Err(error) => emit_event(
+                                    &events,
+                                    BridgeEvent::Setup {
+                                        update: SetupUpdate::Failed {
+                                            reason: format!("invalid setup reply: {error}"),
+                                        },
+                                    },
+                                ),
+                            },
+                            Err(CallFailure::Remote(reason)) => emit_event(
+                                &events,
+                                BridgeEvent::Setup {
+                                    update: SetupUpdate::Failed { reason },
+                                },
+                            ),
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                }
+                Some(Command::InstallRosetta) => {
+                    if setup.is_some() {
+                        emit_event(
+                            &events,
+                            BridgeEvent::Setup {
+                                update: SetupUpdate::Failed {
+                                    reason: "安装任务正在进行".into(),
+                                },
+                            },
+                        );
+                    } else {
+                        match client
+                            .call("setup.installRosetta", json!({}))
+                            .map_err(classify)
+                        {
+                            Ok(reply) => match serde_json::from_value::<JobStartDto>(reply) {
+                                Ok(start) => {
+                                    emit_event(
+                                        &events,
+                                        BridgeEvent::Setup {
+                                            update: SetupUpdate::Installing {
+                                                stage: Some("rosetta".into()),
+                                                progress: None,
+                                            },
+                                        },
+                                    );
+                                    setup = Some(LiveSetup {
+                                        kind: SetupKind::Rosetta,
+                                        job_id: start.job_id,
+                                        due: Instant::now() + SCAN_POLL,
+                                        last_stage: Some("rosetta".into()),
+                                        last_progress: None,
+                                    });
+                                }
+                                Err(error) => emit_event(
+                                    &events,
+                                    BridgeEvent::Setup {
+                                        update: SetupUpdate::Failed {
+                                            reason: format!("invalid Rosetta reply: {error}"),
+                                        },
+                                    },
+                                ),
+                            },
+                            Err(CallFailure::Remote(reason)) => emit_event(
+                                &events,
+                                BridgeEvent::Setup {
+                                    update: SetupUpdate::Failed { reason },
+                                },
+                            ),
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                }
+                Some(Command::SyncMetadata {
+                    container,
+                    sources,
+                    automatic,
+                }) => {
+                    if metadata_sync.is_some() {
+                        // A manual request says so; an automatic pass just
+                        // waits for the running job to drain the pending set.
+                        if !automatic {
+                            emit_event(
+                                &events,
+                                BridgeEvent::Metadata {
+                                    update: MetadataUpdate::Failed {
+                                        reason: "元数据同步正在进行，请稍后再试".into(),
+                                    },
+                                },
+                            );
+                        }
+                    } else {
+                        match client
+                            .call(
+                                "metadata.sync",
+                                json!({
+                                    "container": container,
+                                    "sources": sources,
+                                    "automatic": automatic,
+                                }),
+                            )
+                            .map_err(classify)
+                        {
+                            Ok(reply) => match serde_json::from_value::<JobStartDto>(reply) {
+                                Ok(start) => {
+                                    metadata_sync = Some(LiveMetadataSync {
+                                        container,
+                                        job_id: start.job_id,
+                                        due: Instant::now() + SCAN_POLL,
+                                        automatic,
+                                        last_entry: None,
+                                    });
+                                }
+                                Err(error) => emit_event(
+                                    &events,
+                                    BridgeEvent::Metadata {
+                                        update: MetadataUpdate::Failed {
+                                            reason: format!("invalid sync reply: {error}"),
+                                        },
+                                    },
+                                ),
+                            },
+                            Err(CallFailure::Remote(reason)) => emit_event(
+                                &events,
+                                BridgeEvent::Metadata {
+                                    update: MetadataUpdate::Failed { reason },
+                                },
+                            ),
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                }
+                Some(Command::SearchMetadata {
+                    container,
+                    entry_id,
+                    query,
+                    sources,
+                }) => {
+                    if metadata_search.is_some() {
+                        emit_event(
+                            &events,
+                            BridgeEvent::Metadata {
+                                update: MetadataUpdate::Failed {
+                                    reason: "另一次元数据搜索正在进行，请稍后再试".into(),
+                                },
+                            },
+                        );
+                    } else {
+                        match start_metadata_search(
+                            &mut client,
+                            &container,
+                            &entry_id,
+                            &query,
+                            &sources,
+                            &events,
+                        ) {
+                            Ok(job) => metadata_search = Some(job),
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                            Err(CallFailure::Remote(_)) => {}
+                        }
+                    }
+                }
+                Some(Command::ApplyMetadata {
+                    container,
+                    entry_id,
+                    metadata,
+                }) => {
+                    // The entry list changed on disk; never serve the stale cache.
+                    cache = None;
+                    match client
+                        .call(
+                            "metadata.apply",
+                            json!({
+                                "container": container,
+                                "entryID": entry_id,
+                                "metadata": metadata,
+                            }),
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(_) => emit_event(
+                            &events,
+                            BridgeEvent::Metadata {
+                                update: MetadataUpdate::Applied {
+                                    container,
+                                    entry_id,
+                                },
+                            },
+                        ),
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::Metadata {
+                                update: MetadataUpdate::Failed { reason },
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::ClearMetadata {
+                    container,
+                    entry_id,
+                }) => {
+                    // The entry list changed on disk; never serve the stale cache.
+                    cache = None;
+                    match client
+                        .call(
+                            "metadata.clear",
+                            json!({ "container": container, "entryID": entry_id }),
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(_) => emit_event(
+                            &events,
+                            BridgeEvent::Metadata {
+                                update: MetadataUpdate::Applied {
+                                    container,
+                                    entry_id,
+                                },
+                            },
+                        ),
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::Metadata {
+                                update: MetadataUpdate::Failed { reason },
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::ImportMetadataCover {
+                    container,
+                    entry_id,
+                    path,
+                }) => {
+                    // The entry list changed on disk; never serve the stale cache.
+                    cache = None;
+                    match client
+                        .call(
+                            "metadata.cover.import",
+                            json!({ "container": container, "entryID": entry_id, "path": path }),
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(_) => emit_event(
+                            &events,
+                            BridgeEvent::Metadata {
+                                update: MetadataUpdate::Applied {
+                                    container,
+                                    entry_id,
+                                },
+                            },
+                        ),
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::Metadata {
+                                update: MetadataUpdate::Failed { reason },
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::ResetMetadataCover {
+                    container,
+                    entry_id,
+                }) => {
+                    // The entry list changed on disk; never serve the stale cache.
+                    cache = None;
+                    match client
+                        .call(
+                            "metadata.cover.reset",
+                            json!({ "container": container, "entryID": entry_id }),
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(_) => emit_event(
+                            &events,
+                            BridgeEvent::Metadata {
+                                update: MetadataUpdate::Applied {
+                                    container,
+                                    entry_id,
+                                },
+                            },
+                        ),
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::Metadata {
+                                update: MetadataUpdate::Failed { reason },
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::MatchGameConfig {
+                    container,
+                    entry_id,
+                }) => {
+                    match client
+                        .call(
+                            "gameConfig.match",
+                            json!({ "container": container, "entryID": entry_id }),
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(reply) => match serde_json::from_value::<GameConfigMatchReplyDto>(reply) {
+                            Ok(reply) => emit_event(
+                                &events,
+                                BridgeEvent::Metadata {
+                                    update: MetadataUpdate::Matches {
+                                        container,
+                                        entry_id,
+                                        matches: reply.matches,
+                                    },
+                                },
+                            ),
+                            Err(error) => emit_event(
+                                &events,
+                                BridgeEvent::Metadata {
+                                    update: MetadataUpdate::Failed {
+                                        reason: format!("invalid GameDB matches: {error}"),
+                                    },
+                                },
+                            ),
+                        },
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::Metadata {
+                                update: MetadataUpdate::Failed { reason },
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::ApplyGameConfig {
+                    container,
+                    entry_id,
+                    game_id,
+                    variant_id,
+                }) => {
+                    match client
+                        .call(
+                            "gameConfig.apply",
+                            json!({
+                                "container": container,
+                                "entryID": entry_id,
+                                "gameID": game_id,
+                                "variantID": variant_id,
+                            }),
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(reply) => match serde_json::from_value::<GameConfigApplyReplyDto>(reply) {
+                            Ok(reply) => emit_event(
+                                &events,
+                                BridgeEvent::Metadata {
+                                    update: MetadataUpdate::ConfigApplied {
+                                        container,
+                                        entry_id,
+                                        changes: reply.changes,
+                                        pending_verbs: reply.pending_verbs,
+                                    },
+                                },
+                            ),
+                            Err(error) => emit_event(
+                                &events,
+                                BridgeEvent::Metadata {
+                                    update: MetadataUpdate::Failed {
+                                        reason: format!("invalid GameDB result: {error}"),
+                                    },
+                                },
+                            ),
+                        },
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::Metadata {
+                                update: MetadataUpdate::Failed { reason },
+                            },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::RunBottleChecks { container }) => {
+                    if diagnostic.is_some() {
+                        emit_event(
+                            &events,
+                            BridgeEvent::ActionFailed {
+                                reason: "另一个诊断任务正在进行，请稍后再试".into(),
+                            },
+                        );
+                    } else {
+                        match start_diagnostic(
+                            &mut client,
+                            DiagnosticKind::Checks,
+                            "bottle.checks",
+                            json!({ "container": container }),
+                            &container,
+                            &events,
+                        ) {
+                            Ok(job) => diagnostic = Some(job),
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                            Err(CallFailure::Remote(_)) => {}
+                        }
+                    }
+                }
+                Some(Command::LoadDiagnostics { container }) => {
+                    if diagnostic.is_some() {
+                        emit_event(
+                            &events,
+                            BridgeEvent::ActionFailed {
+                                reason: "另一个诊断任务正在进行，请稍后再试".into(),
+                            },
+                        );
+                    } else {
+                        match start_diagnostic(
+                            &mut client,
+                            DiagnosticKind::Report,
+                            "bottle.diagnostics",
+                            json!({ "container": container }),
+                            &container,
+                            &events,
+                        ) {
+                            Ok(job) => diagnostic = Some(job),
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                            Err(CallFailure::Remote(_)) => {}
+                        }
+                    }
+                }
+                Some(Command::ExportDiagnostics {
+                    container,
+                    destination,
+                }) => {
+                    if diagnostic.is_some() {
+                        emit_event(
+                            &events,
+                            BridgeEvent::ActionFailed {
+                                reason: "另一个诊断任务正在进行，请稍后再试".into(),
+                            },
+                        );
+                    } else {
+                        match start_diagnostic(
+                            &mut client,
+                            DiagnosticKind::Export,
+                            "bottle.exportDiagnostics",
+                            json!({ "container": container, "destination": destination }),
+                            &container,
+                            &events,
+                        ) {
+                            Ok(job) => diagnostic = Some(job),
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                            Err(CallFailure::Remote(_)) => {}
+                        }
+                    }
+                }
+                Some(Command::TestAudio { container, beep }) => {
+                    if diagnostic.is_some() {
+                        emit_event(
+                            &events,
+                            BridgeEvent::ActionFailed {
+                                reason: "另一个诊断任务正在进行，请稍后再试".into(),
+                            },
+                        );
+                    } else {
+                        match start_diagnostic(
+                            &mut client,
+                            DiagnosticKind::Audio,
+                            "audio.test",
+                            json!({ "container": container, "beep": beep }),
+                            &container,
+                            &events,
+                        ) {
+                            Ok(job) => diagnostic = Some(job),
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                            Err(CallFailure::Remote(_)) => {}
+                        }
+                    }
+                }
             }
             if let Some(reason) = reconnect {
                 if let Some(active) = scan.take() {
@@ -2337,6 +3955,61 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                 status: JobStatus::Failed,
                                 reason: "The bridge session ended; the winetricks install was abandoned"
                                     .into(),
+                            },
+                        },
+                    );
+                }
+                if let Some(active) = bottle_op.take() {
+                    emit_event(
+                        &events,
+                        BridgeEvent::BottleOperation {
+                            operation: active.operation,
+                            container: active.container,
+                            update: BottleOperationUpdate::Failed {
+                                reason: "The bridge session ended; the operation was abandoned"
+                                    .into(),
+                            },
+                        },
+                    );
+                }
+                if let Some(active) = diagnostic.take() {
+                    emit_event(
+                        &events,
+                        BridgeEvent::Diagnostics {
+                            kind: active.kind,
+                            container: active.container,
+                            update: DiagnosticUpdate::Failed {
+                                reason: "The bridge session ended; the task was abandoned".into(),
+                            },
+                        },
+                    );
+                }
+                if metadata_search.take().is_some() {
+                    emit_event(
+                        &events,
+                        BridgeEvent::Metadata {
+                            update: MetadataUpdate::Failed {
+                                reason: "The bridge session ended; the search was abandoned".into(),
+                            },
+                        },
+                    );
+                }
+                if metadata_sync.take().is_some() {
+                    emit_event(
+                        &events,
+                        BridgeEvent::Metadata {
+                            update: MetadataUpdate::Failed {
+                                reason: "The bridge session ended; the sync was abandoned".into(),
+                            },
+                        },
+                    );
+                }
+                if setup.take().is_some() {
+                    emit_event(
+                        &events,
+                        BridgeEvent::Setup {
+                            update: SetupUpdate::Failed {
+                                reason: "The bridge session ended; setup was abandoned".into(),
                             },
                         },
                     );
@@ -2596,6 +4269,165 @@ fn start_scan(client: &mut Client, container: &str) -> Result<String, CallFailur
     Ok(start.job_id)
 }
 
+fn bottle_operation_params(
+    operation: BottleOperation,
+    container: &str,
+    name: Option<&str>,
+    destination: Option<&str>,
+    delete_files: bool,
+) -> serde_json::Value {
+    match operation {
+        BottleOperation::Rename => json!({
+            "container": container,
+            "name": name.unwrap_or_default(),
+        }),
+        BottleOperation::Remove => json!({
+            "container": container,
+            "deleteFiles": delete_files,
+            "stopProcesses": true,
+        }),
+        BottleOperation::Move => json!({
+            "container": container,
+            "destination": destination.unwrap_or_default(),
+        }),
+        BottleOperation::Duplicate => json!({
+            "container": container,
+            "name": name.unwrap_or_default(),
+        }),
+        BottleOperation::Export => json!({
+            "container": container,
+            "destination": destination.unwrap_or_default(),
+        }),
+        BottleOperation::Repair | BottleOperation::CleanCache => {
+            json!({ "container": container })
+        }
+    }
+}
+
+fn start_diagnostic(
+    client: &mut Client,
+    kind: DiagnosticKind,
+    method: &str,
+    params: serde_json::Value,
+    container: &str,
+    events: &smol::channel::Sender<BridgeEvent>,
+) -> Result<LiveDiagnostic, CallFailure> {
+    match client.call(method, params).map_err(classify) {
+        Ok(reply) => match serde_json::from_value::<JobStartDto>(reply) {
+            Ok(start) => {
+                emit_event(
+                    events,
+                    BridgeEvent::Diagnostics {
+                        kind,
+                        container: container.to_owned(),
+                        update: DiagnosticUpdate::Started,
+                    },
+                );
+                Ok(LiveDiagnostic {
+                    kind,
+                    container: container.to_owned(),
+                    job_id: start.job_id,
+                    due: Instant::now() + SCAN_POLL,
+                })
+            }
+            Err(error) => {
+                let reason = format!("invalid job reply: {error}");
+                emit_event(
+                    events,
+                    BridgeEvent::Diagnostics {
+                        kind,
+                        container: container.to_owned(),
+                        update: DiagnosticUpdate::Failed {
+                            reason: reason.clone(),
+                        },
+                    },
+                );
+                Err(CallFailure::Remote(reason))
+            }
+        },
+        Err(CallFailure::Remote(reason)) => {
+            emit_event(
+                events,
+                BridgeEvent::Diagnostics {
+                    kind,
+                    container: container.to_owned(),
+                    update: DiagnosticUpdate::Failed {
+                        reason: reason.clone(),
+                    },
+                },
+            );
+            Err(CallFailure::Remote(reason))
+        }
+        Err(CallFailure::Session(reason)) => Err(CallFailure::Session(reason)),
+    }
+}
+
+fn start_metadata_search(
+    client: &mut Client,
+    container: &str,
+    entry_id: &str,
+    query: &str,
+    sources: &[String],
+    events: &smol::channel::Sender<BridgeEvent>,
+) -> Result<LiveMetadataSearch, CallFailure> {
+    match client
+        .call(
+            "metadata.search",
+            json!({
+                "container": container,
+                "entryID": entry_id,
+                "query": query,
+                "sources": sources,
+            }),
+        )
+        .map_err(classify)
+    {
+        Ok(reply) => match serde_json::from_value::<JobStartDto>(reply) {
+            Ok(start) => {
+                emit_event(
+                    events,
+                    BridgeEvent::Metadata {
+                        update: MetadataUpdate::SearchStarted {
+                            container: container.to_owned(),
+                            entry_id: entry_id.to_owned(),
+                        },
+                    },
+                );
+                Ok(LiveMetadataSearch {
+                    container: container.to_owned(),
+                    entry_id: entry_id.to_owned(),
+                    job_id: start.job_id,
+                    due: Instant::now() + SCAN_POLL,
+                })
+            }
+            Err(error) => {
+                let reason = format!("invalid search reply: {error}");
+                emit_event(
+                    events,
+                    BridgeEvent::Metadata {
+                        update: MetadataUpdate::Failed {
+                            reason: reason.clone(),
+                        },
+                    },
+                );
+                Err(CallFailure::Remote(reason))
+            }
+        },
+        Err(CallFailure::Remote(reason)) => {
+            emit_event(
+                events,
+                BridgeEvent::Metadata {
+                    update: MetadataUpdate::Failed {
+                        reason: reason.clone(),
+                    },
+                },
+            );
+            Err(CallFailure::Remote(reason))
+        }
+        Err(CallFailure::Session(reason)) => Err(CallFailure::Session(reason)),
+    }
+}
+
 fn start_create(
     client: &mut Client,
     name: &str,
@@ -2651,6 +4483,456 @@ struct LiveWinetricks {
     due: Instant,
     /// Last reported `(status, progress)`, so identical polls stay quiet.
     last: Option<(JobStatus, InstallProgress)>,
+}
+
+struct LiveBottleOperation {
+    operation: BottleOperation,
+    container: String,
+    job_id: String,
+    due: Instant,
+}
+
+struct LiveDiagnostic {
+    kind: DiagnosticKind,
+    container: String,
+    job_id: String,
+    due: Instant,
+}
+
+struct LiveUpdateCheck {
+    job_id: String,
+    due: Instant,
+}
+
+enum UpdateCheckTerminal {
+    Available { local: String, remote: String },
+    Current,
+    Failed(String),
+}
+
+/// `setup.checkUpdate`'s result: dotted versions, `remote` is `0.0.0` when
+/// no update is available.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WineUpdateReplyDto {
+    update_available: bool,
+    remote_version: String,
+    #[serde(default)]
+    local_version: Option<String>,
+}
+
+fn poll_update_check(
+    client: &mut Client,
+    check: &mut LiveUpdateCheck,
+) -> Result<Option<UpdateCheckTerminal>, CallFailure> {
+    let reply = client
+        .call("jobs.get", json!({ "jobID": check.job_id }))
+        .map_err(classify)?;
+    let job: JobDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid job payload: {error}")))?;
+    let status = JobStatus::from_wire(&job.status)
+        .ok_or_else(|| CallFailure::Remote(format!("unknown job status: {}", job.status)))?;
+    check.due = Instant::now() + SCAN_POLL;
+    match status {
+        JobStatus::Completed => {
+            let result = job
+                .result
+                .ok_or_else(|| CallFailure::Remote("update-check job has no result".into()))?;
+            let reply: WineUpdateReplyDto = serde_json::from_value(result).map_err(|error| {
+                CallFailure::Remote(format!("invalid update-check result: {error}"))
+            })?;
+            if reply.update_available {
+                Ok(Some(UpdateCheckTerminal::Available {
+                    local: reply.local_version.unwrap_or_else(|| "0.0.0".into()),
+                    remote: reply.remote_version,
+                }))
+            } else {
+                Ok(Some(UpdateCheckTerminal::Current))
+            }
+        }
+        JobStatus::Failed | JobStatus::Cancelled => {
+            let reason = job
+                .error
+                .as_ref()
+                .map(BridgeFailureDto::reason)
+                .unwrap_or_else(|| "WhiskyWine 更新检查失败".to_owned());
+            Ok(Some(UpdateCheckTerminal::Failed(reason)))
+        }
+        JobStatus::Queued | JobStatus::Running | JobStatus::Cancelling => Ok(None),
+    }
+}
+
+struct LiveMetadataSearch {
+    container: String,
+    entry_id: String,
+    job_id: String,
+    due: Instant,
+}
+
+struct LiveMetadataSync {
+    container: String,
+    job_id: String,
+    due: Instant,
+    /// `automatic` runs only touch pending entries and finish silently.
+    automatic: bool,
+    /// Last `entryID` already pushed to the UI, so a poll only forwards a
+    /// matched card once.
+    last_entry: Option<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SetupKind {
+    Runtime,
+    Rosetta,
+}
+
+struct LiveSetup {
+    kind: SetupKind,
+    job_id: String,
+    due: Instant,
+    last_stage: Option<String>,
+    last_progress: Option<(u64, u64)>,
+}
+
+enum SetupTerminal {
+    Completed { version: Option<String> },
+    RosettaCompleted,
+    Failed(String),
+}
+
+/// Emits the current runtime status. Startup failures stay quiet: a Linux
+/// helper or a session without setup methods must not block the library.
+fn fetch_setup_status(
+    client: &mut Client,
+    events: &smol::channel::Sender<BridgeEvent>,
+) {
+    let Ok(reply) = client.call("setup.status", json!({})) else {
+        return;
+    };
+    let Ok(status) = serde_json::from_value::<SetupStatusDto>(reply) else {
+        return;
+    };
+    emit_event(
+        events,
+        BridgeEvent::Setup {
+            update: SetupUpdate::Status {
+                installed: status.installed,
+                version: status.version,
+                rosetta_installed: status.rosetta_installed,
+                apple_silicon: status.apple_silicon,
+            },
+        },
+    );
+}
+
+fn poll_setup(
+    client: &mut Client,
+    setup: &mut LiveSetup,
+    events: &smol::channel::Sender<BridgeEvent>,
+) -> Result<Option<SetupTerminal>, CallFailure> {
+    let reply = client
+        .call("jobs.get", json!({ "jobID": setup.job_id }))
+        .map_err(classify)?;
+    let job: JobDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid job payload: {error}")))?;
+    let status = JobStatus::from_wire(&job.status)
+        .ok_or_else(|| CallFailure::Remote(format!("unknown job status: {}", job.status)))?;
+    let stage = job.stage().map(str::to_owned);
+    let progress = job
+        .progress
+        .get("received")
+        .and_then(serde_json::Value::as_u64)
+        .zip(job.progress.get("total").and_then(serde_json::Value::as_u64));
+    if setup.last_stage != stage || setup.last_progress != progress {
+        emit_event(
+            events,
+            BridgeEvent::Setup {
+                update: SetupUpdate::Installing {
+                    stage: stage.clone(),
+                    progress,
+                },
+            },
+        );
+        setup.last_stage = stage;
+        setup.last_progress = progress;
+    }
+    setup.due = Instant::now() + SCAN_POLL;
+    match status {
+        JobStatus::Completed => {
+            let result = job
+                .result
+                .ok_or_else(|| CallFailure::Remote("setup job has no result".into()))?;
+            match setup.kind {
+                SetupKind::Runtime => {
+                    let status: SetupStatusDto =
+                        serde_json::from_value(result).map_err(|error| {
+                            CallFailure::Remote(format!("invalid setup result: {error}"))
+                        })?;
+                    Ok(Some(SetupTerminal::Completed {
+                        version: status.version,
+                    }))
+                }
+                SetupKind::Rosetta => Ok(Some(SetupTerminal::RosettaCompleted)),
+            }
+        }
+        JobStatus::Failed | JobStatus::Cancelled => {
+            let reason = job
+                .error
+                .as_ref()
+                .map(BridgeFailureDto::reason)
+                .unwrap_or_else(|| {
+                    if status == JobStatus::Cancelled {
+                        "安装已取消".to_owned()
+                    } else {
+                        "Wine 运行时安装失败".to_owned()
+                    }
+                });
+            Ok(Some(SetupTerminal::Failed(reason)))
+        }
+        JobStatus::Queued | JobStatus::Running | JobStatus::Cancelling => Ok(None),
+    }
+}
+
+enum MetadataSyncTerminal {
+    Completed { matched: u64, failed: u64 },
+    Failed(String),
+}
+
+fn poll_metadata_sync(
+    client: &mut Client,
+    sync: &mut LiveMetadataSync,
+) -> Result<(Option<MetadataSyncTerminal>, Option<EntryDto>), CallFailure> {
+    let reply = client
+        .call("jobs.get", json!({ "jobID": sync.job_id }))
+        .map_err(classify)?;
+    let job: JobDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid job payload: {error}")))?;
+    let status = JobStatus::from_wire(&job.status)
+        .ok_or_else(|| CallFailure::Remote(format!("unknown job status: {}", job.status)))?;
+    sync.due = Instant::now() + SCAN_POLL;
+    match status {
+        JobStatus::Completed => {
+            let result = job
+                .result
+                .ok_or_else(|| CallFailure::Remote("sync job has no result".into()))?;
+            let reply: MetadataSyncReplyDto = serde_json::from_value(result).map_err(|error| {
+                CallFailure::Remote(format!("invalid metadata sync result: {error}"))
+            })?;
+            Ok((
+                Some(MetadataSyncTerminal::Completed {
+                    matched: reply.matched,
+                    failed: reply.failed,
+                }),
+                None,
+            ))
+        }
+        JobStatus::Failed | JobStatus::Cancelled => {
+            let reason = job
+                .error
+                .as_ref()
+                .map(BridgeFailureDto::reason)
+                .unwrap_or_else(|| {
+                    if status == JobStatus::Cancelled {
+                        "同步已取消".to_owned()
+                    } else {
+                        "元数据同步失败".to_owned()
+                    }
+                });
+            Ok((Some(MetadataSyncTerminal::Failed(reason)), None))
+        }
+        JobStatus::Queued | JobStatus::Running | JobStatus::Cancelling => {
+            // Each matched entry appears in the progress payload exactly
+            // once; forward it so the grid updates card by card.
+            let entry = job
+                .progress
+                .get("entryID")
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| sync.last_entry.as_deref() != Some(*id))
+                .and_then(|id| {
+                    sync.last_entry = Some(id.to_owned());
+                    job.progress.get("entry")
+                })
+                .and_then(|value| serde_json::from_value::<EntryDto>(value.clone()).ok());
+            Ok((None, entry))
+        }
+    }
+}
+
+enum MetadataSearchTerminal {
+    Completed(Vec<MetadataSearchGroupDto>),
+    Failed(String),
+}
+
+fn poll_metadata_search(
+    client: &mut Client,
+    search: &mut LiveMetadataSearch,
+) -> Result<Option<MetadataSearchTerminal>, CallFailure> {
+    let reply = client
+        .call("jobs.get", json!({ "jobID": search.job_id }))
+        .map_err(classify)?;
+    let job: JobDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid job payload: {error}")))?;
+    let status = JobStatus::from_wire(&job.status)
+        .ok_or_else(|| CallFailure::Remote(format!("unknown job status: {}", job.status)))?;
+    search.due = Instant::now() + SCAN_POLL;
+    match status {
+        JobStatus::Completed => {
+            let result = job
+                .result
+                .ok_or_else(|| CallFailure::Remote("search job has no result".into()))?;
+            let reply: MetadataSearchReplyDto = serde_json::from_value(result).map_err(|error| {
+                CallFailure::Remote(format!("invalid metadata results: {error}"))
+            })?;
+            Ok(Some(MetadataSearchTerminal::Completed(reply.results)))
+        }
+        JobStatus::Failed | JobStatus::Cancelled => {
+            let reason = job
+                .error
+                .as_ref()
+                .map(BridgeFailureDto::reason)
+                .unwrap_or_else(|| {
+                    if status == JobStatus::Cancelled {
+                        "搜索已取消".to_owned()
+                    } else {
+                        "元数据搜索失败".to_owned()
+                    }
+                });
+            Ok(Some(MetadataSearchTerminal::Failed(reason)))
+        }
+        JobStatus::Queued | JobStatus::Running | JobStatus::Cancelling => Ok(None),
+    }
+}
+
+enum DiagnosticTerminal {
+    Report(String),
+    Exported(String),
+    Audio(AudioResultDto),
+    Checks(Vec<crate::bridge::dto::TroubleshootingCheckDto>),
+    Failed(String),
+}
+
+fn poll_diagnostic(
+    client: &mut Client,
+    diagnostic: &mut LiveDiagnostic,
+) -> Result<Option<DiagnosticTerminal>, CallFailure> {
+    let reply = client
+        .call("jobs.get", json!({ "jobID": diagnostic.job_id }))
+        .map_err(classify)?;
+    let job: JobDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid job payload: {error}")))?;
+    let status = JobStatus::from_wire(&job.status)
+        .ok_or_else(|| CallFailure::Remote(format!("unknown job status: {}", job.status)))?;
+    diagnostic.due = Instant::now() + SCAN_POLL;
+    match status {
+        JobStatus::Completed => {
+            let result = job
+                .result
+                .ok_or_else(|| CallFailure::Remote("completed job has no result".into()))?;
+            match diagnostic.kind {
+                DiagnosticKind::Report => {
+                    let report: DiagnosticsReportDto = serde_json::from_value(result)
+                        .map_err(|error| {
+                            CallFailure::Remote(format!("invalid diagnostics report: {error}"))
+                        })?;
+                    Ok(Some(DiagnosticTerminal::Report(report.report)))
+                }
+                DiagnosticKind::Export => {
+                    let result: BottleOperationResultDto = serde_json::from_value(result)
+                        .map_err(|error| {
+                            CallFailure::Remote(format!("invalid diagnostics export: {error}"))
+                        })?;
+                    result
+                        .path
+                        .map(|path| Some(DiagnosticTerminal::Exported(path)))
+                        .ok_or_else(|| {
+                            CallFailure::Remote("diagnostics export has no path".into())
+                        })
+                }
+                DiagnosticKind::Audio => {
+                    let result: AudioResultDto = serde_json::from_value(result).map_err(|error| {
+                        CallFailure::Remote(format!("invalid audio result: {error}"))
+                    })?;
+                    Ok(Some(DiagnosticTerminal::Audio(result)))
+                }
+                DiagnosticKind::Checks => {
+                    let reply: ChecksReplyDto = serde_json::from_value(result).map_err(|error| {
+                        CallFailure::Remote(format!("invalid checks result: {error}"))
+                    })?;
+                    Ok(Some(DiagnosticTerminal::Checks(reply.checks)))
+                }
+            }
+        }
+        JobStatus::Failed | JobStatus::Cancelled => {
+            let reason = job
+                .error
+                .as_ref()
+                .map(BridgeFailureDto::reason)
+                .unwrap_or_else(|| {
+                    if status == JobStatus::Cancelled {
+                        "操作已取消".to_owned()
+                    } else {
+                        "诊断任务失败".to_owned()
+                    }
+                });
+            Ok(Some(DiagnosticTerminal::Failed(reason)))
+        }
+        JobStatus::Queued | JobStatus::Running | JobStatus::Cancelling => Ok(None),
+    }
+}
+
+enum BottleOperationTerminal {
+    Completed {
+        path: Option<String>,
+        name: Option<String>,
+    },
+    Failed {
+        reason: String,
+    },
+}
+
+fn poll_bottle_operation(
+    client: &mut Client,
+    operation: &mut LiveBottleOperation,
+) -> Result<Option<BottleOperationTerminal>, CallFailure> {
+    let reply = client
+        .call("jobs.get", json!({ "jobID": operation.job_id }))
+        .map_err(classify)?;
+    let job: JobDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid job payload: {error}")))?;
+    let status = JobStatus::from_wire(&job.status)
+        .ok_or_else(|| CallFailure::Remote(format!("unknown job status: {}", job.status)))?;
+    operation.due = Instant::now() + SCAN_POLL;
+    match status {
+        JobStatus::Completed => {
+            let result = job
+                .result
+                .map(|value| serde_json::from_value::<BottleOperationResultDto>(value))
+                .transpose()
+                .map_err(|error| {
+                    CallFailure::Remote(format!("invalid bottle operation result: {error}"))
+                })?
+                .unwrap_or_default();
+            Ok(Some(BottleOperationTerminal::Completed {
+                path: result.path,
+                name: result.name,
+            }))
+        }
+        JobStatus::Failed | JobStatus::Cancelled => {
+            let reason = job
+                .error
+                .as_ref()
+                .map(BridgeFailureDto::reason)
+                .unwrap_or_else(|| {
+                    if status == JobStatus::Cancelled {
+                        "操作已取消".to_owned()
+                    } else {
+                        "容器操作失败".to_owned()
+                    }
+                });
+            Ok(Some(BottleOperationTerminal::Failed { reason }))
+        }
+        JobStatus::Queued | JobStatus::Running | JobStatus::Cancelling => Ok(None),
+    }
 }
 
 enum WinetricksTerminal {

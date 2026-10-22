@@ -9,10 +9,14 @@ use gpui_kit::component::input::InputState;
 use gpui_kit::{prelude::*, *};
 use serde_json::json;
 
-use crate::bridge::dto::{CandidateDto, FoldersDto, ProgramDto, SystemInfoDto};
+use crate::bridge::dto::{
+    AudioResultDto, CandidateDto, FoldersDto, GameDbMatchDto, MetadataCandidate,
+    MetadataSearchGroupDto, ProgramDto, SetupStatusDto, SystemInfoDto, TroubleshootingCheckDto,
+};
 use crate::bridge::{
-    BottleCreateUpdate, BridgeEvent, BridgeStatus, BridgeSupervisor, EntryMutation, FolderEdit,
-    ProgramMutation, ScanUpdate,
+    BottleCreateUpdate, BottleOperation, BottleOperationUpdate, BridgeEvent, BridgeStatus,
+    BridgeSupervisor, DiagnosticKind, DiagnosticUpdate, EntryMutation, FolderEdit, MetadataUpdate,
+    ProgramMutation, ScanUpdate, SetupUpdate,
 };
 #[cfg(feature = "visual-test")]
 use crate::library_layout::CardRect;
@@ -135,6 +139,8 @@ pub(crate) enum PreviewSheet {
     Audio,
     Dll,
     Graphics,
+    /// Online metadata, custom cover and GameDB recommendations for a card.
+    GameInfo(usize),
 }
 
 /// One `entry.move` request while its target picker is open.
@@ -150,6 +156,64 @@ pub(crate) struct MoveEntryState {
 pub(crate) struct OpenFileState {
     pub(crate) path: String,
     pub(crate) name: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BottleDialogKind {
+    Rename,
+    Duplicate,
+    Remove,
+}
+
+/// The sidebar's modal actions. Rename and Duplicate read a text field;
+/// Remove asks whether the directory should be deleted as well.
+pub(crate) struct BottleDialogState {
+    pub(crate) kind: BottleDialogKind,
+    pub(crate) container: String,
+    pub(crate) name: String,
+    pub(crate) suggested: String,
+    pub(crate) input: Option<Entity<InputState>>,
+}
+
+/// What a `system.choosePath` reply should do when it comes back.
+#[derive(Clone)]
+enum PathAction {
+    Run { container: String },
+    Move { container: String },
+    Export { container: String },
+    Pin { container: String },
+    DiagnosticsExport { container: String },
+    MetadataCover { container: String, entry_id: String },
+}
+
+#[derive(Clone)]
+pub(crate) struct MetadataGroup {
+    pub(crate) source: String,
+    pub(crate) error: Option<String>,
+    pub(crate) games: Vec<MetadataCandidate>,
+}
+
+/// Scraper sources: toggle key, wire name, label.
+pub(crate) const METADATA_SOURCES: [(&str, &str, &str); 4] = [
+    ("src-steam", "steam", "Steam"),
+    ("src-bangumi", "bangumi", "Bangumi"),
+    ("src-vndb", "vndb", "VNDB"),
+    ("src-ymgal", "ymgal", "月幕"),
+];
+
+/// The Game Info sheet: metadata search, cover choice and GameDB matches for
+/// one library card.
+pub(crate) struct GameInfoPage {
+    pub(crate) container: String,
+    pub(crate) entry_id: String,
+    pub(crate) title: String,
+    pub(crate) input: Option<Entity<InputState>>,
+    pub(crate) searching: bool,
+    pub(crate) applying: bool,
+    pub(crate) error: Option<String>,
+    pub(crate) groups: Vec<MetadataGroup>,
+    pub(crate) matches: Option<Vec<GameDbMatchDto>>,
+    pub(crate) config_message: Option<String>,
 }
 pub(crate) struct PreviewState {
     pub(crate) page: PreviewPage,
@@ -222,6 +286,10 @@ impl PreviewState {
                 ("appnap", true),
                 ("kill", preferences::DEFAULT_KILL_ON_TERMINATE),
                 ("menubar", preferences::DEFAULT_SHOW_MENU_BAR_EXTRA),
+                ("src-steam", true),
+                ("src-bangumi", true),
+                ("src-vndb", true),
+                ("src-ymgal", true),
                 ("offline", preferences::DEFAULT_OFFLINE_MODE),
                 ("updates", preferences::DEFAULT_CHECK_UPDATES),
                 ("blur", preferences::DEFAULT_DETAIL_BLURRED_BACKGROUND),
@@ -318,6 +386,14 @@ pub(crate) struct WhiskyApp {
     pub(crate) folders: BTreeMap<String, FoldersDto>,
     pub(crate) folders_pending: BTreeSet<String>,
     pub(crate) folders_error: BTreeMap<String, String>,
+    /// Containers whose folder settings changed and whose entries need a
+    /// read after the next `Folders` reply.
+    folders_reload_after_write: BTreeSet<String>,
+    /// Containers that already had their automatic metadata pass this
+    /// session. A scan may reset it: new folders can be pending again.
+    auto_synced: BTreeSet<String>,
+    /// Container waiting for the native multi-folder picker reply.
+    scan_root_picker: Option<String>,
     /// The card the in-app executable picker is open for, and whether choosing
     /// one should start it (Play) or only record it (the card menu).
     pub(crate) executable_picker: Option<ExecutablePickerState>,
@@ -344,6 +420,38 @@ pub(crate) struct WhiskyApp {
     pub(crate) move_entry: Option<MoveEntryState>,
     /// The opened/dropped file, while its bottle picker is open.
     pub(crate) open_file: Option<OpenFileState>,
+    /// Metadata, cover and GameDB state for the open Game Info sheet.
+    pub(crate) game_info: Option<GameInfoPage>,
+    /// The sidebar's rename/duplicate/remove dialog.
+    pub(crate) bottle_dialog: Option<BottleDialogState>,
+    /// The lifecycle operation currently in flight, if any.
+    pub(crate) bottle_operation: Option<(BottleOperation, String)>,
+    /// A file/folder/save picker whose reply drives a bottle action.
+    pending_path_action: Option<PathAction>,
+    /// A bottle path to select once the refreshed catalogue arrives (move,
+    /// duplicate).
+    select_after_refresh: Option<String>,
+    /// `bottle.diagnostics` report text and its request state.
+    pub(crate) diagnostics_report: Option<String>,
+    pub(crate) diagnostics_pending: bool,
+    pub(crate) diagnostics_error: Option<String>,
+    pub(crate) diagnostic_checks: Option<Vec<TroubleshootingCheckDto>>,
+    pub(crate) checks_pending: bool,
+    /// `audio.test` result and its request state.
+    pub(crate) audio_result: Option<AudioResultDto>,
+    pub(crate) audio_pending: bool,
+    pub(crate) audio_error: Option<String>,
+    /// WhiskyWine runtime status and the first-run setup dialog.
+    pub(crate) setup_status: Option<SetupStatusDto>,
+    /// The one-shot WhiskyWine update check for this session.
+    wine_update_checked: bool,
+    pub(crate) setup_dialog: bool,
+    pub(crate) setup_installing: bool,
+    pub(crate) setup_stage: Option<String>,
+    /// Downloaded and total bytes while the runtime archive downloads.
+    pub(crate) setup_progress: Option<(u64, u64)>,
+    pub(crate) setup_error: Option<String>,
+    setup_prompted: bool,
     /// `defaultBottleLocation` from preferences, used as `bottle.create`'s parent.
     pub(crate) default_bottle_location: Option<String>,
     /// Key that "编辑" put in the env inputs; saving with a different name
@@ -445,6 +553,9 @@ impl WhiskyApp {
             folders: BTreeMap::new(),
             folders_pending: BTreeSet::new(),
             folders_error: BTreeMap::new(),
+            folders_reload_after_write: BTreeSet::new(),
+            auto_synced: BTreeSet::new(),
+            scan_root_picker: None,
             executable_picker: None,
             environments: BTreeMap::new(),
             environment_error: BTreeMap::new(),
@@ -457,6 +568,27 @@ impl WhiskyApp {
             program_settings: ProgramSettingsPage::default(),
             move_entry: None,
             open_file: None,
+            game_info: None,
+            bottle_dialog: None,
+            bottle_operation: None,
+            pending_path_action: None,
+            select_after_refresh: None,
+            diagnostics_report: None,
+            diagnostics_pending: false,
+            diagnostics_error: None,
+            diagnostic_checks: None,
+            checks_pending: false,
+            audio_result: None,
+            audio_pending: false,
+            audio_error: None,
+            setup_status: None,
+            wine_update_checked: false,
+            setup_dialog: false,
+            setup_installing: false,
+            setup_stage: None,
+            setup_progress: None,
+            setup_error: None,
+            setup_prompted: false,
             default_bottle_location: Self::default_bottle_location(),
             env_original: None,
             env_clear_on_reply: false,
@@ -503,6 +635,10 @@ impl WhiskyApp {
         self.rating_edits.clear();
         self.hidden_edits.clear();
         self.clipboard_prompt = None;
+        self.bottle_dialog = None;
+        self.bottle_operation = None;
+        self.pending_path_action = None;
+        self.select_after_refresh = None;
         self.reset_bottle_surfaces();
         cx.notify();
     }
@@ -520,19 +656,35 @@ impl WhiskyApp {
         self.preview.config_resets.clear();
         self.program_settings = ProgramSettingsPage::default();
         self.move_entry = None;
-        if matches!(self.preview.sheet, Some(PreviewSheet::MoveEntry(_))) {
+        self.game_info = None;
+        if matches!(
+            self.preview.sheet,
+            Some(PreviewSheet::MoveEntry(_) | PreviewSheet::GameInfo(_))
+        ) {
             self.preview.sheet = None;
             self.preview.sheet_history.clear();
         }
         self.folders.clear();
         self.folders_pending.clear();
         self.folders_error.clear();
+        self.folders_reload_after_write.clear();
+        self.auto_synced.clear();
+        self.scan_root_picker = None;
         self.executable_picker = None;
         self.environments.clear();
         self.environment_error.clear();
         self.env_original = None;
         self.env_clear_on_reply = false;
         self.env_fill = None;
+        self.diagnostics_report = None;
+        self.diagnostics_pending = false;
+        self.diagnostics_error = None;
+        self.diagnostic_checks = None;
+        self.checks_pending = false;
+        self.audio_result = None;
+        self.audio_pending = false;
+        self.audio_error = None;
+        self.pending_path_action = None;
         self.programs = None;
         self.processes = None;
         self.winetricks = WinetricksState::default();
@@ -638,6 +790,27 @@ impl WhiskyApp {
             BridgeEvent::ContainersRefreshed(containers) => {
                 if !self.demo {
                     self.apply_refreshed_containers(containers);
+                    if let Some(path) = self.select_after_refresh.take() {
+                        if let Some(index) = self
+                            .bottles
+                            .iter()
+                            .position(|bottle| bottle.path == path)
+                        {
+                            self.select_bottle(Some(index), cx);
+                        }
+                    }
+                    if self
+                        .bottle_dialog
+                        .as_ref()
+                        .is_some_and(|dialog| {
+                            !self
+                                .bottles
+                                .iter()
+                                .any(|bottle| bottle.path == dialog.container)
+                        })
+                    {
+                        self.bottle_dialog = None;
+                    }
                 }
             }
             BridgeEvent::ActionFailed { reason } => {
@@ -666,7 +839,29 @@ impl WhiskyApp {
                         .and_then(|index| self.bottles.get(index))
                         .is_none_or(|bottle| bottle.path == update.container)
                     {
+                        // `libraryRefreshAfterExit`: the activity store gains
+                        // `lastSessionEndedAt` when a session ends, and the
+                        // recent sort only sees it after the entries are
+                        // re-read (Swift: `LibraryModel.consume`).
+                        let exited = update.entries.iter().any(|entry| {
+                            RuntimeState::from_wire(&entry.state) == RuntimeState::Idle
+                                && self
+                                    .runtime
+                                    .entry(&entry.id)
+                                    .is_some_and(|previous| previous.state.is_active())
+                        });
+                        let container = update.container.clone();
                         self.runtime.apply(update);
+                        if exited
+                            && self
+                                .preview
+                                .toggles
+                                .get("refresh")
+                                .copied()
+                                .unwrap_or(preferences::DEFAULT_REFRESH_AFTER_EXIT)
+                        {
+                            self.bridge.load_entries(&container);
+                        }
                     }
                 }
             }
@@ -705,10 +900,11 @@ impl WhiskyApp {
                             game
                         })
                         .collect();
-                    self.bottle_entries.insert(container, games);
+                    self.bottle_entries.insert(container.clone(), games);
                     self.rebuild_entries();
                     self.pending.remove(&index);
                     self.failures.remove(&index);
+                    self.maybe_auto_sync_metadata(&container);
                 }
             }
             BridgeEvent::LoadFailed { container, reason } => {
@@ -880,15 +1076,56 @@ impl WhiskyApp {
                 if !self.demo {
                     self.folders_pending.remove(&container);
                     self.folders_error.remove(&container);
-                    self.folders.insert(container, folders);
+                    let changed = self.folders_reload_after_write.remove(&container);
+                    let automatic_turned_on = folders.automatic_metadata
+                        && !self
+                            .folders
+                            .get(&container)
+                            .is_some_and(|current| current.automatic_metadata);
+                    self.folders.insert(container.clone(), folders);
+                    if automatic_turned_on {
+                        // Switching the library's own match back on earns a
+                        // fresh pass over its pending entries.
+                        self.auto_synced.remove(&container);
+                        self.maybe_auto_sync_metadata(&container);
+                    }
+                    if changed {
+                        // Roots, assignment, exclusion, visibility or the
+                        // executable choice all change how entries are read.
+                        self.bottle_entries.remove(&container);
+                        self.bridge.load_entries(&container);
+                    }
                 }
             }
             BridgeEvent::FoldersFailed { container, reason } => {
                 if !self.demo {
                     self.folders_pending.remove(&container);
+                    self.folders_reload_after_write.remove(&container);
                     self.folders_error
                         .insert(container, reason.clone());
                     self.show_notice(reason, cx);
+                }
+            }
+            BridgeEvent::FoldersChosen { purpose, paths } => {
+                if !self.demo && purpose == "scan-roots" {
+                    if let Some(container) = self.scan_root_picker.take() {
+                        let paths: Vec<String> = paths
+                            .into_iter()
+                            .filter(|path| path.starts_with('/'))
+                            .collect();
+                        if !paths.is_empty() {
+                            self.folders_reload_after_write.insert(container.clone());
+                            self.bridge.add_scan_roots(&container, &paths);
+                        }
+                    }
+                }
+            }
+            BridgeEvent::ScanRootMoved { source, target } => {
+                if !self.demo {
+                    self.show_notice("已将扫描文件夹移动到另一个容器", cx);
+                    self.folders_reload_after_write.remove(&source);
+                    self.folders_reload_after_write.remove(&target);
+                    self.refresh_library(cx);
                 }
             }
             BridgeEvent::Environment { container, values } => {
@@ -1097,6 +1334,10 @@ impl WhiskyApp {
                                 self.failures.remove(&index);
                             }
                             self.rebuild_entries();
+                            // New folders can be pending their first match
+                            // even if this bottle already had its pass.
+                            self.auto_synced.remove(&container);
+                            self.maybe_auto_sync_metadata(&container);
                         }
                         ScanUpdate::Failed { status, reason } => {
                             let state = self.scan.get_or_insert_with(ScanState::default);
@@ -1359,6 +1600,12 @@ impl WhiskyApp {
                     self.move_entry = None;
                     self.preview.sheet = None;
                     self.preview.sheet_history.clear();
+                    // The move re-keyed the entry's id on the target
+                    // container, so both sides need a fresh
+                    // `runtime.configure` before the next Play
+                    // (`retry_library` forgets the same way).
+                    self.configured.forget(&source_container);
+                    self.configured.forget(&target_container);
                     self.show_notice("已移动条目，正在刷新游戏库", cx);
                     self.refresh_library(cx);
                 }
@@ -1376,6 +1623,472 @@ impl WhiskyApp {
                     state.error = Some(reason.clone());
                 }
                 self.show_notice(reason, cx);
+            }
+            BridgeEvent::BottleOperation {
+                operation,
+                container,
+                update,
+            } => {
+                if !self.demo {
+                    match update {
+                        BottleOperationUpdate::Started => {
+                            self.bottle_operation = Some((operation, container));
+                        }
+                        BottleOperationUpdate::Completed { path, name } => {
+                            if self
+                                .bottle_operation
+                                .as_ref()
+                                .is_some_and(|(active, active_container)| {
+                                    *active == operation && *active_container == container
+                                })
+                            {
+                                self.bottle_operation = None;
+                            }
+                            if matches!(operation, BottleOperation::Move | BottleOperation::Duplicate)
+                                && path.is_some()
+                            {
+                                self.select_after_refresh = path.clone();
+                            }
+                            let message = match operation {
+                                BottleOperation::Rename => name.map_or_else(
+                                    || "容器已重命名".to_owned(),
+                                    |name| format!("容器已重命名为 {name}"),
+                                ),
+                                BottleOperation::Remove => "已移除容器".to_owned(),
+                                BottleOperation::Move => "已移动容器".to_owned(),
+                                BottleOperation::Duplicate => name.map_or_else(
+                                    || "已复制容器".to_owned(),
+                                    |name| format!("已复制容器 {name}"),
+                                ),
+                                BottleOperation::Export => path.map_or_else(
+                                    || "容器已导出".to_owned(),
+                                    |path| format!("容器已导出到 {path}"),
+                                ),
+                                BottleOperation::Repair => "容器修复完成".to_owned(),
+                                BottleOperation::CleanCache => "着色器缓存已清理".to_owned(),
+                            };
+                            self.show_notice(message, cx);
+                        }
+                        BottleOperationUpdate::Failed { reason } => {
+                            self.bottle_operation = None;
+                            self.show_notice(reason, cx);
+                        }
+                    }
+                }
+            }
+            BridgeEvent::PathChosen { purpose, path } => {
+                if !self.demo {
+                    let action = self.pending_path_action.take();
+                    match (purpose.as_str(), action) {
+                        ("run", Some(PathAction::Run { container })) => {
+                            if let Some(path) = path {
+                                let name = std::path::Path::new(&path)
+                                    .file_name()
+                                    .map(|name| name.to_string_lossy().into_owned())
+                                    .unwrap_or_else(|| path.clone());
+                                self.show_notice(format!("正在启动 {name}"), cx);
+                                self.bridge.run_program(&container, &path, &name);
+                            }
+                        }
+                        ("move", Some(PathAction::Move { container })) => {
+                            if let Some(destination) = path {
+                                self.bridge.bottle_operation(
+                                    BottleOperation::Move,
+                                    &container,
+                                    None,
+                                    Some(&destination),
+                                    false,
+                                );
+                            }
+                        }
+                        ("export", Some(PathAction::Export { container })) => {
+                            if let Some(destination) = path {
+                                self.bridge.bottle_operation(
+                                    BottleOperation::Export,
+                                    &container,
+                                    None,
+                                    Some(&destination),
+                                    false,
+                                );
+                            }
+                        }
+                        ("pin", Some(PathAction::Pin { container })) => {
+                            if let Some(path) = path {
+                                let name = std::path::Path::new(&path)
+                                    .file_stem()
+                                    .map(|name| name.to_string_lossy().into_owned())
+                                    .unwrap_or_else(|| "程序".to_owned());
+                                self.bridge
+                                    .set_program_pinned(&container, &path, &name, true);
+                            }
+                        }
+                        ("diagnostics-export", Some(PathAction::DiagnosticsExport { container })) => {
+                            if let Some(destination) = path {
+                                self.diagnostics_pending = true;
+                                self.bridge
+                                    .export_diagnostics(&container, &destination);
+                            }
+                        }
+                        (
+                            "metadata-cover",
+                            Some(PathAction::MetadataCover {
+                                container,
+                                entry_id,
+                            }),
+                        ) => {
+                            if let Some(path) = path {
+                                if let Some(page) = self.game_info.as_mut() {
+                                    page.applying = true;
+                                    page.error = None;
+                                }
+                                self.bridge
+                                    .import_metadata_cover(&container, &entry_id, &path);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            BridgeEvent::BottleToolOpened { container, tool } => {
+                if !self.demo && self.selected_container().as_deref() == Some(container.as_str()) {
+                    let label = match tool.as_str() {
+                        "winecfg" => "Wine 配置",
+                        "regedit" => "注册表编辑器",
+                        "control" => "控制面板",
+                        "terminal" => "终端",
+                        _ => "Wine 工具",
+                    };
+                    self.show_notice(format!("已打开 {label}"), cx);
+                }
+            }
+            BridgeEvent::Diagnostics {
+                kind,
+                container,
+                update,
+            } => {
+                if !self.demo {
+                    let current = self.selected_container().as_deref() == Some(container.as_str());
+                    match update {
+                        DiagnosticUpdate::Started => match kind {
+                            DiagnosticKind::Report | DiagnosticKind::Export => {
+                                self.diagnostics_pending = true;
+                                self.diagnostics_error = None;
+                            }
+                            DiagnosticKind::Checks => {
+                                self.checks_pending = true;
+                                self.diagnostics_error = None;
+                            }
+                            DiagnosticKind::Audio => {
+                                self.audio_pending = true;
+                                self.audio_error = None;
+                            }
+                        },
+                        DiagnosticUpdate::Report { report } => {
+                            self.diagnostics_pending = false;
+                            self.diagnostics_error = None;
+                            if current {
+                                self.diagnostics_report = Some(report);
+                            }
+                        }
+                        DiagnosticUpdate::Exported { path } => {
+                            self.diagnostics_pending = false;
+                            self.show_notice(format!("诊断报告已导出到 {path}"), cx);
+                        }
+                        DiagnosticUpdate::Checks { results } => {
+                            self.checks_pending = false;
+                            self.diagnostics_error = None;
+                            let failures = results
+                                .iter()
+                                .filter(|check| check.outcome == "fail" || check.outcome == "error")
+                                .count();
+                            self.diagnostic_checks = Some(results);
+                            if failures > 0 {
+                                self.show_notice(
+                                    format!("自动检查完成：{failures} 项需要关注"),
+                                    cx,
+                                );
+                            } else {
+                                self.show_notice("自动检查完成：未发现明显问题", cx);
+                            }
+                        }
+                        DiagnosticUpdate::Audio { result } => {
+                            self.audio_pending = false;
+                            self.audio_error = None;
+                            let summary = result.summary.clone();
+                            if current {
+                                self.audio_result = Some(result);
+                            }
+                            self.show_notice(summary, cx);
+                        }
+                        DiagnosticUpdate::Failed { reason } => {
+                            self.diagnostics_pending = false;
+                            self.audio_pending = false;
+                            self.checks_pending = false;
+                            if kind == DiagnosticKind::Audio {
+                                self.audio_error = Some(reason.clone());
+                            } else {
+                                self.diagnostics_error = Some(reason.clone());
+                            }
+                            self.show_notice(reason, cx);
+                        }
+                    }
+                }
+            }
+            BridgeEvent::Metadata { update } => {
+                if !self.demo {
+                    match update {
+                        MetadataUpdate::SearchStarted {
+                            container,
+                            entry_id,
+                        } => {
+                            if self.game_info.as_ref().is_some_and(|page| {
+                                page.container == container && page.entry_id == entry_id
+                            }) {
+                                let page = self.game_info.as_mut().unwrap();
+                                page.searching = true;
+                                page.error = None;
+                                page.groups.clear();
+                            }
+                        }
+                        MetadataUpdate::Results {
+                            container,
+                            entry_id,
+                            results,
+                        } => {
+                            if self.game_info.as_ref().is_some_and(|page| {
+                                page.container == container && page.entry_id == entry_id
+                            }) {
+                                let page = self.game_info.as_mut().unwrap();
+                                page.searching = false;
+                                page.error = None;
+                                page.groups = results
+                                    .into_iter()
+                                    .map(|MetadataSearchGroupDto { source, error, games }| {
+                                        MetadataGroup {
+                                            source,
+                                            error,
+                                            games: games
+                                                .into_iter()
+                                                .filter_map(MetadataCandidate::from_value)
+                                                .collect(),
+                                        }
+                                    })
+                                    .collect();
+                            }
+                        }
+                        MetadataUpdate::Applied {
+                            container,
+                            entry_id,
+                        } => {
+                            if self.game_info.as_ref().is_some_and(|page| {
+                                page.container == container && page.entry_id == entry_id
+                            }) {
+                                if let Some(page) = self.game_info.as_mut() {
+                                    page.applying = false;
+                                    page.error = None;
+                                }
+                                self.bridge.load_entries(&container);
+                                self.show_notice("游戏资料已更新", cx);
+                            }
+                        }
+                        MetadataUpdate::Matches {
+                            container,
+                            entry_id,
+                            matches,
+                        } => {
+                            if self.game_info.as_ref().is_some_and(|page| {
+                                page.container == container && page.entry_id == entry_id
+                            }) {
+                                self.game_info.as_mut().unwrap().matches = Some(matches);
+                            }
+                        }
+                        MetadataUpdate::ConfigApplied {
+                            container,
+                            entry_id,
+                            changes,
+                            pending_verbs,
+                        } => {
+                            if self.game_info.as_ref().is_some_and(|page| {
+                                page.container == container && page.entry_id == entry_id
+                            }) {
+                                let page = self.game_info.as_mut().unwrap();
+                                page.applying = false;
+                                page.config_message = Some(if pending_verbs.is_empty() {
+                                    format!("已应用 {} 项推荐设置。", changes.len())
+                                } else {
+                                    format!(
+                                        "已应用 {} 项推荐设置；仍需安装组件：{}",
+                                        changes.len(),
+                                        pending_verbs.join(", ")
+                                    )
+                                });
+                                self.bridge.load_entries(&container);
+                                if self
+                                    .config
+                                    .as_ref()
+                                    .is_some_and(|config| config.container == container)
+                                {
+                                    self.bridge.load_configuration(&container);
+                                }
+                                self.show_notice("已应用 GameDB 推荐配置", cx);
+                            }
+                        }
+                        MetadataUpdate::EntrySynced { container, entry } => {
+                            if !self.demo {
+                                // Patch the finished card in place; the final
+                                // `Synced` still re-reads the whole bottle.
+                                let slot = self
+                                    .bottles
+                                    .iter()
+                                    .position(|bottle| bottle.path == container)
+                                    .map(|index| index + 1);
+                                if let Some(slot) = slot {
+                                    let entry_id = entry.id.clone();
+                                    let mut game = entry.into_game(slot);
+                                    game.container = container.clone();
+                                    if let Some(games) =
+                                        self.bottle_entries.get_mut(&container)
+                                    {
+                                        match games.iter_mut().find(|g| g.id == entry_id) {
+                                            Some(existing) => *existing = game,
+                                            None => games.push(game),
+                                        }
+                                        self.rebuild_entries();
+                                    }
+                                }
+                            }
+                        }
+                        MetadataUpdate::Synced {
+                            container,
+                            matched,
+                            failed,
+                            automatic,
+                        } => {
+                            if !automatic {
+                                self.bridge.load_entries(&container);
+                                let message = if failed > 0 {
+                                    format!("游戏信息同步完成：匹配 {matched} 个，失败 {failed} 个")
+                                } else {
+                                    format!("游戏信息同步完成：匹配 {matched} 个")
+                                };
+                                self.show_notice(message, cx);
+                            }
+                            // Automatic runs already patched every matched
+                            // card through `EntrySynced`; staying silent here
+                            // also prevents the trigger loop that a
+                            // whole-bottle re-read would cause.
+                        }
+                        MetadataUpdate::Failed { reason } => {
+                            if let Some(page) = self.game_info.as_mut() {
+                                page.searching = false;
+                                page.applying = false;
+                                page.error = Some(reason.clone());
+                            }
+                            self.show_notice(reason, cx);
+                        }
+                    }
+                }
+            }
+            BridgeEvent::Setup { update } => {
+                if !self.demo {
+                    match update {
+                        SetupUpdate::Status {
+                            installed,
+                            version,
+                            rosetta_installed,
+                            apple_silicon,
+                        } => {
+                            self.setup_status = Some(SetupStatusDto {
+                                installed,
+                                version,
+                                path: self
+                                    .setup_status
+                                    .as_ref()
+                                    .map(|status| status.path.clone())
+                                    .unwrap_or_default(),
+                                rosetta_installed,
+                                apple_silicon,
+                            });
+                            if !installed && !self.setup_prompted {
+                                self.setup_prompted = true;
+                                self.setup_dialog = true;
+                            }
+                            // ContentView's startup flow: with the runtime in
+                            // place and update checks enabled, compare against
+                            // the published manifest once per session.
+                            if installed
+                                && !self.wine_update_checked
+                                && self
+                                    .preview
+                                    .toggles
+                                    .get("updates")
+                                    .copied()
+                                    .unwrap_or(preferences::DEFAULT_CHECK_UPDATES)
+                            {
+                                self.wine_update_checked = true;
+                                self.bridge.check_wine_update();
+                            }
+                        }
+                        SetupUpdate::Installing { stage, progress } => {
+                            self.setup_dialog = true;
+                            self.setup_installing = true;
+                            self.setup_stage = stage;
+                            self.setup_progress = progress;
+                            self.setup_error = None;
+                        }
+                        SetupUpdate::Installed { version } => {
+                            self.setup_installing = false;
+                            self.setup_stage = None;
+                            self.setup_progress = None;
+                            self.setup_error = None;
+                            self.setup_dialog = false;
+                            let rosetta_installed = self
+                                .setup_status
+                                .as_ref()
+                                .is_some_and(|status| status.rosetta_installed);
+                            let apple_silicon = self
+                                .setup_status
+                                .as_ref()
+                                .is_some_and(|status| status.apple_silicon);
+                            self.setup_status = Some(SetupStatusDto {
+                                installed: true,
+                                version: version.clone(),
+                                path: String::new(),
+                                rosetta_installed,
+                                apple_silicon,
+                            });
+                            let message = version.map_or_else(
+                                || "Wine 运行时安装完成".to_owned(),
+                                |version| format!("Wine 运行时 {version} 安装完成"),
+                            );
+                            self.show_notice(message, cx);
+                            self.bridge.reload_library();
+                        }
+                        SetupUpdate::RosettaInstalled => {
+                            self.setup_installing = false;
+                            self.setup_stage = None;
+                            self.setup_progress = None;
+                            self.setup_error = None;
+                            if let Some(status) = self.setup_status.as_mut() {
+                                status.rosetta_installed = true;
+                            }
+                            self.show_notice("Rosetta 2 安装完成", cx);
+                        }
+                        SetupUpdate::WineUpdate { local, remote } => {
+                            self.show_notice(
+                                format!(
+                                    "发现新版 WhiskyWine {remote}（当前 {local}），可在设置中更新运行时"
+                                ),
+                                cx,
+                            );
+                        }
+                        SetupUpdate::Failed { reason } => {
+                            self.setup_installing = false;
+                            self.setup_error = Some(reason.clone());
+                            self.show_notice(reason, cx);
+                        }
+                    }
+                }
             }
         }
         self.loading = self.compute_loading();
@@ -1435,6 +2148,34 @@ impl WhiskyApp {
         self.loading = self.compute_loading();
         self.invalidate_view();
         cx.notify();
+    }
+
+    /// `LibraryView.loadMetadata`: once a bottle's entries land with
+    /// metadata still missing, the folder library's automatic initial match
+    /// gets one pass per catalogue revision. The bridge honours the
+    /// library's own switch and pending set, so this only schedules the
+    /// job; `auto_synced` keeps repeated loads from spawning no-op jobs.
+    fn maybe_auto_sync_metadata(&mut self, container: &str) {
+        if self.demo || self.auto_synced.contains(container) || self.offline() {
+            return;
+        }
+        let needs_metadata = self.bottle_entries.get(container).is_some_and(|games| {
+            games.iter().any(|game| {
+                game.is_folder
+                    && game.studio.is_none()
+                    && game.description.is_none()
+                    && game.release.is_none()
+            })
+        });
+        if !needs_metadata {
+            return;
+        }
+        let sources = self.metadata_sources();
+        if sources.is_empty() {
+            return;
+        }
+        self.auto_synced.insert(container.to_owned());
+        self.bridge.sync_metadata(container, sources, true);
     }
 
     /// Retry the visible scope: re-read while connected, reconnect otherwise.
@@ -1690,6 +2431,8 @@ impl WhiskyApp {
             &mut indices,
             Sort::from_index(self.preview.sort),
             &self.bottles,
+            // `groupsLaunchers: displayMode != .timeline` (LibraryView.swift).
+            Some(self.mode) != preferences::mode_index("timeline"),
         );
         if self.reversed {
             indices.reverse();
@@ -1781,6 +2524,65 @@ impl WhiskyApp {
                     self.stop_all_processes(cx);
                 }
             }
+            Command::BottleRename(i) => {
+                self.open_bottle_dialog(BottleDialogKind::Rename, i, cx);
+            }
+            Command::BottleDuplicate(i) => {
+                self.open_bottle_dialog(BottleDialogKind::Duplicate, i, cx);
+            }
+            Command::BottleRemove(i) => {
+                self.open_bottle_dialog(BottleDialogKind::Remove, i, cx);
+            }
+            Command::BottleMove(i) => self.start_move_bottle(i, cx),
+            Command::BottleExport(i) => self.start_export_bottle(i, cx),
+            Command::BottleReveal(i) => self.reveal_bottle(i, cx),
+            Command::BottleDialogCancel => self.dismiss_bottle_dialog(cx),
+            Command::BottleDialogConfirm => self.confirm_bottle_dialog(cx),
+            Command::BottleRun => self.start_bottle_run(cx),
+            Command::AddProgram => self.start_pin_program(cx),
+            Command::BottleTool(tool) => self.open_bottle_tool(tool, cx),
+            Command::BottleRepair => self.maintain_bottle(BottleOperation::Repair, cx),
+            Command::CleanShaderCache => self.maintain_bottle(BottleOperation::CleanCache, cx),
+            Command::RunDiagnostics => self.load_diagnostics(cx),
+            Command::ExportDiagnostics => self.export_diagnostics(cx),
+            Command::TestAudio => self.test_audio(cx),
+            Command::RunBottleChecks => self.run_bottle_checks(cx),
+            Command::RefreshProcesses => {
+                if self.demo {
+                    self.show_notice(DEMO_NOTICE, cx);
+                } else {
+                    self.refresh_processes(cx);
+                }
+            }
+            Command::GameInfo(i) => self.open_game_info(i, cx),
+            Command::MetadataSearch => self.search_game_info(cx),
+            Command::MetadataApply(source, game) => {
+                self.apply_game_info_metadata(source, game, cx);
+            }
+            Command::MetadataClear => self.clear_game_info_metadata(cx),
+            Command::MetadataCover => self.choose_game_info_cover(cx),
+            Command::MetadataCoverReset => self.reset_game_info_cover(cx),
+            Command::GameDbApply(i) => self.apply_game_db_match(i, cx),
+            Command::SyncMetadata => {
+                if self.demo {
+                    self.show_notice(DEMO_NOTICE, cx);
+                } else if self.offline() {
+                    self.show_notice("离线模式已开启，无法同步游戏信息", cx);
+                } else if let Some(container) = self.scan_container() {
+                    self.show_notice("正在扫描并同步游戏信息…", cx);
+                    let sources = self.metadata_sources();
+                    if sources.is_empty() {
+                        self.show_notice("请至少启用一个刮削源", cx);
+                    } else {
+                        self.bridge.sync_metadata(&container, sources, false);
+                    }
+                } else {
+                    self.show_notice("请先在侧边栏选择一个容器", cx);
+                }
+            }
+            Command::InstallWineRuntime => self.install_wine_runtime(cx),
+            Command::InstallRosetta => self.install_rosetta(cx),
+            Command::DismissSetup => self.dismiss_setup(cx),
         }
         cx.notify();
     }
@@ -1829,6 +2631,9 @@ impl WhiskyApp {
         self.detail_open = false;
         self.preview.sheet = None;
         self.preview.sheet_history.clear();
+        if !self.demo {
+            self.bridge.load_setup_status();
+        }
         cx.notify();
     }
 
@@ -1869,8 +2674,17 @@ impl WhiskyApp {
                 available: container.available,
             })
             .collect();
+        let had_selection = previous.is_some();
         self.selected_bottle =
             previous.and_then(|path| self.bottles.iter().position(|bottle| bottle.path == path));
+        if had_selection && self.selected_bottle.is_none() {
+            // The selected bottle was removed or moved away: drop the bottle
+            // page and stop polling a container that no longer exists.
+            self.preview.page = PreviewPage::Library;
+            self.preview.history.clear();
+            self.detail_open = false;
+            self.stop_process_polling();
+        }
         let bottles = &self.bottles;
         self.bottle_entries.retain(|path, games| {
             match bottles.iter().position(|bottle| &bottle.path == path) {
@@ -2105,6 +2919,568 @@ impl WhiskyApp {
             .map(|bottle| bottle.path.clone())
     }
 
+    /// Open the rename/duplicate/remove modal for one sidebar row.
+    pub(crate) fn open_bottle_dialog(
+        &mut self,
+        kind: BottleDialogKind,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(bottle) = self.bottles.get(index) else {
+            return;
+        };
+        let container = bottle.path.clone();
+        let name = bottle.name.clone();
+        let suggested = if kind == BottleDialogKind::Duplicate {
+            next_duplicate_name(&name, &self.bottles)
+        } else {
+            name.clone()
+        };
+        self.bottle_dialog = Some(BottleDialogState {
+            kind,
+            container,
+            name,
+            suggested,
+            input: None,
+        });
+        cx.notify();
+    }
+
+    /// The dialog's text field, created on first render because `InputState`
+    /// needs a window. A new dialog always starts without one.
+    pub(crate) fn bottle_dialog_input(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<InputState> {
+        if let Some(input) = self.bottle_dialog.as_ref().and_then(|dialog| dialog.input.clone()) {
+            return input;
+        }
+        let initial = self
+            .bottle_dialog
+            .as_ref()
+            .map(|dialog| dialog.suggested.clone())
+            .unwrap_or_default();
+        let entity = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("容器名称")
+                .default_value(initial)
+        });
+        if let Some(dialog) = self.bottle_dialog.as_mut() {
+            dialog.input = Some(entity.clone());
+        }
+        entity
+    }
+
+    pub(crate) fn dismiss_bottle_dialog(&mut self, cx: &mut Context<Self>) {
+        self.bottle_dialog = None;
+        cx.notify();
+    }
+
+    pub(crate) fn confirm_bottle_dialog(&mut self, cx: &mut Context<Self>) {
+        let Some(dialog) = self.bottle_dialog.take() else {
+            return;
+        };
+        if dialog.kind == BottleDialogKind::Remove {
+            self.bottle_dialog = Some(dialog);
+            return;
+        }
+        let name = dialog
+            .input
+            .as_ref()
+            .map(|input| input.read(cx).value().to_string())
+            .unwrap_or_else(|| dialog.suggested.clone());
+        let name = name.trim().to_owned();
+        if name.is_empty() {
+            self.bottle_dialog = Some(dialog);
+            self.show_notice("容器名称不能为空", cx);
+            return;
+        }
+        let operation = match dialog.kind {
+            BottleDialogKind::Rename => BottleOperation::Rename,
+            BottleDialogKind::Duplicate => BottleOperation::Duplicate,
+            BottleDialogKind::Remove => unreachable!(),
+        };
+        self.bridge.bottle_operation(
+            operation,
+            &dialog.container,
+            Some(&name),
+            None,
+            false,
+        );
+        cx.notify();
+    }
+
+    /// Remove the dialog's bottle; `delete_files` distinguishes "remove from
+    /// the list" from "delete the prefix on disk".
+    pub(crate) fn remove_bottle(&mut self, delete_files: bool, cx: &mut Context<Self>) {
+        let Some(dialog) = self.bottle_dialog.take() else {
+            return;
+        };
+        self.bridge.bottle_operation(
+            BottleOperation::Remove,
+            &dialog.container,
+            None,
+            None,
+            delete_files,
+        );
+        cx.notify();
+    }
+
+    pub(crate) fn start_move_bottle(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(bottle) = self.bottles.get(index) else {
+            return;
+        };
+        let container = bottle.path.clone();
+        let parent = std::path::Path::new(&container)
+            .parent()
+            .map(|path| path.to_string_lossy().into_owned());
+        self.pending_path_action = Some(PathAction::Move {
+            container: container.clone(),
+        });
+        self.bridge
+            .choose_path("move", "folder", parent.as_deref(), None, &[]);
+        cx.notify();
+    }
+
+    pub(crate) fn start_export_bottle(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(bottle) = self.bottles.get(index) else {
+            return;
+        };
+        let container = bottle.path.clone();
+        let parent = std::path::Path::new(&container)
+            .parent()
+            .map(|path| path.to_string_lossy().into_owned());
+        let filename = format!("{}.tar", bottle.name);
+        self.pending_path_action = Some(PathAction::Export {
+            container: container.clone(),
+        });
+        self.bridge.choose_path(
+            "export",
+            "save",
+            parent.as_deref(),
+            Some(&filename),
+            &["tar"],
+        );
+        cx.notify();
+    }
+
+    pub(crate) fn reveal_bottle(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.bottles.get(index).map(|bottle| bottle.path.clone()) else {
+            return;
+        };
+        self.bridge.reveal(&container, &container);
+        cx.notify();
+    }
+
+    /// The bottle action bar's Run button: a native file picker whose reply
+    /// starts the chosen Windows file in the selected bottle.
+    pub(crate) fn start_bottle_run(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        let start = format!("{container}/drive_c");
+        self.pending_path_action = Some(PathAction::Run {
+            container: container.clone(),
+        });
+        self.bridge.choose_path(
+            "run",
+            "file",
+            Some(&start),
+            None,
+            &["exe", "msi", "bat", "msix", "appx", "url"],
+        );
+        cx.notify();
+    }
+
+    /// Pin an arbitrary Windows file the installed-programs scan did not find.
+    pub(crate) fn start_pin_program(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        let start = format!("{container}/drive_c");
+        self.pending_path_action = Some(PathAction::Pin {
+            container: container.clone(),
+        });
+        self.bridge.choose_path(
+            "pin",
+            "file",
+            Some(&start),
+            None,
+            &["exe", "msi", "bat", "msix", "appx", "url"],
+        );
+        cx.notify();
+    }
+
+    pub(crate) fn open_bottle_tool(&mut self, tool: &'static str, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        self.bridge.open_bottle_tool(&container, tool);
+        cx.notify();
+    }
+
+    /// Collect the stability report shown in the Diagnostics sheet.
+    pub(crate) fn load_diagnostics(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        self.diagnostics_pending = true;
+        self.diagnostics_error = None;
+        self.diagnostics_report = None;
+        self.bridge.load_diagnostics(&container);
+        cx.notify();
+    }
+
+    /// Choose a file, then have the helper write the stability report there.
+    pub(crate) fn export_diagnostics(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        let name = format!(
+            "whisky-diagnostics-{}.txt",
+            self.bottle_name().replace(['/', ':'], "-")
+        );
+        self.pending_path_action = Some(PathAction::DiagnosticsExport {
+            container: container.clone(),
+        });
+        self.bridge.choose_path(
+            "diagnostics-export",
+            "save",
+            Some(&container),
+            Some(&name),
+            &["txt"],
+        );
+        cx.notify();
+    }
+
+    /// Run the curated bottleneck checks (crash log, launcher, process, audio,
+    /// GameDB availability) for the selected bottle.
+    pub(crate) fn run_bottle_checks(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        self.checks_pending = true;
+        self.diagnostics_error = None;
+        self.diagnostic_checks = None;
+        self.bridge.run_bottle_checks(&container);
+        cx.notify();
+    }
+
+    /// Play the Wine audio probe tone in the selected bottle.
+    pub(crate) fn test_audio(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        self.audio_pending = true;
+        self.audio_error = None;
+        self.audio_result = None;
+        self.bridge.test_audio(&container, true);
+        cx.notify();
+    }
+
+    /// The shared `offlineMode` default (`NetworkSettings.isOffline`). The
+    /// bridge reads it too, but the original app warns before the network
+    /// operation starts instead of surfacing a raw failure afterwards.
+    fn offline(&self) -> bool {
+        self.preview
+            .toggles
+            .get("offline")
+            .copied()
+            .unwrap_or(preferences::DEFAULT_OFFLINE_MODE)
+    }
+
+    pub(crate) fn install_wine_runtime(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        if self.offline() {
+            self.show_notice("离线模式已开启，无法下载 Wine 运行时", cx);
+            return;
+        }
+        self.setup_dialog = true;
+        self.setup_installing = true;
+        self.setup_stage = Some("checking".to_owned());
+        self.setup_progress = None;
+        self.setup_error = None;
+        self.bridge.install_setup();
+        cx.notify();
+    }
+
+    pub(crate) fn install_rosetta(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        if self.offline() {
+            self.show_notice("离线模式已开启，无法安装 Rosetta 2", cx);
+            return;
+        }
+        self.setup_dialog = true;
+        self.setup_installing = true;
+        self.setup_stage = Some("rosetta".to_owned());
+        self.setup_error = None;
+        self.bridge.install_rosetta();
+        cx.notify();
+    }
+
+    pub(crate) fn dismiss_setup(&mut self, cx: &mut Context<Self>) {
+        if self.setup_installing {
+            return;
+        }
+        self.setup_dialog = false;
+        cx.notify();
+    }
+
+    /// Open the metadata/cover/GameDB sheet for one library card.
+    pub(crate) fn open_game_info(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(game) = self.game(index) else {
+            return;
+        };
+        let container = game.container.clone();
+        let entry_id = game.id.clone();
+        let title = game.title.clone();
+        if container.is_empty() {
+            return;
+        }
+        self.game_info = Some(GameInfoPage {
+            container: container.clone(),
+            entry_id: entry_id.clone(),
+            title,
+            input: None,
+            searching: false,
+            applying: false,
+            error: None,
+            groups: Vec::new(),
+            matches: None,
+            config_message: None,
+        });
+        self.bridge.match_game_config(&container, &entry_id);
+        self.open_preview_sheet(PreviewSheet::GameInfo(index), cx);
+    }
+
+    pub(crate) fn game_info_input(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<InputState> {
+        if let Some(input) = self.game_info.as_ref().and_then(|page| page.input.clone()) {
+            return input;
+        }
+        let title = self
+            .game_info
+            .as_ref()
+            .map(|page| page.title.clone())
+            .unwrap_or_default();
+        let entity = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("搜索游戏名称…")
+                .default_value(title)
+        });
+        if let Some(page) = self.game_info.as_mut() {
+            page.input = Some(entity.clone());
+        }
+        entity
+    }
+
+    pub(crate) fn search_game_info(&mut self, cx: &mut Context<Self>) {
+        if self.game_info.is_none() {
+            return;
+        }
+        if self.offline() {
+            self.show_notice("离线模式已开启，无法搜索游戏信息", cx);
+            return;
+        }
+        let Some(page) = self.game_info.as_mut() else {
+            return;
+        };
+        let query = page
+            .input
+            .as_ref()
+            .map(|input| input.read(cx).value().to_string())
+            .unwrap_or_else(|| page.title.clone());
+        let query = query.trim().to_owned();
+        if query.is_empty() {
+            self.show_notice("请输入要搜索的游戏名称", cx);
+            return;
+        }
+        page.searching = true;
+        page.error = None;
+        page.groups.clear();
+        let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
+        let sources = self.metadata_sources();
+        if sources.is_empty() {
+            if let Some(page) = self.game_info.as_mut() {
+                page.searching = false;
+            }
+            self.show_notice("请至少启用一个刮削源", cx);
+            return;
+        }
+        self.bridge
+            .search_metadata(&container, &entry_id, &query, sources);
+        cx.notify();
+    }
+
+    pub(crate) fn apply_game_info_metadata(
+        &mut self,
+        source: usize,
+        game: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(page) = self.game_info.as_mut() else {
+            return;
+        };
+        let Some(candidate) = page
+            .groups
+            .get(source)
+            .and_then(|group| group.games.get(game))
+        else {
+            return;
+        };
+        let raw = candidate.raw.clone();
+        page.applying = true;
+        page.error = None;
+        let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
+        self.bridge.apply_metadata(&container, &entry_id, raw);
+        cx.notify();
+    }
+
+    pub(crate) fn clear_game_info_metadata(&mut self, cx: &mut Context<Self>) {
+        let Some(page) = self.game_info.as_mut() else {
+            return;
+        };
+        page.applying = true;
+        page.error = None;
+        let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
+        self.bridge.clear_metadata(&container, &entry_id);
+        cx.notify();
+    }
+
+    pub(crate) fn choose_game_info_cover(&mut self, cx: &mut Context<Self>) {
+        let Some(page) = self.game_info.as_mut() else {
+            return;
+        };
+        let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
+        page.applying = true;
+        page.error = None;
+        self.pending_path_action = Some(PathAction::MetadataCover {
+            container: container.clone(),
+            entry_id,
+        });
+        self.bridge.choose_path(
+            "metadata-cover",
+            "file",
+            Some(&container),
+            None,
+            &["png", "jpg", "jpeg", "heic", "webp"],
+        );
+        cx.notify();
+    }
+
+    pub(crate) fn reset_game_info_cover(&mut self, cx: &mut Context<Self>) {
+        let Some(page) = self.game_info.as_mut() else {
+            return;
+        };
+        page.applying = true;
+        page.error = None;
+        let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
+        self.bridge.reset_metadata_cover(&container, &entry_id);
+        cx.notify();
+    }
+
+    pub(crate) fn apply_game_db_match(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(page) = self.game_info.as_mut() else {
+            return;
+        };
+        let Some(matched) = page.matches.as_ref().and_then(|matches| matches.get(index)) else {
+            return;
+        };
+        let game_id = matched
+            .entry
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        if game_id.is_empty() {
+            self.show_notice("GameDB 条目无效", cx);
+            return;
+        }
+        let variant_id = matched.variant_id.clone();
+        page.applying = true;
+        page.error = None;
+        page.config_message = None;
+        let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
+        self.bridge
+            .apply_game_config(&container, &entry_id, &game_id, &variant_id);
+        cx.notify();
+    }
+
+    pub(crate) fn maintain_bottle(
+        &mut self,
+        operation: BottleOperation,
+        cx: &mut Context<Self>,
+    ) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        self.bridge
+            .bottle_operation(operation, &container, None, None, false);
+        cx.notify();
+    }
+
     /// The install job only belongs to the sheet while its bottle is selected.
     pub(crate) fn winetricks_job(&self) -> Option<&InstallJob> {
         let container = self.selected_container()?;
@@ -2245,6 +3621,10 @@ impl WhiskyApp {
             return;
         }
         if self.winetricks.job.as_ref().is_some_and(InstallJob::running) {
+            return;
+        }
+        if self.offline() {
+            self.show_notice("离线模式已开启，无法安装组件", cx);
             return;
         }
         let Some(container) = self.selected_container() else {
@@ -2758,8 +4138,81 @@ impl WhiskyApp {
         }
     }
 
+    /// Copy what the user typed in the environment inputs back into the draft
+    /// rows, so rebuilding the inputs after a preset never drops edits.
+    fn sync_env_rows_from_inputs(&mut self, cx: &mut Context<Self>) {
+        for row in &mut self.program_settings.env_rows {
+            if let Some(input) = self.preview.program_inputs.get(&format!("ps-env-key-{}", row.id)) {
+                row.key = input.read(cx).value().to_string();
+            }
+            if let Some(input) = self.preview.program_inputs.get(&format!("ps-env-value-{}", row.id)) {
+                row.value = input.read(cx).value().to_string();
+            }
+        }
+    }
+
+    /// Current value of one draft environment variable.
+    pub(crate) fn program_env_value(&self, key: &str) -> Option<&str> {
+        self.program_settings
+            .env_rows
+            .iter()
+            .find(|row| row.key == key)
+            .map(|row| row.value.as_str())
+    }
+
+    /// The WineD3D renderer named by `WINE_D3D_CONFIG`; `""` is the default.
+    pub(crate) fn program_d3d_renderer(&self) -> Option<String> {
+        let config = self.program_env_value("WINE_D3D_CONFIG").unwrap_or("");
+        for entry in config.split(',') {
+            if let Some((name, value)) = entry.split_once('=')
+                && name.trim() == "renderer"
+            {
+                let value = value.trim();
+                return match value {
+                    "no3d" | "gdi" => Some("gdi".to_owned()),
+                    "gl" | "vulkan" => Some(value.to_owned()),
+                    _ => None,
+                };
+            }
+        }
+        Some(String::new())
+    }
+
+    /// Change only the renderer entry, keeping the user's other WineD3D options.
+    pub(crate) fn set_program_renderer(&mut self, renderer: &str, cx: &mut Context<Self>) {
+        self.sync_env_rows_from_inputs(cx);
+        let existing = self.program_env_value("WINE_D3D_CONFIG").unwrap_or("").to_owned();
+        let mut entries: Vec<String> = existing
+            .split(',')
+            .map(str::trim)
+            .filter(|entry| {
+                !entry.is_empty()
+                    && entry.split_once('=').map(|(name, _)| name.trim()) != Some("renderer")
+            })
+            .map(str::to_owned)
+            .collect();
+        if !renderer.is_empty() {
+            entries.push(format!("renderer={renderer}"));
+        }
+        self.program_settings.env_rows.retain(|row| row.key != "WINE_D3D_CONFIG");
+        if !entries.is_empty() {
+            let id = self.program_settings.next_env_id;
+            self.program_settings.next_env_id += 1;
+            self.program_settings.env_rows.push(crate::program_settings::EnvRow {
+                id,
+                key: "WINE_D3D_CONFIG".to_owned(),
+                value: entries.join(","),
+            });
+        }
+        self.preview
+            .program_inputs
+            .retain(|key, _| !key.starts_with("ps-env-"));
+        cx.notify();
+    }
+
     /// Locale presets also own LANG and LC_ALL, matching the SwiftUI editor.
     pub(crate) fn set_program_locale(&mut self, locale: String, cx: &mut Context<Self>) {
+        self.sync_env_rows_from_inputs(cx);
         let Some(settings) = self.program_settings.settings.as_mut() else {
             return;
         };
@@ -2955,21 +4408,66 @@ impl WhiskyApp {
         cx.notify();
     }
 
-    /// Add a typed root. The native picker is M4; this milestone uses the
-    /// existing text field.
+    /// Native multi-select folder picker, starting inside the bottle's C drive.
+    pub(crate) fn choose_scan_roots(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.scan_container() else {
+            return;
+        };
+        self.scan_root_picker = Some(container.clone());
+        let start = format!("{container}/drive_c");
+        self.bridge.choose_folders("scan-roots", &start);
+        cx.notify();
+    }
+
+    /// Typed-path fallback for adding one scan root.
     pub(crate) fn add_scan_root(&mut self, path: &str, cx: &mut Context<Self>) {
         let path = path.trim();
         if path.is_empty() {
             self.show_notice("请输入文件夹路径", cx);
             return;
         }
+        if !path.starts_with('/') {
+            self.show_notice("请输入绝对路径", cx);
+            return;
+        }
         self.edit_folder(FolderEdit::AddRoot(path.to_owned()), cx);
+    }
+
+    /// Move one scan root (and its games) into another bottle.
+    pub(crate) fn move_scan_root(
+        &mut self,
+        root: &str,
+        target_index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(source) = self.scan_container() else {
+            return;
+        };
+        let Some(target) = self
+            .bottles
+            .get(target_index)
+            .filter(|bottle| bottle.available && bottle.path != source)
+            .map(|bottle| bottle.path.clone())
+        else {
+            return;
+        };
+        self.bridge.move_scan_root(&source, root, &target);
+        cx.notify();
     }
 
     pub(crate) fn edit_folder(&mut self, edit: FolderEdit, cx: &mut Context<Self>) {
         let Some(container) = self.scan_container() else {
             return;
         };
+        self.folders_reload_after_write.insert(container.clone());
         self.bridge.edit_folders(&container, edit);
         cx.notify();
     }
@@ -3433,7 +4931,7 @@ impl WhiskyApp {
         cx.notify();
     }
 
-    /// Set one star rating (1–5). Choosing the current value clears it, which
+    /// Set one rating (1–10). Choosing the current value clears it, which
     /// is how the detail panel expresses "unrated".
     pub(crate) fn set_rating(&mut self, index: usize, star: u8, cx: &mut Context<Self>) {
         let Some(game) = self.game(index) else { return };
@@ -3566,6 +5064,14 @@ impl WhiskyApp {
             PreviewPage::GameConfigs => "游戏配置".into(),
         }
     }
+    /// Enabled scraper sources, in provider order. Defaults to all of them.
+    pub(crate) fn metadata_sources(&self) -> Vec<String> {
+        METADATA_SOURCES
+            .iter()
+            .filter(|(key, _, _)| self.flag(key))
+            .map(|(_, source, _)| (*source).to_owned())
+            .collect()
+    }
     pub(crate) fn flag(&self, key: &'static str) -> bool {
         self.preview.toggles.get(key).copied().unwrap_or(false)
     }
@@ -3578,6 +5084,7 @@ impl WhiskyApp {
         // A dismissed picker chose nothing, so nothing is recorded or launched.
         self.executable_picker = None;
         self.open_file = None;
+        self.game_info = None;
         cx.notify();
     }
     /// Whether the `Hidden` filter currently includes hidden entries.
@@ -3597,4 +5104,20 @@ impl WhiskyApp {
 /// Internal identity: the same bridge id in two bottles is two records.
 fn entry_key(container: &str, entry_id: &str) -> String {
     format!("{container}\u{1}{entry_id}")
+}
+
+/// Finder's duplicate naming: "Name Copy", then "Name Copy 2", …
+fn next_duplicate_name(base: &str, bottles: &[BottleVm]) -> String {
+    let candidate = format!("{base} Copy");
+    if !bottles.iter().any(|bottle| bottle.name == candidate) {
+        return candidate;
+    }
+    let mut counter = 2;
+    loop {
+        let candidate = format!("{base} Copy {counter}");
+        if !bottles.iter().any(|bottle| bottle.name == candidate) {
+            return candidate;
+        }
+        counter += 1;
+    }
 }

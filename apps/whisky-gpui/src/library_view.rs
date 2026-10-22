@@ -107,15 +107,19 @@ pub(crate) fn filter_indices(
 }
 
 /// Order `indices` in place. The tie-break is always the name, matching
-/// `LibraryOrdering.byName`, so the result is deterministic.
+/// `LibraryOrdering.byName`, so the result is deterministic. `groups_launchers`
+/// mirrors `groupsLaunchers: displayMode != .timeline` (`LibraryView.swift`):
+/// launchers sink below the games unless the timeline presentation is active.
 pub(crate) fn sort_indices(
     games: &[Game],
     indices: &mut [usize],
     sort: Sort,
     bottles: &[BottleVm],
+    groups_launchers: bool,
 ) {
     indices.sort_by(|&first, &second| {
-        compare(games, bottles, sort, first, second).then_with(|| first.cmp(&second))
+        compare(games, bottles, sort, groups_launchers, first, second)
+            .then_with(|| first.cmp(&second))
     });
 }
 
@@ -123,11 +127,16 @@ fn compare(
     games: &[Game],
     bottles: &[BottleVm],
     sort: Sort,
+    groups_launchers: bool,
     first: usize,
     second: usize,
 ) -> Ordering {
     let first_game = &games[first];
     let second_game = &games[second];
+    if groups_launchers && first_game.is_launcher != second_game.is_launcher {
+        // `LibraryOrdering.sorted`: non-launchers first, launchers last.
+        return first_game.is_launcher.cmp(&second_game.is_launcher);
+    }
     let primary = match sort {
         // `recent` puts the newest confirmed session first and dated entries
         // before undated ones (`LibraryOrdering.sorted`, case `.recent`).
@@ -250,6 +259,7 @@ mod tests {
             needs_executable: false,
             container: container.into(),
             last_session_ended_at: None,
+            is_launcher: false,
         }
     }
 
@@ -390,11 +400,36 @@ mod tests {
 
     fn sorted(games: &[Game], sort: Sort, bottles: &[BottleVm]) -> Vec<String> {
         let mut indices: Vec<usize> = (0..games.len()).collect();
-        sort_indices(games, &mut indices, sort, bottles);
+        sort_indices(games, &mut indices, sort, bottles, true);
         indices
             .into_iter()
             .map(|index| games[index].title.clone())
             .collect()
+    }
+
+    #[test]
+    fn launchers_sink_below_games_unless_grouping_is_off() {
+        let bottles = [bottle("galgame")];
+        let mut steam = game("a", "Steam", "", "", 1, &bottles[0].path);
+        steam.is_launcher = true;
+        // The most recent session belongs to the launcher: grouping still
+        // wins, exactly like `LibraryOrdering.sorted` with `groupsLaunchers`.
+        steam.last_session_ended_at = Some(900);
+        let game = game("b", "Game", "", "", 1, &bottles[0].path);
+
+        let games = [steam, game];
+        assert_eq!(
+            sorted(&games, Sort::Recent, &bottles),
+            ["Game", "Steam"]
+        );
+
+        let mut indices: Vec<usize> = (0..games.len()).collect();
+        sort_indices(&games, &mut indices, Sort::Recent, &bottles, false);
+        let titles: Vec<_> = indices
+            .into_iter()
+            .map(|index| games[index].title.clone())
+            .collect();
+        assert_eq!(titles, ["Steam", "Game"], "timeline keeps the raw order");
     }
 
     #[test]
