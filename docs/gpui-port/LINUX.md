@@ -857,8 +857,29 @@ Local evidence under `build/portability/gui-linux/` includes
 `gamedb-final-reference-macos.log`, `gamedb-kit-macos.log`,
 `gamedb-gpui-macos.log`, `gamedb-full-linux.log`, `gamedb-swift60-final.log`,
 `gamedb-final-window.log`, `gamedb-lint.log`, `linux-gpui/gamedb/` and
-`linux-gpui/gamedb-window/`. Relocated Release resource acceptance follows as
-an additional packaging gate.
+`linux-gpui/gamedb-window/`.
+
+The Release artifact was built from clean commit `fa5b836`. Its manifest has
+`sourceTreeDirty: false` and preserves the canonical JSON hash
+`32611509865fdd4b8e4e832293e4a230da7a4924040c9e0c8ef87e6acfc9ba2a`.
+The independent Ubuntu 24.04 acceptance container runs as UID 10001 with network
+disabled, Swift/Cargo and the build workspace absent. All 14 checks pass in
+73.34 seconds, covering launcher/direct entry points, moved library/resource
+resolution, payload integrity, pickers, settings reconnect, GIO desktop startup,
+interactive terminal and the GameDB reference/error/retry flow. Final payload
+hashes remain unchanged after the complete run. Evidence is
+`gamedb-release-build.log`, `gamedb-clean-runtime.log`,
+`gamedb-runtime-container.json` and `gamedb-runtime-verified/`.
+The verified archive is `gamedb-release/whisky-linux-aarch64.tar.gz`, SHA-256
+`a6074e138018ba51460d86ac645da79aa36cde2c5e07f12f23395bf6fed24176`.
+
+Targeted strict lint passes the new shared sources, native adapters, protocol
+accessor and focused tests. The broad `Service.swift` lint retains its existing
+file-length, library-dispatch complexity and line-length findings; the new
+GameDB dispatch is factored into its own method. macOS application packaging
+copies the new resource bundle; this stage's native evidence is package/API
+compilation and tests. ARM64 Linux provides the complete clean Release/window
+evidence; hosted x86_64 and Wayland acceptance remain separate gates.
 
 ## Reproduce
 
