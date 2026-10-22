@@ -34,18 +34,38 @@ struct LinuxTerminalService {
     let searchPaths: [URL]
     let environment: [String: String]
     var launch: Launcher = Self.launchProcess
-    static let choices = [("x-terminal-emulator", "系统终端"), ("gnome-terminal", "GNOME Terminal"), ("xterm", "XTerm")]
+    static let choices = [
+        ("x-terminal-emulator", "系统终端"), ("gnome-terminal", "GNOME Terminal"), ("xterm", "XTerm"), ("foot", "Foot")
+    ]
     var displayAvailable: Bool {
         ["DISPLAY", "WAYLAND_DISPLAY"].contains { environment[$0]?.isEmpty == false }
     }
 
     func available() -> [Terminal] {
-        Self.choices.compactMap { id, name in
+        let choices = waylandOnly
+            ? Self.choices.sorted { ($0.0 == "foot" ? 0 : $0.0 == "gnome-terminal" ? 1 : 2)
+                < ($1.0 == "foot" ? 0 : $1.0 == "gnome-terminal" ? 1 : 2)
+            }
+            : Self.choices
+        return choices.compactMap { id, name in
             guard let executable = searchPaths.map({ $0.appendingPathComponent(id) })
                 .first(where: { Self.isExecutable($0) })
             else { return nil }
+            let resolved = executable.resolvingSymlinksInPath().lastPathComponent
+            if displayAvailable {
+                if ["xterm", "uxterm"].contains(resolved), environment["DISPLAY"]?.isEmpty != false {
+                    return nil
+                }
+                if resolved == "foot", environment["WAYLAND_DISPLAY"]?.isEmpty != false {
+                    return nil
+                }
+            }
             return Terminal(id: id, name: name, executable: executable)
         }
+    }
+
+    private var waylandOnly: Bool {
+        environment["WAYLAND_DISPLAY"]?.isEmpty == false && environment["DISPLAY"]?.isEmpty != false
     }
 
     func describe(preferred: String) -> JSONValue {

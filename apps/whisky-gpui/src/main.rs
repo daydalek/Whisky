@@ -534,6 +534,8 @@ fn main() {
             let bounds = ui_state::initial_window_bounds(cx);
             let (_handle, _view) = gpui_kit::open_window(
                 WindowOptions {
+                    #[cfg(target_os = "linux")]
+                    app_id: Some("com.franke.Whisky".into()),
                     titlebar: Some(TitlebarOptions {
                         title: Some("Whisky".into()),
                         appears_transparent: true,

@@ -18,11 +18,12 @@ const TERMINALS: [(&str, &str); 3] = [
 ];
 
 #[cfg(target_os = "linux")]
-const TERMINALS: [(&str, &str); 4] = [
+const TERMINALS: [(&str, &str); 5] = [
     ("自动选择", preferences::TERMINAL_VALUES[0]),
     ("系统终端", preferences::TERMINAL_VALUES[1]),
     ("GNOME Terminal", preferences::TERMINAL_VALUES[2]),
     ("XTerm", preferences::TERMINAL_VALUES[3]),
+    ("Foot", preferences::TERMINAL_VALUES[4]),
 ];
 
 impl WhiskyApp {
@@ -61,7 +62,7 @@ impl WhiskyApp {
                     .clone()
                     .unwrap_or_else(|| match &self.host_terminals {
                         Some(status) if status.available.is_empty() => {
-                            "请安装系统终端、GNOME Terminal 或 XTerm".to_owned()
+                            "请安装适用于当前会话的终端（Foot、GNOME Terminal 或 XTerm）".to_owned()
                         }
                         Some(status)
                             if selected != "auto"

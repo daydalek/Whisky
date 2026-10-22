@@ -42,6 +42,7 @@ def main():
     parser.add_argument('--archive', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--gui', action='store_true', help='Run real picker, settings, desktop and terminal window checks')
+    parser.add_argument('--wayland', action='store_true', help='Run native headless Wayland window acceptance')
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -138,6 +139,12 @@ def main():
                 value = json.loads((output / (scenario + '-window') / 'report.json').read_text())
                 assert value['passed'], value
             report['steps'].append('packaged-native-pickers-settings-desktop-terminal-and-gamedb-resource-retry')
+        if args.wayland:
+            run('packaged-wayland', ['dbus-run-session', '--', 'python3', TOOLS / 'smoke-wayland.py',
+                '--bundle', relocated, '--output', output / 'wayland-window'])
+            value = json.loads((output / 'wayland-window/report.json').read_text())
+            assert value['passed'], value
+            report['steps'].append('packaged-native-wayland-settings-chooser-clipboard-shortcut-foot-and-restart')
         verify(relocated)
         report['steps'].append('bundle-files-remain-intact-after-runtime-and-window-checks')
         report['passed'] = True

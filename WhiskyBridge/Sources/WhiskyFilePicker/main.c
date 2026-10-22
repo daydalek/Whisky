@@ -48,10 +48,19 @@ static gboolean timed_out(gpointer dialog) {
 static void set_initial_path(GtkFileChooser *chooser, const char *filename, gboolean save) {
     if (!filename) return;
     GFile *file = g_file_new_for_commandline_arg(filename);
-    if (g_file_query_file_type(file, G_FILE_QUERY_INFO_NONE, NULL) == G_FILE_TYPE_DIRECTORY) {
+    GFileType type = g_file_query_file_type(file, G_FILE_QUERY_INFO_NONE, NULL);
+    if (type == G_FILE_TYPE_DIRECTORY) {
         gtk_file_chooser_set_current_folder(chooser, file, NULL);
     } else {
         GFile *parent = g_file_get_parent(file);
+        /* A fresh installation can point into directories yet to be created.
+         * GTK resolves folders asynchronously; select an existing ancestor to
+         * keep the initial dialog usable throughout that resolution. */
+        while (parent && g_file_query_file_type(parent, G_FILE_QUERY_INFO_NONE, NULL) != G_FILE_TYPE_DIRECTORY) {
+            GFile *ancestor = g_file_get_parent(parent);
+            g_object_unref(parent);
+            parent = ancestor;
+        }
         if (parent) {
             gtk_file_chooser_set_current_folder(chooser, parent, NULL);
             g_object_unref(parent);
@@ -60,7 +69,7 @@ static void set_initial_path(GtkFileChooser *chooser, const char *filename, gboo
             char *name = g_file_get_basename(file);
             gtk_file_chooser_set_current_name(chooser, name);
             g_free(name);
-        } else {
+        } else if (type != G_FILE_TYPE_UNKNOWN) {
             gtk_file_chooser_set_file(chooser, file, NULL);
         }
     }

@@ -48,7 +48,7 @@ env RUSTC_WRAPPER= cargo test  --offline --locked --manifest-path apps/whisky-gp
 
 The binary is `apps/whisky-gpui/target/debug/whisky-gpui`.
 
-Linux build, production helper integration and Xvfb window checks are documented
+Linux build, production helper integration, Xvfb and native headless Wayland checks are documented
 in [`docs/gpui-port/LINUX.md`](../../docs/gpui-port/LINUX.md). Run
 `tools/check-linux.sh` from an Ubuntu environment with Swift and Rust installed.
 The Linux shortcuts use Ctrl; the UI font is Noto Sans CJK SC.

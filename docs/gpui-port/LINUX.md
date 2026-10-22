@@ -881,6 +881,56 @@ copies the new resource bundle; this stage's native evidence is package/API
 compilation and tests. ARM64 Linux provides the complete clean Release/window
 evidence; hosted x86_64 and Wayland acceptance remain separate gates.
 
+## Native Wayland and session-aware terminal stage
+
+The production Linux window now publishes `com.franke.Whisky` as its Wayland
+application ID, matching the installed desktop entry. Linux terminal discovery
+filters XTerm/UXTerm and Foot by the active display protocol. Pure Wayland
+sessions prefer Foot, followed by GNOME Terminal and other available wrappers;
+X11 retains its existing preference order. The settings selector persists Foot
+with the existing Linux terminal preference key.
+
+The GTK chooser opens the nearest existing parent when its initial path contains
+directories awaiting creation. Existing files retain selection and save dialogs
+retain the requested filename. A real X11 chooser regression selects a directory
+from a missing nested initial path and verifies that those directories remain
+uncreated. The production Wayland settings flow exercises the same first-use
+case through the actual bridge and GTK helper.
+
+`tools/smoke-wayland.py` starts unprivileged headless Sway with Pixman, a native
+1280×900 output, persistent virtual keyboard/pointer devices and clipboard
+transfer. Its configuration disables Xwayland; each observed application,
+chooser and Foot window must use `xdg_shell`, and Whisky windows must have the
+stable application ID and a null X11 window identifier. Protocol XML provenance
+and embedded licenses are preserved in `tools/wayland-input/README.md` and the
+adjacent source files. The test input helper is built in a separate Docker stage.
+
+ARM64 Ubuntu 24.04 completed nine real production-window flows: preference
+keyboard/pointer writes, desktop-entry identity, native GTK directory selection,
+Unicode clipboard argument save with unknown-settings preservation, GIO shortcut
+startup and graceful secondary-window exit, Foot with an interactive PTY,
+source-file preservation with explicit stable identity allocation, and primary
+quit/restart persistence. The compositor tree, screenshots, bridge requests,
+responses and PTY probe are retained under
+`build/portability/gui-linux/wayland-endtoend-evidence/`. Both the frontend and
+helper use isolated registry, XDG and source-prefix fixtures.
+
+Linux regression completed Core 116, Metadata 20, Bridge 104 and Rust 127 tests,
+plus the existing program/metadata/lifecycle/recovery/import/diagnostic/desktop/
+GameDB process checks. Native macOS targeted terminal tests pass 5/5; native Rust
+passes 127/127. The clean X11 runtime archive regression passes all 14 checks,
+including native chooser, settings, desktop, terminal and GameDB windows.
+
+The release checker accepts `--wayland`, verifies/extracts the manifest, relocates
+the bundle into a literal Unicode/special-character path, then drives the native
+session and verifies final payload integrity. CI runs the same release artifact
+through separate X11 and Wayland runtime jobs with UID 10001 and network disabled.
+Hosted x86_64 results and additional desktop/distribution environments remain
+separate acceptance gates.
+Targeted strict Swift lint and patch whitespace checks pass. The repository-wide
+Rust formatting check reports existing differences in unchanged modules; this
+stage preserves the surrounding source style.
+
 ## Reproduce
 
 Use an Ubuntu 24.04 environment with Swift 6.4 and Rust 1.99.1. Install the
@@ -928,7 +978,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Host integration | XDG preferences; file open/reveal; GTK dialogs; real terminal/window acceptance; managed desktop updates, legacy shortcut upgrade and stable relocation | Additional terminal/desktop environments; settings now follow connected helper services |
 | Diagnostics | Native macOS adapter; Linux bounded host/file report, platform checks, exclusive export and production-window acceptance | Additional desktop platform coverage follows the acceptance matrix |
 | Distribution | macOS `.app` packaging; ARM64 Linux Release archive with Swift libraries, native helpers, source/license evidence and unprivileged clean-Ubuntu CLI/window acceptance | First x86_64 hosted archive/runtime run and additional distributions |
-| Desktop acceptance | ARM64 X11 virtual display with Mesa | Seeded end-to-end interactions, restart/recovery and Wayland coverage; x86_64 hosted CI evidence |
+| Desktop acceptance | ARM64 X11 and native headless Wayland; real GTK chooser, clipboard, GIO shortcut, Foot PTY and restart persistence | Broader seeded interactions and desktop environments; x86_64 hosted CI evidence |
 
 Wine installation, Windows process execution and game compatibility follow the
 user's explicit scope exclusion. File editing and host integration remain part

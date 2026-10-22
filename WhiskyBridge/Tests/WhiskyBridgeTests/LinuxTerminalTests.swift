@@ -74,6 +74,7 @@ private func terminalExecutable(_ url: URL) throws {
     let fixture = try LifecycleFixture()
     defer { fixture.cleanup() }
     try terminalExecutable(fixture.root.appendingPathComponent("xterm"))
+    try terminalExecutable(fixture.root.appendingPathComponent("foot"))
     let service = LinuxTerminalService(
         searchPaths: [fixture.root],
         environment: ["WAYLAND_DISPLAY": "wayland-0"]
@@ -104,4 +105,27 @@ private func terminalExecutable(_ url: URL) throws {
             workspace: fixture.workspace
         )
     }
+}
+
+@Test @MainActor func linuxTerminalsRespectPureWaylandAndX11Protocols() throws {
+    let fixture = try LifecycleFixture()
+    defer { fixture.cleanup() }
+    for name in ["foot", "xterm"] {
+        try terminalExecutable(fixture.root.appendingPathComponent(name))
+    }
+    try FileManager.default.createSymbolicLink(
+        at: fixture.root.appendingPathComponent("x-terminal-emulator"),
+        withDestinationURL: fixture.root.appendingPathComponent("xterm")
+    )
+    let wayland = LinuxTerminalService(
+        searchPaths: [fixture.root], environment: ["WAYLAND_DISPLAY": "wayland-1"]
+    ) { executable, args, _ in
+        #expect(executable.lastPathComponent == "foot" && args.first == "-e")
+        #expect(args[5] == fixture.source.path)
+    }
+    #expect(wayland.available().map(\.id) == ["foot"])
+    #expect(try wayland.open(container: fixture.source, preferred: "auto").object?["terminal"] == .string("foot"))
+    #expect(throws: (any Error).self) { try wayland.open(container: fixture.source, preferred: "xterm") }
+    let x11 = LinuxTerminalService(searchPaths: [fixture.root], environment: ["DISPLAY": ":123"])
+    #expect(x11.available().map(\.id) == ["x-terminal-emulator", "xterm"])
 }

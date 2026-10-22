@@ -22,8 +22,8 @@ pub(crate) const SORT_VALUES: [&str; 3] = ["recent", "name", "bottle"];
 #[cfg(not(target_os = "linux"))]
 pub(crate) const TERMINAL_VALUES: [&str; 3] = ["terminal", "iterm", "warp"];
 #[cfg(target_os = "linux")]
-pub(crate) const TERMINAL_VALUES: [&str; 4] =
-    ["auto", "x-terminal-emulator", "gnome-terminal", "xterm"];
+pub(crate) const TERMINAL_VALUES: [&str; 5] =
+    ["auto", "x-terminal-emulator", "gnome-terminal", "xterm", "foot"];
 /// `libraryCoverFillStyle` tags (`SettingsView.swift:92`).
 pub(crate) const COVER_FILL_VALUES: [&str; 2] = ["blurred", "theme"];
 /// `LibraryDetailLayoutStyle` raw values (`LibraryGameSheet.swift:25`).
@@ -153,7 +153,7 @@ mod tests {
         #[cfg(target_os = "linux")]
         assert_eq!(
             TERMINAL_VALUES,
-            ["auto", "x-terminal-emulator", "gnome-terminal", "xterm"]
+            ["auto", "x-terminal-emulator", "gnome-terminal", "xterm", "foot"]
         );
         assert_eq!(COVER_FILL_VALUES, ["blurred", "theme"]);
         assert_eq!(DETAIL_LAYOUT_VALUES, ["hero", "split"]);

@@ -178,6 +178,13 @@ def main():
         assert selected['path'] == str(folder), selected
         report['steps'].append('real-directory-picker')
 
+        begin('system.chooseFolder', dict(path=str(fixture / 'Fresh/Whisky/Bottles')))
+        chooser.select_path(folder)
+        selected = reply()
+        assert selected['path'] == str(folder), selected
+        assert not (fixture / 'Fresh').exists()
+        report['steps'].append('missing-initial-directory-opens-existing-ancestor-without-creating-paths')
+
         destination = fixture / '保存 Report.tar'
         begin('system.choosePath', dict(mode='save', purpose='export', path=str(fixture), name=destination.name, extensions=['tar']))
         chooser.window()

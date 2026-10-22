@@ -13,3 +13,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 USER whisky-test
 ENV HOME=/home/whisky-test
 WORKDIR /home/whisky-test
+
+FROM ubuntu:24.04 AS wayland-input-build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential libwayland-dev libwayland-bin pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends libxkbcommon-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY wayland-input /build
+WORKDIR /build
+RUN wayland-scanner client-header wlr-virtual-pointer-unstable-v1.xml virtual-pointer-client.h \
+    && wayland-scanner private-code wlr-virtual-pointer-unstable-v1.xml virtual-pointer-protocol.c \
+    && wayland-scanner client-header virtual-keyboard-unstable-v1.xml virtual-keyboard-client.h \
+    && wayland-scanner private-code virtual-keyboard-unstable-v1.xml virtual-keyboard-protocol.c \
+    && cc -Wall -Wextra -Werror -O2 main.c virtual-pointer-protocol.c virtual-keyboard-protocol.c \
+       $(pkg-config --cflags --libs wayland-client xkbcommon) -o /whisky-wayland-input
+
+FROM acceptance AS wayland-acceptance
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sway wtype grim foot wayland-utils wl-clipboard \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=wayland-input-build /whisky-wayland-input /usr/local/bin/whisky-wayland-input
+USER whisky-test

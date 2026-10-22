@@ -347,10 +347,20 @@ jobs:
           path: build/portability/gpui-foundation/*.log
 
   linux-package-runtime:
-    name: Linux release / clean Ubuntu runtime
+    name: Linux release / clean Ubuntu / ${{ matrix.display }}
     needs: linux-gpui
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - display: X11
+            target: acceptance
+            checks: --gui
+          - display: Wayland
+            target: wayland-acceptance
+            checks: --wayland
     steps:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v8
@@ -359,7 +369,7 @@ jobs:
           path: linux-release
       - name: Build the clean runtime acceptance image
         run: |
-          docker build --target acceptance -t whisky-package-acceptance \
+          docker build --target '${{ matrix.target }}' -t whisky-package-acceptance \
             -f apps/whisky-gpui/tools/linux-runtime.Dockerfile apps/whisky-gpui/tools
       - name: Verify the relocated release as an unprivileged user with network disabled
         run: |
@@ -369,7 +379,7 @@ jobs:
             --mount "type=bind,src=$archive,dst=/archive.tar.gz,readonly" \
             --mount "type=bind,src=$PWD/apps/whisky-gpui/tools,dst=/tests,readonly" \
             whisky-package-acceptance python3 /tests/check-linux-package.py \
-              --archive /archive.tar.gz --output /evidence --gui
+              --archive /archive.tar.gz --output /evidence ${{ matrix.checks }}
       - name: Collect clean-runtime evidence
         if: always()
         run: docker cp whisky-package-acceptance:/evidence package-evidence
@@ -377,12 +387,17 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: linux-package-runtime-evidence
+          name: linux-package-runtime-evidence-${{ matrix.display }}
           path: |
             package-evidence/report.json
             package-evidence/*.log
             package-evidence/*/report.json
             package-evidence/*/*.log
             package-evidence/*/*.png
+            package-evidence/*/*-tree.json
+            package-evidence/*/outputs.json
+            package-evidence/*/sway.conf
             package-evidence/*/fixture-*/requests.jsonl
+            package-evidence/*/fixture-*/responses.jsonl
+            package-evidence/*/fixture-*/probe.json
             package-evidence/*/fixture-*/data/applications/*.desktop
