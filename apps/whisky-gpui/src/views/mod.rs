@@ -28,6 +28,7 @@ pub(crate) enum Command {
     /// Name the executable a folder entry starts, without running it.
     Executable(usize),
     Toggle(&'static str),
+    Choose(&'static str, &'static str),
     Sort(usize),
     Reorder,
     Notice,
@@ -305,6 +306,53 @@ impl WhiskyApp {
                                             cx.notify();
                                         });
                                     }),
+                            );
+                        }
+                        menu
+                    }),
+            )
+            .into_any_element()
+    }
+    /// A dropdown backed by raw values, showing the matching label. Used by
+    /// settings controls whose stored value is a Swift enum raw value.
+    pub(crate) fn choice_pairs(
+        &self,
+        key: &'static str,
+        label: &'static str,
+        options: &'static [(&'static str, &'static str)],
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let selected = self
+            .preview
+            .choices
+            .get(key)
+            .map(AsRef::as_ref)
+            .unwrap_or(options[0].1);
+        let selected_label = options
+            .iter()
+            .find(|(_, value)| *value == selected)
+            .map_or(options[0].0, |(label, _)| label);
+        let view = cx.entity().downgrade();
+        let current = SharedString::from(selected);
+        row()
+            .py(px(10.))
+            .gap(px(16.))
+            .child(div().flex_1().min_w_0().child(label))
+            .child(
+                Button::new(key)
+                    .label(format!("{selected_label}  ⌄"))
+                    .dropdown_menu(move |mut menu, _, _| {
+                        for &(option_label, value) in options {
+                            let view = view.clone();
+                            let checked = current.as_ref() == value;
+                            menu = menu.item(
+                                PopupMenuItem::new(option_label).checked(checked).on_click(
+                                    move |_, _, cx| {
+                                        let _ = view.update(cx, |this, cx| {
+                                            this.command(Command::Choose(key, value), cx);
+                                        });
+                                    },
+                                ),
                             );
                         }
                         menu

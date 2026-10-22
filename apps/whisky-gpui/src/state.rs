@@ -209,14 +209,24 @@ impl PreviewState {
             toggles: [
                 ("refresh", preferences::DEFAULT_REFRESH_AFTER_EXIT),
                 ("single-title", preferences::DEFAULT_SINGLE_LINE_TITLES),
+                ("center-cover-text", preferences::DEFAULT_CENTER_WIDE_COVER_TEXT),
+                ("blurred-fill", preferences::DEFAULT_BLURRED_COVER_FILL),
                 ("shader", true),
                 ("appnap", true),
-                ("kill", true),
-                ("blur", true),
-                ("updates", true),
+                ("kill", preferences::DEFAULT_KILL_ON_TERMINATE),
+                ("menubar", preferences::DEFAULT_SHOW_MENU_BAR_EXTRA),
+                ("offline", preferences::DEFAULT_OFFLINE_MODE),
+                ("updates", preferences::DEFAULT_CHECK_UPDATES),
+                ("blur", preferences::DEFAULT_DETAIL_BLURRED_BACKGROUND),
             ]
             .into(),
-            choices: [("create-windows", "Windows 11".into())].into(),
+            choices: [
+                ("create-windows", "Windows 11".into()),
+                ("terminal", preferences::DEFAULT_PREFERRED_TERMINAL.into()),
+                ("cover-fill", preferences::DEFAULT_COVER_FILL_STYLE.into()),
+                ("detail-layout", preferences::DEFAULT_DETAIL_LAYOUT_STYLE.into()),
+            ]
+            .into(),
             collapsed: [
                 "launcher",
                 "input",
@@ -1647,6 +1657,7 @@ impl WhiskyApp {
                 self.navigate(PreviewPage::ConfigureBottle, cx);
             }
             Command::Toggle(key) => self.toggle_option(key, cx),
+            Command::Choose(key, value) => self.choose(key, value, cx),
             Command::Sort(i) => self.set_sort(i, cx),
             Command::Reorder => self.reorder_library(cx),
             Command::Hide(i) => {
@@ -1783,34 +1794,63 @@ impl WhiskyApp {
     }
 
     fn toggle_option(&mut self, key: &'static str, cx: &mut Context<Self>) {
-        match key {
+        let value = match key {
             "mixed" => {
                 self.mixed = !self.mixed;
-                self.persist(preferences::MIXED_COVER_LAYOUT, json!(self.mixed), cx);
+                self.mixed
             }
-            "motion" => self.motion = !self.motion,
-            "lively" => self.lively = !self.lively,
+            "motion" => {
+                self.motion = !self.motion;
+                self.motion
+            }
+            "lively" => {
+                self.lively = !self.lively;
+                self.lively
+            }
             "show-hidden" => {
                 self.show_hidden = !self.show_hidden;
-                self.persist(preferences::SHOW_HIDDEN, json!(self.show_hidden), cx);
                 self.invalidate_view();
+                self.show_hidden
             }
             _ => {
-                let value = {
-                    let slot = self.preview.toggles.entry(key).or_default();
-                    *slot = !*slot;
-                    *slot
-                };
-                match key {
-                    "single-title" => {
-                        self.persist(preferences::SINGLE_LINE_TITLES, json!(value), cx)
-                    }
-                    "refresh" => {
-                        self.persist(preferences::REFRESH_AFTER_EXIT, json!(value), cx)
-                    }
-                    _ => {}
-                }
+                let slot = self.preview.toggles.entry(key).or_default();
+                *slot = !*slot;
+                *slot
             }
+        };
+        if let Some(preference) = Self::toggle_preference(key) {
+            self.persist(preference, json!(value), cx);
+        }
+        cx.notify();
+    }
+
+    /// Persisted preference behind a toggle key; `None` means session-only.
+    fn toggle_preference(key: &str) -> Option<&'static str> {
+        match key {
+            "refresh" => Some(preferences::REFRESH_AFTER_EXIT),
+            "single-title" => Some(preferences::SINGLE_LINE_TITLES),
+            "center-cover-text" => Some(preferences::CENTER_WIDE_COVER_TEXT),
+            "blurred-fill" => Some(preferences::BLURRED_COVER_FILL),
+            "kill" => Some(preferences::KILL_ON_TERMINATE),
+            "menubar" => Some(preferences::SHOW_MENU_BAR_EXTRA),
+            "offline" => Some(preferences::OFFLINE_MODE),
+            "updates" => Some(preferences::CHECK_UPDATES),
+            "blur" => Some(preferences::DETAIL_BLURRED_BACKGROUND),
+            "mixed" => Some(preferences::MIXED_COVER_LAYOUT),
+            "show-hidden" => Some(preferences::SHOW_HIDDEN),
+            _ => None,
+        }
+    }
+
+    /// Select one option from a settings dropdown. Only keys the SwiftUI app
+    /// persists are written through; the rest stay session-local.
+    pub(crate) fn choose(&mut self, key: &'static str, value: &'static str, cx: &mut Context<Self>) {
+        self.preview.choices.insert(key, value.into());
+        match key {
+            "terminal" => self.persist(preferences::PREFERRED_TERMINAL, json!(value), cx),
+            "cover-fill" => self.persist(preferences::COVER_FILL_STYLE, json!(value), cx),
+            "detail-layout" => self.persist(preferences::DETAIL_LAYOUT_STYLE, json!(value), cx),
+            _ => {}
         }
         cx.notify();
     }
@@ -1891,17 +1931,49 @@ impl WhiskyApp {
         {
             self.mixed = flag;
         }
-        if let Some(flag) = values
-            .get(preferences::SINGLE_LINE_TITLES)
-            .and_then(serde_json::Value::as_bool)
-        {
-            self.preview.toggles.insert("single-title", flag);
+        for (preference, toggle) in [
+            (preferences::SINGLE_LINE_TITLES, "single-title"),
+            (preferences::CENTER_WIDE_COVER_TEXT, "center-cover-text"),
+            (preferences::BLURRED_COVER_FILL, "blurred-fill"),
+            (preferences::REFRESH_AFTER_EXIT, "refresh"),
+            (preferences::DETAIL_BLURRED_BACKGROUND, "blur"),
+            (preferences::KILL_ON_TERMINATE, "kill"),
+            (preferences::SHOW_MENU_BAR_EXTRA, "menubar"),
+            (preferences::OFFLINE_MODE, "offline"),
+            (preferences::CHECK_UPDATES, "updates"),
+        ] {
+            if let Some(flag) = values
+                .get(preference)
+                .and_then(serde_json::Value::as_bool)
+            {
+                self.preview.toggles.insert(toggle, flag);
+            }
         }
-        if let Some(flag) = values
-            .get(preferences::REFRESH_AFTER_EXIT)
-            .and_then(serde_json::Value::as_bool)
-        {
-            self.preview.toggles.insert("refresh", flag);
+        let string_choices: [(&str, &str, fn(&str) -> Option<usize>); 3] = [
+            (
+                preferences::PREFERRED_TERMINAL,
+                "terminal",
+                preferences::terminal_index,
+            ),
+            (
+                preferences::COVER_FILL_STYLE,
+                "cover-fill",
+                preferences::cover_fill_index,
+            ),
+            (
+                preferences::DETAIL_LAYOUT_STYLE,
+                "detail-layout",
+                preferences::detail_layout_index,
+            ),
+        ];
+        for (preference, choice, valid) in string_choices {
+            if let Some(raw) = values
+                .get(preference)
+                .and_then(serde_json::Value::as_str)
+                .filter(|raw| valid(raw).is_some())
+            {
+                self.preview.choices.insert(choice, raw.into());
+            }
         }
         if let Some(location) = values
             .get(preferences::DEFAULT_BOTTLE_LOCATION)
