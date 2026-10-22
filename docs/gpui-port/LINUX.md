@@ -10,9 +10,9 @@ and distribution gates below.
 OrbStack ARM64 Ubuntu 24.04, Swift 6.4, Rust 1.99.1, Xvfb/X11 and Mesa software
 rendering:
 
-- Shared core: 112 tests; portable bridge: 71 tests; shared metadata package: 20 tests.
+- Shared core: 112 tests; portable bridge: 72 tests; shared metadata package: 20 tests.
 - Rust SDK tests, including its real Swift helper integration test.
-- Production GPUI Linux build/link and 118 unit tests.
+- Production GPUI Linux build/link and 122 unit tests.
 - Production Rust client/helper handshake, capability list and isolated empty
   library reads, with the display environment absent.
 - XDG preferences survive a real helper process exit/restart. File-backed
@@ -21,7 +21,7 @@ rendering:
 - Real production window: library, Ctrl+, settings, Ctrl+Alt+S sidebar,
   Ctrl+Q graceful exit and persisted window dimensions. Captured screenshots
   show the library and Chinese settings text using Noto Sans CJK SC.
-- macOS GPUI's 118 tests and the macOS bridge suite also pass.
+- macOS GPUI's 122 tests and the macOS bridge suite also pass.
 
 The program-storage stage adds full `programs.settings.read/set` and
 `programs.history.read/delete` to the portable helper. Both Linux and macOS now
@@ -269,8 +269,8 @@ imports. A missing registry is created on successful import; corrupt registries
 and pending recovery records retain their error boundary. Source metadata,
 program settings, game files and symlink targets remain intact.
 
-The Linux create-container panel now includes an existing-container import
-button. The native directory chooser supplies the selected path, and the
+The Linux create-container panel opens a discovered-container selection list.
+It also provides a native directory chooser for direct prefix selection. The
 production client reloads the persisted catalogue and library after registration.
 macOS retains its existing native method boundary.
 
@@ -285,10 +285,9 @@ the process gate and window scenario. Local evidence includes
 `import-gpui-macos.log`, `linux-gpui/import/report.json` and
 `linux-gpui/import-window/` under `build/portability/gui-linux/`.
 
-A dedicated discovered-candidate selection list remains part of the desktop
-work; the current UI supports selecting an existing prefix directly. Portable
-route updates and interrupted-export cleanup are covered by the subsequent
-stages; remaining lifecycle UI actions continue as required work.
+The candidate-selection stage below adds batch import to this discovery API.
+Portable route updates and interrupted-export cleanup are covered by the
+subsequent stages; remaining lifecycle UI actions continue as required work.
 
 ## Portable route consistency stage
 
@@ -326,7 +325,7 @@ records remain under `linux-gpui/lifecycle/` and `linux-gpui/recovery/`. The new
 route assertions run through the existing CI process gates.
 
 The export stage below covers interruption cleanup. Required work continues
-with the discovered-candidate selection UI and the other desktop/host services.
+with the remaining lifecycle UI and the other desktop/host services.
 
 ## Export interruption and process supervision stage
 
@@ -370,8 +369,42 @@ under `build/portability/gui-linux/` includes `export-macos.log`,
 `export-final-tests-linux.log`, `linux-gpui/export-recovery/`,
 `linux-gpui/pickers-export/` and `linux-gpui/export-import-window/`.
 
-Required work continues with the discovered-candidate selection UI and the
-remaining library, metadata, diagnostics, host and distribution gates below.
+Required work continues with the remaining lifecycle UI, library, metadata,
+diagnostics, host and distribution gates below.
+
+## Discovered-container selection stage
+
+The Linux import panel lists cached candidate names and canonical paths, supports
+individual selection or the first 128 candidates, and offers root selection and
+rescanning. It displays scanning, connection errors, import errors and completion
+counts. Request generations discard stale replies; loss of the bridge clears
+busy state and reconnects. Direct native prefix selection remains available.
+
+Batch `workspace.import` accepts up to 128 candidate objects with device/inode
+identity. It validates every identity before registration and rechecks the live
+directories immediately before the atomic registry save. A replaced directory
+causes the whole batch to fail with a rescan prompt. The frontend verifies all
+acknowledged paths and identities before showing success, then reloads the
+persisted catalogue. Source metadata and prefix contents retain their bytes.
+
+Verification passes 72 shared bridge tests on macOS and ARM Ubuntu Swift 6.0/6.4,
+12 macOS native-adapter tests, 122 GPUI tests on macOS and Linux, and the full
+Linux core, metadata, SDK, lifecycle, import and process-recovery gates. Four new
+frontend regressions cover stale replies, bounded selection, error recovery and
+acknowledgement validation. A bridge regression replaces one directory in a
+batch and verifies that the registry stays intact before a refreshed import.
+
+The real production window under Xvfb exercises a root scan error, GTK root
+selection, two-candidate selection, directory replacement, atomic rejection,
+rescan and successful import. A separate window run verifies manual prefix
+selection through the same panel. Both runs check the persisted catalogue,
+source metadata, library rendering, settings, sidebar shortcut and graceful
+exit. CI retains the candidate-window screenshots, logs and report. Local
+evidence under `build/portability/gui-linux/` includes
+`candidates-final-linux.log`, `candidates-final-swift60.log`,
+`candidates-final-macos-bridge.log`, `candidates-final-macos-rust.log`,
+`candidates-final-windows.log`, `linux-gpui/candidates-window/` and
+`linux-gpui/candidates-manual-window/`.
 
 ## Reproduce
 
@@ -416,7 +449,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Library and configuration | Shared storage tests; empty production window and CLI | Seeded-library folder edits through the native chooser, persisted ratings/visibility and refresh/recovery |
 | Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux shortcut creation is tracked under host integration; broader UI override editing remains in the desktop gate |
 | Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
-| Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; production rename, recovery and native import UI | Discovered-candidate selection UI; remaining lifecycle UI actions |
+| Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; production rename, recovery, native import and candidate batch-selection UI | Remaining lifecycle UI actions |
 | Host integration | XDG registry/preferences; file open/reveal adapter; GTK file/folder/save dialogs | Terminal discovery, desktop/file associations and capability-aware settings |
 | Diagnostics | macOS report/check adapter | Linux host information, file export and appropriate platform checks |
 | Distribution | macOS `.app` packaging | Linux relocatable bundle with both native helpers, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |

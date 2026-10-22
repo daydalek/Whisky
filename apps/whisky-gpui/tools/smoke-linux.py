@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import plistlib
 import runpy
+import shutil
 import subprocess
 import tempfile
 import time
@@ -23,7 +24,7 @@ def main():
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--helper', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata', 'lifecycle', 'recovery', 'import'], default='empty')
+    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata', 'lifecycle', 'recovery', 'import', 'candidates'], default='empty')
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -62,6 +63,26 @@ def main():
     if args.scenario == 'import':
         original_metadata = (bottle / 'Metadata.plist').read_bytes()
         registry.unlink()
+    if args.scenario == 'candidates':
+        scan_root = fixture / 'ScanRoot'
+        scan_root.mkdir()
+        generator = runpy.run_path(str(Path(__file__).with_name('check-programs.py')))['fixture_at']
+        bottle, executable, unused_registry, identity = generator(scan_root)
+        second = scan_root / 'Second'
+        shutil.copytree(bottle, second)
+        second_document = plistlib.loads((second / 'Metadata.plist').read_bytes())
+        second_document['info']['name'] = 'Second orphan'
+        second_document['info']['pins'] = []
+        (second / 'Metadata.plist').write_bytes(plistlib.dumps(second_document))
+        registry = fixture / 'BottleVM.plist'
+        original_metadata = (bottle / 'Metadata.plist').read_bytes()
+        bad_root = fixture / 'scan-root-file'
+        bad_root.write_text('not a directory')
+        frames = [('preferences.set', dict(key='defaultBottleLocation', value=str(bad_root))), ('bridge.shutdown', {})]
+        wire = ''.join(json.dumps(dict(version=1, id=str(i), method=m, params=p)) + '\n' for i, (m, p) in enumerate(frames))
+        initialized = subprocess.run([str(args.helper.resolve())], env=env, input=wire, text=True,
+                                     capture_output=True, check=True, timeout=20)
+        assert all(reply.get('error') is None for reply in map(json.loads, initialized.stdout.splitlines()))
     interrupted_destination = None
     if args.scenario == 'recovery':
         interrupt = runpy.run_path(str(Path(__file__).with_name('check-recovery.py')))['interrupt_copy']
@@ -103,6 +124,9 @@ def main():
                 time.sleep(0.5)
                 snapshot('create-with-import')
                 run('xdotool', 'mousemove', '--window', window, '840', '730', 'click', '1')
+                time.sleep(0.5)
+                snapshot('import-candidate-panel')
+                run('xdotool', 'mousemove', '--window', window, '540', '200', 'click', '1')
                 chooser_type = runpy.run_path(str(Path(__file__).with_name('smoke-pickers.py')))['GtkChooser']
                 chooser_type(output).select_path(bottle)
                 deadline = time.monotonic() + 12
@@ -118,6 +142,51 @@ def main():
                 run('xdotool', 'windowfocus', '--sync', window)
                 snapshot('container-imported')
                 report['steps'].append('native-directory-chooser-imports-existing-container-in-place')
+            if args.scenario == 'candidates':
+                run('xdotool', 'mousemove', '--window', window, '802', '26', 'click', '1')
+                time.sleep(0.5)
+                run('xdotool', 'mousemove', '--window', window, '840', '730', 'click', '1')
+                time.sleep(1)
+                snapshot('candidate-scan-error')
+                assert not registry.exists(), 'Discovery materialized the registry'
+                run('xdotool', 'mousemove', '--window', window, '425', '200', 'click', '1')
+                chooser_type = runpy.run_path(str(Path(__file__).with_name('smoke-pickers.py')))['GtkChooser']
+                chooser_type(output).select_path(scan_root)
+                time.sleep(1)
+                snapshot('candidate-list')
+                assert not registry.exists()
+                run('xdotool', 'mousemove', '--window', window, '660', '205', 'click', '1')
+                retained = fixture / 'Retained orphan'
+                second.rename(retained)
+                second.mkdir()
+                (second / 'drive_c').mkdir()
+                replacement = dict(info=dict(name='Replacement orphan', pins=[], blocklist=[]), future={'retain': True})
+                (second / 'Metadata.plist').write_bytes(plistlib.dumps(replacement))
+                run('xdotool', 'mousemove', '--window', window, '930', '690', 'click', '1')
+                time.sleep(1)
+                snapshot('candidate-changed-error')
+                assert not registry.exists(), 'Changed candidate partially registered the batch'
+                run('xdotool', 'mousemove', '--window', window, '325', '200', 'click', '1')
+                time.sleep(1)
+                snapshot('candidate-refreshed')
+                run('xdotool', 'mousemove', '--window', window, '660', '205', 'click', '1')
+                run('xdotool', 'mousemove', '--window', window, '930', '690', 'click', '1')
+                deadline = time.monotonic() + 12
+                while time.monotonic() < deadline:
+                    if registry.exists() and len(plistlib.loads(registry.read_bytes()).get('paths', [])) == 2:
+                        break
+                    assert app.poll() is None
+                    time.sleep(0.1)
+                else:
+                    raise AssertionError('Selected candidate batch did not reach the registry')
+                assert (bottle / 'Metadata.plist').read_bytes() == original_metadata
+                assert (retained / 'Metadata.plist').read_bytes() == plistlib.dumps(second_document)
+                assert plistlib.loads((second / 'Metadata.plist').read_bytes()) == replacement
+                time.sleep(1)
+                snapshot('candidate-import-complete')
+                report['steps'].append('candidate-scan-error-directory-rescan-identity-error-and-fresh-batch-import')
+                run('xdotool', 'mousemove', '--window', window, '825', '690', 'click', '1')
+                time.sleep(0.5)
             if interrupted_destination is not None:
                 assert not registry.with_suffix('.plist.lifecycle.plist').exists(), 'Startup recovery retained its journal'
                 assert bottle.exists() and not interrupted_destination.exists()

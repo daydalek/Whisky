@@ -329,6 +329,9 @@ pub(crate) enum BottleCreateUpdate {
 
 #[derive(Debug)]
 pub(crate) enum BridgeEvent {
+    ImportCandidates { request: u64, candidates: Vec<crate::container_import::Candidate> },
+    ImportCandidatesFailed { request: u64, reason: String },
+    CandidatesImported { request: u64, paths: Vec<String>, count: usize },
     Status(BridgeStatus),
     /// The container catalogue, emitted once per connected session.
     Containers(Vec<Container>),
@@ -597,6 +600,8 @@ pub(crate) enum BridgeEvent {
 }
 
 enum Command {
+    DiscoverContainers { request: u64, root: Option<String> },
+    ImportCandidates { request: u64, candidates: Vec<crate::container_import::Candidate> },
     Retry,
     Shutdown,
     /// Quit the application: the helper applies the stored kill-on-terminate
@@ -1437,6 +1442,13 @@ impl BridgeSupervisor {
             game_id: game_id.to_owned(),
             variant_id: variant_id.to_owned(),
         });
+    }
+
+    pub(crate) fn discover_containers(&self, request: u64, root: Option<String>) {
+        let _ = self.commands.send(Command::DiscoverContainers { request, root });
+    }
+    pub(crate) fn import_candidates(&self, request: u64, candidates: Vec<crate::container_import::Candidate>) {
+        let _ = self.commands.send(Command::ImportCandidates { request, candidates });
     }
 
     /// `system.choosePath`: file, folder or save panels. `purpose` comes back
@@ -3216,6 +3228,40 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                             emit_event(&events, BridgeEvent::ActionFailed { reason });
                         }
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::DiscoverContainers { request, root }) => {
+                    let params = root.map(|path| json!({ "path": path })).unwrap_or_else(|| json!({}));
+                    let result = client.call("workspace.discover", params).map_err(classify)
+                        .and_then(|value| serde_json::from_value(value)
+                            .map_err(|error| CallFailure::Remote(format!("invalid candidate payload: {error}"))));
+                    match result {
+                        Ok(candidates) => emit_event(&events, BridgeEvent::ImportCandidates { request, candidates }),
+                        Err(error) => {
+                            if let CallFailure::Session(reason) = &error { reconnect = Some(reason.clone()); }
+                            emit_event(&events, BridgeEvent::ImportCandidatesFailed { request, reason: error.into_message() });
+                        }
+                    }
+                }
+                Some(Command::ImportCandidates { request, candidates }) => {
+                    let paths = candidates.iter().map(|candidate| candidate.path.clone()).collect();
+                    match client.call("workspace.import", json!({ "candidates": candidates })).map_err(classify)
+                        .and_then(|value| crate::container_import::import_reply(value, &candidates).map_err(CallFailure::Remote)) {
+                        Ok(count) => {
+                            emit_event(&events, BridgeEvent::CandidatesImported { request, paths, count });
+                            match fetch_containers(&mut client) {
+                                Ok(containers) => { cache = None; emit_event(&events, BridgeEvent::ContainersRefreshed(containers)); }
+                                Err(error) => {
+                                    if let CallFailure::Session(reason) = &error { reconnect = Some(reason.clone()); }
+                                    emit_event(&events, BridgeEvent::ImportCandidatesFailed { request,
+                                        reason: format!("导入已保存，刷新列表失败：{}", error.into_message()) });
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            if let CallFailure::Session(reason) = &error { reconnect = Some(reason.clone()); }
+                            emit_event(&events, BridgeEvent::ImportCandidatesFailed { request, reason: error.into_message() });
+                        }
                     }
                 }
                 Some(Command::ChoosePath {

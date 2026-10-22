@@ -2,6 +2,7 @@
 
 pub(crate) mod bottle;
 pub(crate) mod dialogs;
+pub(crate) mod import_bottles;
 pub(crate) mod library;
 pub(crate) mod settings;
 

@@ -85,3 +85,29 @@ import WhiskyBridgeProtocol
     }
     #expect(try Data(contentsOf: fixture.registry) == Data("corrupt registry".utf8))
 }
+
+@Test @MainActor func batchCandidateIdentitiesAreRevalidatedBeforeAnyRegistration() async throws {
+    let fixture = try LifecycleFixture()
+    defer { fixture.cleanup() }
+    let first = fixture.root.appendingPathComponent("First orphan")
+    let second = fixture.root.appendingPathComponent("Second orphan")
+    try FileManager.default.copyItem(at: fixture.source, to: first)
+    try FileManager.default.copyItem(at: fixture.source, to: second)
+    let candidates = try [first, second].map { try ContainerImportService.candidate($0, workspace: fixture.workspace) }
+    let encoded = try JSONEncoder().encode(candidates)
+    let request = try JSONDecoder().decode(JSONValue.self, from: encoded)
+    let originalRegistry = try Data(contentsOf: fixture.registry)
+    let retained = fixture.root.appendingPathComponent("Retained second")
+    try FileManager.default.moveItem(at: second, to: retained)
+    try FileManager.default.copyItem(at: fixture.source, to: second)
+    await #expect(throws: BridgeFailure.self) {
+        try await fixture.service().call("workspace.import", params: ["candidates": request])
+    }
+    #expect(try Data(contentsOf: fixture.registry) == originalRegistry)
+    let refreshed = try [first, second].map { try ContainerImportService.candidate($0, workspace: fixture.workspace) }
+    let freshRequest = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(refreshed))
+    let result = try await fixture.service().call("workspace.import", params: ["candidates": freshRequest])
+    #expect(result.object?["imported"] == .integer(2))
+    #expect(try fixture.workspace.containers().count == 3)
+    #expect(FileManager.default.fileExists(atPath: retained.appendingPathComponent("Metadata.plist").path))
+}

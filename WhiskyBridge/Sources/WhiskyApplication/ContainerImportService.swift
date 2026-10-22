@@ -69,8 +69,42 @@ enum ContainerImportService {
         let lease = try ContainerRegistry.acquire(workspace)
         defer { ContainerRegistry.release(lease) }
         try ContainerJournal.requireClear(workspace.registry)
+        let candidates = try selectedCandidates(params, workspace: workspace)
+        var registry = try ContainerRegistry.Document(workspace, allowMissing: true)
+        var known = Set(registry.paths.map { ContainerRegistry.canonical($0).path })
+        let additions = candidates.filter { known.insert($0.path).inserted }
+        if !additions.isEmpty {
+            for value in candidates {
+                let current = try DirectoryIdentity.require(URL(fileURLWithPath: value.path))
+                guard String(current.device) == value.device, String(current.inode) == value.inode else {
+                    throw BridgeFailure("candidate_changed", "A discovered directory changed; scan again")
+                }
+            }
+            try registry.save(registry.paths + additions.map { URL(fileURLWithPath: $0.path, isDirectory: true) })
+        }
+        return try .object(["containers": .encoded(candidates), "imported": .integer(Int64(additions.count))])
+    }
+
+    private static func selectedCandidates(
+        _ params: [String: JSONValue], workspace: ApplicationWorkspace
+    ) throws -> [Candidate] {
         let paths: [URL]
-        if let values = params["paths"] {
+        var identities: [[String: JSONValue]] = []
+        if let values = params["candidates"] {
+            guard case let .array(array) = values, !array.isEmpty, array.count <= 128,
+                  params["paths"] == nil, params["path"] == nil
+            else {
+                throw BridgeFailure("invalid_params", "Expected 1 to 128 candidate identities")
+            }
+            identities = try array.map { value in
+                guard let object = value.object else { throw BridgeFailure(
+                    "invalid_params",
+                    "Expected a candidate object"
+                ) }
+                return object
+            }
+            paths = try identities.map { try $0.path("path") }
+        } else if let values = params["paths"] {
             guard case let .array(array) = values, !array.isEmpty, array.count <= 128 else {
                 throw BridgeFailure("invalid_params", "Expected 1 to 128 container paths")
             }
@@ -79,6 +113,13 @@ enum ContainerImportService {
             paths = try [params.path("path")]
         }
         let candidates = try paths.map { try candidate($0, workspace: workspace) }
+        for (index, expected) in identities.enumerated() {
+            guard expected["device"]?.string == candidates[index].device,
+                  expected["inode"]?.string == candidates[index].inode
+            else {
+                throw BridgeFailure("candidate_changed", "A discovered directory changed; scan again")
+            }
+        }
         if params["device"] != nil || params["inode"] != nil {
             guard candidates.count == 1, params["device"]?.string == candidates[0].device,
                   params["inode"]?.string == candidates[0].inode
@@ -86,12 +127,6 @@ enum ContainerImportService {
                 throw BridgeFailure("candidate_changed", "The discovered directory changed; scan again")
             }
         }
-        var registry = try ContainerRegistry.Document(workspace, allowMissing: true)
-        var known = Set(registry.paths.map { ContainerRegistry.canonical($0).path })
-        let additions = candidates.filter { known.insert($0.path).inserted }
-        if !additions.isEmpty {
-            try registry.save(registry.paths + additions.map { URL(fileURLWithPath: $0.path, isDirectory: true) })
-        }
-        return try .object(["containers": .encoded(candidates), "imported": .integer(Int64(additions.count))])
+        return candidates
     }
 }

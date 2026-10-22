@@ -2807,7 +2807,7 @@ impl WhiskyApp {
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.preview.sheet = None;
                                         this.focus_handle.focus(window, cx);
-                                        this.bridge.choose_path("import-bottle", "folder", None, None, &[]);
+                                        this.begin_import_scan(None, cx);
                                         cx.notify();
                                     })))
                             })

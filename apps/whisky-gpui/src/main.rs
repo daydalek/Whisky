@@ -13,6 +13,7 @@ mod bridge;
 mod config;
 mod controls;
 mod create_bottle;
+mod container_import;
 mod library_layout;
 mod library_view;
 mod model;
@@ -129,7 +130,11 @@ impl Render for WhiskyApp {
                 window.toggle_fullscreen();
             }))
             .on_action(cx.listener(|this, _: &DismissPreview, window, cx| {
-                if this.bottle_dialog.is_some() {
+                if this.import_bottles.is_some() {
+                    if !this.import_bottles.as_ref().is_some_and(|state| state.importing) {
+                        this.import_bottles = None;
+                    }
+                } else if this.bottle_dialog.is_some() {
                     this.dismiss_bottle_dialog(cx);
                 } else if this.setup_dialog && !this.setup_installing {
                     this.dismiss_setup(cx);
@@ -178,6 +183,9 @@ impl Render for WhiskyApp {
         }
         if self.bottle_dialog.is_some() {
             root = root.child(self.bottle_dialog_view(ww, wh, window, cx));
+        }
+        if self.import_bottles.is_some() {
+            root = root.child(self.import_bottles_view(ww, wh, cx));
         }
         if self.setup_dialog {
             root = root.child(self.setup_dialog_view(ww, wh, cx));

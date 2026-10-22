@@ -412,6 +412,8 @@ pub(crate) struct WhiskyApp {
     pub(crate) scan: Option<ScanState>,
     /// The one create-bottle job this session follows.
     pub(crate) create_bottle: Option<CreateBottleState>,
+    pub(crate) import_bottles: Option<crate::container_import::ImportState>,
+    pub(crate) import_generation: u64,
     /// Winetricks catalog, per-bottle installed sets and the one install job.
     pub(crate) winetricks: WinetricksState,
     /// Draft of the program whose run-settings sheet is open.
@@ -568,6 +570,8 @@ impl WhiskyApp {
             process_generation: 0,
             scan: None,
             create_bottle: None,
+            import_bottles: None,
+            import_generation: 0,
             winetricks: WinetricksState::default(),
             program_settings: ProgramSettingsPage::default(),
             move_entry: None,
@@ -737,6 +741,9 @@ impl WhiskyApp {
                     return;
                 }
                 if unavailable && !self.demo {
+                    if let Some(state) = self.import_bottles.as_mut() {
+                        state.failed(state.request, "桥接连接已中断，请恢复连接后重新扫描".into());
+                    }
                     self.pending.clear();
                     self.configured.clear();
                     self.rating_edits.clear();
@@ -790,6 +797,15 @@ impl WhiskyApp {
                         self.bridge.configure_runtime(&path);
                     }
                 }
+            }
+            BridgeEvent::ImportCandidates { request, candidates } => {
+                if let Some(state) = self.import_bottles.as_mut() { state.loaded(request, candidates); }
+            }
+            BridgeEvent::ImportCandidatesFailed { request, reason } => {
+                if let Some(state) = self.import_bottles.as_mut() { state.failed(request, reason); }
+            }
+            BridgeEvent::CandidatesImported { request, paths, count } => {
+                if let Some(state) = self.import_bottles.as_mut() { state.imported(request, &paths, count); }
             }
             BridgeEvent::ContainersRefreshed(containers) => {
                 if !self.demo {
@@ -1682,6 +1698,11 @@ impl WhiskyApp {
             }
             BridgeEvent::PathChosen { purpose, path } => {
                 if !self.demo {
+                    if purpose == "discover-bottles" {
+                        if let Some(root) = path { self.begin_import_scan(Some(root), cx); }
+                        cx.notify();
+                        return;
+                    }
                     let action = self.pending_path_action.take();
                     match (purpose.as_str(), action) {
                         ("run", Some(PathAction::Run { container })) => {
