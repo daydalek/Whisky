@@ -19,6 +19,9 @@ output = args.output.resolve()
 output.mkdir(parents=True, exist_ok=True)
 report = {'platform': platform.platform(), 'checks': []}
 env = dict(os.environ, RUSTC_WRAPPER='')
+if platform.system() == 'Linux':
+    env.setdefault('CC', shutil.which('clang-21') or 'clang')
+    env.setdefault('CXX', shutil.which('clang++-21') or shutil.which('clang-21') or 'clang++')
 env.setdefault('CLANG_MODULE_CACHE_PATH', str(output / 'clang-cache'))
 swift_build_flags = ['--build-system', 'native'] if platform.system() == 'Linux' else []
 
@@ -54,6 +57,10 @@ with tempfile.TemporaryDirectory(prefix='whisky-gpui-gate-') as temporary:
     helper = Path(result.stdout.strip()) / 'whisky-bridge'
     if not helper.is_file():
         raise SystemExit(f'Missing built helper: {helper}')
+    if platform.system() == 'Linux':
+        picker = helper.with_name('whisky-file-picker')
+        if not os.access(picker, os.X_OK):
+            raise SystemExit(f'Missing built file picker: {picker}')
     if not args.swift_only:
         check('rust-sdk', ['cargo', 'test', '--locked', '--manifest-path', str(root / 'crates/whisky-bridge/Cargo.toml'),
                            '--target-dir', str(output / 'rust-build'), '--', '--include-ignored'],

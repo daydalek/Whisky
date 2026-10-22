@@ -52,6 +52,8 @@ use crate::winetricks::{self, CatalogDto, InstallProgress, InstallResultDto, Ins
 /// Executable product declared in `WhiskyBridge/Package.swift`.
 const HELPER_PRODUCT: &str = "whisky-bridge";
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// Native dialogs allow human interaction; Linux's chooser bounds itself at 300 s.
+const PICKER_TIMEOUT: Duration = Duration::from_secs(330);
 pub(crate) const BACKOFF_MIN_MS: u64 = 500;
 pub(crate) const BACKOFF_MAX_MS: u64 = 8_000;
 /// How long the worker blocks when there is nothing to poll and nothing to do.
@@ -3170,7 +3172,11 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                 }
                 Some(Command::ChooseFolder(path)) => {
                     match client
-                        .call("system.chooseFolder", json!({ "path": path }))
+                        .call_with_timeout(
+                            "system.chooseFolder",
+                            json!({ "path": path }),
+                            PICKER_TIMEOUT,
+                        )
                         .map_err(classify)
                     {
                         Ok(reply) => {
@@ -3185,7 +3191,11 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                 }
                 Some(Command::ChooseFolders { purpose, path }) => {
                     match client
-                        .call("system.chooseFolders", json!({ "path": path }))
+                        .call_with_timeout(
+                            "system.chooseFolders",
+                            json!({ "path": path }),
+                            PICKER_TIMEOUT,
+                        )
                         .map_err(classify)
                     {
                         Ok(reply) => {
@@ -3225,7 +3235,10 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                     if !extensions.is_empty() {
                         params["extensions"] = json!(extensions);
                     }
-                    match client.call("system.choosePath", params).map_err(classify) {
+                    match client
+                        .call_with_timeout("system.choosePath", params, PICKER_TIMEOUT)
+                        .map_err(classify)
+                    {
                         Ok(reply) => match serde_json::from_value::<PathReplyDto>(reply) {
                             Ok(reply) => {
                                 let purpose = if reply.purpose.is_empty() {

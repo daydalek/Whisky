@@ -5,7 +5,9 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
 output="${WHISKY_LINUX_OUTPUT:-$repo_root/build/portability/linux-gpui}"
 mkdir -p "$output"
 output="$(cd "$output" && pwd)"
-export CC="${CC:-clang}" CXX="${CXX:-clang++}" RUSTC_WRAPPER=
+default_cc="$(command -v clang-21 || command -v clang)"
+default_cxx="$(command -v clang++-21 || command -v clang-21 || command -v clang++)"
+export CC="${CC:-$default_cc}" CXX="${CXX:-$default_cxx}" RUSTC_WRAPPER=
 export CARGO_TARGET_DIR="$output/rust-build"
 swift --version
 rustc --version

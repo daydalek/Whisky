@@ -22,6 +22,14 @@ import PackageDescription
 var dependencies: [Package.Dependency] = [.package(path: "../WhiskyCore"), .package(path: "../WhiskyMetadata")]
 var hostDependencies: [Target.Dependency] = ["WhiskyApplication", "WhiskyBridgeProtocol"]
 var nativeTargets: [Target] = []
+var pickerProducts: [Product] = []
+#if os(Linux)
+nativeTargets += [
+    .systemLibrary(name: "CGtk4", pkgConfig: "gtk4"),
+    .executableTarget(name: "WhiskyFilePicker", dependencies: ["CGtk4"])
+]
+pickerProducts = [.executable(name: "whisky-file-picker", targets: ["WhiskyFilePicker"])]
+#endif
 #if os(macOS)
 dependencies.append(.package(path: "../WhiskyKit"))
 hostDependencies.append("WhiskyNativeBridge")
@@ -42,11 +50,12 @@ let package = Package(
         .library(name: "WhiskyBridgeProtocol", targets: ["WhiskyBridgeProtocol"]),
         .library(name: "WhiskyApplication", targets: ["WhiskyApplication"]),
         .executable(name: "whisky-bridge", targets: ["WhiskyBridgeHost"])
-    ],
+    ] + pickerProducts,
     dependencies: dependencies,
     targets: [
         .target(name: "WhiskyBridgeProtocol"),
-        .target(name: "WhiskyApplication", dependencies: ["WhiskyBridgeProtocol", "WhiskyCore",
+        .target(name: "CHostCommand"),
+        .target(name: "WhiskyApplication", dependencies: ["WhiskyBridgeProtocol", "WhiskyCore", "CHostCommand",
             .product(name: "WhiskyMetadata", package: "WhiskyMetadata")]),
         .executableTarget(name: "WhiskyBridgeHost", dependencies: hostDependencies),
         .testTarget(

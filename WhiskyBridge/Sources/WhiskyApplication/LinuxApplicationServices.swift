@@ -28,6 +28,7 @@ public final class LinuxApplicationServices: NativeApplicationServices {
     private let runtimeService: RuntimeService?
     private let openFile: FileOpener
     private let searchPaths: [URL]
+    private let picker: LinuxFilePicker
 
     public init(
         runtime: RuntimeService? = nil,
@@ -35,16 +36,20 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         openFile: FileOpener? = nil
     ) {
         runtimeService = runtime
-        self.searchPaths = searchPaths ?? Self.defaultSearchPaths()
+        let paths = searchPaths ?? Self.defaultSearchPaths()
+        self.searchPaths = paths
+        let bundled = Bundle.main.executableURL.map { [$0.deletingLastPathComponent()] } ?? []
+        picker = LinuxFilePicker(searchPaths: bundled + paths)
         self.openFile = openFile ?? Self.xdgOpen
     }
 
     public var capabilities: [String] {
-        ["system.files"] + (runtimeService == nil ? [] : RuntimeService.capabilities)
+        ["system.files", "system.picker"] + (runtimeService == nil ? [] : RuntimeService.capabilities)
     }
 
     public var methods: [String] {
         ["system.reveal", "system.open", "system.resources"]
+            + LinuxFilePicker.methods
             + (runtimeService == nil ? [] : RuntimeService.methods)
     }
 
@@ -67,6 +72,7 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         }
         switch method.prefix(while: { $0 != "." }) {
         case "system":
+            if LinuxFilePicker.methods.contains(method) { return try await picker.call(method, params: params) }
             return try systemCall(method, params: params, workspace: workspace)
         case "runtime":
             guard let runtimeService else {
@@ -89,9 +95,10 @@ public final class LinuxApplicationServices: NativeApplicationServices {
     ) throws -> JSONValue {
         switch method {
         case "system.resources":
-            let tools = ["cabextract", "winetricks", "wine", "wineserver"].map { name in
+            var tools = ["cabextract", "winetricks", "wine", "wineserver", "xdg-open"].map { name in
                 (name, locateTool(name).map { JSONValue.string($0.path) } ?? .null)
             }
+            tools.append(("whisky-file-picker", picker.executable.map { .string($0.path) } ?? .null))
             return .object([
                 "kitBundle": .null,
                 "tools": .object(Dictionary(uniqueKeysWithValues: tools))

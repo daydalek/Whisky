@@ -97,20 +97,44 @@ def main():
                 run('xdotool', 'mousemove', '--window', window, '375', '260', 'click', '1')
                 time.sleep(1)
                 snapshot('metadata-editor')
-                run('xdotool', 'mousemove', '--window', window, '904', '366', 'click', '1')
+                cover_settings = Path(str(metadata_path) + '.cover-settings')
+                old_cover = json.loads(cover_settings.read_text())['customFileName']
+                def cover_setting(key, pending):
+                    # Allow in-flight replacement to become visible on shared mounts.
+                    # The caller retains its bounded wait and final assertion.
+                    try:
+                        return json.loads(cover_settings.read_text())[key]
+                    except FileNotFoundError:
+                        return pending
+                run('xdotool', 'mousemove', '--window', window, '375', '504', 'click', '1')
+                chooser_type = runpy.run_path(str(Path(__file__).with_name('smoke-pickers.py')))['GtkChooser']
+                chooser = chooser_type(output)
+                chooser.select_path(cover, delay=6)
+                deadline = time.monotonic() + 12
+                while time.monotonic() < deadline:
+                    if cover_setting('customFileName', old_cover) != old_cover:
+                        break
+                    assert app.poll() is None, 'Application exited during native cover import'
+                    time.sleep(0.1)
+                else:
+                    raise AssertionError('Native file selection did not import a cover through GPUI')
+                report['steps'].append('native-cover-picker-survives-six-seconds-and-imports-through-production-client')
+                time.sleep(0.5)
+                run('xdotool', 'windowfocus', '--sync', window)
+                snapshot('metadata-cover-imported')
+                run('xdotool', 'mousemove', '--window', window, '904', '344', 'click', '1')
                 deadline = time.monotonic() + 10
                 while metadata_path.exists() and time.monotonic() < deadline:
                     assert app.poll() is None, 'Application exited during metadata unlink'
                     time.sleep(0.1)
                 assert not metadata_path.exists(), 'UI metadata unlink did not remove the snapshot'
-                cover_settings = Path(str(metadata_path) + '.cover-settings')
                 assert json.loads(cover_settings.read_text())['useCustomCover'] is True
                 time.sleep(0.5)
                 snapshot('metadata-unlinked')
                 run('xdotool', 'mousemove', '--window', window, '490', '482', 'click', '1')
                 deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:
-                    if json.loads(cover_settings.read_text())['useCustomCover'] is False:
+                    if cover_setting('useCustomCover', True) is False:
                         break
                     assert app.poll() is None, 'Application exited during cover reset'
                     time.sleep(0.1)

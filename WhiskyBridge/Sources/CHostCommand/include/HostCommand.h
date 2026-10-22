@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+#include <sys/types.h>
+
+typedef struct {
+    pid_t pid;
+    int output;
+} whisky_host_child;
+
+int whisky_host_spawn(const char *executable, char *const arguments[], char *const environment[], whisky_host_child *child);
+int whisky_host_poll(pid_t pid, int *status, int *signalled);
+void whisky_host_stop(pid_t pid);
