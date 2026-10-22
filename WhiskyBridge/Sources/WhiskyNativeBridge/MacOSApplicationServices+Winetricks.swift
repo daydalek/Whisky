@@ -153,6 +153,10 @@ extension MacOSApplicationServices {
         emit: @escaping BridgeJobStore.Progress
     ) async throws -> JSONValue {
         let total = verbs.count
+        // Cheap file-read snapshot: winetricks only appends a verb to
+        // winetricks.log after that verb's loader succeeds, so growth means
+        // progress even when the process exited nonzero.
+        let before = await WinetricksService.parseWinetricksLog(for: bottle)
         var succeeded: [String] = []
         var unresolved: [(verb: String, exitCode: Int32)] = []
         var failures: [(verb: String, reason: String)] = []
@@ -182,10 +186,15 @@ extension MacOSApplicationServices {
         }
 
         // Verify-and-rescue: trust the installed set, not the exit code.
+        // Metaverbs (e.g. cjkfonts) never appear in winetricks.log
+        // themselves — only their sub-verbs do — so growth of the log
+        // counts as installed too, matching what the user observes.
         if !unresolved.isEmpty {
             emit(.object(["stage": .string("verifying")]))
-            let reported = await WinetricksService.listInstalledVerbs(for: bottle) ?? []
-            for candidate in unresolved where reported.contains(candidate.verb) {
+            let after = await WinetricksService.listInstalledVerbs(for: bottle) ?? []
+            let madeProgress = after.count > before.count
+            for candidate in unresolved
+            where after.contains(candidate.verb) || madeProgress {
                 failures.removeAll { $0.verb == candidate.verb }
                 succeeded.append(candidate.verb)
                 emit(progress(
