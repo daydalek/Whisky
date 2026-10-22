@@ -24,6 +24,9 @@ import WhiskyBridgeProtocol
 /// trees and the journal, allowing a visible recovery error on the next start.
 enum ContainerRecovery {
     static func run(_ workspace: ApplicationWorkspace) throws -> JSONValue {
+        if ContainerJournal.present(ExportJournal.location(workspace.registry)) {
+            return try ExportJournal.recover(workspace.registry)
+        }
         let registry = try ContainerRegistry.Document(workspace)
         let journal = try ContainerJournal.read(workspace.registry)
         let committed = registry.committedTransaction == journal.id.uuidString

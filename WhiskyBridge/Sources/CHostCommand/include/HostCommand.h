@@ -15,4 +15,5 @@ void whisky_host_stop(pid_t pid);
 // Moves a path only when the destination is absent; returns an errno value.
 int whisky_host_move(const char *source, const char *destination);
 
-int whisky_host_identity(const char *path, uint64_t *device, uint64_t *inode, int *directory);
+// lstat identity: kind is 1 for a directory, 2 for a regular file, 0 otherwise.
+int whisky_host_identity(const char *path, uint64_t *device, uint64_t *inode, int *kind);

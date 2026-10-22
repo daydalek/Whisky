@@ -101,11 +101,11 @@ int whisky_host_move(const char *source, const char *destination) {
 }
 
 #include <sys/stat.h>
-int whisky_host_identity(const char *path, uint64_t *device, uint64_t *inode, int *directory) {
+int whisky_host_identity(const char *path, uint64_t *device, uint64_t *inode, int *kind) {
     struct stat info;
     if (lstat(path, &info) != 0) return errno;
     *device = (uint64_t)info.st_dev;
     *inode = (uint64_t)info.st_ino;
-    *directory = S_ISDIR(info.st_mode);
+    *kind = S_ISDIR(info.st_mode) ? 1 : S_ISREG(info.st_mode) ? 2 : 0;
     return 0;
 }

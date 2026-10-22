@@ -115,6 +115,9 @@ jobs:
             /tmp/whisky-linux-gpui/foundation/report.json
             /tmp/whisky-linux-gpui/bridge-status.json
             /tmp/whisky-linux-gpui/library.json
+            /tmp/whisky-linux-gpui/export-recovery/report.json
+            /tmp/whisky-linux-gpui/export-recovery/helper.log
+            /tmp/whisky-linux-gpui/export-recovery/observed-export.plist
             /tmp/whisky-linux-gpui/recovery/report.json
             /tmp/whisky-linux-gpui/recovery/helper.log
             /tmp/whisky-linux-gpui/recovery/*/observed-journal.plist

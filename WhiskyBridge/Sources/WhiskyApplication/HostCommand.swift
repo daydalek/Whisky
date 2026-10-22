@@ -34,9 +34,10 @@ struct HostCommandResult: Sendable {
 /// Owns the POSIX child and drains its output independently of descendant pipe lifetimes.
 enum HostCommand {
     static func run(
-        executable: URL, arguments: [String], environment: [String: String], timeout: TimeInterval
+        executable: URL, arguments: [String], environment: [String: String], timeout: TimeInterval,
+        onSpawn: (@Sendable (Int32) throws -> Void)? = nil
     ) async throws -> HostCommandResult {
-        let control = Control()
+        let control = Control(onSpawn: onSpawn)
         return try await withTaskCancellationHandler {
             try await Task.detached {
                 try execute(
@@ -64,6 +65,7 @@ enum HostCommand {
         var output = Data()
         var buffer = [UInt8](repeating: 0, count: 4_096)
         do {
+            try control.spawned(child.pid)
             while true {
                 try control.checkCancellation()
                 if ProcessInfo.processInfo.systemUptime >= deadline {
@@ -117,6 +119,16 @@ enum HostCommand {
     private static func spawn(
         executable: URL, arguments: [String], environment: [String: String]
     ) throws -> whisky_host_child {
+        #if os(Linux)
+        guard let wrapper = Bundle.main.executableURL?.deletingLastPathComponent()
+            .appendingPathComponent("whisky-host-command"),
+            FileManager.default.isExecutableFile(atPath: wrapper.path)
+        else {
+            throw BridgeFailure("host_failed", "The host command supervisor is unavailable; reinstall Whisky")
+        }
+        let arguments = [String(getpid()), executable.path] + arguments
+        let executable = wrapper
+        #endif
         var child = whisky_host_child()
         let error = try withStrings([executable.path] + arguments) { arguments in
             try withStrings(environment.map { "\($0.key)=\($0.value)" }) { environment in
@@ -152,6 +164,15 @@ enum HostCommand {
     private final class Control: @unchecked Sendable {
         private let lock = NSLock()
         private var cancelled = false
+        private let onSpawn: (@Sendable (Int32) throws -> Void)?
+        init(onSpawn: (@Sendable (Int32) throws -> Void)?) {
+            self.onSpawn = onSpawn
+        }
+
+        func spawned(_ pid: Int32) throws {
+            try onSpawn?(pid)
+        }
+
         func checkCancellation() throws {
             if lock.withLock({ cancelled }) {
                 throw CancellationError()

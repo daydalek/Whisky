@@ -63,11 +63,15 @@ struct ContainerJournal: Codable, Sendable {
         registry.appendingPathExtension("lifecycle.plist")
     }
 
-    static func pending(_ registry: URL) -> Bool {
+    static func present(_ url: URL) -> Bool {
         var device: UInt64 = 0, inode: UInt64 = 0
-        var directory: Int32 = 0
-        let error = whisky_host_identity(location(registry).path, &device, &inode, &directory)
+        var kind: Int32 = 0
+        let error = whisky_host_identity(url.path, &device, &inode, &kind)
         return error != ENOENT && error != ENOTDIR
+    }
+
+    static func pending(_ registry: URL) -> Bool {
+        present(location(registry)) || present(ExportJournal.location(registry))
     }
 
     static func requireClear(_ registry: URL) throws {
@@ -86,17 +90,20 @@ struct ContainerJournal: Codable, Sendable {
         guard data.count <= 64 * 1_024 * 1_024 else {
             throw BridgeFailure("journal_too_large", "The container undo plan exceeds 64 MiB")
         }
-        let temporary = registry.deletingLastPathComponent()
-            .appendingPathComponent(".whisky-journal-" + UUID().uuidString)
+        try Self.publish(data, at: Self.location(registry), replace: false)
+    }
+
+    static func publish(_ data: Data, at url: URL, replace: Bool) throws {
+        let temporary = url.deletingLastPathComponent().appendingPathComponent(".whisky-journal-" + UUID().uuidString)
         let descriptor = open(temporary.path, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, mode_t(0o600))
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         defer { close(descriptor)
             try? FileManager.default.removeItem(at: temporary)
         }
         try FileHandle(fileDescriptor: descriptor, closeOnDealloc: false).write(contentsOf: data)
-        guard fsync(descriptor) == 0, link(temporary.path, Self.location(registry).path) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
+        guard fsync(descriptor) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let result = replace ? rename(temporary.path, url.path) : link(temporary.path, url.path)
+        guard result == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
 
     static func read(_ registry: URL) throws -> Self {
@@ -148,7 +155,7 @@ struct ContainerJournal: Codable, Sendable {
     }
 
     static func clear(_ registry: URL) throws {
-        if pending(registry) {
+        if present(location(registry)) {
             try FileManager.default.removeItem(at: location(registry))
         }
     }

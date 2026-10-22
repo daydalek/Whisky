@@ -10,7 +10,7 @@ and distribution gates below.
 OrbStack ARM64 Ubuntu 24.04, Swift 6.4, Rust 1.99.1, Xvfb/X11 and Mesa software
 rendering:
 
-- Shared core: 112 tests; portable bridge: 67 tests; shared metadata package: 20 tests.
+- Shared core: 112 tests; portable bridge: 71 tests; shared metadata package: 20 tests.
 - Rust SDK tests, including its real Swift helper integration test.
 - Production GPUI Linux build/link and 118 unit tests.
 - Production Rust client/helper handshake, capability list and isolated empty
@@ -249,8 +249,9 @@ Evidence under `build/portability/gui-linux/` includes
 `linux-gpui/recovery-window/`. Each process-interruption fixture preserves its
 observed journal. The verified recovery scope is helper-process termination.
 
-Required work continues with orphan discovery/import, portable route updates,
-interrupted-export temporary-file cleanup and remaining lifecycle UI actions.
+The subsequent stages below cover orphan discovery/import, portable route
+updates and interrupted-export cleanup. Remaining lifecycle UI actions continue
+as required work.
 
 ## Existing-container discovery and import stage
 
@@ -286,8 +287,8 @@ the process gate and window scenario. Local evidence includes
 
 A dedicated discovered-candidate selection list remains part of the desktop
 work; the current UI supports selecting an existing prefix directly. Portable
-route updates, interrupted-export cleanup and remaining lifecycle UI actions
-also continue as required work.
+route updates and interrupted-export cleanup are covered by the subsequent
+stages; remaining lifecycle UI actions continue as required work.
 
 ## Portable route consistency stage
 
@@ -324,8 +325,53 @@ Logs are `routes-macos.log`, `routes-swift60.log` and
 records remain under `linux-gpui/lifecycle/` and `linux-gpui/recovery/`. The new
 route assertions run through the existing CI process gates.
 
-Required work continues with the discovered-candidate selection UI,
-interrupted-export cleanup and the other remaining desktop/host services below.
+The export stage below covers interruption cleanup. Required work continues
+with the discovered-candidate selection UI and the other desktop/host services.
+
+## Export interruption and process supervision stage
+
+Linux blocking host commands now run through a bundled C product,
+`whisky-host-command`. It validates its bridge parent, creates an owned process
+group and supervises the actual command. Parent death, cancellation or timeout
+terminates that group, including tar's shell/compression descendants. The bridge
+reaps its direct supervisor. Normal command completion retains the existing
+owned-child/output-draining behavior. Ship this executable beside
+`whisky-bridge` and `whisky-file-picker`; the Linux foundation gate verifies all
+three products are present.
+
+The exporter reserves a private staging file and publishes
+`BottleVM.plist.export.plist` before launching tar. The record contains staging
+file device/inode identity, an observed process PID/birth identity, and a
+prepared flag written after successful archive completion. An exclusive hard
+link publishes the completed file at the requested destination. The registry
+and source prefix remain intact throughout export.
+
+Startup recovery removes tracked partial archives and retains a published
+archive whose identity matches the completed staging file. Unit coverage checks
+both sides of temporary-link deletion after publication. Foreign destinations
+remain intact; a replaced temporary file or corrupt journal retains evidence
+and returns a recovery error. Pending export records share the existing
+workspace recovery/write exclusion boundary. macOS retains native lifecycle
+dispatch and passes the portable export tests directly.
+
+Verification passes 71 shared bridge tests on macOS and ARM Ubuntu Swift
+6.0/6.4, plus 12 native-adapter tests. Real helpers export a 32 MiB fixture,
+observe live supervisor/tar/sh/gzip group members and then receive SIGKILL.
+Every observed group member becomes inactive; the production CLI subsequently
+cleans the partial archive and journal. Active-export cancellation also stops
+the group and clears tracked output. A completed gzip tar is read back and its
+payload hash matches the original; source metadata and registry bytes match
+pre-export snapshots. The full Linux SDK/118-test GPUI gate, GTK chooser modes
+and production-window import/shortcuts also pass with supervision enabled.
+
+CI runs the new process gate and retains the observed export record. Evidence
+under `build/portability/gui-linux/` includes `export-macos.log`,
+`export-swift60.log`, `export-full-linux.log`, `export-final-linux.log`,
+`export-final-tests-linux.log`, `linux-gpui/export-recovery/`,
+`linux-gpui/pickers-export/` and `linux-gpui/export-import-window/`.
+
+Required work continues with the discovered-candidate selection UI and the
+remaining library, metadata, diagnostics, host and distribution gates below.
 
 ## Reproduce
 
@@ -370,10 +416,10 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Library and configuration | Shared storage tests; empty production window and CLI | Seeded-library folder edits through the native chooser, persisted ratings/visibility and refresh/recovery |
 | Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux shortcut creation is tracked under host integration; broader UI override editing remains in the desktop gate |
 | Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
-| Container lifecycle | Linux file lifecycle, route updates, discovery/import and SIGKILL recovery; production rename, recovery and native import UI | Discovered-candidate selection UI; interrupted-export cleanup; remaining lifecycle UI actions |
+| Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; production rename, recovery and native import UI | Discovered-candidate selection UI; remaining lifecycle UI actions |
 | Host integration | XDG registry/preferences; file open/reveal adapter; GTK file/folder/save dialogs | Terminal discovery, desktop/file associations and capability-aware settings |
 | Diagnostics | macOS report/check adapter | Linux host information, file export and appropriate platform checks |
-| Distribution | macOS `.app` packaging | Linux relocatable bundle, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |
+| Distribution | macOS `.app` packaging | Linux relocatable bundle with both native helpers, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |
 | Desktop acceptance | ARM64 X11 virtual display with Mesa | Seeded end-to-end interactions, restart/recovery and Wayland coverage; x86_64 hosted CI evidence |
 
 Wine installation, Windows process execution and game compatibility follow the

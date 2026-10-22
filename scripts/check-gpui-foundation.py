@@ -58,9 +58,10 @@ with tempfile.TemporaryDirectory(prefix='whisky-gpui-gate-') as temporary:
     if not helper.is_file():
         raise SystemExit(f'Missing built helper: {helper}')
     if platform.system() == 'Linux':
-        picker = helper.with_name('whisky-file-picker')
-        if not os.access(picker, os.X_OK):
-            raise SystemExit(f'Missing built file picker: {picker}')
+        for name in ['whisky-file-picker', 'whisky-host-command']:
+            tool = helper.with_name(name)
+            if not os.access(tool, os.X_OK):
+                raise SystemExit(f'Missing built host tool: {tool}')
     if not args.swift_only:
         check('rust-sdk', ['cargo', 'test', '--locked', '--manifest-path', str(root / 'crates/whisky-bridge/Cargo.toml'),
                            '--target-dir', str(output / 'rust-build'), '--', '--include-ignored'],
