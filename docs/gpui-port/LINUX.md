@@ -10,9 +10,9 @@ and distribution gates below.
 OrbStack ARM64 Ubuntu 24.04, Swift 6.4, Rust 1.99.1, Xvfb/X11 and Mesa software
 rendering:
 
-- Shared core: 112 tests; portable bridge: 76 tests; shared metadata package: 20 tests.
+- Shared core: 112 tests; portable bridge: 80 tests; shared metadata package: 20 tests.
 - Rust SDK tests, including its real Swift helper integration test.
-- Production GPUI Linux build/link and 122 unit tests.
+- Production GPUI Linux build/link and 123 unit tests.
 - Production Rust client/helper handshake, capability list and isolated empty
   library reads, with the display environment absent.
 - XDG preferences survive a real helper process exit/restart. File-backed
@@ -21,7 +21,7 @@ rendering:
 - Real production window: library, Ctrl+, settings, Ctrl+Alt+S sidebar,
   Ctrl+Q graceful exit and persisted window dimensions. Captured screenshots
   show the library and Chinese settings text using Noto Sans CJK SC.
-- macOS GPUI's 122 tests and the macOS bridge suite also pass.
+- macOS GPUI's 123 tests and the macOS bridge suite also pass.
 
 The program-storage stage adds full `programs.settings.read/set` and
 `programs.history.read/delete` to the portable helper. Both Linux and macOS now
@@ -474,6 +474,55 @@ Local evidence under `build/portability/gui-linux/` includes
 `diagnostics-final-linux.log`, `diagnostics-window-final.log`,
 `linux-gpui/diagnostics/` and `linux-gpui/diagnostics-window/`.
 
+## Linux terminal discovery and launch stage
+
+Linux advertises `system.terminal`, `system.terminals` and the existing
+`bottle.tools` method for `tool: terminal`. Discovery reads executable files
+from absolute PATH directories and returns installed terminal IDs, labels,
+paths and display-session availability. The current adapters cover the system
+`x-terminal-emulator`, GNOME Terminal and XTerm. Automatic selection follows
+that order. An explicitly selected missing terminal returns a visible error;
+a display-free process can discover terminals and receives `display_unavailable`
+when opening one.
+
+`preferredLinuxTerminal` persists independently with an `auto` default. The
+Linux settings dropdown lists installed choices, shows discovered paths and
+provides rescanning. The bottle toolbar enables terminal opening when a display
+and the selected executable are available. The settings preserve a missing
+preferred ID and prompt reselection. macOS retains its existing terminal values.
+
+The adapter opens an interactive shell in the selected prefix with `WINEPREFIX`
+set to that path. The shell and prefix are independent positional arguments to
+a fixed shell script, preserving Unicode, spaces, quotes, dollar signs and
+command-substitution characters. It starts the terminal asynchronously and
+reaps it through Foundation; the helper remains responsive, and an opened
+terminal can outlive helper shutdown. Host environment values are inherited.
+The generic command interface follows [Debian terminal-emulator policy](https://www.debian.org/doc/debian-policy/ch-customized-programs.html#packages-providing-a-terminal-emulator)
+and [XTerm's argument interface](https://invisible-island.net/xterm/manpage/xterm.html).
+GNOME Terminal uses its command-argument delimiter.
+
+Verification passes 80 shared bridge tests on macOS and ARM Ubuntu Swift
+6.0/6.4, 12 native macOS adapter tests and 123 GPUI tests on each platform.
+Four new bridge regressions cover discovery, executable type checks, literal
+arguments, launch errors and independent preference persistence. A frontend
+regression covers missing selected executables and display availability.
+
+The real Ubuntu XTerm and system-terminal wrapper run under Xvfb with a probe
+shell: each has an interactive PTY, exact working directory and `WINEPREFIX`,
+and preserves all prefix/registry bytes. Paths contain Unicode, spaces, quotes,
+`$HOME` and `$(...)`; the injection sentinel stays absent. A live terminal
+survives a graceful helper shutdown. Production-window acceptance selects
+XTerm, verifies persisted preferences, rescans, opens the real terminal, reads
+back its PTY context and checks settings/sidebar/exit behavior. Protocol traces
+cover `system.terminals` and `bottle.tools`. GNOME's argument construction has
+shared-unit coverage; real-window evidence currently covers XTerm on ARM64 X11.
+
+CI installs XTerm and runs both real-terminal and production-window scenarios.
+Local evidence under `build/portability/gui-linux/` includes
+`terminal-macos.log`, `terminal-gpui-macos.log`, `terminal-swift60.log`,
+`terminal-final-linux.log`, `terminal-final-window.log`, `linux-gpui/terminal/` and
+`linux-gpui/terminal-window/`.
+
 ## Reproduce
 
 Use an Ubuntu 24.04 environment with Swift 6.4 and Rust 1.99.1. Install the
@@ -518,7 +567,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux shortcut creation is tracked under host integration; broader UI override editing remains in the desktop gate |
 | Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
 | Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; complete production file-lifecycle window flow, recovery and candidate import UI | Additional platform coverage follows the desktop acceptance matrix |
-| Host integration | XDG registry/preferences; file open/reveal adapter; GTK file/folder/save dialogs | Terminal discovery, desktop/file associations and capability-aware settings |
+| Host integration | XDG preferences; file open/reveal; GTK dialogs; terminal discovery, independent preference and real PTY/window acceptance | Desktop/file associations, shortcuts and broader capability-aware settings |
 | Diagnostics | Native macOS adapter; Linux bounded host/file report, platform checks, exclusive export and production-window acceptance | Additional desktop platform coverage follows the acceptance matrix |
 | Distribution | macOS `.app` packaging | Linux relocatable bundle with both native helpers, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |
 | Desktop acceptance | ARM64 X11 virtual display with Mesa | Seeded end-to-end interactions, restart/recovery and Wayland coverage; x86_64 hosted CI evidence |

@@ -11,6 +11,7 @@ use gpui_kit::{prelude::*, *};
 
 mod bridge;
 mod config;
+mod host;
 mod controls;
 mod create_bottle;
 mod container_import;

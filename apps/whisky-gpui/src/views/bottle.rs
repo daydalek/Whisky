@@ -19,6 +19,13 @@ use crate::theme::MUTED;
 
 impl WhiskyApp {
     pub(crate) fn bottle_bar(&self, cx: &Context<Self>) -> AnyElement {
+        let terminal_enabled = if cfg!(target_os = "linux") {
+            let preferred = self.preview.choices.get("terminal")
+                .map(|value| value.as_ref()).unwrap_or("auto");
+            self.host_terminals.as_ref().is_some_and(|status| status.can_open(preferred))
+        } else {
+            true
+        };
         row()
             .flex_shrink_0()
             .justify_end()
@@ -28,12 +35,14 @@ impl WhiskyApp {
             .border_t_1()
             .border_color(rgba(0xffffff0d))
             .child(self.action("bottle-c-drive", "打开 C: 盘", Command::OpenDrive, cx))
-            .child(self.action(
-                "bottle-terminal",
-                "终端",
-                Command::BottleTool("terminal"),
-                cx,
-            ))
+            .child(
+                Button::new("bottle-terminal")
+                    .label("终端")
+                    .disabled(!terminal_enabled)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.command(Command::BottleTool("terminal"), cx)
+                    })),
+            )
             .child(self.action(
                 "bottle-tricks",
                 "Winetricks…",

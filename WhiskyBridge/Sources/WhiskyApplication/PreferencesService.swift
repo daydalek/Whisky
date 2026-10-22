@@ -37,7 +37,7 @@ public final class PreferencesService {
     /// String-backed preferences. Values mirror the Swift enums (`LibraryDisplayMode`,
     /// `LibrarySort`, `LibraryDetailLayoutStyle`) and `TerminalApp` raw values.
     private static let texts: [String: String] = [
-        "preferredTerminal": "terminal", "libraryCoverFillStyle": "blurred",
+        "preferredTerminal": "terminal", "preferredLinuxTerminal": "auto", "libraryCoverFillStyle": "blurred",
         "libraryDisplayMode": "covers", "librarySort": "recent",
         "libraryDetailLayoutStyle": "hero",
         "libraryMetadataEnabledSources": "bangumi,vndb,steam,ymgal",

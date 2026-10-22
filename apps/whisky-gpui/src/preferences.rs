@@ -19,7 +19,11 @@ pub(crate) const MODE_VALUES: [&str; 3] = ["covers", "timeline", "classic"];
 /// `LibrarySort` raw values (`WhiskyCore/LibraryOrdering.swift:21`).
 pub(crate) const SORT_VALUES: [&str; 3] = ["recent", "name", "bottle"];
 /// `TerminalApp` raw values (`WhiskyKit/Utils/TerminalApp.swift`).
+#[cfg(not(target_os = "linux"))]
 pub(crate) const TERMINAL_VALUES: [&str; 3] = ["terminal", "iterm", "warp"];
+#[cfg(target_os = "linux")]
+pub(crate) const TERMINAL_VALUES: [&str; 4] =
+    ["auto", "x-terminal-emulator", "gnome-terminal", "xterm"];
 /// `libraryCoverFillStyle` tags (`SettingsView.swift:92`).
 pub(crate) const COVER_FILL_VALUES: [&str; 2] = ["blurred", "theme"];
 /// `LibraryDetailLayoutStyle` raw values (`LibraryGameSheet.swift:25`).
@@ -36,7 +40,10 @@ pub(crate) const CENTER_WIDE_COVER_TEXT: &str = "libraryCenterWideCoverText";
 pub(crate) const BLURRED_COVER_FILL: &str = "libraryBlurredCoverFill";
 pub(crate) const COVER_FILL_STYLE: &str = "libraryCoverFillStyle";
 pub(crate) const DETAIL_LAYOUT_STYLE: &str = "libraryDetailLayoutStyle";
+#[cfg(not(target_os = "linux"))]
 pub(crate) const PREFERRED_TERMINAL: &str = "preferredTerminal";
+#[cfg(target_os = "linux")]
+pub(crate) const PREFERRED_TERMINAL: &str = "preferredLinuxTerminal";
 pub(crate) const KILL_ON_TERMINATE: &str = "killOnTerminate";
 pub(crate) const SHOW_MENU_BAR_EXTRA: &str = "showMenuBarExtra";
 pub(crate) const OFFLINE_MODE: &str = "offlineMode";
@@ -56,7 +63,10 @@ pub(crate) const DEFAULT_CENTER_WIDE_COVER_TEXT: bool = false;
 pub(crate) const DEFAULT_BLURRED_COVER_FILL: bool = true;
 pub(crate) const DEFAULT_COVER_FILL_STYLE: &str = "blurred";
 pub(crate) const DEFAULT_DETAIL_LAYOUT_STYLE: &str = "hero";
+#[cfg(not(target_os = "linux"))]
 pub(crate) const DEFAULT_PREFERRED_TERMINAL: &str = "terminal";
+#[cfg(target_os = "linux")]
+pub(crate) const DEFAULT_PREFERRED_TERMINAL: &str = "auto";
 pub(crate) const DEFAULT_KILL_ON_TERMINATE: bool = true;
 pub(crate) const DEFAULT_SHOW_MENU_BAR_EXTRA: bool = false;
 pub(crate) const DEFAULT_OFFLINE_MODE: bool = false;
@@ -116,7 +126,14 @@ mod tests {
         assert_eq!(BLURRED_COVER_FILL, "libraryBlurredCoverFill");
         assert_eq!(COVER_FILL_STYLE, "libraryCoverFillStyle");
         assert_eq!(DETAIL_LAYOUT_STYLE, "libraryDetailLayoutStyle");
-        assert_eq!(PREFERRED_TERMINAL, "preferredTerminal");
+        assert_eq!(
+            PREFERRED_TERMINAL,
+            if cfg!(target_os = "linux") {
+                "preferredLinuxTerminal"
+            } else {
+                "preferredTerminal"
+            }
+        );
         assert_eq!(KILL_ON_TERMINATE, "killOnTerminate");
         assert_eq!(SHOW_MENU_BAR_EXTRA, "showMenuBarExtra");
         assert_eq!(OFFLINE_MODE, "offlineMode");
@@ -131,7 +148,13 @@ mod tests {
         // LibrarySort, WhiskyCore/LibraryOrdering.swift:21.
         assert_eq!(SORT_VALUES, ["recent", "name", "bottle"]);
         // TerminalApp, WhiskyKit/Utils/TerminalApp.swift.
+        #[cfg(not(target_os = "linux"))]
         assert_eq!(TERMINAL_VALUES, ["terminal", "iterm", "warp"]);
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            TERMINAL_VALUES,
+            ["auto", "x-terminal-emulator", "gnome-terminal", "xterm"]
+        );
         assert_eq!(COVER_FILL_VALUES, ["blurred", "theme"]);
         assert_eq!(DETAIL_LAYOUT_VALUES, ["hero", "split"]);
         assert_eq!(mode_index("timeline"), Some(1));
@@ -139,7 +162,14 @@ mod tests {
         assert_eq!(mode_index("grid"), None);
         assert_eq!(mode_value(9), DEFAULT_MODE);
         assert_eq!(sort_value(9), DEFAULT_SORT);
-        assert_eq!(terminal_index("warp"), Some(2));
+        assert_eq!(
+            terminal_index(if cfg!(target_os = "linux") {
+                "gnome-terminal"
+            } else {
+                "warp"
+            }),
+            Some(2)
+        );
         assert_eq!(terminal_index("kitty"), None);
         assert_eq!(cover_fill_index("theme"), Some(1));
         assert_eq!(detail_layout_index("split"), Some(1));
@@ -158,7 +188,14 @@ mod tests {
         assert!(DEFAULT_BLURRED_COVER_FILL);
         assert_eq!(DEFAULT_COVER_FILL_STYLE, "blurred");
         assert_eq!(DEFAULT_DETAIL_LAYOUT_STYLE, "hero");
-        assert_eq!(DEFAULT_PREFERRED_TERMINAL, "terminal");
+        assert_eq!(
+            DEFAULT_PREFERRED_TERMINAL,
+            if cfg!(target_os = "linux") {
+                "auto"
+            } else {
+                "terminal"
+            }
+        );
         assert!(DEFAULT_KILL_ON_TERMINATE);
         assert!(!DEFAULT_SHOW_MENU_BAR_EXTRA);
         assert!(!DEFAULT_OFFLINE_MODE);

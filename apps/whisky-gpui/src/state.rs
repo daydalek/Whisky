@@ -414,6 +414,8 @@ pub(crate) struct WhiskyApp {
     pub(crate) create_bottle: Option<CreateBottleState>,
     pub(crate) import_bottles: Option<crate::container_import::ImportState>,
     pub(crate) import_generation: u64,
+    pub(crate) host_terminals: Option<crate::host::TerminalsDto>,
+    pub(crate) host_terminal_error: Option<String>,
     /// Winetricks catalog, per-bottle installed sets and the one install job.
     pub(crate) winetricks: WinetricksState,
     /// Draft of the program whose run-settings sheet is open.
@@ -572,6 +574,8 @@ impl WhiskyApp {
             create_bottle: None,
             import_bottles: None,
             import_generation: 0,
+            host_terminals: None,
+            host_terminal_error: None,
             winetricks: WinetricksState::default(),
             program_settings: ProgramSettingsPage::default(),
             move_entry: None,
@@ -741,6 +745,8 @@ impl WhiskyApp {
                     return;
                 }
                 if unavailable && !self.demo {
+                    self.host_terminals = None;
+                    self.host_terminal_error = None;
                     if let Some(state) = self.import_bottles.as_mut() {
                         state.failed(state.request, "桥接连接已中断，请恢复连接后重新扫描".into());
                     }
@@ -796,6 +802,12 @@ impl WhiskyApp {
                     {
                         self.bridge.configure_runtime(&path);
                     }
+                }
+            }
+            BridgeEvent::HostTerminals { result } => {
+                match result {
+                    Ok(terminals) => { self.host_terminals = Some(terminals); self.host_terminal_error = None; }
+                    Err(reason) => { self.host_terminals = None; self.host_terminal_error = Some(reason); }
                 }
             }
             BridgeEvent::ImportCandidates { request, candidates } => {

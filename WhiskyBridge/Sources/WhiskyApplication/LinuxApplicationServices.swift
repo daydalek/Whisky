@@ -29,26 +29,32 @@ public final class LinuxApplicationServices: NativeApplicationServices {
     private let openFile: FileOpener
     private let searchPaths: [URL]
     private let picker: LinuxFilePicker
+    private let terminals: LinuxTerminalService
+    private let preferences: PreferencesService?
 
     public init(
         runtime: RuntimeService? = nil,
         searchPaths: [URL]? = nil,
-        openFile: FileOpener? = nil
+        openFile: FileOpener? = nil,
+        preferences: PreferencesService? = nil
     ) {
         runtimeService = runtime
+        self.preferences = preferences
         let paths = searchPaths ?? Self.defaultSearchPaths()
         self.searchPaths = paths
+        terminals = LinuxTerminalService(searchPaths: paths, environment: ProcessInfo.processInfo.environment)
         let bundled = Bundle.main.executableURL.map { [$0.deletingLastPathComponent()] } ?? []
         picker = LinuxFilePicker(searchPaths: bundled + paths)
         self.openFile = openFile ?? Self.xdgOpen
     }
 
     public var capabilities: [String] {
-        ["system.files", "system.picker"] + (runtimeService == nil ? [] : RuntimeService.capabilities)
+        ["system.files", "system.picker", "system.terminal"] +
+            (runtimeService == nil ? [] : RuntimeService.capabilities)
     }
 
     public var methods: [String] {
-        ["system.reveal", "system.open", "system.resources"]
+        ["system.reveal", "system.open", "system.resources", "system.terminals", "bottle.tools"]
             + LinuxFilePicker.methods
             + (runtimeService == nil ? [] : RuntimeService.methods)
     }
@@ -72,8 +78,15 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         }
         switch method.prefix(while: { $0 != "." }) {
         case "system":
-            if LinuxFilePicker.methods.contains(method) { return try await picker.call(method, params: params) }
+            if LinuxFilePicker.methods.contains(method) {
+                return try await picker.call(method, params: params)
+            }
             return try systemCall(method, params: params, workspace: workspace)
+        case "bottle":
+            guard try params.text("tool") == "terminal" else {
+                throw BridgeFailure("method_unavailable", "This tool requires the Wine host adapter")
+            }
+            return try terminals.open(container: workspace.resolve(params), preferred: terminalPreference())
         case "runtime":
             guard let runtimeService else {
                 throw BridgeFailure("method_unavailable", "Runtime method is unavailable")
@@ -94,6 +107,7 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         workspace: ApplicationWorkspace
     ) throws -> JSONValue {
         switch method {
+        case "system.terminals": return try terminals.describe(preferred: terminalPreference())
         case "system.resources":
             var tools = ["cabextract", "winetricks", "wine", "wineserver", "xdg-open"].map { name in
                 (name, locateTool(name).map { JSONValue.string($0.path) } ?? .null)
@@ -121,6 +135,10 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         default:
             throw BridgeFailure("method_unavailable", "Native method is unavailable")
         }
+    }
+
+    private func terminalPreference() throws -> String {
+        try preferences?.call("preferences.read", params: [:]).object?["preferredLinuxTerminal"]?.string ?? "auto"
     }
 
     private func openTarget(_ url: URL) throws -> JSONValue {

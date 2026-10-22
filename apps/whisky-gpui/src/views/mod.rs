@@ -379,6 +379,7 @@ impl WhiskyApp {
     }
     /// A dropdown backed by raw values, showing the matching label. Used by
     /// settings controls whose stored value is a Swift enum raw value.
+    #[cfg(not(target_os = "linux"))]
     pub(crate) fn choice_pairs(
         &self,
         key: &'static str,

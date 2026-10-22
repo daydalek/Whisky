@@ -384,6 +384,7 @@ pub(crate) enum BridgeEvent {
         values: serde_json::Value,
         schema: PreferencesSchemaDto,
     },
+    HostTerminals { result: Result<crate::host::TerminalsDto, String> },
     /// `system.info`: packaged application metadata for the About panel.
     SystemInfo {
         info: SystemInfoDto,
@@ -642,6 +643,8 @@ enum Command {
         hidden: bool,
     },
     LoadPreferences,
+    #[cfg(target_os = "linux")]
+    LoadTerminals,
     SetPreference {
         key: String,
         value: serde_json::Value,
@@ -969,6 +972,11 @@ impl BridgeSupervisor {
     }
 
     /// Read every preference once per connected session.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn load_terminals(&self) {
+        let _ = self.commands.send(Command::LoadTerminals);
+    }
+
     pub(crate) fn load_preferences(&self) {
         let _ = self.commands.send(Command::LoadPreferences);
     }
@@ -1547,6 +1555,9 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
         log_container_names(&containers);
         emit_event(&events, BridgeEvent::Containers(containers));
         fetch_setup_status(&mut client, &events);
+        if describe.methods.iter().any(|method| method == "system.terminals") {
+            fetch_terminals(&mut client, &events);
+        }
         // One bottle at a time is enough: a request for another container
         // invalidates the cached snapshot, matching "invalidate on switch".
         let mut cache: Option<(String, EntryList)> = None;
@@ -2357,6 +2368,8 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
                 }
+                #[cfg(target_os = "linux")]
+                Some(Command::LoadTerminals) => fetch_terminals(&mut client, &events),
                 Some(Command::LoadPreferences) => {
                     match load_preferences(&mut client) {
                         Ok((values, schema)) => {
@@ -4682,6 +4695,13 @@ enum SetupTerminal {
 
 /// Emits the current runtime status. Startup failures stay quiet: a Linux
 /// helper or a session without setup methods must not block the library.
+fn fetch_terminals(client: &mut Client, events: &smol::channel::Sender<BridgeEvent>) {
+    let result = client.call("system.terminals", json!({}))
+        .map_err(|error| error.to_string())
+        .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()));
+    emit_event(events, BridgeEvent::HostTerminals { result });
+}
+
 fn fetch_setup_status(
     client: &mut Client,
     events: &smol::channel::Sender<BridgeEvent>,

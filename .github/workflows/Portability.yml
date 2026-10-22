@@ -74,6 +74,20 @@ jobs:
               --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
               --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
               --output "$WHISKY_LINUX_OUTPUT/metadata-window" --scenario metadata
+      - name: Open real Linux terminals with literal prefix paths and interactive PTYs
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            python3 apps/whisky-gpui/tools/check-terminal.py \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/terminal"
+      - name: Choose and open a terminal through the production window
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/terminal-window" --scenario terminal
       - name: Collect and export Linux host and container diagnostics
         run: |
           xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
@@ -147,6 +161,15 @@ jobs:
             /tmp/whisky-linux-gpui/import-window/*.log
             /tmp/whisky-linux-gpui/import-window/report.json
             /tmp/whisky-linux-gpui/import-window/*.png
+            /tmp/whisky-linux-gpui/terminal/report.json
+            /tmp/whisky-linux-gpui/terminal/*.png
+            /tmp/whisky-linux-gpui/terminal/helper.log
+            /tmp/whisky-linux-gpui/terminal/fixture-*/probe.json
+            /tmp/whisky-linux-gpui/terminal-window/report.json
+            /tmp/whisky-linux-gpui/terminal-window/*.png
+            /tmp/whisky-linux-gpui/terminal-window/*.log
+            /tmp/whisky-linux-gpui/terminal-window/fixture-*/requests.jsonl
+            /tmp/whisky-linux-gpui/terminal-window/fixture-*/probe.json
             /tmp/whisky-linux-gpui/diagnostics/report.json
             /tmp/whisky-linux-gpui/diagnostics/helper.log
             /tmp/whisky-linux-gpui/diagnostics-window/*.png

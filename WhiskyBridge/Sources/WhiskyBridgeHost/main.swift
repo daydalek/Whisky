@@ -147,7 +147,7 @@ struct BridgeHost {
         #elseif os(Linux)
         return ApplicationService(
             workspace: workspace,
-            native: LinuxApplicationServices(),
+            native: LinuxApplicationServices(preferences: preferences),
             preferences: preferences,
             jobs: jobs
         )

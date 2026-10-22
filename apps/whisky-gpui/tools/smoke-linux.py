@@ -24,7 +24,7 @@ def main():
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--helper', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata', 'lifecycle', 'recovery', 'import', 'candidates', 'diagnostics'], default='empty')
+    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata', 'lifecycle', 'recovery', 'import', 'candidates', 'diagnostics', 'terminal'], default='empty')
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -37,7 +37,7 @@ def main():
     env.pop('WHISKY_GPUI_DEMO_DATA', None)
     program_identity = None
     metadata_path = None
-    if args.scenario in ('programs', 'metadata', 'lifecycle', 'recovery', 'import', 'diagnostics'):
+    if args.scenario in ('programs', 'metadata', 'lifecycle', 'recovery', 'import', 'diagnostics', 'terminal'):
         generator = runpy.run_path(str(Path(__file__).with_name('check-programs.py')))['fixture_at']
         bottle, executable, registry, identity = generator(fixture)
         env['WHISKY_REGISTRY'] = str(registry)
@@ -88,7 +88,11 @@ def main():
         interrupt = runpy.run_path(str(Path(__file__).with_name('check-recovery.py')))['interrupt_copy']
         with (output / 'interruption-helper.log').open('w') as interruption_log:
             interrupted_destination = interrupt(args.helper.resolve(), bottle, registry, env, interruption_log)
-    if args.scenario in ('lifecycle', 'diagnostics'):
+    if args.scenario == 'terminal':
+        shell = runpy.run_path(str(Path(__file__).with_name('terminal-fixture.py')))['install_shell'](fixture)
+        env['SHELL'] = str(shell)
+        env['WHISKY_TERMINAL_PROBE'] = str(fixture / 'probe.json')
+    if args.scenario in ('lifecycle', 'diagnostics', 'terminal'):
         env['WHISKY_REAL_HELPER'] = env['WHISKY_BRIDGE_HELPER']
         env['WHISKY_REQUEST_LOG'] = str(fixture / 'requests.jsonl')
         env['WHISKY_BRIDGE_HELPER'] = str(Path(__file__).with_name('record-helper.py').resolve())
@@ -225,6 +229,9 @@ def main():
                 exercise = runpy.run_path(str(Path(__file__).with_name('lifecycle-window.py')))['exercise']
                 exercise(window, app, fixture, bottle, registry, snapshot)
                 report['steps'].append('production-sidebar-export-cancel-move-duplicate-deregister-delete-preserves-external-data')
+            if args.scenario == 'terminal':
+                exercise = runpy.run_path(str(Path(__file__).with_name('terminal-window.py')))['exercise']
+                exercise(window, app, fixture, bottle, registry, snapshot)
             if args.scenario == 'diagnostics':
                 exercise = runpy.run_path(str(Path(__file__).with_name('diagnostics-window.py')))['exercise']
                 exercise(window, app, fixture, bottle, registry, snapshot)
@@ -332,12 +339,13 @@ def main():
             saved = json.loads((fixture / 'window.json').read_text())
             assert saved['width'] >= 800 and saved['height'] >= 580, saved
             report['steps'].append('ctrl-q-and-window-persistence')
-            if args.scenario in ('lifecycle', 'diagnostics'):
+            if args.scenario in ('lifecycle', 'diagnostics', 'terminal'):
                 requests = [json.loads(line) for line in (fixture / 'requests.jsonl').read_text().splitlines()]
                 methods = {request['method'] for request in requests}
                 expected = ({'bottle.move', 'bottle.duplicate', 'bottle.export', 'bottle.remove'}
                             if args.scenario == 'lifecycle' else
-                            {'bottle.diagnostics', 'bottle.checks', 'bottle.exportDiagnostics'})
+                            {'bottle.diagnostics', 'bottle.checks', 'bottle.exportDiagnostics'}
+                            if args.scenario == 'diagnostics' else {'system.terminals', 'bottle.tools'})
                 assert expected.issubset(methods), methods
                 assert 'audio.test' not in methods, methods
                 assert 'runtime.configure' not in methods, methods
