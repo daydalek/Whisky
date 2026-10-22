@@ -1,7 +1,7 @@
 //! Application state: the root view model, page/sheet enums, and navigation.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 
 use gpui_kit::base::Transition;
@@ -428,6 +428,8 @@ pub(crate) struct WhiskyApp {
     /// The opened/dropped file, while its bottle picker is open.
     pub(crate) open_file: Option<OpenFileState>,
     catalogue_ready: bool,
+    desktop_resolution_generation: u64,
+    desktop_resolutions: HashMap<u64, crate::desktop_open::ExternalOpen>,
     external_opens: std::collections::VecDeque<crate::desktop_open::ExternalOpen>,
     /// Metadata, cover and GameDB state for the open Game Info sheet.
     pub(crate) game_info: Option<GameInfoPage>,
@@ -589,6 +591,8 @@ impl WhiskyApp {
             move_entry: None,
             open_file: None,
             catalogue_ready: false,
+            desktop_resolution_generation: 0,
+            desktop_resolutions: HashMap::new(),
             external_opens: std::collections::VecDeque::new(),
             game_info: None,
             bottle_dialog: None,
@@ -756,6 +760,7 @@ impl WhiskyApp {
                 }
                 if unavailable && !self.demo {
                     self.catalogue_ready = false;
+                    self.external_opens.extend(self.desktop_resolutions.drain().map(|(_, file)| file));
                     self.host_terminals = None;
                     self.host_terminal_error = None;
                     self.desktop_status = None;
@@ -819,6 +824,15 @@ impl WhiskyApp {
                     self.catalogue_ready = true;
                     while let Some(file) = self.external_opens.pop_front() {
                         self.receive_external_file(file, cx);
+                    }
+                }
+            }
+            BridgeEvent::DesktopResolved { request, result, retryable } => {
+                if let Some(original) = self.desktop_resolutions.remove(&request) {
+                    match result {
+                        Ok(file) => self.receive_external_file(file, cx),
+                        Err(_) if retryable => { self.catalogue_ready = false; self.external_opens.push_back(original); }
+                        Err(reason) => self.show_notice(reason, cx),
                     }
                 }
             }
@@ -3772,13 +3786,21 @@ impl WhiskyApp {
     /// One bottle runs it directly; several open the bottle picker, as the
     /// SwiftUI Run panel does.
     pub(crate) fn open_external_file(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
-        self.receive_external_file(crate::desktop_open::ExternalOpen { path, container: None }, cx);
+        self.receive_external_file(crate::desktop_open::ExternalOpen { path, container: None, container_id: None }, cx);
     }
 
     pub(crate) fn receive_external_file(&mut self, file: crate::desktop_open::ExternalOpen, cx: &mut Context<Self>) {
         if !self.demo && !self.catalogue_ready {
-            if self.external_opens.len() < 64 { self.external_opens.push_back(file); }
+            if self.external_opens.len() + self.desktop_resolutions.len() < 64 { self.external_opens.push_back(file); }
             else { self.show_notice("待打开文件已达到 64 项，请等待当前请求处理", cx); }
+            return;
+        }
+        if let Some(id) = &file.container_id {
+            if self.external_opens.len() + self.desktop_resolutions.len() >= 64 { self.show_notice("待解析快捷方式已达到 64 项", cx); return; }
+            self.desktop_resolution_generation = self.desktop_resolution_generation.wrapping_add(1);
+            let request = self.desktop_resolution_generation;
+            self.bridge.resolve_desktop_open(request, id, &file.path.to_string_lossy());
+            self.desktop_resolutions.insert(request, file);
             return;
         }
         let path = file.path;

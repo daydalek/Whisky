@@ -10,9 +10,9 @@ and distribution gates below.
 OrbStack ARM64 Ubuntu 24.04, Swift 6.4, Rust 1.99.1, Xvfb/X11 and Mesa software
 rendering:
 
-- Shared core: 112 tests; portable bridge: 85 tests; shared metadata package: 20 tests.
+- Shared core: 112 tests; portable bridge: 92 tests; shared metadata package: 20 tests.
 - Rust SDK tests, including its real Swift helper integration test.
-- Production GPUI Linux build/link and 125 unit tests.
+- Production GPUI Linux build/link and 126 unit tests.
 - Production Rust client/helper handshake, capability list and isolated empty
   library reads, with the display environment absent.
 - XDG preferences survive a real helper process exit/restart. File-backed
@@ -21,7 +21,7 @@ rendering:
 - Real production window: library, Ctrl+, settings, Ctrl+Alt+S sidebar,
   Ctrl+Q graceful exit and persisted window dimensions. Captured screenshots
   show the library and Chinese settings text using Noto Sans CJK SC.
-- macOS GPUI's 125 tests and the macOS bridge suite also pass.
+- macOS GPUI's 126 tests and the macOS bridge suite also pass.
 
 The program-storage stage adds full `programs.settings.read/set` and
 `programs.history.read/delete` to the portable helper. Both Linux and macOS now
@@ -575,13 +575,61 @@ decodes only the ASCII stat fields; the export process-group verifier tolerates
 arbitrary comm bytes. A focused regression supplies an invalid UTF-8 name and
 verifies the exact start-time identity.
 
-These launchers currently bind to absolute prefix/program paths. Prefix moves
-require recreating them. Stable relocation-aware targets and managed updates
-for an application moved to a different install path remain required work.
+The subsequent identity stage supplies stable references for newly generated
+shortcuts. Legacy path-bound files retain their original semantics. Legacy
+shortcut regeneration and managed desktop-entry updates remain required work.
 Local evidence under `build/portability/gui-linux/` includes
 `desktop-macos.log`, `desktop-gpui-macos.log`, `desktop-swift60.log`,
 `desktop-final-linux.log`, `desktop-process.log`, `desktop-final-window.log`,
 `linux-gpui/desktop/` and `linux-gpui/desktop-window/`.
+
+## Stable container references for desktop shortcuts
+
+New Linux shortcuts use `--container-id <UUID>` and a container-relative program
+path. The registry stores `whiskyContainerIdentities`, mapping each UUID to its
+last known path and directory device/inode identity. Allocation holds an
+exclusive registry lease and preserves unknown registry fields. Prefix metadata
+and program bytes remain intact. Executables reached through prefix aliases
+are normalized into a relative path; external executables retain absolute paths.
+
+Container moves update paths, directory identity and the existing lifecycle
+commit marker in one atomic registry write. Same-device and cross-device moves
+share this boundary. Recovery before commit restores the original tree and
+identity; recovery after commit keeps the new tree and identity. The ID stays
+with the original container across duplication. A clone receives its own ID
+when a shortcut is created for it. Deregistration retains the ID while resolution
+requires a registered matching directory; reimporting the original directory
+restores the reference. Physical deletion removes its IDs in the registry commit.
+Corrupt identity records stop mutation before tree changes, and replacement
+directories receive separate identities.
+
+`system.desktop.resolve` validates the registered directory identity and resolves
+the current executable. It rejects relative parent traversal and missing targets.
+The frontend resolves IDs after catalogue readiness, retains pending reads across
+helper reconnects and ignores superseded replies. The combined pending/admission
+queue stays bounded at 64 requests. Legacy absolute `--container` handoffs remain
+supported. This phase changes newly generated entries; managed regeneration of
+existing path-bound entries remains on the host-integration work list.
+
+Verification passes 92 shared bridge tests on macOS and ARM Ubuntu Swift
+6.0/6.4, 12 native macOS adapter tests and 126 GPUI tests on each platform.
+New regressions cover original/clone identity, directory replacement,
+deregistration/reimport/deletion, corrupt stores, both sides of move recovery,
+relative-path admission and prefix aliases. The real helper moves one prefix
+within its filesystem and into `/dev/shm`, restarts, duplicates, deregisters,
+reimports and deletes it. The original desktop file and ID stay byte-for-byte
+stable through the moves. The production window creates a shortcut, another
+helper moves its prefix, and GIO starts a second production window using the
+unchanged shortcut. Its registered prefix selection and source/program data are
+verified, and the trace includes `system.desktop.resolve` with Wine execution
+outside the active host capability set.
+
+CI's full Linux gate includes `check-shortcut-identity.py` and retains its report
+and helper log. The desktop-window scenario now includes relocation before GIO
+launch. Local evidence under `build/portability/gui-linux/` includes
+`identity-macos.log`, `identity-gpui-macos.log`, `identity-swift60.log`,
+`identity-final-linux.log`, `identity-window.log`,
+`linux-gpui/shortcut-identity/` and `linux-gpui/desktop-window/`.
 
 ## Reproduce
 
@@ -627,7 +675,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux .desktop creation and GIO startup verified; broader UI override editing remains in the desktop gate |
 | Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
 | Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; complete production file-lifecycle window flow, recovery and candidate import UI | Additional platform coverage follows the desktop acceptance matrix |
-| Host integration | XDG preferences; file open/reveal; GTK dialogs; terminal discovery, independent preference and real PTY/window acceptance | Relocation-aware shortcuts, managed desktop-entry refresh and broader capability-aware settings |
+| Host integration | XDG preferences; file open/reveal; GTK dialogs; terminal discovery, independent preference and real PTY/window acceptance | Stable shortcut relocation verified; managed desktop-entry/legacy shortcut refresh and broader capability-aware settings |
 | Diagnostics | Native macOS adapter; Linux bounded host/file report, platform checks, exclusive export and production-window acceptance | Additional desktop platform coverage follows the acceptance matrix |
 | Distribution | macOS `.app` packaging | Linux relocatable bundle with both native helpers, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |
 | Desktop acceptance | ARM64 X11 virtual display with Mesa | Seeded end-to-end interactions, restart/recovery and Wayland coverage; x86_64 hosted CI evidence |

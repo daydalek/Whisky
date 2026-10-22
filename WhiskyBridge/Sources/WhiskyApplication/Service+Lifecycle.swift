@@ -60,6 +60,9 @@ extension ApplicationService {
                     retryable: true
                 )
             }
+            if method == "programs.shortcut.create" {
+                return nil
+            }
             return try ContainerRegistry.acquireShared(workspace)
         }
         return ["workspace.containers", "workspace.discover"].contains(method)

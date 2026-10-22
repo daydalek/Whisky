@@ -21,7 +21,12 @@ import WhiskyBridgeProtocol
 
 @MainActor
 struct LinuxDesktopService {
-    static let methods = ["system.desktop.status", "system.desktop.install", "programs.shortcut.create"]
+    static let methods = [
+        "system.desktop.status",
+        "system.desktop.install",
+        "programs.shortcut.create",
+        "system.desktop.resolve"
+    ]
     let environment: [String: String]
     let searchPaths: [URL]
     var applications: URL {
@@ -37,6 +42,9 @@ struct LinuxDesktopService {
         workspace: ApplicationWorkspace
     ) async throws -> JSONValue {
         guard Self.methods.contains(method) else { throw BridgeFailure("method_unavailable", "Unknown desktop method") }
+        if method == "system.desktop.resolve" {
+            return try resolve(params, workspace: workspace)
+        }
         let launcher = try launcher(params)
         if method ==
             "programs.shortcut.create" {
@@ -83,7 +91,11 @@ struct LinuxDesktopService {
         launcher: URL,
         workspace: ApplicationWorkspace
     ) throws -> JSONValue {
-        let container = try workspace.resolve(params)
+        let lease = try ContainerRegistry.acquire(workspace)
+        defer { ContainerRegistry.release(lease) }
+        try ContainerJournal.requireClear(workspace.registry)
+        var registry = try ContainerRegistry.Document(workspace)
+        let container = try registry.resolve(params)
         let executable = try params.path("executable")
         guard executable.pathExtension.lowercased() == "exe",
               (try? executable.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ==
@@ -105,19 +117,57 @@ struct LinuxDesktopService {
             throw BridgeFailure("invalid_params", "Select an existing shortcut destination directory")
         }
         let target = directory.appendingPathComponent(name).appendingPathExtension("desktop")
+        let id = try registry.containerIdentity(container)
+        let relative = Self.programPath(executable, in: container)
         let contents = LinuxDesktopEntry.contents(
             name: name,
             launcher: launcher,
-            arguments: [
-                "--open-file",
-                executable.path,
-                "--container",
-                container.path
-            ],
+            arguments: ["--open-file", relative, "--container-id", id],
             handlesFiles: false
         )
         try LinuxDesktopEntry.publish(contents, at: target)
-        return .object(["path": .string(target.path), "name": .string(name)])
+        return .object([
+            "path": .string(target.path),
+            "name": .string(name),
+            "containerID": .string(id),
+            "programPath": .string(relative)
+        ])
+    }
+
+    private static func programPath(_ executable: URL, in container: URL) -> String {
+        for path in [executable.standardizedFileURL.path, executable.resolvingSymlinksInPath().path]
+            where path.hasPrefix(container.path + "/") {
+            return String(path.dropFirst(container.path.count + 1))
+        }
+        return executable.path
+    }
+
+    private func resolve(_ params: [String: JSONValue], workspace: ApplicationWorkspace) throws -> JSONValue {
+        guard let lease = try ContainerRegistry.acquireShared(workspace) else {
+            throw BridgeFailure("shortcut_unavailable", "Open a persisted container registry first")
+        }
+        defer { ContainerRegistry.release(lease) }
+        try ContainerJournal.requireClear(workspace.registry)
+        let registry = try ContainerRegistry.Document(workspace)
+        let container = try registry.resolveIdentity(params.text("containerID"))
+        let path = try params.text("path")
+        guard !path.isEmpty,
+              !path.contains("\0")
+        else { throw BridgeFailure("invalid_params", "Invalid shortcut path") }
+        let absolute = path.hasPrefix("/")
+        guard absolute || !path.split(separator: "/", omittingEmptySubsequences: false)
+            .contains(where: { $0 == ".." || $0.isEmpty })
+        else {
+            throw BridgeFailure("invalid_params", "Choose a valid container-relative executable path")
+        }
+        let executable = absolute ? URL(fileURLWithPath: path) : container.appendingPathComponent(path)
+        guard executable.pathExtension.lowercased() == "exe",
+              (try? executable.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ==
+              true
+        else {
+            throw BridgeFailure("file_missing", "The shortcut executable is unavailable")
+        }
+        return .object(["container": .string(container.path), "path": .string(executable.path)])
     }
 
     private func refreshCache() async throws -> Bool {

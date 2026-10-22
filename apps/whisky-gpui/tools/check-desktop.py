@@ -90,7 +90,7 @@ output.with_suffix('.tmp').replace(output)
             assert shortcut.get('error') is None, shortcut
             shortcut_path = Path(shortcut['result']['path'])
             subprocess.run(['desktop-file-validate', str(shortcut_path)], check=True)
-            launch(shortcut_path, [], ['--open-file', str(executable), '--container', str(bottle)])
+            launch(shortcut_path, [], ['--open-file', shortcut['result']['programPath'], '--container-id', shortcut['result']['containerID']])
             report['steps'].append('real-gio-launch-retains-literal-unicode-quotes-backslashes-percent-and-shell-characters')
             foreign = main_entry.read_bytes()
             main_entry.write_text('[Desktop Entry]\nType=Application\nName=Foreign\nExec=/bin/true\n')
@@ -100,7 +100,10 @@ output.with_suffix('.tmp').replace(output)
             main_entry.write_bytes(foreign)
             after = {str(p.relative_to(bottle)): hashlib.sha256(p.read_bytes()).hexdigest()
                      for p in bottle.rglob('*') if p.is_file()}
-            assert before == after and registry.read_bytes() == registry_before
+            assert before == after
+            updated_registry = plistlib.loads(registry.read_bytes())
+            identities = updated_registry.pop('whiskyContainerIdentities')
+            assert len(identities) == 1 and updated_registry == plistlib.loads(registry_before)
             assert not list(applications.glob('.whisky-desktop-*'))
             report['steps'].append('foreign-entry-prefix-hashes-registry-and-defaults-remain-protected')
             report['passed'] = True

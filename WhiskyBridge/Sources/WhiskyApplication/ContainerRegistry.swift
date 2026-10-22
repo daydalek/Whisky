@@ -81,6 +81,7 @@ enum ContainerRegistry {
             else { throw CocoaError(.fileReadCorruptFile) }
             paths = try PropertyListDecoder().decode(Paths.self, from: data).paths
             guard paths.allSatisfy(\.isFileURL) else { throw CocoaError(.fileReadCorruptFile) }
+            _ = try ContainerIdentities.read(values)
             self.values = values
             self.format = format
         }
@@ -97,7 +98,25 @@ enum ContainerRegistry {
             values["whiskyLifecycleCommit"] as? String
         }
 
-        mutating func save(_ paths: [URL], transaction: UUID? = nil) throws {
+        mutating func containerIdentity(_ source: URL) throws -> String {
+            let id = try ContainerIdentities.assign(source, values: &values)
+            try save(paths)
+            return id
+        }
+
+        func resolveIdentity(_ id: String) throws -> URL {
+            try ContainerIdentities.resolve(id, paths: paths, values: values)
+        }
+
+        mutating func save(
+            _ paths: [URL],
+            transaction: UUID? = nil,
+            relocating source: DirectoryIdentity? = nil,
+            to destination: URL? = nil
+        ) throws {
+            if let source {
+                try ContainerIdentities.relocate(source, to: destination, values: &values)
+            }
             let encoded = try PropertyListEncoder().encode(Paths(paths: paths))
             let updated = try PropertyListSerialization.propertyList(from: encoded, format: nil) as? [String: Any]
             values["paths"] = updated?["paths"]

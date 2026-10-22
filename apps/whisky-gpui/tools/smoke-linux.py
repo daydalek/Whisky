@@ -356,7 +356,7 @@ def main():
                             if args.scenario == 'lifecycle' else
                             {'bottle.diagnostics', 'bottle.checks', 'bottle.exportDiagnostics'}
                             if args.scenario == 'diagnostics' else {'system.terminals', 'bottle.tools'}
-                            if args.scenario == 'terminal' else {'system.desktop.install', 'programs.shortcut.create'})
+                            if args.scenario == 'terminal' else {'system.desktop.install', 'programs.shortcut.create', 'system.desktop.resolve'})
                 assert expected.issubset(methods), methods
                 if args.scenario == 'desktop':
                     assert 'programs.run' not in methods, methods

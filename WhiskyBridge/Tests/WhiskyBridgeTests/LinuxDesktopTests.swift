@@ -73,7 +73,7 @@ private func desktopLauncher(_ root: URL) throws -> URL {
     let launcher = try desktopLauncher(fixture.root)
     let marker = fixture.source.appendingPathComponent("Metadata.plist")
     let metadata = try Data(contentsOf: marker)
-    let registry = try Data(contentsOf: fixture.registry)
+    let registry = try fixture.read(fixture.registry)
     let service = LinuxDesktopService(environment: ["XDG_DATA_HOME": fixture.root.path], searchPaths: [])
     let result = try await service.call("programs.shortcut.create", params: fixture.params.merging([
         "launcher": .string(launcher.path), "executable": .string(fixture.executable.path),
@@ -82,11 +82,13 @@ private func desktopLauncher(_ root: URL) throws -> URL {
     let path = try #require(result.object?["path"]?.string)
     #expect(path.hasSuffix("中文 %f Game.desktop"))
     let contents = try String(contentsOfFile: path, encoding: .utf8)
-    #expect(contents.contains("\"--container\""))
-    #expect(contents.contains(LinuxDesktopEntry.argument(fixture.source.path)))
+    #expect(contents.contains("\"--container-id\""))
+    #expect(contents.contains(LinuxDesktopEntry.argument("drive_c/Game/game.exe")))
     #expect(contents.contains("%%f"))
     #expect(try Data(contentsOf: marker) == metadata)
-    #expect(try Data(contentsOf: fixture.registry) == registry)
+    #expect(try fixture
+        .read(fixture.registry)["paths"] as? [[String: String]] == registry["paths"] as? [[String: String]])
+    #expect(try (fixture.read(fixture.registry)[ContainerIdentities.key] as? [String: Any])?.count == 1)
 }
 
 @Test @MainActor func linuxDesktopRejectsMissingLaunchersAndUnregisteredProgramTargets() async throws {

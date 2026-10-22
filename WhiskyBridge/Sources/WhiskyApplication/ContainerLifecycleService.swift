@@ -186,7 +186,7 @@ final class ContainerLifecycleService {
         let relocation = ContainerRelocation(source: source, destination: destination)
         try relocation.apply(at: destination)
         try Task.checkCancellation()
-        try registry.save(updatedPaths, transaction: journal.id)
+        try registry.save(updatedPaths, transaction: journal.id, relocating: journal.sourceIdentity, to: destination)
         try ContainerRoutes.apply(journal, registry: registry.url)
         try ContainerJournal.clear(registry.url)
         return .object(["path": .string(destination.path)])
@@ -205,7 +205,7 @@ final class ContainerLifecycleService {
         try Task.checkCancellation()
         try registry.save(
             registry.paths.map { ContainerRegistry.canonical($0) == source ? destination : $0 },
-            transaction: journal.id
+            transaction: journal.id, relocating: journal.sourceIdentity, to: destination
         )
         try removeOwnedCopy(source)
         try ContainerRoutes.apply(journal, registry: registry.url)
@@ -251,7 +251,7 @@ final class ContainerLifecycleService {
         let error = whisky_host_move(source.path, staging.path)
         guard error == 0 else { throw POSIXError(POSIXErrorCode(rawValue: error) ?? .EIO) }
         try Task.checkCancellation()
-        try registry.save(remaining, transaction: journal.id)
+        try registry.save(remaining, transaction: journal.id, relocating: journal.sourceIdentity)
         try removeOwnedCopy(staging)
         try ContainerRoutes.apply(journal, registry: registry.url)
         try ContainerJournal.clear(registry.url)

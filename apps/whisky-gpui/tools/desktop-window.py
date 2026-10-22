@@ -1,6 +1,8 @@
 """Exercise desktop installation and program shortcuts through production UI."""
 import hashlib
 import os
+import plistlib
+import runpy
 from pathlib import Path
 import subprocess
 import time
@@ -46,6 +48,20 @@ def exercise(window, app, fixture, bottle, registry, snapshot, env):
     subprocess.run(['desktop-file-validate', str(shortcut)], check=True)
     time.sleep(0.7)
     snapshot('desktop-program-shortcut-created')
+    shortcut_bytes = shortcut.read_bytes()
+    parent = fixture / 'Relocated Prefix'
+    parent.mkdir()
+    bridge_type = runpy.run_path(str(Path(__file__).with_name('check-diagnostics.py')))['Bridge']
+    with (fixture.parent / 'move-helper.log').open('w') as move_log:
+        mover = bridge_type(Path(env['WHISKY_REAL_HELPER']), env, move_log)
+        try:
+            moved = mover.run('bottle.move', dict(container=str(bottle), destination=str(parent)))
+            assert moved.get('error') is None, moved
+        finally:
+            mover.close()
+    relocated = parent / bottle.name
+    assert relocated.exists() and not bottle.exists()
+    assert shortcut.read_bytes() == shortcut_bytes
     child_env = dict(env, WHISKY_GPUI_STATE=str(fixture / 'shortcut-window.json'))
     subprocess.run(['gio', 'launch', str(shortcut)], env=child_env, check=True)
     secondary = None
@@ -75,9 +91,21 @@ def exercise(window, app, fixture, bottle, registry, snapshot, env):
     finally:
         if secondary:
             subprocess.run(['xdotool', 'windowkill', secondary], check=False)
-    assert registry.read_bytes() == original_registry
-    assert (bottle / 'Metadata.plist').read_bytes() == marker
-    assert hashlib.sha256(executable.read_bytes()).hexdigest() == executable_hash
+    updated = plistlib.loads(registry.read_bytes())
+    records = updated.pop('whiskyContainerIdentities')
+    assert len(records) == 1
+    assert next(iter(records.values()))['path'] == str(relocated)
+    paths = updated.pop('paths')
+    before = plistlib.loads(original_registry)
+    before.pop('paths')
+    updated.pop('whiskyLifecycleCommit')
+    assert updated == before
+    assert {'relative': relocated.as_uri()} in paths
+    metadata = plistlib.loads((relocated / 'Metadata.plist').read_bytes())
+    assert metadata['future'] == plistlib.loads(marker)['future']
+    assert metadata['info']['pins'][0]['url']['relative'] == (relocated / executable.relative_to(bottle)).as_uri()
+    assert hashlib.sha256((relocated / executable.relative_to(bottle)).read_bytes()).hexdigest() == executable_hash
+    assert shortcut.read_bytes() == shortcut_bytes
     subprocess.run(['xdotool', 'windowfocus', '--sync', window], check=True)
     click(974, 89)
     time.sleep(0.5)

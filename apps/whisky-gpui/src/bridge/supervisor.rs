@@ -386,6 +386,7 @@ pub(crate) enum BridgeEvent {
     },
     HostTerminals { result: Result<crate::host::TerminalsDto, String> },
     HostDesktop { install: bool, result: Result<crate::host::DesktopDto, String> },
+    DesktopResolved { request: u64, result: Result<crate::desktop_open::ExternalOpen, String>, retryable: bool },
     /// `system.info`: packaged application metadata for the About panel.
     SystemInfo {
         info: SystemInfoDto,
@@ -644,6 +645,7 @@ enum Command {
         hidden: bool,
     },
     LoadPreferences,
+    ResolveDesktopOpen { request: u64, id: String, path: String },
     #[cfg(target_os = "linux")]
     LoadTerminals,
     #[cfg(target_os = "linux")]
@@ -975,6 +977,10 @@ impl BridgeSupervisor {
     }
 
     /// Read every preference once per connected session.
+    pub(crate) fn resolve_desktop_open(&self, request: u64, id: &str, path: &str) {
+        let _ = self.commands.send(Command::ResolveDesktopOpen { request, id: id.into(), path: path.into() });
+    }
+
     #[cfg(target_os = "linux")]
     pub(crate) fn desktop_integration(&self, install: bool) {
         let _ = self.commands.send(Command::DesktopIntegration { install });
@@ -2383,6 +2389,22 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                 Some(Command::LoadTerminals) => fetch_terminals(&mut client, &events),
                 #[cfg(target_os = "linux")]
                 Some(Command::DesktopIntegration { install }) => fetch_desktop(&mut client, &events, install),
+                Some(Command::ResolveDesktopOpen { request, id, path }) => {
+                    let reply = client.call("system.desktop.resolve", json!({"containerID": id, "path": path})).map_err(classify)
+                        .and_then(|value| {
+                            let container = value.get("container").and_then(|value| value.as_str());
+                            let path = value.get("path").and_then(|value| value.as_str());
+                            match (path, container) {
+                                (Some(path), Some(container)) => crate::desktop_open::parse(&["--open-file".into(), path.into(), "--container".into(), container.into()])
+                                    .map_err(|reason| CallFailure::Remote(reason.into()))?
+                                    .ok_or_else(|| CallFailure::Remote("Empty shortcut resolution".into())),
+                                _ => Err(CallFailure::Remote("Invalid shortcut resolution".into())),
+                            }
+                        });
+                    let retryable = matches!(&reply, Err(CallFailure::Session(_)));
+                    if let Err(CallFailure::Session(reason)) = &reply { reconnect = Some(reason.clone()); }
+                    emit_event(&events, BridgeEvent::DesktopResolved { request, result: reply.map_err(CallFailure::into_message), retryable });
+                }
                 Some(Command::LoadPreferences) => {
                     match load_preferences(&mut client) {
                         Ok((values, schema)) => {

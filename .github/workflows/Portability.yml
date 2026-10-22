@@ -80,7 +80,7 @@ jobs:
             python3 apps/whisky-gpui/tools/check-terminal.py \
               --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
               --output "$WHISKY_LINUX_OUTPUT/terminal"
-      - name: Install desktop integration and launch a generated program shortcut
+      - name: Install desktop integration and launch a relocated program shortcut
         run: |
           xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
             env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
@@ -169,6 +169,8 @@ jobs:
             /tmp/whisky-linux-gpui/import-window/*.log
             /tmp/whisky-linux-gpui/import-window/report.json
             /tmp/whisky-linux-gpui/import-window/*.png
+            /tmp/whisky-linux-gpui/shortcut-identity/report.json
+            /tmp/whisky-linux-gpui/shortcut-identity/helper.log
             /tmp/whisky-linux-gpui/desktop/report.json
             /tmp/whisky-linux-gpui/desktop/helper.log
             /tmp/whisky-linux-gpui/desktop/fixture-*/data/applications/*.desktop
