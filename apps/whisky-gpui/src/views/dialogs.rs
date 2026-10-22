@@ -2181,6 +2181,29 @@ impl WhiskyApp {
                         .bg(rgba(0xffffff05))
                         .border_1()
                         .border_color(rgba(0xffffff08))
+                        .child(match &candidate.thumbnail {
+                            // Narrow fixed-size thumbnail: the row stays
+                            // compact, and a placeholder keeps the height
+                            // consistent when a provider has no image.
+                            Some(path) => img(path.clone())
+                                .w(px(34.))
+                                .h(px(48.))
+                                .flex_shrink_0()
+                                .rounded(px(5.))
+                                .object_fit(ObjectFit::Cover)
+                                .into_any_element(),
+                            None => div()
+                                .w(px(34.))
+                                .h(px(48.))
+                                .flex_shrink_0()
+                                .rounded(px(5.))
+                                .bg(gradient(0xffffff12, 0xffffff04))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(icon("package", 16.).text_color(rgb(MUTED)))
+                                .into_any_element(),
+                        })
                         .child(
                             col()
                                 .flex_1()

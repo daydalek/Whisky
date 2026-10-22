@@ -52,11 +52,26 @@ extension MacOSApplicationServices {
                 progress(.object(["stage": .string("searching")]))
                 let results = await GameMetadataSearch.search(query, providers: providers)
                 return .object([
-                    "results": .array(try results.map { result in
+                    "results": .array(try await results.concurrentMap { result in
                         .object([
                             "source": .string(result.source.rawValue),
                             "error": result.error.map(JSONValue.string) ?? .null,
-                            "games": .array(try result.games.map { try .encoded($0) })
+                            // Cache thumbnails for the first hits so the
+                            // frontend can render picture rows without a
+                            // second round-trip; failures leave the field
+                            // empty and the row renders a placeholder.
+                            "games": .array(try await result.games
+                                .prefix(Self.searchThumbnailLimit)
+                                .concurrentMap { game in
+                                    var object = try JSONValue.encoded(game).object ?? [:]
+                                    if let remote = game.thumbnailURL ?? game.coverURL {
+                                        try? await store.cacheCover(from: remote)
+                                        if let local = store.cachedCoverURL(for: remote) {
+                                            object["thumbnail"] = .string(local.path)
+                                        }
+                                    }
+                                    return .object(object)
+                                })
                         ])
                     })
                 ])
@@ -305,5 +320,31 @@ extension MacOSApplicationServices {
             "next": .string(change.newValue),
             "highImpact": .bool(change.isHighImpact)
         ])
+    }
+}
+
+extension MacOSApplicationServices {
+    /// Only the first hits of a search get thumbnails; the rest stay text
+    /// rows, keeping the job quick and the list cheap to render.
+    static let searchThumbnailLimit = 8
+}
+
+extension Sequence {
+    /// Order-preserving concurrent map for the small thumbnail fetches in
+    /// `metadata.search`; one slow provider must not serialize the rest.
+    func concurrentMap<T: Sendable>(
+        _ transform: @escaping @Sendable (Element) async throws -> T
+    ) async throws -> [T] where Element: Sendable {
+        let elements = Array(self)
+        return try await withThrowingTaskGroup(of: (Int, T).self) { group in
+            for (index, element) in elements.enumerated() {
+                group.addTask { try await (index, transform(element)) }
+            }
+            var results = [T?](repeating: nil, count: elements.count)
+            for try await (index, value) in group {
+                results[index] = value
+            }
+            return results.map { $0! }
+        }
     }
 }

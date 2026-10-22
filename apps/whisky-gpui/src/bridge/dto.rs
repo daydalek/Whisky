@@ -555,6 +555,8 @@ pub(crate) struct GameConfigApplyReplyDto {
 }
 
 /// A search hit with its provider snapshot retained for `metadata.apply`.
+/// `thumbnail` is a locally cached cover file the bridge fetched while
+/// searching, if the provider exposed one.
 #[derive(Debug, Clone)]
 pub(crate) struct MetadataCandidate {
     pub(crate) raw: Value,
@@ -562,6 +564,7 @@ pub(crate) struct MetadataCandidate {
     pub(crate) developer: String,
     pub(crate) release_date: String,
     pub(crate) summary: String,
+    pub(crate) thumbnail: Option<std::path::PathBuf>,
 }
 
 impl MetadataCandidate {
@@ -583,6 +586,10 @@ impl MetadataCandidate {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_owned(),
+            thumbnail: value
+                .get("thumbnail")
+                .and_then(Value::as_str)
+                .map(std::path::PathBuf::from),
             raw: value,
             title,
         })
