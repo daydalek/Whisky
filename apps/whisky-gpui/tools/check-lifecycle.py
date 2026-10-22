@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise file lifecycle through the real helper with isolated prefixes only."""
 import argparse
+from datetime import datetime
 import fcntl
 import json
 import os
@@ -40,6 +41,12 @@ def main():
     document = plistlib.loads(registry.read_bytes())
     document['futureRegistry'] = {'retain': True}
     registry.write_bytes(plistlib.dumps(document))
+    routes = registry.parent / 'GameRouting.plist'
+    launch_date = datetime(2026, 1, 1)
+    routes.write_bytes(plistlib.dumps({'10': str(source),
+        '20': {'bottle': str(source), 'lastLaunched': launch_date, 'opaque': {'retain': True}},
+        'future': {'bottle': str(source), 'retain': True}}))
+    original_routes = routes.read_bytes()
     original_game = executable.read_bytes()
     env = dict(os.environ, WHISKY_REGISTRY=str(registry), XDG_CONFIG_HOME=str(root / 'config'),
                XDG_DATA_HOME=str(root / 'data'), XDG_STATE_HOME=str(root / 'state'))
@@ -108,8 +115,15 @@ def main():
         assert (clone / 'drive_c/Game/logs/keep.log').exists()
         assert (source / 'Metadata.plist').read_bytes() == source_metadata
         assert len(restart()) == 2
+        assert routes.read_bytes() == original_routes
         report['steps'].append('clone-remaps-owned-paths-and-retains-external-data-and-nested-logs')
 
+        clone_alias = root / 'Clone alias'
+        clone_alias.symlink_to(clone, target_is_directory=True)
+        route_document = plistlib.loads(routes.read_bytes())
+        route_document['30'] = str(clone_alias) + '/'
+        route_document['40'] = {'bottle': str(clone), 'lastLaunched': launch_date, 'futureRoute': 'retained'}
+        routes.write_bytes(plistlib.dumps(route_document))
         parent = root / 'Moved'
         parent.mkdir()
         alias = root / 'Moved alias'
@@ -118,6 +132,10 @@ def main():
         assert clone.parent == parent
         assert (clone / 'internal').readlink() == clone / executable.relative_to(source)
         assert {entry['path'] for entry in restart()} == {str(source), str(clone)}
+        route_document = plistlib.loads(routes.read_bytes())
+        assert route_document['30'] == str(clone)
+        assert route_document['40'] == {'bottle': str(clone), 'lastLaunched': launch_date, 'futureRoute': 'retained'}
+        assert route_document['10'] == str(source) and route_document['future']['retain'] is True
         report['steps'].append('same-filesystem-move-canonicalizes-parent-alias-and-reloads-registry')
 
         assert clone.stat().st_dev != cross_parent.stat().st_dev, 'Cross-device fixture needs another filesystem'
@@ -129,7 +147,11 @@ def main():
         assert (clone / 'logs/move.log').read_text() == 'preserve during move'
         assert (clone / 'internal').readlink() == clone / executable.relative_to(source)
         assert str(clone) in {entry['path'] for entry in restart()}
+        route_document = plistlib.loads(routes.read_bytes())
+        assert route_document['30'] == str(clone) and route_document['40']['bottle'] == str(clone)
+        assert route_document['40']['lastLaunched'] == launch_date
         report['steps'].append('cross-device-move-preserves-complete-tree-and-updates-links')
+        report['steps'].append('same-and-cross-device-route-migration-preserves-dates-aliases-and-opaque-fields')
 
         archive = root / '导出 $HOME.tar'
         finish('bottle.export', clone, destination=str(archive))
@@ -172,13 +194,19 @@ def main():
         assert len(restart()) == 2
         report['steps'].append('cancel-active-copy-cleans-owned-partial-clone-and-retains-source')
 
+        before_deregister_routes = routes.read_bytes()
         finish('bottle.remove', clone)
+        assert routes.read_bytes() == before_deregister_routes
         assert clone.exists() and len(restart()) == 1
         document = plistlib.loads(registry.read_bytes())
         document['paths'].append(dict(relative=clone.as_uri()))
         registry.write_bytes(plistlib.dumps(document))
         finish('bottle.remove', clone, deleteFiles=True)
         assert not clone.exists() and len(restart()) == 1
+        route_document = plistlib.loads(routes.read_bytes())
+        assert '30' not in route_document and '40' not in route_document
+        assert route_document['10'] == str(source) and route_document['future']['retain'] is True
+        report['steps'].append('deregister-retains-routes-and-physical-delete-prunes-only-the-selected-container')
         assert (outside / 'keep').read_text() == 'external data'
         assert executable.read_bytes() == original_game
         assert (source / 'Metadata.plist').read_bytes() == source_metadata

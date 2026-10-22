@@ -35,6 +35,9 @@ enum ContainerRecovery {
         case .move: try recoverMove(journal, committed: committed)
         case .remove: try recoverRemoval(journal, committed: committed)
         }
+        if committed {
+            try ContainerRoutes.apply(journal, registry: workspace.registry)
+        }
         try ContainerJournal.clear(workspace.registry)
         return .object([
             "recovered": .bool(true),

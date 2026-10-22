@@ -38,10 +38,11 @@ struct ContainerJournal: Codable, Sendable {
     let destinationIdentity: DirectoryIdentity?
     let originalPaths: [URL]
     let undo: ContainerUndo?
+    let routeSources: [String]?
 
     init(
         kind: Kind, source: URL, destination: URL,
-        paths: [URL], undo: ContainerUndo? = nil
+        paths: [URL], undo: ContainerUndo? = nil, registry: URL? = nil
     ) throws {
         version = 1
         id = UUID()
@@ -53,6 +54,9 @@ struct ContainerJournal: Codable, Sendable {
             .require(destination) : nil
         originalPaths = paths
         self.undo = undo
+        routeSources = try kind == .duplicate ? nil : registry.map {
+            try ContainerRoutes.sources(source: source, paths: paths, registry: $0)
+        }
     }
 
     static func location(_ registry: URL) -> URL {

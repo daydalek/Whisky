@@ -10,7 +10,7 @@ and distribution gates below.
 OrbStack ARM64 Ubuntu 24.04, Swift 6.4, Rust 1.99.1, Xvfb/X11 and Mesa software
 rendering:
 
-- Shared core: 112 tests; portable bridge: 63 tests; shared metadata package: 20 tests.
+- Shared core: 112 tests; portable bridge: 67 tests; shared metadata package: 20 tests.
 - Rust SDK tests, including its real Swift helper integration test.
 - Production GPUI Linux build/link and 118 unit tests.
 - Production Rust client/helper handshake, capability list and isolated empty
@@ -289,6 +289,44 @@ work; the current UI supports selecting an existing prefix directly. Portable
 route updates, interrupted-export cleanup and remaining lifecycle UI actions
 also continue as required work.
 
+## Portable route consistency stage
+
+The Linux lifecycle now updates the registry-adjacent `GameRouting.plist` when
+moving a container, including a cross-device move. The store accepts native
+legacy path strings and dated `bottle` dictionaries. Patches retain their
+original shapes, launch dates, opaque entry fields and unrelated/unknown keys.
+Alias paths are resolved before the original directory moves and retained in
+the lifecycle journal as an optional backward-compatible recovery field.
+
+A clone keeps existing routes; deregistration that keeps files also retains
+route bytes. Physical deletion prunes only numeric App-ID entries pointing at
+the selected container. A missing route store stays absent. A malformed or busy
+store fails before a move changes the tree. The route lock uses the same
+`GameRouting.plist.lock` path as the native reader/writer, with registry-before-
+route lock ordering and prompt busy errors.
+
+The registry remains the lifecycle commit boundary. Route patches run after a
+committed directory operation and before its journal clears. A failed patch
+retains that journal, and recovery reapplies the patch idempotently. Before-
+commit rollback retains the route file byte-for-byte. The real SIGKILL gate now
+checks route contents for every recorded pre/post-commit interruption.
+
+Verification passes 67 shared bridge tests on macOS and ARM Ubuntu Swift
+6.0/6.4, plus 12 macOS native-adapter tests. The additional native test reads the
+rewritten file through WhiskyKit's actual `GameRouting` API and verifies both
+paths and launch dates. The full Linux production gate also passes the Rust SDK,
+118 GPUI tests, real same/cross-device lifecycle, concurrent import and process-
+interruption checks. All source/route fixtures are isolated and headless.
+
+Logs are `routes-macos.log`, `routes-swift60.log` and
+`routes-full-linux.log` and `routes-final-linux.log` under
+`build/portability/gui-linux/`; detailed JSON
+records remain under `linux-gpui/lifecycle/` and `linux-gpui/recovery/`. The new
+route assertions run through the existing CI process gates.
+
+Required work continues with the discovered-candidate selection UI,
+interrupted-export cleanup and the other remaining desktop/host services below.
+
 ## Reproduce
 
 Use an Ubuntu 24.04 environment with Swift 6.4 and Rust 1.99.1. Install the
@@ -332,7 +370,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Library and configuration | Shared storage tests; empty production window and CLI | Seeded-library folder edits through the native chooser, persisted ratings/visibility and refresh/recovery |
 | Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux shortcut creation is tracked under host integration; broader UI override editing remains in the desktop gate |
 | Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
-| Container lifecycle | Linux file lifecycle, discovery/import and SIGKILL recovery; production rename, recovery and native import UI | Discovered-candidate selection UI; portable route updates; interrupted-export cleanup; remaining lifecycle UI actions |
+| Container lifecycle | Linux file lifecycle, route updates, discovery/import and SIGKILL recovery; production rename, recovery and native import UI | Discovered-candidate selection UI; interrupted-export cleanup; remaining lifecycle UI actions |
 | Host integration | XDG registry/preferences; file open/reveal adapter; GTK file/folder/save dialogs | Terminal discovery, desktop/file associations and capability-aware settings |
 | Diagnostics | macOS report/check adapter | Linux host information, file export and appropriate platform checks |
 | Distribution | macOS `.app` packaging | Linux relocatable bundle, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |

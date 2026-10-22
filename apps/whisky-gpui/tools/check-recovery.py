@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """SIGKILL real helpers at observed lifecycle boundaries; recover isolated trees."""
 import argparse
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -113,6 +114,14 @@ def main():
             root = Path(tempfile.mkdtemp(prefix=scenario + '-', dir=output))
             source, executable, registry, _ = generator(root)
             original_metadata = (source / 'Metadata.plist').read_bytes()
+            route_alias = root / 'Route alias'
+            route_alias.symlink_to(source, target_is_directory=True)
+            routes = root / 'GameRouting.plist'
+            launch_date = datetime(2026, 1, 1)
+            routes.write_bytes(plistlib.dumps({'10': str(route_alias) + '/',
+                '20': {'bottle': str(source), 'lastLaunched': launch_date, 'opaque': {'retain': True}},
+                'future': {'bottle': str(source), 'retain': True}}))
+            original_routes = routes.read_bytes()
             env = dict(os.environ, WHISKY_REGISTRY=str(registry), XDG_CONFIG_HOME=str(root / 'config'),
                        XDG_DATA_HOME=str(root / 'data'), XDG_STATE_HOME=str(root / 'state'), WHISKY_BRIDGE_NO_WINE='1')
             bulk = source / 'bulk'
@@ -198,19 +207,26 @@ def main():
             if scenario in ('duplicate-before-commit', 'move-before-commit'):
                 assert len(containers) == 1 and containers[0]['path'] == str(source), containers
                 assert (source / 'Metadata.plist').read_bytes() == original_metadata
+                assert routes.read_bytes() == original_routes
                 assert not destination.exists()
                 assert len(list((source / 'bulk').iterdir())) == 3000
                 if scenario == 'move-before-commit':
                     assert all(link.readlink() == executable for link in (source / 'bulk').iterdir())
             elif scenario == 'remove-after-commit':
                 assert containers == [] and not source.exists() and not destination.exists(), containers
+                assert plistlib.loads(routes.read_bytes()) == {'future': {'bottle': str(source), 'retain': True}}
             else:
                 assert len(containers) == 1 and containers[0]['path'] == str(destination), containers
                 assert not source.exists()
                 assert (destination / executable.relative_to(source)).read_bytes() == b'MZ fixture'
                 assert len(list((destination / 'bulk').iterdir())) == 3000
+                route_document = plistlib.loads(routes.read_bytes())
+                assert route_document['10'] == str(destination)
+                assert route_document['20'] == {'bottle': str(destination), 'lastLaunched': launch_date, 'opaque': {'retain': True}}
+                assert route_document['future'] == {'bottle': str(source), 'retain': True}
             assert outside.read_text() == 'external data stays intact'
             report['steps'].append(scenario + '-sigkill-and-fresh-helper-recovery')
+            report['steps'].append(scenario + '-route-state-follows-the-verified-commit-boundary')
             active.stop()
             active = None
             if cross_parent is not None:

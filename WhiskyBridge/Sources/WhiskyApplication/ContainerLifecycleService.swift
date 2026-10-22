@@ -148,6 +148,7 @@ final class ContainerLifecycleService {
         try relocation.apply(at: destination, name: name)
         try Task.checkCancellation()
         try registry.save(registry.paths + [destination], transaction: journal.id)
+        try ContainerRoutes.apply(journal, registry: registry.url)
         try ContainerJournal.clear(registry.url)
         return .object(["path": .string(destination.path), "name": .string(name)])
     }
@@ -171,7 +172,7 @@ final class ContainerLifecycleService {
             source: source,
             destination: destination,
             paths: registry.paths,
-            undo: undo
+            undo: undo, registry: registry.url
         )
         try journal.save(registry.url)
         let moveError = whisky_host_move(source.path, destination.path)
@@ -186,6 +187,7 @@ final class ContainerLifecycleService {
         try relocation.apply(at: destination)
         try Task.checkCancellation()
         try registry.save(updatedPaths, transaction: journal.id)
+        try ContainerRoutes.apply(journal, registry: registry.url)
         try ContainerJournal.clear(registry.url)
         return .object(["path": .string(destination.path)])
     }
@@ -206,6 +208,7 @@ final class ContainerLifecycleService {
             transaction: journal.id
         )
         try removeOwnedCopy(source)
+        try ContainerRoutes.apply(journal, registry: registry.url)
         try ContainerJournal.clear(registry.url)
         return .object(["path": .string(destination.path)])
     }
@@ -218,7 +221,7 @@ final class ContainerLifecycleService {
                 kind: kind,
                 source: source,
                 destination: destination,
-                paths: registry.paths
+                paths: registry.paths, registry: registry.url
             )
             try journal.save(registry.url)
             return journal
@@ -241,13 +244,16 @@ final class ContainerLifecycleService {
         }
         try validate(source, registry: registry.url)
         let staging = source.deletingLastPathComponent().appendingPathComponent(".whisky-removing-" + UUID().uuidString)
-        let journal = try ContainerJournal(kind: .remove, source: source, destination: staging, paths: registry.paths)
+        let journal = try ContainerJournal(
+            kind: .remove, source: source, destination: staging, paths: registry.paths, registry: registry.url
+        )
         try journal.save(registry.url)
         let error = whisky_host_move(source.path, staging.path)
         guard error == 0 else { throw POSIXError(POSIXErrorCode(rawValue: error) ?? .EIO) }
         try Task.checkCancellation()
         try registry.save(remaining, transaction: journal.id)
         try removeOwnedCopy(staging)
+        try ContainerRoutes.apply(journal, registry: registry.url)
         try ContainerJournal.clear(registry.url)
         return .object(["container": .string(source.path), "deletedFiles": .bool(true)])
     }
