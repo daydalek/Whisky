@@ -68,6 +68,14 @@ public final class RuntimeService {
         runtime.stopTracking()
     }
 
+    /// Drop every configured entry belonging to `container`. The next
+    /// `runtime.configure` re-registers the live set. Content moves change
+    /// folder entry ids, so a stale registration would reject launches with
+    /// `not_configured`.
+    public func invalidate(container: URL) {
+        configured = configured.filter { $0.value.bottleURL != container }
+    }
+
     public func call(
         _ method: String,
         params: [String: JSONValue],

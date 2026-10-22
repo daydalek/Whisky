@@ -232,6 +232,42 @@ struct RuntimeAndLinuxBridgeTests {
             "excluded": .bool(true)
         ])
         #expect(excluded.object?["excludedFolders"]?.arrayValues == [.string(gameFolder.path)])
+
+        var visibility = LibraryVisibility()
+        visibility.hiddenIdentities.insert("program:drive_c/Games/Touhou")
+        try visibility.save(bottleURL: container)
+
+        // Re-adding a root clears exclusions and hidden entries under it, as
+        // the SwiftUI folder sheet does.
+        let addedAgain = try await service.call("folders.addRoot", params: [
+            "container": .string(container.path),
+            "path": .string(gamesRoot.path)
+        ])
+        #expect(addedAgain.object?["excludedFolders"]?.arrayValues?.isEmpty == true)
+        #expect(try LibraryVisibility.load(bottleURL: container).hiddenIdentities.isEmpty)
+
+        let automatic = try await service.call("folders.automaticMetadata", params: [
+            "container": .string(container.path),
+            "enabled": .bool(false)
+        ])
+        #expect(automatic.object?["automaticMetadata"] == .bool(false))
+
+        let hiddenPinned = try await service.call("folders.visibility", params: [
+            "container": .string(container.path),
+            "included": .bool(false)
+        ])
+        #expect(hiddenPinned.object?["includePinnedAndSteam"] == .bool(false))
+        #expect(try LibraryVisibility.load(bottleURL: container).includePinnedAndSteam == false)
+
+        let secondRoot = container.appendingPathComponent("drive_c/More")
+        try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
+        let addedMany = try await service.call("folders.addRoots", params: [
+            "container": .string(container.path),
+            "paths": .array([.string(gamesRoot.path), .string(secondRoot.path)])
+        ])
+        #expect(addedMany.object?["roots"]?.arrayValues == [
+            .string(gamesRoot.path), .string(secondRoot.path)
+        ])
     }
 
     @Test @MainActor func linuxApplicationServicesAndSchemaPlatformFilter() async throws {

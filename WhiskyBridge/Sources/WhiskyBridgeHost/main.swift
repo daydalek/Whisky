@@ -20,6 +20,7 @@ import Foundation
 import WhiskyApplication
 import WhiskyBridgeProtocol
 #if os(macOS)
+import AppKit
 import Darwin
 #elseif os(Linux)
 import Glibc
@@ -30,8 +31,27 @@ import WhiskyNativeBridge
 
 @main
 struct BridgeHost {
+    /// The main thread runs a real AppKit event loop (needed so NSOpenPanel can
+    /// be activated and confirmed without AppKit ending the process); the bridge
+    /// request loop runs as a MainActor task inside that loop.
+    static func main() {
+        Task { @MainActor in
+            await runBridge()
+            exit(0)
+        }
+        #if os(macOS)
+        MainActor.assumeIsolated {
+            let app = NSApplication.shared
+            app.setActivationPolicy(.accessory)
+            app.run()
+        }
+        #else
+        dispatchMain()
+        #endif
+    }
+
     @MainActor
-    static func main() async {
+    private static func runBridge() async {
         let (protocolInput, protocolOutput) = configureProtocolIO()
         let service = makeService(arguments: CommandLine.arguments)
         let wireOutput = FileHandle(fileDescriptor: protocolOutput, closeOnDealloc: true)

@@ -28,15 +28,38 @@ extension ApplicationService {
         switch method {
         case "folders.read":
             let library = try FolderGameLibrary.load(bottleURL: container)
-            return Self.encodeFolders(library, container: container)
+            return try Self.encodeFolders(library, container: container)
         case "folders.addRoot":
             let target = try Self.validatedDirectory(try params.path("path"))
-            return try Self.mutateFolders(in: container) { library in
-                let key = FolderGameLibrary.key(for: target, bottleURL: container)
-                if !library.roots.contains(key) {
-                    library.roots.append(key)
-                }
+            return try addRoots([target], container: container)
+        case "folders.addRoots":
+            guard case let .array(items)? = params["paths"] else {
+                throw BridgeFailure("invalid_params", "Expected path strings: paths")
             }
+            let targets = try items.map { item -> URL in
+                guard let text = item.string, text.hasPrefix("/") else {
+                    throw BridgeFailure("invalid_params", "Expected absolute path strings: paths")
+                }
+                return try Self.validatedDirectory(URL(fileURLWithPath: text).standardizedFileURL)
+            }
+            return try addRoots(targets, container: container)
+        case "folders.automaticMetadata":
+            let enabled = try params.flag("enabled")
+            return try Self.mutateFolders(in: container) { library in
+                library.automaticMetadata = enabled
+            }
+        case "folders.visibility":
+            let included = try params.flag("included")
+            let lockURL = container.appendingPathComponent("Library Visibility.json.lock")
+            try HostFileLock().withExclusiveLock(at: lockURL) {
+                var visibility = try LibraryVisibility.load(bottleURL: container)
+                visibility.includePinnedAndSteam = included
+                try visibility.save(bottleURL: container)
+            }
+            return try Self.encodeFolders(
+                try FolderGameLibrary.load(bottleURL: container),
+                container: container
+            )
         case "folders.removeRoot":
             let key = FolderGameLibrary.key(for: try params.path("path"), bottleURL: container)
             return try Self.mutateFolders(in: container) { library in
@@ -62,6 +85,42 @@ extension ApplicationService {
         default:
             return try await nativeCall(method, params: params)
         }
+    }
+
+    /// Adding a root mirrors the SwiftUI sheet: it also drops exclusions that
+    /// targeted that root's parent and unhides any games discovered under it,
+    /// so a freshly added folder is immediately visible.
+    private func addRoots(_ targets: [URL], container: URL) throws -> JSONValue {
+        var keys: [String] = []
+        let updated = try Self.mutateFolders(in: container) { library in
+            for target in targets {
+                let key = FolderGameLibrary.key(for: target, bottleURL: container)
+                keys.append(key)
+                if !library.roots.contains(key) {
+                    library.roots.append(key)
+                }
+                let rootPath = target.standardizedFileURL.path
+                library.excludedFolders = library.excludedFolders.filter { excludedKey in
+                    FolderGameLibrary.url(for: excludedKey, bottleURL: container)
+                        .deletingLastPathComponent().standardizedFileURL.path != rootPath
+                }
+            }
+        }
+        var visibility = try LibraryVisibility.load(bottleURL: container)
+        var changed = false
+        for key in keys {
+            let trimmed = key.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let prefixes = ["program:" + trimmed + "/", "program:" + key + "/"]
+            let before = visibility.hiddenIdentities.count
+            visibility.hiddenIdentities = visibility.hiddenIdentities.filter { identity in
+                !prefixes.contains { identity.hasPrefix($0) }
+            }
+            changed = changed || visibility.hiddenIdentities.count != before
+        }
+        if changed {
+            try visibility.save(bottleURL: container)
+        }
+        return updated
     }
 
     private func assignFolder(_ params: [String: JSONValue], container: URL) throws -> JSONValue {
@@ -144,21 +203,23 @@ extension ApplicationService {
             try library.save(bottleURL: container)
             return library
         }
-        return encodeFolders(updated, container: container)
+        return try encodeFolders(updated, container: container)
     }
 
-    private static func encodeFolders(_ library: FolderGameLibrary, container: URL) -> JSONValue {
+    private static func encodeFolders(_ library: FolderGameLibrary, container: URL) throws -> JSONValue {
         let resolve = { (key: String) in FolderGameLibrary.url(for: key, bottleURL: container).path }
         let executables = Dictionary(uniqueKeysWithValues: library.executables.map { key, value in
             (resolve(key), JSONValue.string(resolve(value)))
         })
+        let visibility = try LibraryVisibility.load(bottleURL: container)
         return .object([
             "roots": .array(library.roots.map { .string(resolve($0)) }),
             "assignedFolders": .array(library.assignedFolders.map { .string(resolve($0)) }),
             "excludedFolders": .array(library.excludedFolders.sorted().map { .string(resolve($0)) }),
             "executables": .object(executables),
             "knownFolders": .array(library.knownFolders.map { .string(resolve($0)) }),
-            "automaticMetadata": .bool(library.automaticMetadata)
+            "automaticMetadata": .bool(library.automaticMetadata),
+            "includePinnedAndSteam": .bool(visibility.includePinnedAndSteam)
         ])
     }
 }

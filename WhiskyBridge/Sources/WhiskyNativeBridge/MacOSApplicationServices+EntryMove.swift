@@ -55,6 +55,10 @@ extension MacOSApplicationServices {
         }
         bottles[source] = nil
         bottles[target] = nil
+        // Folder entries are re-keyed by their new container, so the runtime
+        // registrations for both sides are stale until the next configure.
+        runtimeService.invalidate(container: source)
+        runtimeService.invalidate(container: target)
         let targetVisibility = try LibraryVisibility.load(bottleURL: target)
         return try .object([
             "sourceContainer": .string(source.path),

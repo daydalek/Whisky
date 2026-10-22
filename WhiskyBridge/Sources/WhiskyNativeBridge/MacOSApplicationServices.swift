@@ -61,9 +61,16 @@ public final class MacOSApplicationServices: NativeApplicationServices {
     }
 
     public var capabilities: [String] {
-        ["system.files", "programs.settings", "programs.shortcut", "library.edit"] +
+        ["system.files", "setup", "programs.settings", "programs.shortcut", "library.edit"] +
             (wineEnabled ? [
                 "bottle.create",
+                "bottle.manage",
+                "bottle.tools",
+                "bottle.diagnostics",
+                "folders.moveRoot",
+                "audio.test",
+                "metadata.edit",
+                "gameConfig.apply",
                 "wine.configuration",
                 "processes.read",
                 "programs.launch",
@@ -74,12 +81,35 @@ public final class MacOSApplicationServices: NativeApplicationServices {
 
     public var methods: [String] {
         [
-            "system.reveal", "system.open", "system.resources", "system.chooseFolder",
+            "system.reveal", "system.open", "system.resources", "system.chooseFolder", "system.choosePath",
+            "system.chooseFolders",
+            "setup.status", "setup.install", "setup.installRosetta",
             "programs.settings.read", "programs.settings.set",
             "programs.history.read", "programs.history.delete",
             "programs.shortcut.create", "entry.move"
         ] + (wineEnabled ? [
             "bottle.create",
+            "bottle.rename",
+            "bottle.remove",
+            "bottle.move",
+            "bottle.duplicate",
+            "bottle.export",
+            "bottle.repair",
+            "bottle.cleanCache",
+            "bottle.tools",
+            "bottle.diagnostics",
+            "bottle.exportDiagnostics",
+            "bottle.checks",
+            "folders.moveRoot",
+            "audio.test",
+            "metadata.search",
+            "metadata.sync",
+            "metadata.apply",
+            "metadata.clear",
+            "metadata.cover.import",
+            "metadata.cover.reset",
+            "gameConfig.match",
+            "gameConfig.apply",
             "programs.run",
             "winetricks.catalog",
             "winetricks.installed",
@@ -140,7 +170,24 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         else { throw BridgeFailure("method_unavailable", "Native method is unavailable") }
         switch method.prefix(while: { $0 != "." }) {
         case "system": return try systemCall(method, params: params, workspace: workspace)
-        case "bottle": return try await createBottle(params: params, workspace: workspace)
+        case "setup": return try await setupCall(method, params: params)
+        case "bottle":
+            if method == "bottle.create" {
+                return try await createBottle(params: params, workspace: workspace)
+            }
+            if method == "bottle.diagnostics" || method == "bottle.exportDiagnostics"
+                || method == "bottle.checks" {
+                return try await diagnosticsCall(method, params: params, workspace: workspace)
+            }
+            return try await bottleCall(method, params: params, workspace: workspace)
+        case "audio": return try await diagnosticsCall(method, params: params, workspace: workspace)
+        case "folders":
+            guard method == "folders.moveRoot" else {
+                throw BridgeFailure("method_unavailable", "Native method is unavailable")
+            }
+            return try await foldersMoveRoot(params: params, workspace: workspace)
+        case "metadata", "gameConfig":
+            return try await metadataCall(method, params: params, workspace: workspace)
         case "programs": return try await programsCall(method, params: params, workspace: workspace)
         case "entry": return try await entryMove(params, workspace: workspace)
         case "winetricks": return try await winetricksCall(method, params: params, workspace: workspace)

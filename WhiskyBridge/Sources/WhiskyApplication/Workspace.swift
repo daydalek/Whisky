@@ -136,6 +136,9 @@ public struct EntryRecord: Codable, Sendable {
     public let needsExecutable: Bool
     public let icon: String?
     public let hidden: Bool
+    /// A storefront client (Steam etc.) rather than a game; frontends sort
+    /// these below the games they launch (`LibraryEntry.isLauncher`).
+    public let isLauncher: Bool
     public let metadata: GameMetadata?
     public let activity: GameActivity
     public let cover: String?
@@ -167,6 +170,7 @@ public struct EntryRecord: Codable, Sendable {
         }
         icon = entry.iconURL?.path
         hidden = !visibility.includes(entry)
+        isLauncher = entry.launcher != nil
         metadata = presentation.metadata
         activity = presentation.activity
         cover = presentation.coverURL?.path

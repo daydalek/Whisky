@@ -18,6 +18,7 @@
 
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 import WhiskyApplication
 import WhiskyBridgeProtocol
 import WhiskyCore
@@ -69,6 +70,22 @@ extension MacOSApplicationServices {
                 return .object(["path": .null])
             }
             return .object(["path": .string(url.path)])
+        case "system.choosePath":
+            return try choosePath(params: params)
+        case "system.chooseFolders":
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = true
+            panel.canCreateDirectories = true
+            if let raw = params["path"]?.string, raw.hasPrefix("/") {
+                panel.directoryURL = URL(fileURLWithPath: raw)
+            }
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            guard panel.runModal() == .OK else {
+                return .object(["paths": .array([])])
+            }
+            return .object(["paths": .array(panel.urls.map { .string($0.path) })])
         case "system.resources":
             return .object([
                 "kitBundle": .string(WhiskyResources.kitBundleURL.path),
@@ -95,5 +112,62 @@ extension MacOSApplicationServices {
         default:
             throw BridgeFailure("method_unavailable", "Native method is unavailable")
         }
+    }
+
+    /// A file, folder or save destination picker. `purpose` is echoed back so
+    /// one reply channel can serve Run, Move, Export and future callers.
+    func choosePath(params: [String: JSONValue]) throws -> JSONValue {
+        let purpose = params["purpose"]?.string ?? ""
+        let mode = params["mode"]?.string ?? "file"
+        let name = params["name"]?.string
+        let extensions: [String] = if case let .array(items)? = params["extensions"] {
+            items.compactMap(\.string)
+        } else {
+            []
+        }
+        let types = extensions.compactMap { UTType(filenameExtension: $0) }
+        let start = params["path"]?.string.flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
+
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        let url: URL?
+        switch mode {
+        case "save":
+            let panel = NSSavePanel()
+            panel.canCreateDirectories = true
+            panel.isExtensionHidden = false
+            if !types.isEmpty {
+                panel.allowedContentTypes = types
+                panel.allowsOtherFileTypes = false
+            }
+            if let name, !name.isEmpty {
+                panel.nameFieldStringValue = name
+            }
+            if let start {
+                panel.directoryURL = start.hasDirectoryPath ? start : start.deletingLastPathComponent()
+            }
+            url = panel.runModal() == .OK ? panel.url : nil
+        case "folder":
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.canCreateDirectories = true
+            panel.directoryURL = start
+            url = panel.runModal() == .OK ? panel.url : nil
+        default:
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            if !types.isEmpty {
+                panel.allowedContentTypes = types
+            }
+            panel.directoryURL = start
+            url = panel.runModal() == .OK ? panel.url : nil
+        }
+        return .object([
+            "purpose": .string(purpose),
+            "path": url.map { .string($0.path) } ?? .null
+        ])
     }
 }
