@@ -93,6 +93,15 @@ public struct HostProcessIdentityProvider: ProcessIdentityProviding {
 }
 
 public enum HostPaths {
+    public static func preferences(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        let base = environment["XDG_CONFIG_HOME"].flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
+            ?? home.appendingPathComponent(".config")
+        return base.appendingPathComponent("whisky/preferences.plist")
+    }
+
     /// The data identity stays fixed as the frontend's bundle identity changes.
     public static func registry(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
