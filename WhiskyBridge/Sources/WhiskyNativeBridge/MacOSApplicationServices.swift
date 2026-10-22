@@ -61,7 +61,7 @@ public final class MacOSApplicationServices: NativeApplicationServices {
     }
 
     public var capabilities: [String] {
-        ["system.files"] +
+        ["system.files", "programs.settings", "programs.shortcut"] +
             (wineEnabled ? [
                 "bottle.create",
                 "wine.configuration",
@@ -72,7 +72,12 @@ public final class MacOSApplicationServices: NativeApplicationServices {
     }
 
     public var methods: [String] {
-        ["system.reveal", "system.open", "system.resources"] + (wineEnabled ? [
+        [
+            "system.reveal", "system.open", "system.resources",
+            "programs.settings.read", "programs.settings.set",
+            "programs.history.read", "programs.history.delete",
+            "programs.shortcut.create"
+        ] + (wineEnabled ? [
             "bottle.create",
             "winetricks.catalog",
             "winetricks.installed",
@@ -134,6 +139,7 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         switch method.prefix(while: { $0 != "." }) {
         case "system": return try systemCall(method, params: params, workspace: workspace)
         case "bottle": return try await createBottle(params: params, workspace: workspace)
+        case "programs": return try await programsCall(method, params: params, workspace: workspace)
         case "winetricks": return try await winetricksCall(method, params: params, workspace: workspace)
         case "runtime": return try await runtimeService.call(method, params: params, workspace: workspace)
         default: throw BridgeFailure("method_unavailable", "Native method is unavailable")

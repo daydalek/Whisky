@@ -29,6 +29,10 @@ nativeTargets.append(.target(name: "WhiskyNativeBridge", dependencies: [
     "WhiskyApplication", "WhiskyBridgeProtocol", "WhiskyCore",
     .product(name: "WhiskyKit", package: "WhiskyKit")
 ]))
+nativeTargets.append(.testTarget(name: "WhiskyNativeBridgeTests", dependencies: [
+    "WhiskyNativeBridge", "WhiskyApplication", "WhiskyBridgeProtocol", "WhiskyCore",
+    .product(name: "WhiskyKit", package: "WhiskyKit")
+]))
 #endif
 
 let package = Package(
