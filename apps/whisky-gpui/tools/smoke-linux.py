@@ -5,6 +5,8 @@ import argparse
 import json
 import os
 from pathlib import Path
+import plistlib
+import runpy
 import subprocess
 import tempfile
 import time
@@ -19,6 +21,7 @@ def main():
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--helper', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--scenario', choices=['empty', 'programs'], default='empty')
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -29,6 +32,11 @@ def main():
                XDG_CONFIG_HOME=str(fixture / 'config'), XDG_DATA_HOME=str(fixture / 'data'))
     # Every acceptance run exercises the real helper and isolated empty registry.
     env.pop('WHISKY_GPUI_DEMO_DATA', None)
+    program_identity = None
+    if args.scenario == 'programs':
+        generator = runpy.run_path(str(Path(__file__).with_name('check-programs.py')))['fixture_at']
+        _, _, registry, program_identity = generator(fixture)
+        env['WHISKY_REGISTRY'] = str(registry)
     report = {'steps': [], 'passed': False}
     app = None
     try:
@@ -60,6 +68,39 @@ def main():
                 return path
 
             library = snapshot('library')
+            if program_identity is not None:
+                run('xdotool', 'mousemove', '--window', window, '300', '150', 'click', '3')
+                time.sleep(0.5)
+                snapshot('program-menu')
+                run('xdotool', 'mousemove', '--window', window, '375', '290', 'click', '1')
+                time.sleep(1)
+                snapshot('program-settings')
+                run('xdotool', 'mousemove', '--window', window, '500', '375', 'click', '1')
+                run('xdotool', 'key', '--clearmodifiers', 'ctrl+a')
+                run('xdotool', 'type', '--clearmodifiers', 'headless-ui-save')
+                run('xdotool', 'mousemove', '--window', window, '968', '730', 'click', '1')
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if program_identity.exists():
+                        saved = plistlib.loads(program_identity.read_bytes())
+                        if saved.get('arguments') == 'headless-ui-save':
+                            break
+                    assert app.poll() is None, 'Application exited during program save'
+                    time.sleep(0.1)
+                else:
+                    raise AssertionError('Program argument edit did not reach the identity plist')
+                assert saved['future'] == {'keep': 'opaque'}, saved
+                assert saved['environment']['CUSTOM'] == 'retained', saved
+                report['steps'].append('program-ui-save-retains-native-identity-and-unknown-fields')
+                time.sleep(0.5)
+                run('xdotool', 'mousemove', '--window', window, '300', '150', 'click', '3')
+                time.sleep(0.3)
+                run('xdotool', 'mousemove', '--window', window, '375', '290', 'click', '1')
+                time.sleep(1)
+                snapshot('program-settings-reloaded')
+                # Continue the standard desktop checks after dismissing the sheet.
+                run('xdotool', 'mousemove', '--window', window, '974', '89', 'click', '1')
+                time.sleep(0.5)
             run('xdotool', 'key', '--clearmodifiers', 'ctrl+comma')
             time.sleep(1)
             settings = snapshot('settings')

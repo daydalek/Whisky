@@ -2736,9 +2736,10 @@ impl WhiskyApp {
                     .id("settings-dismiss")
                     .absolute()
                     .inset_0()
-                    .on_click(cx.listener(|this, _, _, cx| {
+                    .on_click(cx.listener(|this, _, window, cx| {
                         this.preview.sheet = None;
                         this.preview.sheet_history.clear();
+                        this.focus_handle.focus(window, cx);
                         cx.notify();
                     })),
             )
@@ -2781,9 +2782,10 @@ impl WhiskyApp {
                                     .child(title),
                             )
                             .child(Button::new("sheet-close").label("×").ghost().on_click(
-                                cx.listener(|this, _, _, cx| {
+                                cx.listener(|this, _, window, cx| {
                                     this.preview.sheet = None;
                                     this.preview.sheet_history.clear();
+                                    this.focus_handle.focus(window, cx);
                                     cx.notify();
                                 }),
                             )),
@@ -2874,7 +2876,8 @@ impl WhiskyApp {
                                                 && !self.winetricks_job().is_some_and(|job| job.finished)
                                                 && self.winetricks.selected.is_none()),
                                     )
-                                    .on_click(cx.listener(|this, _, _, cx| {
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.focus_handle.focus(window, cx);
                                         if matches!(this.preview.sheet, Some(PreviewSheet::CreateBottle)) {
                                             let state = this.create_bottle.as_ref();
                                             if state.is_some_and(|s| s.running()) {

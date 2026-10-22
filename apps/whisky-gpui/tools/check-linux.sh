@@ -55,3 +55,5 @@ path = Path(os.environ['XDG_CONFIG_HOME']) / 'whisky/preferences.plist'
 assert plistlib.loads(path.read_bytes())['librarySort'] == 'name'
 print('Linux XDG preferences survive real helper process restart: passed')
 PY
+python3 "$repo_root/apps/whisky-gpui/tools/check-programs.py" \
+    --helper "$helper" --output "$output/programs"

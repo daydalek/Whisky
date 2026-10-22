@@ -128,7 +128,7 @@ impl Render for WhiskyApp {
             .on_action(cx.listener(|_, _: &ToggleFullScreen, window, _| {
                 window.toggle_fullscreen();
             }))
-            .on_action(cx.listener(|this, _: &DismissPreview, _, cx| {
+            .on_action(cx.listener(|this, _: &DismissPreview, window, cx| {
                 if this.bottle_dialog.is_some() {
                     this.dismiss_bottle_dialog(cx);
                 } else if this.setup_dialog && !this.setup_installing {
@@ -140,6 +140,7 @@ impl Render for WhiskyApp {
                 } else {
                     this.detail_open = false;
                 }
+                this.focus_handle.focus(window, cx);
                 cx.notify();
             }))
             .child(
