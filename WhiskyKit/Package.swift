@@ -43,7 +43,6 @@ let package = Package(
                            .product(name: "WhiskyMetadata", package: "WhiskyMetadata")],
             resources: [
                 .process("Diagnostics/Resources/"),
-                .process("GameDatabase/Resources/"),
                 .process("Troubleshooting/Resources/"),
                 // Copied rather than processed: it is a PE binary built by
                 // scripts/discord-bridge, not something the resource pipeline

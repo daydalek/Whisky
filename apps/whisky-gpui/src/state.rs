@@ -214,6 +214,7 @@ pub(crate) struct GameInfoPage {
     pub(crate) groups: Vec<MetadataGroup>,
     pub(crate) matches: Option<Vec<GameDbMatchDto>>,
     pub(crate) config_message: Option<String>,
+    pub(crate) config_error: Option<String>,
 }
 pub(crate) struct PreviewState {
     pub(crate) page: PreviewPage,
@@ -772,6 +773,9 @@ impl WhiskyApp {
                     self.desktop_status = None;
                     self.desktop_error = None;
                     self.desktop_installing = false;
+                    if let Some(page) = self.game_info.as_mut().filter(|page| page.matches.is_none()) {
+                        page.config_error = Some("桥接连接恢复后可重新读取 GameDB".into());
+                    }
                     if let Some(state) = self.import_bottles.as_mut() {
                         state.failed(state.request, "桥接连接已中断，请恢复连接后重新扫描".into());
                     }
@@ -789,6 +793,12 @@ impl WhiskyApp {
             }
             BridgeEvent::Services(methods) => {
                 self.service_methods = methods.into_iter().collect();
+                if self.service_available("gameConfig.match") {
+                    if let Some(page) = self.game_info.as_mut().filter(|page| page.matches.is_none() && page.config_error.is_some()) {
+                        page.config_error = None;
+                        self.bridge.match_game_config(&page.container, &page.entry_id);
+                    }
+                }
             }
             BridgeEvent::Containers(containers) => {
                 if !self.demo {
@@ -1990,7 +2000,14 @@ impl WhiskyApp {
                             if self.game_info.as_ref().is_some_and(|page| {
                                 page.container == container && page.entry_id == entry_id
                             }) {
-                                self.game_info.as_mut().unwrap().matches = Some(matches);
+                                let page = self.game_info.as_mut().unwrap();
+                                page.matches = Some(matches);
+                                page.config_error = None;
+                            }
+                        }
+                        MetadataUpdate::MatchesFailed { container, entry_id, reason } => {
+                            if let Some(page) = self.game_info.as_mut().filter(|page| page.container == container && page.entry_id == entry_id) {
+                                page.config_error = Some(reason);
                             }
                         }
                         MetadataUpdate::ConfigApplied {
@@ -3429,6 +3446,7 @@ impl WhiskyApp {
             groups: Vec::new(),
             matches: None,
             config_message: None,
+            config_error: None,
         });
         self.bridge.match_game_config(&container, &entry_id);
         self.open_preview_sheet(PreviewSheet::GameInfo(index), cx);
@@ -3563,7 +3581,25 @@ impl WhiskyApp {
         cx.notify();
     }
 
+    pub(crate) fn retry_game_db(&mut self, cx: &mut Context<Self>) {
+        if let Some(page) = self.game_info.as_mut() {
+            page.matches = None;
+            page.config_error = None;
+            self.bridge.match_game_config(&page.container, &page.entry_id);
+            cx.notify();
+        }
+    }
+
     pub(crate) fn apply_game_db_match(&mut self, index: usize, cx: &mut Context<Self>) {
+        let available = self.service_available("gameConfig.apply");
+        if let Some(matched) = self.game_info.as_ref().and_then(|page| page.matches.as_ref()).and_then(|rows| rows.get(index)) {
+            if !matched.apply_available(available) {
+                let reason = if matched.availability_reason.is_empty() { "当前会话提供 GameDB 配置参考".into() }
+                             else { matched.availability_reason.clone() };
+                self.show_notice(reason, cx);
+                return;
+            }
+        }
         let Some(page) = self.game_info.as_mut() else {
             return;
         };

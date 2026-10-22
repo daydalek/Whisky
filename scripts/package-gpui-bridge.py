@@ -15,7 +15,8 @@ args = parser.parse_args()
 products = args.products.resolve()
 output = args.output.resolve()
 inputs = [(products / 'whisky-bridge', 'whisky-bridge'),
-          (products / 'WhiskyKit_WhiskyKit.bundle', 'WhiskyKit_WhiskyKit.bundle')]
+          (products / 'WhiskyKit_WhiskyKit.bundle', 'WhiskyKit_WhiskyKit.bundle'),
+          (products / 'WhiskyCore_WhiskyCore.bundle', 'WhiskyCore_WhiskyCore.bundle')]
 inputs += [(root / 'Libraries' / name, name) for name in ('cabextract', 'winetricks', 'verbs.txt')]
 inputs.append((root / 'Whisky' / 'Resources' / 'WhiskyAudioTest.exe', 'WhiskyAudioTest.exe'))
 for source, _ in inputs:

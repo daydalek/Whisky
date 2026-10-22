@@ -2279,6 +2279,14 @@ impl WhiskyApp {
 
         let mut config_rows: Vec<AnyElement> = Vec::new();
         match matches {
+            None if self.game_info.as_ref().is_some_and(|page| page.config_error.is_some()) => {
+                let reason = self.game_info.as_ref().and_then(|page| page.config_error.clone()).unwrap_or_default();
+                config_rows.push(row().gap(px(12.)).py(px(10.))
+                    .child(div().flex_1().child(muted(reason)))
+                    .child(Button::new("gamedb-retry").label("重新读取")
+                        .on_click(cx.listener(|this, _, _, cx| this.retry_game_db(cx))))
+                    .into_any_element());
+            }
             None => {
                 config_rows.push(
                     row()
@@ -2308,6 +2316,9 @@ impl WhiskyApp {
                         .and_then(|value| value.as_str())
                         .unwrap_or("");
                     let mut detail = format!("{:.0}% 匹配", matched.confidence * 100.);
+                    if matched.reference_platform == "macos" {
+                        detail.push_str(" · macOS 参考记录");
+                    }
                     if !rating.is_empty() {
                         detail.push_str(" · ");
                         detail.push_str(&compat_label(rating));
@@ -2328,15 +2339,20 @@ impl WhiskyApp {
                             )
                             .child(
                                 Button::new(format!("gamedb-apply:{index}"))
-                                    .label("应用推荐配置")
+                                    .label(if matched.apply_available(self.service_available("gameConfig.apply")) {
+                                        "应用推荐配置"
+                                    } else { "配置参考" })
                                     .primary()
-                                    .disabled(applying)
+                                    .disabled(applying || !matched.apply_available(self.service_available("gameConfig.apply")))
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.command(Command::GameDbApply(index), cx);
                                     })),
                             )
                             .into_any_element(),
                     ];
+                    if !matched.availability_reason.is_empty() {
+                        rows.push(muted(matched.availability_reason.clone()).text_size(px(11.)).into_any_element());
+                    }
                     for change in &matched.changes {
                         rows.push(
                             muted(format!(
@@ -2375,7 +2391,7 @@ impl WhiskyApp {
             vec![
                 self.section("game-metadata", "在线元数据", metadata_rows, cx),
                 self.section("game-cover", "封面", cover_rows, cx),
-                self.section("game-gamedb", "GameDB 推荐配置", config_rows, cx),
+                self.section("game-gamedb", if self.service_available("gameConfig.apply") { "GameDB 推荐配置" } else { "GameDB 配置参考" }, config_rows, cx),
             ],
         )
     }
@@ -3835,6 +3851,7 @@ fn source_label(source: &str) -> &str {
 
 fn compat_label(rating: &str) -> &str {
     match rating {
+        "unverified" => "待验证",
         "verified" => "已验证",
         "playable" => "可玩",
         "runs" => "可运行",

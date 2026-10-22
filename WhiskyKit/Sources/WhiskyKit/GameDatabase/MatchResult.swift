@@ -17,6 +17,7 @@
 //
 
 import Foundation
+import WhiskyCore
 
 /// The tier of confidence for a game database match.
 ///
@@ -24,18 +25,7 @@ import Foundation
 /// - ``hardIdentifier``: Definitive match (Steam App ID, exe fingerprint). Auto-apply eligible.
 /// - ``strongHeuristic``: High-confidence match (exe name, path pattern). Requires confirmation.
 /// - ``fuzzy``: Low-confidence match (name similarity). Search results only.
-public enum MatchTier: Int, Codable, Sendable, Comparable {
-    /// Definitive match via Steam App ID or executable fingerprint.
-    case fuzzy = 1
-    /// High-confidence match via executable name or path pattern.
-    case strongHeuristic = 2
-    /// Definitive match via hard identifier.
-    case hardIdentifier = 3
-
-    public static func < (lhs: MatchTier, rhs: MatchTier) -> Bool {
-        lhs.rawValue < rhs.rawValue
-    }
-}
+public typealias MatchTier = WhiskyCore.MatchTier
 
 /// The result of matching a program against the game compatibility database.
 ///

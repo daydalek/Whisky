@@ -10,9 +10,9 @@ and distribution gates below.
 OrbStack ARM64 Ubuntu 24.04, Swift 6.4, Rust 1.99.1, Xvfb/X11 and Mesa software
 rendering:
 
-- Shared core: 112 tests; portable bridge: 101 tests; shared metadata package: 20 tests.
+- Shared core: 116 tests; portable bridge: 103 tests; shared metadata package: 20 tests.
 - Rust SDK tests, including its real Swift helper integration test.
-- Production GPUI Linux build/link and 126 unit tests.
+- Production GPUI Linux build/link and 127 unit tests.
 - Production Rust client/helper handshake, capability list and isolated empty
   library reads, with the display environment absent.
 - XDG preferences survive a real helper process exit/restart. File-backed
@@ -21,7 +21,7 @@ rendering:
 - Real production window: library, Ctrl+, settings, Ctrl+Alt+S sidebar,
   Ctrl+Q graceful exit and persisted window dimensions. Captured screenshots
   show the library and Chinese settings text using Noto Sans CJK SC.
-- macOS GPUI's 126 tests and the macOS bridge suite also pass.
+- macOS GPUI's 127 tests and the macOS bridge suite also pass.
 
 The program-storage stage adds full `programs.settings.read/set` and
 `programs.history.read/delete` to the portable helper. Both Linux and macOS now
@@ -95,9 +95,9 @@ pre-existing repository lint findings; the new package's generated tree is now
 excluded, and the new metadata sources/adapters/tests pass targeted strict lint.
 Build logs are `metadata-swiftui-build.log` and `metadata-swiftui-compile.log`.
 
-The GameDB recommendation area still calls native-only `gameConfig.*` methods.
-The current Linux window records that gap; portable recommendations and their
-UI completion state remain required work.
+The GameDB reference stage below now provides shared identity matching and
+explicit source-platform context. Configuration application follows the
+connected platform adapter capability.
 
 The keyboard pass found a missing root focus path. The root view now owns a
 focus handle, allowing actions to bubble from child text fields as well as
@@ -799,6 +799,67 @@ The local gate proves ARM64 Ubuntu 24.04/X11 software-rendered operation.
 The x86_64 hosted job is configured and awaits its first remote run; additional
 distributions and Wayland remain in the desktop acceptance matrix.
 
+## Shared GameDB identities and platform reference review
+
+The canonical 83-game/86-variant database now lives in
+`WhiskyCore/Sources/WhiskyCore/Resources/GameDB.json`. WhiskyCore owns the
+Foundation-only identity scorer, executable metadata/fingerprint types and
+match tiers. Steam IDs, size/timestamp fingerprints, case-insensitive executable
+names, path confirmation, generic-name penalties, fuzzy tokens, ambiguity and
+alias search share one implementation. WhiskyKit preserves its existing public
+names through aliases and adapts shared scores back into native `MatchResult`
+values; its existing machine-specific variant selector and application flow
+continue to serve native callers.
+
+The portable `gameConfig.match` service advertises `gameConfig.read`. It reads
+registered catalogue entries under the existing shared workspace lease, honors
+pending lifecycle recovery, returns the original source record and up to three
+matches, and preserves every container file. The current corpus has 81 games
+with explicit macOS minimum-version constraints. Portable replies therefore
+identify the source platform as macOS and carry `canApply: false`, the minimum
+OS context and source settings/components for reference. This reports game
+identity confidence and source compatibility evidence as distinct fields.
+`gameConfig.apply` continues to depend on the platform/runtime adapter;
+Wine execution and platform runtime application remain in the user's excluded
+scope.
+
+The GPUI sheet shows source-platform labels, reference settings and a read-only
+reference action in file-only sessions. Both the view model and supervisor
+check the connected application capability; a per-match eligibility field adds
+the source-specific constraint. Older native payloads keep their existing
+behavior when the method is advertised. A database failure has a separate,
+entry-scoped completion event and a retry control. Restoring the resource and
+clicking Retry re-reads it; a retained pending sheet can also resume after
+helper reconnection. These states preserve ordinary metadata search/apply UI.
+
+SwiftPM bundles the canonical resource with WhiskyCore. The resource locator
+covers flat Linux `.resources`, macOS `.bundle/Contents/Resources`, application
+resource folders and XCTest's module bundle. Missing and malformed resources
+produce recoverable `database_unavailable` replies in the portable service.
+Database schema version, unique/nonempty IDs and the 8 MiB bound are validated.
+Both Linux and macOS GPUI packagers now copy the shared resource bundle.
+
+Verification passes 116 core tests and 103 portable bridge tests on macOS and
+ARM Ubuntu Swift 6.0/6.4, plus 12 native bridge tests. WhiskyKit's original
+32 XCTest and two DirectX-12 GameDB regressions pass. Both GPUI platforms pass
+127 tests. New regressions cover scoring, ambiguity, moved resources, malformed
+records, source-byte preservation, application refusal and pending recovery.
+The real helper gate checks restart, resource relocation, missing/corrupt data,
+repair and continued session use. The production window opens the canonical
+AoE2 reference, clicks the disabled reference action, retains all original
+container/registry bytes, shows a completed resource error, restores the file
+and retries through the visible control. Request traces stay within file/host
+capabilities. CI runs the process/window checks and retains both directions of
+the test protocol trace. The clean release checker includes this window flow.
+
+Local evidence under `build/portability/gui-linux/` includes
+`gamedb-core-macos.log`, `gamedb-bridge-macos.log`,
+`gamedb-final-reference-macos.log`, `gamedb-kit-macos.log`,
+`gamedb-gpui-macos.log`, `gamedb-full-linux.log`, `gamedb-swift60-final.log`,
+`gamedb-final-window.log`, `gamedb-lint.log`, `linux-gpui/gamedb/` and
+`linux-gpui/gamedb-window/`. Relocated Release resource acceptance follows as
+an additional packaging gate.
+
 ## Reproduce
 
 Use an Ubuntu 24.04 environment with Swift 6.4 and Rust 1.99.1. Install the
@@ -841,7 +902,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | --- | --- | --- |
 | Library and configuration | Shared storage tests; empty production window and CLI | Seeded-library folder edits through the native chooser, persisted ratings/visibility and refresh/recovery |
 | Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux .desktop creation and GIO startup verified; broader UI override editing remains in the desktop gate |
-| Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
+| Metadata and covers | Shared metadata services; live provider search; seeded UI artwork operations; shared GameDB identities and explicit macOS reference review with recovery/retry | Broader seeded search/apply interactions; runtime configuration follows the Wine scope exclusion |
 | Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; complete production file-lifecycle window flow, recovery and candidate import UI | Additional platform coverage follows the desktop acceptance matrix |
 | Host integration | XDG preferences; file open/reveal; GTK dialogs; real terminal/window acceptance; managed desktop updates, legacy shortcut upgrade and stable relocation | Additional terminal/desktop environments; settings now follow connected helper services |
 | Diagnostics | Native macOS adapter; Linux bounded host/file report, platform checks, exclusive export and production-window acceptance | Additional desktop platform coverage follows the acceptance matrix |

@@ -78,7 +78,7 @@ public final class ApplicationService {
         "processes.killAll",
         "environment.read",
         "environment.set"
-    ] + LibraryMetadataService.methods
+    ] + LibraryMetadataService.methods + GameReferenceService.methods
     public init(
         workspace: ApplicationWorkspace,
         native: (any NativeApplicationServices)? = nil,
@@ -135,6 +135,7 @@ public final class ApplicationService {
         case "runtime": return try await runtimeCall(method, params: params)
         case "bottle": return try await lifecycleCall(method, params: params)
         case "metadata": return try await metadataService.call(method, params: params, workspace: workspace)
+        case "gameConfig": return try await gameConfigCall(method, params: params)
         default:
             if let result = try await scopedCall(scope, method: method, params: params) {
                 return result
@@ -220,6 +221,7 @@ extension ApplicationService {
                 "programs.edit",
                 "programs.settings",
                 "metadata.edit",
+                "gameConfig.read",
                 "activity.rating",
                 "visibility.edit"
             ] + extraCapabilities)).sorted().map(JSONValue.string)),

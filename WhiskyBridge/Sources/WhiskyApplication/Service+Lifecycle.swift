@@ -50,7 +50,7 @@ extension ApplicationService {
         guard !portableLifecycleMethods.isEmpty else { return nil }
         let scope = method.prefix(while: { $0 != "." })
         let sharedScopes: Set<Substring> = [
-            "library", "folders", "entry", "configuration", "programs", "environment", "metadata"
+            "library", "folders", "entry", "configuration", "programs", "environment", "metadata", "gameConfig"
         ]
         if sharedScopes.contains(scope) {
             guard !jobs.hasLifecycleOperation, !ContainerJournal.pending(workspace.registry) else {

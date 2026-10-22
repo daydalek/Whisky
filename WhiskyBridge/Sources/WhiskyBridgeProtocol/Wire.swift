@@ -76,6 +76,10 @@ public enum JSONValue: Codable, Equatable, Sendable {
         }
     }
 
+    public var array: [Self]? {
+        if case let .array(array) = self { array } else { nil }
+    }
+
     public var object: [String: Self]? {
         if case let .object(object) = self {
             object

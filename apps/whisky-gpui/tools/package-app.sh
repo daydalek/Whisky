@@ -45,6 +45,9 @@ cp -R "${REPO_ROOT}/WhiskyBridge/.build/release/WhiskyKit_WhiskyKit.bundle" \
 chmod +x "${CONTENTS}/MacOS/whisky-gpui" "${CONTENTS}/Resources/whisky-bridge" \
     "${CONTENTS}/Resources/cabextract" "${CONTENTS}/Resources/winetricks"
 
+cp -R "${REPO_ROOT}/WhiskyBridge/.build/release/WhiskyCore_WhiskyCore.bundle" \
+    "${CONTENTS}/Resources/WhiskyCore_WhiskyCore.bundle"
+
 # Version mirrors the SwiftUI app (Whisky.xcodeproj).
 VERSION="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = \(.*\);$/\1/p' \
     "${REPO_ROOT}/Whisky.xcodeproj/project.pbxproj" | head -n 1)"

@@ -24,7 +24,7 @@ def main():
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--helper', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata', 'lifecycle', 'recovery', 'import', 'candidates', 'diagnostics', 'terminal', 'desktop', 'settings'], default='empty')
+    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata', 'lifecycle', 'recovery', 'import', 'candidates', 'diagnostics', 'terminal', 'desktop', 'settings', 'gamedb'], default='empty')
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -61,6 +61,25 @@ def main():
             assert len(replies) == len(requests) and all(reply.get('error') is None for reply in replies), replies
             key = hashlib.sha256(b'program:drive_c/Program Files/Game/game.exe').hexdigest()
             metadata_path = bottle / 'Game Metadata' / (key + '.json')
+    if args.scenario == 'gamedb':
+        generator = runpy.run_path(str(Path(__file__).with_name('gamedb-fixture.py')))['fixture_at']
+        bottle, executable, registry = generator(fixture)
+        env['WHISKY_REGISTRY'] = str(registry)
+        env['WHISKY_RESPONSE_LOG'] = str(fixture / 'responses.jsonl')
+        original_helper = args.helper.resolve()
+        host = fixture / 'reference-host'
+        binaries = host / 'bin'
+        binaries.mkdir(parents=True)
+        for name in ('whisky-bridge', 'whisky-file-picker', 'whisky-host-command'):
+            shutil.copy2(original_helper.with_name(name), binaries / name)
+        libraries = original_helper.parent.parent / 'lib'
+        if libraries.is_dir():
+            (host / 'lib').symlink_to(libraries, target_is_directory=True)
+        resource_name = 'WhiskyCore_WhiskyCore.resources'
+        shutil.copytree(original_helper.parent / resource_name, binaries / resource_name)
+        env['WHISKY_BRIDGE_HELPER'] = str(binaries / 'whisky-bridge')
+        env['WHISKY_GAMEDB_RESOURCE'] = str(binaries / resource_name)
+
     if args.scenario == 'import':
         original_metadata = (bottle / 'Metadata.plist').read_bytes()
         registry.unlink()
@@ -108,7 +127,7 @@ def main():
         shell = runpy.run_path(str(Path(__file__).with_name('terminal-fixture.py')))['install_shell'](fixture)
         env['SHELL'] = str(shell)
         env['WHISKY_TERMINAL_PROBE'] = str(fixture / 'probe.json')
-    if args.scenario in ('lifecycle', 'diagnostics', 'terminal', 'desktop'):
+    if args.scenario in ('lifecycle', 'diagnostics', 'terminal', 'desktop', 'gamedb'):
         env['WHISKY_REAL_HELPER'] = env['WHISKY_BRIDGE_HELPER']
         env['WHISKY_REQUEST_LOG'] = str(fixture / 'requests.jsonl')
         env['WHISKY_BRIDGE_HELPER'] = str(Path(__file__).with_name('record-helper.py').resolve())
@@ -253,6 +272,9 @@ def main():
                 exercise = runpy.run_path(str(Path(__file__).with_name('lifecycle-window.py')))['exercise']
                 exercise(window, app, fixture, bottle, registry, snapshot)
                 report['steps'].append('production-sidebar-export-cancel-move-duplicate-deregister-delete-preserves-external-data')
+            if args.scenario == 'gamedb':
+                exercise = runpy.run_path(str(Path(__file__).with_name('gamedb-window.py')))['exercise']
+                exercise(window, app, fixture, bottle, registry, snapshot, report, env)
             if args.scenario == 'settings':
                 exercise = runpy.run_path(str(Path(__file__).with_name('settings-window.py')))['exercise']
                 exercise(window, app, fixture, snapshot, report)
@@ -369,17 +391,19 @@ def main():
             saved = json.loads((fixture / 'window.json').read_text())
             assert saved['width'] >= 800 and saved['height'] >= 580, saved
             report['steps'].append('ctrl-q-and-window-persistence')
-            if args.scenario in ('lifecycle', 'diagnostics', 'terminal', 'desktop'):
+            if args.scenario in ('lifecycle', 'diagnostics', 'terminal', 'desktop', 'gamedb'):
                 requests = [json.loads(line) for line in (fixture / 'requests.jsonl').read_text().splitlines()]
                 methods = {request['method'] for request in requests}
                 expected = ({'bottle.move', 'bottle.duplicate', 'bottle.export', 'bottle.remove'}
                             if args.scenario == 'lifecycle' else
                             {'bottle.diagnostics', 'bottle.checks', 'bottle.exportDiagnostics'}
                             if args.scenario == 'diagnostics' else {'system.terminals', 'bottle.tools'}
-                            if args.scenario == 'terminal' else {'system.desktop.install', 'programs.shortcut.create', 'system.desktop.resolve'})
+                            if args.scenario == 'terminal' else {'gameConfig.match'}
+                            if args.scenario == 'gamedb' else {'system.desktop.install', 'programs.shortcut.create', 'system.desktop.resolve'})
                 assert expected.issubset(methods), methods
                 if args.scenario == 'desktop':
                     assert 'programs.run' not in methods, methods
+                assert 'gameConfig.apply' not in methods, methods
                 assert 'audio.test' not in methods, methods
                 assert 'runtime.configure' not in methods, methods
                 report['recordedMethods'] = sorted(methods)

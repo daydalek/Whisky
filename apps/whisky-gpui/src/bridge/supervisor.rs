@@ -204,6 +204,7 @@ pub(crate) enum MetadataUpdate {
         entry_id: String,
         matches: Vec<crate::bridge::dto::GameDbMatchDto>,
     },
+    MatchesFailed { container: String, entry_id: String, reason: String },
     ConfigApplied {
         container: String,
         entry_id: String,
@@ -3897,8 +3898,8 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                             Err(error) => emit_event(
                                 &events,
                                 BridgeEvent::Metadata {
-                                    update: MetadataUpdate::Failed {
-                                        reason: format!("invalid GameDB matches: {error}"),
+                                    update: MetadataUpdate::MatchesFailed {
+                                        container, entry_id, reason: format!("invalid GameDB matches: {error}"),
                                     },
                                 },
                             ),
@@ -3906,7 +3907,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         Err(CallFailure::Remote(reason)) => emit_event(
                             &events,
                             BridgeEvent::Metadata {
-                                update: MetadataUpdate::Failed { reason },
+                                update: MetadataUpdate::MatchesFailed { container, entry_id, reason },
                             },
                         ),
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
@@ -3918,6 +3919,12 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                     game_id,
                     variant_id,
                 }) => {
+                    if !describe.methods.iter().any(|method| method == "gameConfig.apply") {
+                        emit_event(&events, BridgeEvent::Metadata {
+                            update: MetadataUpdate::Failed { reason: "当前会话提供 GameDB 配置参考".into() },
+                        });
+                        continue;
+                    }
                     match client
                         .call(
                             "gameConfig.apply",

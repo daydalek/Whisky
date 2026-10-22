@@ -521,6 +521,18 @@ pub(crate) struct GameDbMatchDto {
     pub(crate) variant_id: String,
     #[serde(default)]
     pub(crate) changes: Vec<ConfigChangeDto>,
+    #[serde(default)]
+    pub(crate) can_apply: Option<bool>,
+    #[serde(default)]
+    pub(crate) reference_platform: String,
+    #[serde(default)]
+    pub(crate) availability_reason: String,
+}
+
+impl GameDbMatchDto {
+    pub(crate) fn apply_available(&self, service_available: bool) -> bool {
+        service_available && self.can_apply.unwrap_or(true)
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -1504,5 +1516,26 @@ mod tests {
         )
         .expect("page");
         assert_eq!(page.next_offset, Some(100));
+    }
+}
+
+#[cfg(test)]
+mod game_reference_tests {
+    use super::*;
+
+    #[test]
+    fn reference_application_requires_both_session_and_match_eligibility() {
+        let legacy: GameDbMatchDto = serde_json::from_value(serde_json::json!({
+            "entry": {"id": "native"}, "variantID": "default", "changes": []
+        })).unwrap();
+        assert!(legacy.apply_available(true));
+        assert!(!legacy.apply_available(false));
+        let portable: GameDbMatchDto = serde_json::from_value(serde_json::json!({
+            "entry": {"id": "portable"}, "canApply": false,
+            "referencePlatform": "macos", "availabilityReason": "reference"
+        })).unwrap();
+        assert!(!portable.apply_available(true));
+        assert!(!portable.apply_available(false));
+        assert_eq!(portable.reference_platform, "macos");
     }
 }

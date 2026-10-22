@@ -88,7 +88,7 @@ def main():
         def status(name, executable):
             value = json.loads(run(name, [executable, '--print-bridge-status']))
             assert value['platform'] == 'linux', value
-            assert {'system.choosePath', 'system.desktop.install', 'bottle.move'}.issubset(value['methods']), value
+            assert {'system.choosePath', 'system.desktop.install', 'bottle.move', 'gameConfig.match'}.issubset(value['methods']), value
             assert not any(method.startswith(('setup.', 'runtime.')) for method in value['methods']), value
 
         status('initial-launcher', bundle / 'Whisky')
@@ -131,13 +131,13 @@ def main():
                       'dbus-run-session', '--', 'env', 'GTK_A11Y=atspi', 'GDK_BACKEND=x11', 'WGPU_BACKEND=vulkan']
             run('packaged-pickers', prefix + ['python3', TOOLS / 'smoke-pickers.py',
                 '--helper', relocated / 'bin/whisky-bridge', '--output', output / 'pickers'])
-            for scenario in ('settings', 'desktop', 'terminal'):
+            for scenario in ('settings', 'desktop', 'terminal', 'gamedb'):
                 run('packaged-' + scenario, prefix + ['python3', TOOLS / 'smoke-linux.py',
                     '--binary', relocated / 'Whisky', '--helper', relocated / 'bin/whisky-bridge',
                     '--output', output / (scenario + '-window'), '--scenario', scenario])
                 value = json.loads((output / (scenario + '-window') / 'report.json').read_text())
                 assert value['passed'], value
-            report['steps'].append('packaged-native-pickers-settings-reconnect-gio-desktop-and-interactive-terminal')
+            report['steps'].append('packaged-native-pickers-settings-desktop-terminal-and-gamedb-resource-retry')
         verify(relocated)
         report['steps'].append('bundle-files-remain-intact-after-runtime-and-window-checks')
         report['passed'] = True

@@ -81,3 +81,6 @@ python3 "$repo_root/apps/whisky-gpui/tools/check-shortcut-identity.py" \
 
 python3 "$repo_root/apps/whisky-gpui/tools/check-desktop-update.py" \
     --helper "$helper" --output "$output/desktop-update"
+
+python3 "$repo_root/apps/whisky-gpui/tools/check-gamedb.py" \
+    --helper "$helper" --output "$output/gamedb"

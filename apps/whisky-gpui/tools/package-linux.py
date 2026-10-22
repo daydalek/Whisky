@@ -115,6 +115,9 @@ def main():
         parser.error('Place the archive outside the bundle directory')
     sources = {name: (args.frontend if name == 'whisky-gpui' else args.products / name).resolve(strict=True)
                for name in PRODUCTS}
+    database_resources = (args.products / 'WhiskyCore_WhiskyCore.resources').resolve(strict=True)
+    if not (database_resources / 'GameDB.json').is_file():
+        parser.error('The shared GameDB resource bundle is required')
     machines = {elf_machine(path) for path in sources.values()}
     if len(machines) != 1 or any(not os.access(path, os.X_OK) for path in sources.values()):
         parser.error('Products must be executable ELF files for one architecture')
@@ -155,6 +158,7 @@ def main():
         shutil.copyfile(source, binary)
         binary.chmod(0o755)
         subprocess.run(['patchelf', '--set-rpath', '$ORIGIN/../lib/swift', str(binary)], check=True)
+    shutil.copytree(database_resources, output / 'bin/WhiskyCore_WhiskyCore.resources')
     for name, source in runtime.items():
         library = output / 'lib/swift' / name
         shutil.copyfile(source, library)

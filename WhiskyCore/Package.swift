@@ -24,7 +24,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [.library(name: "WhiskyCore", targets: ["WhiskyCore"])],
     targets: [
-        .target(name: "WhiskyCore"),
+        .target(name: "WhiskyCore", resources: [.process("Resources")]),
         .testTarget(name: "WhiskyCoreTests", dependencies: ["WhiskyCore"])
     ],
     swiftLanguageModes: [.v6]
