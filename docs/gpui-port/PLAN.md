@@ -1,9 +1,9 @@
 # GPUI port plan
 
-Status: M2 largely complete; M3 core bottle surfaces wired. Create-bottle
-and winetricks remain the main open M3 items. This document tracks remaining
-work against the live `apps/whisky-gpui/` tree (ahead of the M1-only checklist
-that previously lived here).
+Status: M2 complete; M3 bottle creation and winetricks are wired. Full
+ProgramSettings and `entry.move` remain the open M3 items. This document
+tracks remaining work against the live `apps/whisky-gpui/` tree (ahead of the
+M1-only checklist that previously lived here).
 
 ## Goal
 
@@ -45,8 +45,9 @@ GPUI product alongside it.
 - [ ] **M3** bottle surfaces
   - [x] schema-driven configuration, folder scan jobs, programs, processes,
         environment
-  - [ ] create bottle (bridge ready; GPUI wiring in progress)
-  - [ ] winetricks list/install
+  - [x] create bottle (bridge job with refreshed catalogue)
+  - [x] winetricks list/install (catalog + installed reads, headless install
+        job with progress, cancel and per-verb results)
   - [ ] full ProgramSettings (args, locale, DLL overrides, shortcuts, history)
   - [ ] `entry.move`
 - [ ] **M4** application settings, localization, native menus, menu-bar extra,
@@ -74,7 +75,6 @@ when new.
 | Steam download snapshot and subscribe | `SteamDownloadSnapshot`, … | M5 | |
 | Diagnostics report, log, fixes | `TroubleshootingSession`, … | M5 | |
 | Audio device enumeration, test tone | `AudioDeviceInfo`, … | M5 | |
-| Winetricks verbs and install | `WinetricksVerb`, … | M3 | Kit has service; not on the wire |
 | Expanded preferences keys | `PreferencesService` schema | M4 | |
 | Shortcut creation | `ProgramShortcut` | M5 | |
 
@@ -87,5 +87,12 @@ when new.
   restarting the UI process.
 - `ApplicationService.methods` is hand-maintained. A new method must be added
   there or the Rust allow-list check rejects it.
+- Winetricks resolves `winetricks`, `verbs.txt` and `cabextract` beside the
+  helper. `winetricks.installed` may spend up to 30 s in `list-installed`, so
+  that one read uses a 45 s call timeout and occupies the worker until it
+  finishes; catalog reads and install-job polls stay on the default timeout.
+- Winetricks methods are advertised only by the macOS helper with
+  `--enable-wine`; the Linux helper has no Wine runtime in M3 and the sheet
+  surfaces the helper's `method_unavailable` reply instead of faking success.
 - Visual acceptance uses a locally captured baseline (not committed), captured with the
   `visual-test` feature and `WHISKY_DEMO_CAPTURE`.

@@ -31,6 +31,7 @@ use crate::runtime::{
 };
 use crate::scan::JobStatus;
 use crate::views::Command;
+use crate::winetricks::{InstallJob, WinetricksState};
 
 /// Toast copy for the demo-only menu actions, which still do not mutate
 /// anything. Runtime failures reuse the same toast with the helper's reason.
@@ -302,6 +303,8 @@ pub(crate) struct WhiskyApp {
     pub(crate) scan: Option<ScanState>,
     /// The one create-bottle job this session follows.
     pub(crate) create_bottle: Option<CreateBottleState>,
+    /// Winetricks catalog, per-bottle installed sets and the one install job.
+    pub(crate) winetricks: WinetricksState,
     /// `defaultBottleLocation` from preferences, used as `bottle.create`'s parent.
     pub(crate) default_bottle_location: Option<String>,
     /// Key that "编辑" put in the env inputs; saving with a different name
@@ -344,6 +347,9 @@ impl WhiskyApp {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search programs"));
         let subscription = cx.observe(&search, |_, _, cx| cx.notify());
+        let preview = PreviewState::new(window, cx);
+        let dependency_search = preview.inputs["dependency-search"].clone();
+        let dependency_subscription = cx.observe(&dependency_search, |_, _, cx| cx.notify());
         let (bridge, bridge_events) = BridgeSupervisor::start();
         // Polling pauses in the background, so the worker starts from the real
         // activation state rather than assuming the window is focused.
@@ -359,7 +365,7 @@ impl WhiskyApp {
         .detach();
         let demo = demo_requested(std::env::var("WHISKY_GPUI_DEMO_DATA").ok().as_deref());
         Self {
-            preview: PreviewState::new(window, cx),
+            preview,
             search,
             mode: 0,
             demo,
@@ -393,6 +399,7 @@ impl WhiskyApp {
             process_generation: 0,
             scan: None,
             create_bottle: None,
+            winetricks: WinetricksState::default(),
             default_bottle_location: Self::default_bottle_location(),
             env_original: None,
             env_clear_on_reply: false,
@@ -420,7 +427,7 @@ impl WhiskyApp {
             bridge,
             bridge_status: BridgeStatus::Locating,
             bridge_dialog: false,
-            _subscriptions: vec![subscription, activation],
+            _subscriptions: vec![subscription, dependency_subscription, activation],
         }
     }
     pub(crate) fn bridge_retry(&mut self, cx: &mut Context<Self>) {
@@ -461,6 +468,7 @@ impl WhiskyApp {
         self.env_fill = None;
         self.programs = None;
         self.processes = None;
+        self.winetricks = WinetricksState::default();
         self.stop_process_polling();
         if self.scan.as_ref().is_some_and(ScanState::running) {
             // The job lived in the previous session.
@@ -1090,6 +1098,99 @@ impl WhiskyApp {
                     }
                 }
             }
+            BridgeEvent::WinetricksCatalog { catalog } => {
+                if !self.demo {
+                    self.winetricks.catalog = Some(catalog);
+                    self.winetricks.catalog_pending = false;
+                    self.winetricks.catalog_error = None;
+                    self.winetricks.ensure_category();
+                }
+            }
+            BridgeEvent::WinetricksCatalogFailed { reason } => {
+                if !self.demo {
+                    self.winetricks.catalog_pending = false;
+                    self.winetricks.catalog_error = Some(reason);
+                }
+            }
+            BridgeEvent::WinetricksInstalled { container, verbs } => {
+                if !self.demo {
+                    self.winetricks.set_installed(&container, verbs);
+                }
+            }
+            BridgeEvent::WinetricksInstalledFailed { container, reason } => {
+                if !self.demo {
+                    self.winetricks.installed_pending.remove(&container);
+                    self.winetricks.installed_error.insert(container, reason);
+                }
+            }
+            BridgeEvent::WinetricksInstall { container, update } => {
+                if !self.demo {
+                    match update {
+                        crate::winetricks::InstallUpdate::Started { job_id } => {
+                            let mut job = InstallJob::new(&container);
+                            job.job_id = Some(job_id);
+                            job.status = Some(JobStatus::Queued);
+                            self.winetricks.job = Some(job);
+                        }
+                        crate::winetricks::InstallUpdate::Progress { status, progress } => {
+                            if let Some(job) = self
+                                .winetricks
+                                .job
+                                .as_mut()
+                                .filter(|job| job.container == container)
+                            {
+                                job.status = Some(status);
+                                job.progress = progress;
+                                job.error = None;
+                            }
+                        }
+                        crate::winetricks::InstallUpdate::Completed {
+                            installed,
+                            succeeded,
+                            failed,
+                        } => {
+                            self.winetricks.set_installed(&container, installed);
+                            if let Some(job) = self
+                                .winetricks
+                                .job
+                                .as_mut()
+                                .filter(|job| job.container == container)
+                            {
+                                job.status = Some(JobStatus::Completed);
+                                job.finished = true;
+                                job.succeeded = succeeded;
+                                job.failed = failed.clone();
+                                job.error = None;
+                            }
+                            if !failed.is_empty() {
+                                let reason = failed
+                                    .first()
+                                    .map(crate::winetricks::FailureDto::label)
+                                    .unwrap_or_default();
+                                self.show_notice(
+                                    format!("{} 个组件安装失败：{reason}", failed.len()),
+                                    cx,
+                                );
+                            }
+                        }
+                        crate::winetricks::InstallUpdate::Failed { status, reason } => {
+                            if let Some(job) = self
+                                .winetricks
+                                .job
+                                .as_mut()
+                                .filter(|job| job.container == container)
+                            {
+                                job.status = Some(status);
+                                job.finished = true;
+                                job.error = Some(reason.clone());
+                            }
+                            if status != JobStatus::Cancelled {
+                                self.show_notice(reason, cx);
+                            }
+                        }
+                    }
+                }
+            }
         }
         self.loading = self.compute_loading();
         cx.notify();
@@ -1697,6 +1798,15 @@ impl WhiskyApp {
             .map(|bottle| bottle.path.clone())
     }
 
+    /// The install job only belongs to the sheet while its bottle is selected.
+    pub(crate) fn winetricks_job(&self) -> Option<&InstallJob> {
+        let container = self.selected_container()?;
+        self.winetricks
+            .job
+            .as_ref()
+            .filter(|job| job.container == container)
+    }
+
     /// The sheet's bottle: the selection, or the first available bottle.
     pub(crate) fn scan_container(&self) -> Option<String> {
         self.selected_container().or_else(|| {
@@ -1773,6 +1883,82 @@ impl WhiskyApp {
         self.folders_error.remove(&container);
         self.folders_pending.insert(container.clone());
         self.bridge.load_folders(&container);
+        cx.notify();
+    }
+
+    /// Load the static catalog once and the selected bottle's installed set.
+    pub(crate) fn ensure_winetricks(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        if self.winetricks.catalog.is_none()
+            && !self.winetricks.catalog_pending
+            && self.winetricks.catalog_error.is_none()
+        {
+            self.winetricks.catalog_pending = true;
+            self.bridge.load_winetricks_catalog();
+        }
+        if !self.winetricks.installed.contains_key(&container)
+            && !self.winetricks.installed_pending.contains(&container)
+            && !self.winetricks.installed_error.contains_key(&container)
+        {
+            self.winetricks.installed_pending.insert(container.clone());
+            self.bridge.load_installed_winetricks(&container);
+        }
+        cx.notify();
+    }
+
+    /// Retry `winetricks.catalog` after a failure.
+    pub(crate) fn reload_winetricks_catalog(&mut self, cx: &mut Context<Self>) {
+        self.winetricks.catalog_error = None;
+        self.winetricks.catalog_pending = true;
+        self.bridge.load_winetricks_catalog();
+        cx.notify();
+    }
+
+    /// Retry the visible bottle's `winetricks.installed`.
+    pub(crate) fn reload_installed_winetricks(&mut self, cx: &mut Context<Self>) {
+        let Some(container) = self.selected_container() else {
+            return;
+        };
+        self.winetricks.installed_error.remove(&container);
+        self.winetricks.installed_pending.insert(container.clone());
+        self.bridge.load_installed_winetricks(&container);
+        cx.notify();
+    }
+
+    /// Install the selected verb. The helper refuses concurrent jobs; an
+    /// optimistic queued row also stops the button from sending twice.
+    pub(crate) fn start_winetricks_install(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        if self.winetricks.job.as_ref().is_some_and(InstallJob::running) {
+            return;
+        }
+        let Some(container) = self.selected_container() else {
+            self.show_notice("请先选择一个容器", cx);
+            return;
+        };
+        let Some(verb) = self.winetricks.selected.clone() else {
+            self.show_notice("请先选择一个组件", cx);
+            return;
+        };
+        let mut job = InstallJob::new(&container);
+        job.status = Some(JobStatus::Queued);
+        self.winetricks.job = Some(job);
+        self.bridge.install_winetricks(&container, &[verb]);
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_winetricks_install(&mut self, cx: &mut Context<Self>) {
+        if self.winetricks.job.as_ref().is_some_and(InstallJob::running) {
+            self.bridge.cancel_winetricks();
+        }
         cx.notify();
     }
 
@@ -2518,6 +2704,14 @@ impl WhiskyApp {
         self.hovered = None;
         if sheet == PreviewSheet::Scan {
             self.ensure_folders(cx);
+        }
+        if sheet == PreviewSheet::Winetricks {
+            // A finished job is a result surface, not a permanent lock: opening
+            // the sheet again starts from the catalog.
+            if self.winetricks.job.as_ref().is_some_and(|job| job.finished) {
+                self.winetricks.job = None;
+            }
+            self.ensure_winetricks(cx);
         }
         cx.notify();
     }

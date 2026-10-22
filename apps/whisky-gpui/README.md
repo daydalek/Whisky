@@ -104,6 +104,18 @@ name or absolute path. `--all` merges every bottle and adds
 `--all` wins. Any bridge failure, or an unmatched `--bottle`, prints to stderr
 and exits 1. None of these commands creates a window.
 
+To read the winetricks catalog and one bottle's installed verbs (read-only):
+
+```sh
+apps/whisky-gpui/target/debug/whisky-gpui --print-winetricks --bottle galgame
+```
+
+Winetricks installs run as bridge jobs from the sheet; each verb's output line
+is the job's latest progress and the completed result carries the authoritative
+installed set plus any failed verbs. The helper needs `verbs.txt`, `winetricks`
+and `cabextract` beside its executable; `tools/package-app.sh` copies them from
+`Libraries/` into the app bundle.
+
 ## Visual baseline capture
 
 Build with the `visual-test` feature and set `WHISKY_DEMO_CAPTURE`. PNGs are

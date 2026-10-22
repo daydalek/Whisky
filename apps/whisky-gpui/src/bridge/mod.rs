@@ -12,7 +12,7 @@ mod supervisor;
 pub(crate) use supervisor::{
     BottleCreateUpdate, BridgeEvent, BridgeSupervisor, EntryMutation, FolderEdit, ProgramMutation,
     ScanUpdate, diagnose_launch, print_config, print_folders, print_library, print_processes,
-    print_programs, print_runtime, print_status, watch_runtime,
+    print_programs, print_runtime, print_status, print_winetricks, watch_runtime,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]

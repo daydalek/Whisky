@@ -40,6 +40,7 @@ use crate::runtime::{
     RuntimeUpdate, interpret_launch_reply, poll_interval, primary_action_for,
 };
 use crate::scan::{self, JobStatus, PageAccumulator};
+use crate::winetricks::{self, CatalogDto, InstallProgress, InstallResultDto, InstalledDto};
 
 /// Executable product declared in `WhiskyBridge/Package.swift`.
 const HELPER_PRODUCT: &str = "whisky-bridge";
@@ -301,6 +302,27 @@ pub(crate) enum BridgeEvent {
     BottleCreate {
         update: BottleCreateUpdate,
     },
+    /// The static winetricks verb catalog (`winetricks.catalog`).
+    WinetricksCatalog {
+        catalog: CatalogDto,
+    },
+    WinetricksCatalogFailed {
+        reason: String,
+    },
+    /// The installed set for one container (`winetricks.installed`).
+    WinetricksInstalled {
+        container: String,
+        verbs: Vec<String>,
+    },
+    WinetricksInstalledFailed {
+        container: String,
+        reason: String,
+    },
+    /// One `winetricks.install` job.
+    WinetricksInstall {
+        container: String,
+        update: winetricks::InstallUpdate,
+    },
 }
 
 enum Command {
@@ -394,6 +416,13 @@ enum Command {
         parent: String,
         windows_version: String,
     },
+    LoadWinetricksCatalog,
+    LoadInstalledWinetricks(String),
+    InstallWinetricks {
+        container: String,
+        verbs: Vec<String>,
+    },
+    CancelWinetricks,
     /// Window activation: polling pauses while the app is in the background.
     SetActive(bool),
     /// Re-read the bottle catalogue and drop the cached entries, as the
@@ -612,6 +641,31 @@ impl BridgeSupervisor {
         });
     }
 
+    /// `winetricks.catalog`: the bundled verb index, independent of a bottle.
+    pub(crate) fn load_winetricks_catalog(&self) {
+        let _ = self.commands.send(Command::LoadWinetricksCatalog);
+    }
+
+    /// `winetricks.installed` for one bottle.
+    pub(crate) fn load_installed_winetricks(&self, container: &str) {
+        let _ = self
+            .commands
+            .send(Command::LoadInstalledWinetricks(container.to_owned()));
+    }
+
+    /// `winetricks.install`: a `BridgeJobStore` job. Progress, the result and
+    /// the authoritative post-install verb set arrive as `WinetricksInstall`.
+    pub(crate) fn install_winetricks(&self, container: &str, verbs: &[String]) {
+        let _ = self.commands.send(Command::InstallWinetricks {
+            container: container.to_owned(),
+            verbs: verbs.to_vec(),
+        });
+    }
+
+    pub(crate) fn cancel_winetricks(&self) {
+        let _ = self.commands.send(Command::CancelWinetricks);
+    }
+
     /// `programs.list` for one bottle. The pin/block mutations reply with the
     /// same payload, so one event type carries all three.
     pub(crate) fn load_programs(&self, container: &str) {
@@ -774,6 +828,8 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
         // At most one create-bottle job; independent of the scan job so a
         // folder scan does not block creating a bottle (and vice versa).
         let mut create: Option<LiveCreate> = None;
+        // At most one winetricks install job.
+        let mut tricks: Option<LiveWinetricks> = None;
         loop {
             // A live session blocks only until its next poll is due. Anything
             // else parks, and a command still wakes the worker immediately.
@@ -787,6 +843,9 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
             }
             if let Some(create) = &create {
                 wait_for = wait_for.min(create.due.saturating_duration_since(now));
+            }
+            if let Some(tricks) = &tricks {
+                wait_for = wait_for.min(tricks.due.saturating_duration_since(now));
             }
             let command = match commands.recv_timeout(wait_for) {
                 Ok(command) => Some(command),
@@ -937,6 +996,56 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                     },
                                 );
                                 create = None;
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                    if let Some(active) = tricks.as_mut() {
+                        match poll_winetricks(&mut client, active, &events) {
+                            Ok(None) => {}
+                            Ok(Some(WinetricksTerminal::Completed(result))) => {
+                                let current = match load_installed_winetricks(
+                                    &mut client,
+                                    &active.container,
+                                ) {
+                                    Ok(current) => current.verbs,
+                                    Err(_) => result.installed.clone(),
+                                };
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::WinetricksInstall {
+                                        container: active.container.clone(),
+                                        update: winetricks::InstallUpdate::Completed {
+                                            installed: current,
+                                            succeeded: result.succeeded,
+                                            failed: result.failed,
+                                        },
+                                    },
+                                );
+                                tricks = None;
+                            }
+                            Ok(Some(WinetricksTerminal::Failed { status, reason })) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::WinetricksInstall {
+                                        container: active.container.clone(),
+                                        update: winetricks::InstallUpdate::Failed { status, reason },
+                                    },
+                                );
+                                tricks = None;
+                            }
+                            Err(CallFailure::Remote(reason)) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::WinetricksInstall {
+                                        container: active.container.clone(),
+                                        update: winetricks::InstallUpdate::Failed {
+                                            status: JobStatus::Failed,
+                                            reason,
+                                        },
+                                    },
+                                );
+                                tricks = None;
                             }
                             Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                         }
@@ -1636,6 +1745,113 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         }
                     }
                 }
+                Some(Command::LoadWinetricksCatalog) => {
+                    match client.call("winetricks.catalog", json!({})).map_err(classify) {
+                        Ok(reply) => match serde_json::from_value::<CatalogDto>(reply) {
+                            Ok(catalog) => {
+                                emit_event(&events, BridgeEvent::WinetricksCatalog { catalog });
+                            }
+                            Err(error) => emit_event(
+                                &events,
+                                BridgeEvent::WinetricksCatalogFailed {
+                                    reason: format!("invalid winetricks catalog: {error}"),
+                                },
+                            ),
+                        },
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::WinetricksCatalogFailed { reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::LoadInstalledWinetricks(container)) => {
+                    match load_installed_winetricks(&mut client, &container) {
+                        Ok(installed) => emit_event(
+                            &events,
+                            BridgeEvent::WinetricksInstalled {
+                                container,
+                                verbs: installed.verbs,
+                            },
+                        ),
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::WinetricksInstalledFailed { container, reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::InstallWinetricks { container, verbs }) => {
+                    if tricks.is_some() {
+                        eprintln!("whisky-bridge: a winetricks install is already running");
+                    } else {
+                        match start_winetricks(&mut client, &container, &verbs) {
+                            Ok(job_id) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::WinetricksInstall {
+                                        container: container.clone(),
+                                        update: winetricks::InstallUpdate::Started {
+                                            job_id: job_id.clone(),
+                                        },
+                                    },
+                                );
+                                tricks = Some(LiveWinetricks {
+                                    container,
+                                    job_id,
+                                    due: Instant::now() + SCAN_POLL,
+                                    last: None,
+                                });
+                            }
+                            Err(CallFailure::Remote(reason)) => emit_event(
+                                &events,
+                                BridgeEvent::WinetricksInstall {
+                                    container,
+                                    update: winetricks::InstallUpdate::Failed {
+                                        status: JobStatus::Failed,
+                                        reason,
+                                    },
+                                },
+                            ),
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                }
+                Some(Command::CancelWinetricks) => {
+                    match tricks.as_ref().map(|active| active.job_id.clone()) {
+                        Some(job_id) => {
+                            match client
+                                .call("jobs.cancel", json!({"jobID": job_id}))
+                                .map_err(classify)
+                            {
+                                Ok(_) => {
+                                    if let Some(active) = tricks.as_mut() {
+                                        active.due = Instant::now();
+                                    }
+                                }
+                                Err(CallFailure::Remote(reason)) => {
+                                    let container = tricks
+                                        .as_ref()
+                                        .map(|active| active.container.clone())
+                                        .unwrap_or_default();
+                                    emit_event(
+                                        &events,
+                                        BridgeEvent::WinetricksInstall {
+                                            container,
+                                            update: winetricks::InstallUpdate::Failed {
+                                                status: JobStatus::Failed,
+                                                reason,
+                                            },
+                                        },
+                                    );
+                                    tricks = None;
+                                }
+                                Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                            }
+                        }
+                        None => eprintln!("whisky-bridge: no winetricks install to cancel"),
+                    }
+                }
                 Some(Command::ReloadLibrary) => {
                     // A refresh must re-read: the cached snapshot predates it.
                     cache = None;
@@ -1689,6 +1905,19 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                             update: BottleCreateUpdate::Failed {
                                 status: JobStatus::Failed,
                                 reason: "The bridge session ended; bottle creation was abandoned"
+                                    .into(),
+                            },
+                        },
+                    );
+                }
+                if let Some(active) = tricks.take() {
+                    emit_event(
+                        &events,
+                        BridgeEvent::WinetricksInstall {
+                            container: active.container,
+                            update: winetricks::InstallUpdate::Failed {
+                                status: JobStatus::Failed,
+                                reason: "The bridge session ended; the winetricks install was abandoned"
                                     .into(),
                             },
                         },
@@ -1985,6 +2214,106 @@ struct LiveCreate {
     job_id: String,
     due: Instant,
     last: Option<(JobStatus, Option<String>)>,
+}
+
+struct LiveWinetricks {
+    container: String,
+    job_id: String,
+    due: Instant,
+    /// Last reported `(status, progress)`, so identical polls stay quiet.
+    last: Option<(JobStatus, InstallProgress)>,
+}
+
+enum WinetricksTerminal {
+    Completed(InstallResultDto),
+    Failed { status: JobStatus, reason: String },
+}
+
+fn start_winetricks(
+    client: &mut Client,
+    container: &str,
+    verbs: &[String],
+) -> Result<String, CallFailure> {
+    let reply = client
+        .call(
+            "winetricks.install",
+            json!({ "container": container, "verbs": verbs }),
+        )
+        .map_err(classify)?;
+    let start: JobStartDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid winetricks reply: {error}")))?;
+    Ok(start.job_id)
+}
+
+fn load_installed_winetricks(
+    client: &mut Client,
+    container: &str,
+) -> Result<InstalledDto, CallFailure> {
+    // The helper may run `winetricks list-installed`, which has its own 30 s
+    // bound. The default 5 s call timeout would kill the session before that
+    // read can fall back to the log parser.
+    let reply = client
+        .call_with_timeout(
+            "winetricks.installed",
+            json!({ "container": container }),
+            Duration::from_secs(45),
+        )
+        .map_err(classify)?;
+    serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid installed verbs reply: {error}")))
+}
+
+fn poll_winetricks(
+    client: &mut Client,
+    active: &mut LiveWinetricks,
+    events: &smol::channel::Sender<BridgeEvent>,
+) -> Result<Option<WinetricksTerminal>, CallFailure> {
+    let reply = client
+        .call("jobs.get", json!({ "jobID": active.job_id }))
+        .map_err(classify)?;
+    let job: JobDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid job payload: {error}")))?;
+    let status = JobStatus::from_wire(&job.status).ok_or_else(|| {
+        CallFailure::Remote(format!("unknown job status: {}", job.status))
+    })?;
+    let progress = InstallProgress::from_value(&job.progress);
+    if active.last.as_ref() != Some(&(status, progress.clone())) {
+        emit_event(
+            events,
+            BridgeEvent::WinetricksInstall {
+                container: active.container.clone(),
+                update: winetricks::InstallUpdate::Progress {
+                    status,
+                    progress: progress.clone(),
+                },
+            },
+        );
+        active.last = Some((status, progress));
+    }
+    active.due = Instant::now() + SCAN_POLL;
+    match status {
+        JobStatus::Completed => {
+            let result = job
+                .result
+                .ok_or_else(|| CallFailure::Remote("completed install has no result".into()))?;
+            let result: InstallResultDto = serde_json::from_value(result).map_err(|error| {
+                CallFailure::Remote(format!("invalid winetricks result: {error}"))
+            })?;
+            Ok(Some(WinetricksTerminal::Completed(result)))
+        }
+        JobStatus::Failed | JobStatus::Cancelled => {
+            let reason = job
+                .error
+                .as_ref()
+                .map(BridgeFailureDto::reason)
+                .unwrap_or_else(|| match status {
+                    JobStatus::Cancelled => "已取消".to_owned(),
+                    _ => "安装失败".to_owned(),
+                });
+            Ok(Some(WinetricksTerminal::Failed { status, reason }))
+        }
+        JobStatus::Queued | JobStatus::Running | JobStatus::Cancelling => Ok(None),
+    }
 }
 
 enum CreateTerminal {
@@ -3044,6 +3373,112 @@ pub(crate) fn print_folders(bottle: Option<&str>) -> i32 {
         folders.roots.len(),
         folders.assigned_folders.len(),
         folders.excluded_folders.len()
+    );
+    let _ = client.shutdown(false);
+    0
+}
+
+/// `--print-winetricks [--bottle <name-or-path>]`: the bundled catalog
+/// categories and one bottle's installed verbs. Read-only.
+pub(crate) fn print_winetricks(bottle: Option<&str>) -> i32 {
+    let helper = match locate_helper() {
+        Ok(helper) => helper,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            return 1;
+        }
+    };
+    eprintln!("whisky-bridge: helper {}", helper.display());
+    let mut client = match Client::spawn(&helper, &helper_arguments(), CALL_TIMEOUT) {
+        Ok(client) => client,
+        Err(error) => {
+            eprintln!("whisky-bridge: handshake failed: {error}");
+            return 1;
+        }
+    };
+    let describe = DescribeResponse::from_capabilities(client.capabilities());
+    let missing = describe.missing_methods(&["winetricks.catalog", "winetricks.installed"]);
+    if !missing.is_empty() {
+        eprintln!(
+            "whisky-bridge: helper does not advertise winetricks method(s): {}",
+            missing.join(", ")
+        );
+        client.close();
+        return 1;
+    }
+    let containers = match fetch_containers(&mut client) {
+        Ok(containers) => containers,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    let container = match pick_container(&containers, bottle) {
+        Ok(container) => container,
+        Err(reason) => {
+            eprintln!("whisky-bridge: {reason}");
+            client.close();
+            return 1;
+        }
+    };
+    let catalog = match client.call("winetricks.catalog", json!({})).map_err(classify) {
+        Ok(reply) => match serde_json::from_value::<CatalogDto>(reply) {
+            Ok(catalog) => catalog,
+            Err(error) => {
+                eprintln!("whisky-bridge: invalid winetricks catalog: {error}");
+                client.close();
+                return 1;
+            }
+        },
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    let installed = match load_installed_winetricks(&mut client, &container.path) {
+        Ok(installed) => installed,
+        Err(failure) => {
+            eprintln!("whisky-bridge: {}", failure.into_message());
+            client.close();
+            return 1;
+        }
+    };
+    let categories: Vec<serde_json::Value> = catalog
+        .categories
+        .iter()
+        .map(|category| {
+            json!({
+                "id": category.id,
+                "verbs": category.verbs.len(),
+                "sample": category.verbs.iter().take(3).map(|verb| &verb.name).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let report = json!({
+        "bottle": container.name,
+        "container": container.path,
+        "catalog": {
+            "categories": categories,
+            "verbCount": catalog.verb_count(),
+        },
+        "installed": installed.verbs,
+        "installedFromCache": installed.from_cache,
+    });
+    match serde_json::to_string_pretty(&report) {
+        Ok(payload) => println!("{payload}"),
+        Err(error) => {
+            eprintln!("whisky-bridge: cannot encode the winetricks report: {error}");
+            client.close();
+            return 1;
+        }
+    }
+    eprintln!(
+        "whisky-bridge: {} categories, {} verbs, {} installed",
+        catalog.categories.len(),
+        catalog.verb_count(),
+        installed.verbs.len()
     );
     let _ = client.shutdown(false);
     0

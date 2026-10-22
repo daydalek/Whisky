@@ -34,7 +34,15 @@ rm -rf "${APP_DIR}"
 mkdir -p "${CONTENTS}/MacOS" "${CONTENTS}/Resources"
 cp "${GPUI_BIN}" "${CONTENTS}/MacOS/whisky-gpui"
 cp "${HELPER_BIN}" "${CONTENTS}/Resources/whisky-bridge"
-chmod +x "${CONTENTS}/MacOS/whisky-gpui" "${CONTENTS}/Resources/whisky-bridge"
+# Winetricks resolves these beside its executable. They are runtime tools, not
+# SwiftPM resources, so the helper build does not carry them.
+for resource in cabextract winetricks verbs.txt; do
+    cp "${REPO_ROOT}/Libraries/${resource}" "${CONTENTS}/Resources/${resource}"
+done
+cp -R "${REPO_ROOT}/WhiskyBridge/.build/release/WhiskyKit_WhiskyKit.bundle" \
+    "${CONTENTS}/Resources/WhiskyKit_WhiskyKit.bundle"
+chmod +x "${CONTENTS}/MacOS/whisky-gpui" "${CONTENTS}/Resources/whisky-bridge" \
+    "${CONTENTS}/Resources/cabextract" "${CONTENTS}/Resources/winetricks"
 
 # Version mirrors the SwiftUI app (Whisky.xcodeproj).
 VERSION="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = \(.*\);$/\1/p' \

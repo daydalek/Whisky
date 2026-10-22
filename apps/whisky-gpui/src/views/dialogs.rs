@@ -15,6 +15,7 @@ use crate::runtime::ClipboardDecision;
 use crate::scan::{self, JobStatus};
 use crate::state::{PreviewSheet, ScanState, WhiskyApp};
 use crate::theme::{MUTED, OVERLAY, RADIUS_LG, SURFACE, SURFACE_BORDER};
+use crate::winetricks::{category_label, filtered_verbs};
 
 impl WhiskyApp {
     fn run_settings(&self, index: usize, cx: &Context<Self>) -> AnyElement {
@@ -552,6 +553,366 @@ impl WhiskyApp {
         )
     }
 
+    /// The live Winetricks sheet: catalog search, installed state and one
+    /// helper-driven install job. `WHISKY_GPUI_DEMO_DATA=1` keeps the original
+    /// static form so the visual baseline is unchanged.
+    fn winetricks_sheet(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.demo {
+            return self.demo_winetricks(cx);
+        }
+        let Some(container) = self.selected_container() else {
+            return self.form(
+                "winetricks-scroll",
+                vec![self.section(
+                    "tricks",
+                    "可用组件",
+                    vec![muted("请先在侧边栏选择一个容器。").into_any_element()],
+                    cx,
+                )],
+            );
+        };
+
+        let mut sections = Vec::new();
+        let installed = self.winetricks.installed_for(&container);
+        let mut filter_rows: Vec<AnyElement> = vec![self.field("dependency-search", "搜索组件")];
+        if let Some(catalog) = &self.winetricks.catalog {
+            let mut tabs = row().flex_wrap().gap(px(6.)).py(px(6.));
+            for category in &catalog.categories {
+                let id = category.id.clone();
+                let active = self.winetricks.category.as_deref() == Some(id.as_str());
+                let view = cx.entity().downgrade();
+                let next = id.clone();
+                let button = if active {
+                    Button::new(format!("trick-category:{id}"))
+                        .label(category_label(&id).to_owned())
+                        .primary()
+                } else {
+                    Button::new(format!("trick-category:{id}"))
+                        .label(category_label(&id).to_owned())
+                };
+                tabs = tabs.child(button.on_click(move |_, _, cx| {
+                    let _ = view.update(cx, |this, cx| {
+                        this.winetricks.category = Some(next.clone());
+                        this.winetricks.selected = None;
+                        cx.notify();
+                    });
+                }));
+            }
+            filter_rows.push(tabs.into_any_element());
+
+            let mut filter_line = row().gap(px(14.)).py(px(6.));
+            filter_line = filter_line.child(
+                Switch::new("trick-installed-only")
+                    .label("仅显示已安装")
+                    .checked(self.flag("trick-installed-only"))
+                    .on_change(cx.listener(|this, checked, _, cx| {
+                        this.preview
+                            .toggles
+                            .insert("trick-installed-only", *checked);
+                        cx.notify();
+                    })),
+            );
+            if let Some(installed) = installed {
+                filter_line = filter_line.child(muted(format!(
+                    "已安装 {} 个 · 共 {} 个",
+                    installed.len(),
+                    catalog.verb_count()
+                )));
+            } else if self.winetricks.installed_pending.contains(&container) {
+                filter_line = filter_line
+                    .child(Spinner::new().with_size(px(12.)))
+                    .child(muted("正在读取已安装组件…"));
+            } else if let Some(error) = self.winetricks.installed_error.get(&container) {
+                filter_line = filter_line.child(muted(error.clone())).child(
+                    Button::new("trick-installed-error-retry")
+                        .label("重试")
+                        .on_click(
+                            cx.listener(|this, _, _, cx| this.reload_installed_winetricks(cx)),
+                        ),
+                );
+            }
+            filter_rows.push(filter_line.into_any_element());
+        }
+        sections.push(self.section("trick-filter", "搜索与筛选", filter_rows, cx));
+
+        match &self.winetricks.catalog {
+            Some(catalog) => {
+                let installed_only = self.flag("trick-installed-only");
+                let installed_missing = installed_only && installed.is_none();
+                let query = self.preview.inputs["dependency-search"]
+                    .read(cx)
+                    .value()
+                    .to_string();
+                let category = self
+                    .winetricks
+                    .category
+                    .as_ref()
+                    .and_then(|id| {
+                        catalog
+                            .categories
+                            .iter()
+                            .find(|category| &category.id == id)
+                    })
+                    .or_else(|| catalog.categories.first());
+
+                if let Some(job) = self
+                    .winetricks
+                    .job
+                    .as_ref()
+                    .filter(|job| job.container == container)
+                {
+                    sections.push(self.section(
+                        "trick-job",
+                        "安装进度",
+                        self.winetricks_job_rows(job, cx),
+                        cx,
+                    ));
+                }
+
+                let mut rows: Vec<AnyElement> = Vec::new();
+                if installed_missing && self.winetricks.installed_pending.contains(&container) {
+                    rows.push(
+                        row()
+                            .gap(px(8.))
+                            .py(px(12.))
+                            .child(Spinner::new().with_size(px(14.)))
+                            .child(muted("正在读取已安装组件…"))
+                            .into_any_element(),
+                    );
+                } else if installed_missing {
+                    let reason = self
+                        .winetricks
+                        .installed_error
+                        .get(&container)
+                        .cloned()
+                        .unwrap_or_else(|| "尚未读取已安装组件。".to_owned());
+                    rows.push(muted(reason).py(px(10.)).into_any_element());
+                    rows.push(
+                        Button::new("trick-installed-retry")
+                            .label("重试")
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.reload_installed_winetricks(cx)),
+                            )
+                            .into_any_element(),
+                    );
+                } else if let Some(category) = category {
+                    let verbs = filtered_verbs(category, &query, installed_only, installed);
+                    if verbs.is_empty() {
+                        rows.push(
+                            muted(if installed_only {
+                                "该分类下还没有已安装的组件。"
+                            } else {
+                                "没有匹配的组件。"
+                            })
+                            .py(px(10.))
+                            .into_any_element(),
+                        );
+                    }
+                    for verb in verbs {
+                        rows.push(self.winetricks_verb_row(
+                            verb,
+                            installed.is_some_and(|installed| installed.contains(&verb.name)),
+                            cx,
+                        ));
+                    }
+                } else {
+                    rows.push(
+                        muted("该容器没有可用的组件目录。")
+                            .py(px(10.))
+                            .into_any_element(),
+                    );
+                }
+                sections.push(self.section("tricks", "可用组件", rows, cx));
+            }
+            None if self.winetricks.catalog_pending => {
+                sections.push(self.section(
+                    "trick-loading",
+                    "可用组件",
+                    vec![
+                        row()
+                            .gap(px(8.))
+                            .py(px(12.))
+                            .child(Spinner::new().with_size(px(14.)))
+                            .child(muted("正在读取组件目录…"))
+                            .into_any_element(),
+                    ],
+                    cx,
+                ));
+            }
+            None => {
+                let reason = self
+                    .winetricks
+                    .catalog_error
+                    .clone()
+                    .unwrap_or_else(|| "尚未读取组件目录。".to_owned());
+                sections.push(self.section(
+                    "trick-load-error",
+                    "可用组件",
+                    vec![
+                        muted(reason).py(px(10.)).into_any_element(),
+                        Button::new("trick-catalog-retry")
+                            .label("重试")
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.reload_winetricks_catalog(cx)),
+                            )
+                            .into_any_element(),
+                    ],
+                    cx,
+                ));
+            }
+        }
+        self.form("winetricks-scroll", sections)
+    }
+
+    fn winetricks_job_rows(
+        &self,
+        job: &crate::winetricks::InstallJob,
+        cx: &Context<Self>,
+    ) -> Vec<AnyElement> {
+        let mut rows: Vec<AnyElement> = Vec::new();
+        let mut line = row().gap(px(8.)).py(px(8.)).child(div().child(job.label()));
+        if job.running() {
+            line = line.child(Spinner::new().with_size(px(14.)));
+        }
+        if let Some(count) = job.progress.count_label() {
+            line = line.child(muted(count));
+        }
+        rows.push(line.into_any_element());
+        if let Some(output) = &job.progress.line {
+            rows.push(
+                div()
+                    .w_full()
+                    .truncate()
+                    .font_family("monospace")
+                    .text_size(px(11.))
+                    .text_color(rgb(MUTED))
+                    .py(px(4.))
+                    .child(output.clone())
+                    .into_any_element(),
+            );
+        }
+        for failure in &job.failed {
+            rows.push(muted(format!("安装失败 · {}", failure.label())).into_any_element());
+        }
+        if let Some(error) = &job.error {
+            rows.push(muted(error.clone()).into_any_element());
+        }
+        if job.running() {
+            rows.push(
+                Button::new("trick-cancel")
+                    .label("取消安装")
+                    .on_click(cx.listener(|this, _, _, cx| this.cancel_winetricks_install(cx)))
+                    .into_any_element(),
+            );
+        }
+        rows
+    }
+
+    fn winetricks_verb_row(
+        &self,
+        verb: &crate::winetricks::VerbDto,
+        installed: bool,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let selected = self.winetricks.selected.as_deref() == Some(verb.name.as_str());
+        let view = cx.entity().downgrade();
+        let name = verb.name.clone();
+        row()
+            .id(SharedString::from(format!("trick-verb:{}", verb.name)))
+            .w_full()
+            .p(px(9.))
+            .my(px(2.))
+            .gap(px(11.))
+            .rounded(px(8.))
+            .bg(if selected {
+                rgba(0xff891b1f)
+            } else {
+                rgba(0xffffff04)
+            })
+            .border_1()
+            .border_color(if selected {
+                rgba(0xff891b55)
+            } else {
+                rgba(0xffffff08)
+            })
+            .cursor_pointer()
+            .hover(|d| d.bg(rgba(0xffffff0e)).border_color(rgba(0xffffff18)))
+            .on_click(move |_, _, cx| {
+                let name = name.clone();
+                let _ = view.update(cx, |this, cx| {
+                    this.winetricks.selected = Some(name);
+                    cx.notify();
+                });
+            })
+            .child(
+                div()
+                    .w(px(16.))
+                    .flex()
+                    .justify_center()
+                    .text_size(px(13.))
+                    .text_color(rgb(if installed { 0x67d68b } else { 0x77777c }))
+                    .child(if installed { "✓" } else { "○" }),
+            )
+            .child(
+                col()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(2.))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_size(px(12.5))
+                            .truncate()
+                            .child(verb.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(rgb(MUTED))
+                            .truncate()
+                            .child(verb.description.clone()),
+                    ),
+            )
+            .when(installed, |d| {
+                d.child(
+                    div()
+                        .px(px(7.))
+                        .py(px(2.))
+                        .rounded(px(4.))
+                        .bg(rgba(0x67d68b1f))
+                        .text_size(px(10.))
+                        .text_color(rgb(0x67d68b))
+                        .child("已安装"),
+                )
+            })
+            .into_any_element()
+    }
+
+    fn demo_winetricks(&self, cx: &Context<Self>) -> AnyElement {
+        self.form(
+            "winetricks-scroll",
+            vec![
+                self.field("dependency-search", "搜索组件"),
+                self.section(
+                    "tricks",
+                    "可用组件",
+                    [
+                        ("vcrun2022", "Visual C++ 2015–2022"),
+                        ("d3dx9", "DirectX 9"),
+                        ("lavfilters", "LAV Filters"),
+                        ("cjkfonts", "中日韩字体"),
+                        ("dotnet48", ".NET Framework 4.8"),
+                    ]
+                    .into_iter()
+                    .map(|(key, label)| self.toggle(key, label, "", cx))
+                    .collect(),
+                    cx,
+                ),
+            ],
+        )
+    }
+
+
     pub(crate) fn preview_sheet(
         &mut self,
         sheet: PreviewSheet,
@@ -575,27 +936,7 @@ impl WhiskyApp {
             PreviewSheet::RunSettings(i) => self.run_settings(i, cx),
             PreviewSheet::Scan => self.scan_settings(window, cx),
             PreviewSheet::Executable => self.executable_picker(cx),
-            PreviewSheet::Winetricks => self.form(
-                "winetricks-scroll",
-                vec![
-                    self.field("dependency-search", "搜索组件"),
-                    self.section(
-                        "tricks",
-                        "可用组件",
-                        [
-                            ("vcrun2022", "Visual C++ 2015–2022"),
-                            ("d3dx9", "DirectX 9"),
-                            ("lavfilters", "LAV Filters"),
-                            ("cjkfonts", "中日韩字体"),
-                            ("dotnet48", ".NET Framework 4.8"),
-                        ]
-                        .into_iter()
-                        .map(|(key, label)| self.toggle(key, label, "", cx))
-                        .collect(),
-                        cx,
-                    ),
-                ],
-            ),
+            PreviewSheet::Winetricks => self.winetricks_sheet(cx),
             PreviewSheet::CreateBottle => {
                 let state = self.create_bottle.as_ref();
                 let running = state.is_some_and(|s| s.running());
@@ -843,12 +1184,29 @@ impl WhiskyApp {
                                             "创建"
                                         }
                                     } else if matches!(sheet, PreviewSheet::Winetricks) {
-                                        "安装选中组件"
+                                        let job = self.winetricks_job();
+                                        if job.is_some_and(crate::winetricks::InstallJob::running) {
+                                            "安装中…"
+                                        } else if job.is_some_and(|job| job.finished) {
+                                            "关闭"
+                                        } else {
+                                            "安装选中组件"
+                                        }
                                     } else {
                                         "完成"
                                     })
                                     .primary()
-                                    .disabled(matches!(sheet, PreviewSheet::CreateBottle) && self.create_bottle.as_ref().is_some_and(|s| s.running()))
+                                    .disabled(
+                                        (matches!(sheet, PreviewSheet::CreateBottle)
+                                            && self.create_bottle.as_ref().is_some_and(|s| s.running()))
+                                            || (!self.demo
+                                                && matches!(sheet, PreviewSheet::Winetricks)
+                                                && self.winetricks_job().is_some_and(crate::winetricks::InstallJob::running))
+                                            || (!self.demo
+                                                && matches!(sheet, PreviewSheet::Winetricks)
+                                                && !self.winetricks_job().is_some_and(|job| job.finished)
+                                                && self.winetricks.selected.is_none()),
+                                    )
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         if matches!(this.preview.sheet, Some(PreviewSheet::CreateBottle)) {
                                             let state = this.create_bottle.as_ref();
@@ -865,6 +1223,24 @@ impl WhiskyApp {
                                             } else {
                                                 // Submit the form
                                                 this.submit_create_bottle(cx);
+                                            }
+                                        } else if matches!(this.preview.sheet, Some(PreviewSheet::Winetricks)) {
+                                            if this.demo {
+                                                this.preview.sheet = None;
+                                                this.preview.sheet_history.clear();
+                                                cx.notify();
+                                                return;
+                                            }
+                                            if this.winetricks_job().is_some_and(crate::winetricks::InstallJob::running) {
+                                                return;
+                                            }
+                                            if this.winetricks_job().is_some_and(|job| job.finished) {
+                                                this.winetricks.job = None;
+                                                this.preview.sheet = None;
+                                                this.preview.sheet_history.clear();
+                                                cx.notify();
+                                            } else {
+                                                this.start_winetricks_install(cx);
                                             }
                                         } else {
                                             this.preview.sheet = None;

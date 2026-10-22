@@ -23,6 +23,7 @@ mod scan;
 mod state;
 mod theme;
 mod views;
+mod winetricks;
 
 use crate::controls::{col, icon, row};
 #[cfg(feature = "visual-test")]
@@ -286,6 +287,17 @@ fn main() {
             }
         };
         std::process::exit(bridge::print_folders(bottle));
+    }
+    if arguments.iter().any(|argument| argument == "--print-winetricks") {
+        const USAGE: &str = "usage: whisky-gpui --print-winetricks [--bottle <name-or-path>]";
+        let bottle = match cli_value(&arguments, "--bottle") {
+            Ok(bottle) => bottle,
+            Err(()) => {
+                eprintln!("{USAGE}");
+                std::process::exit(2);
+            }
+        };
+        std::process::exit(bridge::print_winetricks(bottle));
     }
     if arguments.iter().any(|argument| argument == "--print-programs") {
         const USAGE: &str = "usage: whisky-gpui --print-programs [--bottle <name-or-path>]";
