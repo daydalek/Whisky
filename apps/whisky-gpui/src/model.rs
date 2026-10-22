@@ -29,8 +29,10 @@ pub(crate) struct Game {
     /// Unix seconds, if the bridge recorded a session.
     pub(crate) last_played: Option<u64>,
     /// Launching executable, when the entry is a program rather than a Store app.
-    /// A folder entry holds its folder here, which cannot be run.
+    /// A folder entry holds its chosen executable here once selected.
     pub(crate) executable: Option<PathBuf>,
+    /// The folder path for folder entries, preserved even when an executable is chosen.
+    pub(crate) folder_path: Option<PathBuf>,
     /// A scanned folder rather than a pinned file or a Steam app. Its
     /// executable is a choice the user makes, so the card offers one.
     pub(crate) is_folder: bool,
@@ -60,11 +62,28 @@ impl Game {
             play_time: None,
             last_played: None,
             executable: None,
+            folder_path: None,
             is_folder: false,
             needs_executable: false,
             container: String::new(),
             last_session_ended_at: None,
         }
+    }
+
+    /// The directory path of a folder entry, safe to pass to `folders.candidates`.
+    pub(crate) fn folder(&self) -> Option<PathBuf> {
+        if let Some(folder) = &self.folder_path {
+            return Some(folder.clone());
+        }
+        if self.is_folder {
+            if let Some(exe) = &self.executable {
+                if exe.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe")) {
+                    return exe.parent().map(std::path::Path::to_path_buf);
+                }
+                return Some(exe.clone());
+            }
+        }
+        None
     }
 
     /// Four-digit release year, when the bridge supplied a parseable date.
@@ -226,6 +245,7 @@ pub(crate) fn ambient(i: usize) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn demo_data_uses_the_procedural_cover_set() {
@@ -291,5 +311,22 @@ mod tests {
         assert_eq!(game.year(), None);
         game.release = None;
         assert_eq!(game.year(), None);
+    }
+
+    #[test]
+    fn folder_resolution_preserves_directory_and_falls_back_from_exe() {
+        let mut game = demo_data()[0].clone();
+        game.is_folder = true;
+        game.folder_path = Some(PathBuf::from("/Users/test/GameFolder"));
+        game.executable = Some(PathBuf::from("/Users/test/GameFolder/bin/start.exe"));
+        assert_eq!(game.folder().as_deref(), Some(Path::new("/Users/test/GameFolder")));
+
+        // Fallback when folder_path is missing but executable is an .exe file
+        game.folder_path = None;
+        assert_eq!(game.folder().as_deref(), Some(Path::new("/Users/test/GameFolder/bin")));
+
+        // Fallback when executable itself is the directory
+        game.executable = Some(PathBuf::from("/Users/test/GameFolder"));
+        assert_eq!(game.folder().as_deref(), Some(Path::new("/Users/test/GameFolder")));
     }
 }

@@ -218,6 +218,13 @@ struct RuntimeAndLinuxBridgeTests {
 
         let entries = try await service.call("library.entries", params: ["container": .string(container.path)])
         #expect(entries.arrayValues?.first?.object?["icon"] == .string(exe.path))
+        #expect(entries.arrayValues?.first?.object?["folder"] == .string(gameFolder.path))
+
+        let candidatesFromFile = try await service.call("folders.candidates", params: [
+            "container": .string(container.path),
+            "path": .string(exe.path)
+        ])
+        #expect(candidatesFromFile.object?["folder"] == .string(gameFolder.path))
 
         let excluded = try await service.call("folders.exclude", params: [
             "container": .string(container.path),

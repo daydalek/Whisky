@@ -80,7 +80,11 @@ extension ApplicationService {
     }
 
     private func setFolderExecutable(_ params: [String: JSONValue], container: URL) throws -> JSONValue {
-        let folder = try params.path("path")
+        var folder = try params.path("path")
+        if let values = try? folder.resourceValues(forKeys: [.isDirectoryKey]), values.isDirectory != true {
+            folder = folder.deletingLastPathComponent()
+        }
+        _ = try Self.validatedDirectory(folder)
         let folderKey = FolderGameLibrary.key(for: folder, bottleURL: container)
         let executableKey: String?
         switch params["executable"] {
@@ -105,7 +109,11 @@ extension ApplicationService {
     /// Every `.exe` under a folder, for a frontend that offers its own picker
     /// instead of a platform file dialog.
     private func folderCandidates(_ params: [String: JSONValue], container: URL) throws -> JSONValue {
-        let folder = try Self.validatedDirectory(try params.path("path"))
+        var folder = try params.path("path")
+        if let values = try? folder.resourceValues(forKeys: [.isDirectoryKey]), values.isDirectory != true {
+            folder = folder.deletingLastPathComponent()
+        }
+        folder = try Self.validatedDirectory(folder)
         let found = ExecutableCandidateFinder.candidates(in: folder)
         return .object([
             "folder": .string(folder.path),

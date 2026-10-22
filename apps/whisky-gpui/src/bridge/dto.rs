@@ -437,6 +437,9 @@ pub(crate) struct EntryDto {
     /// its folder, which cannot be run.
     #[serde(default)]
     pub(crate) executable: Option<String>,
+    /// Folder directory path when source is "folder".
+    #[serde(default)]
+    pub(crate) folder: Option<String>,
     /// Where the entry came from (`pinned`, `steam`, `folder`).
     #[serde(default)]
     pub(crate) source: Option<String>,
@@ -549,6 +552,19 @@ impl EntryDto {
             if title.is_empty() { "Untitled".into() } else { title }
         };
         let metadata = self.metadata.unwrap_or_default();
+        let is_folder = self.source.as_deref() == Some("folder");
+        let folder_path = if is_folder {
+            self.folder
+                .as_deref()
+                .or_else(|| {
+                    self.executable
+                        .as_deref()
+                        .filter(|p| !p.to_lowercase().ends_with(".exe"))
+                })
+                .map(expand_path)
+        } else {
+            None
+        };
         Game {
             id: self.id,
             art,
@@ -563,7 +579,8 @@ impl EntryDto {
             play_time: self.activity.play_time(),
             last_played: self.activity.last_played(),
             executable: self.executable.as_deref().map(expand_path),
-            is_folder: self.source.as_deref() == Some("folder"),
+            folder_path,
+            is_folder,
             needs_executable: self.needs_executable,
             container: self.container.unwrap_or_default(),
             last_session_ended_at: self.activity.last_session_ended_at(),
@@ -894,7 +911,19 @@ mod tests {
                 "source":"folder","executable":"/Games/Sample","needsExecutable":false}"#,
         )
         .expect("folder entry with an executable");
-        assert!(!resolved.clone().into_game(1).needs_executable);
+        let resolved_game = resolved.clone().into_game(1);
+        assert!(!resolved_game.needs_executable);
+        assert_eq!(resolved_game.folder().as_deref(), Some(Path::new("/Games/Sample")));
+
+        let with_both: EntryDto = serde_json::from_str(
+            r#"{"id":"folder:/bottle:/Games/Sample","name":"Sample","container":"/bottle",
+                "source":"folder","folder":"/Games/Sample","executable":"/Games/Sample/sample.exe","needsExecutable":false}"#,
+        )
+        .expect("folder entry with distinct folder and executable");
+        let both_game = with_both.into_game(1);
+        assert_eq!(both_game.folder().as_deref(), Some(Path::new("/Games/Sample")));
+        assert_eq!(both_game.executable.as_deref(), Some(Path::new("/Games/Sample/sample.exe")));
+        assert_eq!(both_game.folder_path.as_deref(), Some(Path::new("/Games/Sample")));
 
         // An older helper omits the key; defaulting to false keeps Play as it
         // is today rather than prompting for every card.
@@ -964,6 +993,7 @@ mod tests {
             name: "Entry".into(),
             container: None,
             executable: None,
+            folder: None,
             needs_executable: false,
             source: None,
             icon: Some("/definitely/missing-icon.png".into()),

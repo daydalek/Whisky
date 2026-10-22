@@ -2153,7 +2153,7 @@ impl WhiskyApp {
                 game.container.clone(),
                 game.id.clone(),
                 game.title.clone(),
-                game.executable.clone(),
+                game.folder(),
             )
         });
         let Some((container, entry_id, title, Some(folder))) = details else {
@@ -2189,9 +2189,12 @@ impl WhiskyApp {
                 executable: Some(path.to_owned()),
             },
         );
+        let folder_path = std::path::PathBuf::from(&picker.folder);
+        let exe_path = std::path::PathBuf::from(path);
         self.update_entry(&picker.container, &picker.entry_id, |game| {
             game.needs_executable = false;
-            game.executable = Some(std::path::PathBuf::from(path));
+            game.executable = Some(exe_path.clone());
+            game.folder_path = Some(folder_path.clone());
         });
         if picker.launch_after {
             if self.configured.ensure(&picker.container) {
