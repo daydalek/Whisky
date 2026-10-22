@@ -9,7 +9,7 @@ use gpui_kit::component::input::InputState;
 use gpui_kit::{prelude::*, *};
 use serde_json::json;
 
-use crate::bridge::dto::{CandidateDto, FoldersDto, ProgramDto};
+use crate::bridge::dto::{CandidateDto, FoldersDto, ProgramDto, SystemInfoDto};
 use crate::bridge::{
     BottleCreateUpdate, BridgeEvent, BridgeStatus, BridgeSupervisor, EntryMutation, FolderEdit,
     ProgramMutation, ScanUpdate,
@@ -129,6 +129,8 @@ pub(crate) enum PreviewSheet {
     CreateBottle,
     /// Choose another bottle to re-home one library entry.
     MoveEntry(usize),
+    /// Choose a bottle for a file opened from Finder or dropped on the window.
+    OpenFile,
     Diagnostics,
     Audio,
     Dll,
@@ -143,6 +145,11 @@ pub(crate) struct MoveEntryState {
     pub(crate) pending: bool,
     pub(crate) target_container: Option<String>,
     pub(crate) error: Option<String>,
+}
+/// A file opened from Finder or dropped on the window, awaiting a bottle.
+pub(crate) struct OpenFileState {
+    pub(crate) path: String,
+    pub(crate) name: String,
 }
 pub(crate) struct PreviewState {
     pub(crate) page: PreviewPage,
@@ -335,6 +342,8 @@ pub(crate) struct WhiskyApp {
     pub(crate) program_settings: ProgramSettingsPage,
     /// The pending library-entry move, while its target picker is open.
     pub(crate) move_entry: Option<MoveEntryState>,
+    /// The opened/dropped file, while its bottle picker is open.
+    pub(crate) open_file: Option<OpenFileState>,
     /// `defaultBottleLocation` from preferences, used as `bottle.create`'s parent.
     pub(crate) default_bottle_location: Option<String>,
     /// Key that "编辑" put in the env inputs; saving with a different name
@@ -348,6 +357,12 @@ pub(crate) struct WhiskyApp {
     hidden_edits: PendingEdits<bool>,
     pub(crate) sidebar: bool,
     pub(crate) settings: bool,
+    /// The About panel; independent of the settings page and sheets.
+    pub(crate) about: bool,
+    /// Packaged version metadata from `system.info`, when the helper answered.
+    pub(crate) app_info: Option<SystemInfoDto>,
+    /// An explicit quit is waiting for the helper to apply the exit policy.
+    quitting: bool,
     pub(crate) motion: bool,
     pub(crate) lively: bool,
     pub(crate) reversed: bool,
@@ -386,6 +401,15 @@ impl WhiskyApp {
         bridge.set_active(window.is_window_active());
         let activation = cx.observe_window_activation(window, |this, window, _| {
             this.bridge.set_active(window.is_window_active());
+        });
+        // Closing the last window quits, but the helper applies the exit policy
+        // first. The frame is saved in request_quit for Cmd-Q and close alike.
+        window.on_window_should_close(cx, {
+            let view = cx.entity().downgrade();
+            move |window, cx| {
+                let _ = view.update(cx, |this, cx| this.request_quit(window, cx));
+                false
+            }
         });
         cx.spawn(async move |this, cx| {
             while let Ok(event) = bridge_events.recv().await {
@@ -432,6 +456,7 @@ impl WhiskyApp {
             winetricks: WinetricksState::default(),
             program_settings: ProgramSettingsPage::default(),
             move_entry: None,
+            open_file: None,
             default_bottle_location: Self::default_bottle_location(),
             env_original: None,
             env_clear_on_reply: false,
@@ -440,6 +465,9 @@ impl WhiskyApp {
             hidden_edits: PendingEdits::default(),
             sidebar: true,
             settings: false,
+            about: false,
+            app_info: None,
+            quitting: false,
             motion: true,
             lively: false,
             reversed: false,
@@ -540,11 +568,17 @@ impl WhiskyApp {
                     }
                     _ => None,
                 };
+                let stopped = matches!(&status, BridgeStatus::Stopped);
                 self.bridge_status = status;
                 if connected && !self.demo {
                     // One read per connected session; the reply carries both
                     // the stored values and the writable-key schema.
                     self.bridge.load_preferences();
+                    self.bridge.load_system_info();
+                }
+                if stopped && self.quitting {
+                    cx.quit();
+                    return;
                 }
                 if unavailable && !self.demo {
                     self.pending.clear();
@@ -607,6 +641,18 @@ impl WhiskyApp {
                 }
             }
             BridgeEvent::ActionFailed { reason } => {
+                if !self.demo {
+                    self.show_notice(reason, cx);
+                }
+            }
+            BridgeEvent::FolderChosen { path } => {
+                if let Some(path) = path {
+                    self.default_bottle_location = Some(path.clone());
+                    self.persist(preferences::DEFAULT_BOTTLE_LOCATION, json!(path), cx);
+                    self.show_notice("已更新默认容器位置", cx);
+                }
+            }
+            BridgeEvent::FolderChooseFailed { reason } => {
                 if !self.demo {
                     self.show_notice(reason, cx);
                 }
@@ -689,6 +735,9 @@ impl WhiskyApp {
                     self.prefs_supported = schema.keys().map(str::to_owned).collect();
                     self.apply_preferences(&values);
                 }
+            }
+            BridgeEvent::SystemInfo { info } => {
+                self.app_info = Some(info);
             }
             BridgeEvent::EntryRating {
                 container,
@@ -1082,7 +1131,7 @@ impl WhiskyApp {
                         }
                         BottleCreateUpdate::Completed {
                             path,
-                            name: _,
+                            name,
                             containers,
                         } => {
                             let state = self.create_bottle.get_or_insert_with(CreateBottleState::default);
@@ -1091,6 +1140,7 @@ impl WhiskyApp {
                             state.finished = true;
                             state.error = None;
                             state.created_path = Some(path.clone());
+                            self.show_notice(format!("已成功创建容器 {name}"), cx);
 
                             // Update the bottle catalogue
                             let previous = self
@@ -1295,11 +1345,13 @@ impl WhiskyApp {
                     self.show_notice(reason, cx);
                 }
             }
+            BridgeEvent::ProgramRunFailed { name, reason } => {
+                self.show_notice(format!("启动 {name} 失败：{reason}"), cx);
+            }
             BridgeEvent::EntryMoved {
                 source_container,
                 target_container,
-            } => {
-                let matches = self.move_entry.as_ref().is_some_and(|state| {
+            } => {                let matches = self.move_entry.as_ref().is_some_and(|state| {
                     state.source_container == source_container
                         && state.target_container.as_deref() == Some(target_container.as_str())
                 });
@@ -1742,6 +1794,51 @@ impl WhiskyApp {
             self.bridge.kill_all_processes(&container);
             self.show_notice("已请求停止所有进程", cx);
         }
+    }
+
+    /// Save the window frame, then let the helper apply the stored
+    /// kill-on-terminate policy before the process exits.
+    pub(crate) fn request_quit(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.quitting {
+            return;
+        }
+        self.quitting = true;
+        crate::ui_state::save_window(window.window_bounds());
+        self.bridge.shutdown_application();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(8)).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.quitting {
+                    cx.quit();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(crate) fn show_about(&mut self, cx: &mut Context<Self>) {
+        self.about = true;
+        self.bridge_dialog = false;
+        cx.notify();
+    }
+
+    /// The settings page replaces the library body, as the gear does.
+    pub(crate) fn open_settings(&mut self, cx: &mut Context<Self>) {
+        self.settings = true;
+        self.detail_open = false;
+        self.preview.sheet = None;
+        self.preview.sheet_history.clear();
+        cx.notify();
+    }
+
+    pub(crate) fn choose_bottle_location(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let current = self.default_bottle_location.clone().unwrap_or_default();
+        self.bridge.choose_folder(&current);
     }
 
     /// The library's Refresh: SwiftUI reloads its bottles and re-reads every
@@ -2212,6 +2309,66 @@ impl WhiskyApp {
         let entry_id = state.entry_id.clone();
         self.bridge.move_entry(&source, &entry_id, &target);
         cx.notify();
+    }
+
+    /// A file handed over by Finder (`open`) or dragged onto the window.
+    /// One bottle runs it directly; several open the bottle picker, as the
+    /// SwiftUI Run panel does.
+    pub(crate) fn open_external_file(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        let runnable = ["exe", "msi", "bat", "msix", "appx", "url"];
+        let extension = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_lowercase)
+            .unwrap_or_default();
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string_lossy().into_owned());
+        if !runnable.contains(&extension.as_str()) || !path.is_file() {
+            self.show_notice(format!("无法运行 {name}：请选择 Windows 程序或安装包"), cx);
+            return;
+        }
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        if self.bottles.is_empty() {
+            self.show_notice("请先创建一个容器", cx);
+            return;
+        }
+        if self.bottles.len() == 1 {
+            self.run_file_in(0, &path.to_string_lossy(), &name, cx);
+            return;
+        }
+        self.open_file = Some(OpenFileState {
+            path: path.to_string_lossy().into_owned(),
+            name,
+        });
+        self.open_preview_sheet(PreviewSheet::OpenFile, cx);
+    }
+
+    pub(crate) fn start_open_file(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(file) = self.open_file.take() else {
+            return;
+        };
+        self.run_file_in(index, &file.path, &file.name, cx);
+        self.preview.sheet = None;
+        self.preview.sheet_history.clear();
+        cx.notify();
+    }
+
+    fn run_file_in(&mut self, index: usize, path: &str, name: &str, cx: &mut Context<Self>) {
+        let Some(bottle) = self.bottles.get(index) else {
+            return;
+        };
+        if !bottle.available {
+            self.show_notice("所选容器不可用", cx);
+            return;
+        }
+        let container = bottle.path.clone();
+        self.bridge.run_program(&container, path, name);
+        self.show_notice(format!("正在启动 {name}"), cx);
     }
 
     fn program_target_matches(&self, container: &str, executable: &str) -> bool {
@@ -3420,6 +3577,7 @@ impl WhiskyApp {
         self.preview.sheet_history.clear();
         // A dismissed picker chose nothing, so nothing is recorded or launched.
         self.executable_picker = None;
+        self.open_file = None;
         cx.notify();
     }
     /// Whether the `Hidden` filter currently includes hidden entries.

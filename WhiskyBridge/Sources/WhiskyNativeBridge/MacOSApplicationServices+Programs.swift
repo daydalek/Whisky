@@ -56,6 +56,8 @@ extension MacOSApplicationServices {
             return try deleteHistory(params, target: programTarget(params, workspace: workspace))
         case "programs.shortcut.create":
             return try await createShortcut(params, target: programTarget(params, workspace: workspace))
+        case "programs.run":
+            return try runProgram(params, workspace: workspace)
         default:
             throw BridgeFailure("method_unavailable", "Native method is unavailable")
         }

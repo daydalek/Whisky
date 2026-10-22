@@ -1,7 +1,9 @@
 //! Application settings surface.
 
+use gpui_kit::component::button::Button;
 use gpui_kit::{prelude::*, *};
 
+use crate::controls::{muted, row};
 use crate::preferences;
 use crate::state::WhiskyApp;
 
@@ -40,7 +42,19 @@ impl WhiskyApp {
                         ),
                         self.toggle("menubar", "在菜单栏显示 Whisky", "", cx),
                         self.choice_pairs("terminal", "首选终端", &TERMINALS, cx),
-                        self.info("默认容器位置", bottle_location),
+                        row()
+                            .py(px(10.))
+                            .gap(px(16.))
+                            .child(div().flex_1().min_w_0().child("默认容器位置"))
+                            .child(muted(bottle_location.clone()).max_w(relative(0.5)).truncate())
+                            .child(
+                                Button::new("choose-bottle-location")
+                                    .label("更改…")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.choose_bottle_location(cx);
+                                    })),
+                            )
+                            .into_any_element(),
                     ],
                     cx,
                 ),

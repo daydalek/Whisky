@@ -222,6 +222,33 @@ impl PreferencesSchemaDto {
     }
 }
 
+/// `system.info`: packaged application metadata for the About panel.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SystemInfoDto {
+    #[serde(default)]
+    pub(crate) app_name: String,
+    #[serde(default)]
+    pub(crate) app_version: String,
+    #[serde(default)]
+    pub(crate) build: String,
+    #[serde(default)]
+    pub(crate) bundle_identifier: String,
+    #[serde(default)]
+    pub(crate) os_version: String,
+}
+
+impl SystemInfoDto {
+    /// Version text for the About panel; never blank.
+    pub(crate) fn version_label(&self) -> String {
+        match (self.app_version.is_empty(), self.build.is_empty()) {
+            (true, _) => "预览版".into(),
+            (false, true) => self.app_version.clone(),
+            (false, false) => format!("{} ({})", self.app_version, self.build),
+        }
+    }
+}
+
 /// `entry.hidden` reply. The record, not the request, is what the UI stores.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1222,6 +1249,27 @@ mod tests {
         assert_eq!(
             job.error.as_ref().map(BridgeFailureDto::reason).as_deref(),
             Some("cancelled: Operation cancelled")
+        );
+    }
+
+    #[test]
+    fn system_info_decodes_packaged_metadata_and_labels_missing_versions() {
+        let info: SystemInfoDto = serde_json::from_str(
+            r#"{
+                "appName": "Whisky", "appVersion": "0.3.0", "build": "42",
+                "bundleIdentifier": "com.franke.Whisky", "osVersion": "Version 27.2",
+                "futureField": true
+            }"#,
+        )
+        .expect("info");
+        assert_eq!(info.version_label(), "0.3.0 (42)");
+        assert_eq!(
+            SystemInfoDto {
+                app_version: String::new(),
+                ..info
+            }
+            .version_label(),
+            "预览版"
         );
     }
 

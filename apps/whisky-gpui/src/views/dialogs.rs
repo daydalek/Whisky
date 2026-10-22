@@ -1870,6 +1870,58 @@ impl WhiskyApp {
         )
     }
 
+    fn open_file_sheet(&self, cx: &Context<Self>) -> AnyElement {
+        let Some(state) = self.open_file.as_ref() else {
+            return self.form(
+                "open-file-scroll",
+                vec![self.section(
+                    "open-file",
+                    "选择容器",
+                    vec![muted("没有待运行的文件。").into_any_element()],
+                    cx,
+                )],
+            );
+        };
+        let mut rows: Vec<AnyElement> = vec![
+            self.info("文件", state.name.clone()),
+            self.info("位置", state.path.clone()),
+        ];
+        for (index, bottle) in self.bottles.iter().enumerate() {
+            rows.push(
+                row()
+                    .gap(px(14.))
+                    .p(px(10.))
+                    .my(px(3.))
+                    .rounded(px(8.))
+                    .bg(rgba(0xffffff05))
+                    .border_1()
+                    .border_color(rgba(0xffffff08))
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(3.))
+                            .child(div().font_weight(FontWeight::MEDIUM).child(bottle.name.clone()))
+                            .child(muted(bottle.path.clone()).truncate()),
+                    )
+                    .child(
+                        Button::new(format!("run-in:{}", bottle.path))
+                            .label(if bottle.available { "运行" } else { "不可用" })
+                            .primary()
+                            .disabled(!bottle.available)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.start_open_file(index, cx);
+                            })),
+                    )
+                    .into_any_element(),
+            );
+        }
+        self.form(
+            "open-file-scroll",
+            vec![self.section("open-file", "选择容器", rows, cx)],
+        )
+    }
+
     pub(crate) fn preview_sheet(
         &mut self,
         sheet: PreviewSheet,
@@ -1885,6 +1937,7 @@ impl WhiskyApp {
             PreviewSheet::Winetricks => "Winetricks",
             PreviewSheet::CreateBottle => "创建容器",
             PreviewSheet::MoveEntry(_) => "移动到容器",
+            PreviewSheet::OpenFile => "运行文件",
             PreviewSheet::Diagnostics => "故障排查",
             PreviewSheet::Audio => "音频故障排查",
             PreviewSheet::Dll => "DLL 覆盖",
@@ -1893,6 +1946,7 @@ impl WhiskyApp {
         let content = match sheet {
             PreviewSheet::RunSettings(i) => self.run_settings(i, window, cx),
             PreviewSheet::MoveEntry(_) => self.move_entry_sheet(cx),
+            PreviewSheet::OpenFile => self.open_file_sheet(cx),
             PreviewSheet::Scan => self.scan_settings(window, cx),
             PreviewSheet::Executable => self.executable_picker(cx),
             PreviewSheet::Winetricks => self.winetricks_sheet(cx),
@@ -1950,7 +2004,7 @@ impl WhiskyApp {
                                 self.choice(
                                     "create-windows",
                                     "Windows 版本",
-                                    &["Windows 11", "Windows 10", "Windows 7"],
+                                    crate::create_bottle::WINDOWS_LABELS,
                                     cx,
                                 ),
                                 self.info("位置", &location),
@@ -2151,6 +2205,8 @@ impl WhiskyApp {
                                         } else {
                                             "取消"
                                         }
+                                    } else if matches!(sheet, PreviewSheet::OpenFile) {
+                                        "取消"
                                     } else if matches!(sheet, PreviewSheet::CreateBottle) {
                                         let state = self.create_bottle.as_ref();
                                         if state.is_some_and(|s| s.running()) {
@@ -2419,6 +2475,156 @@ impl WhiskyApp {
         self.preview.sheet = None;
         self.preview.sheet_history.clear();
         cx.notify();
+    }
+
+    pub(crate) fn about_dialog(
+        &self,
+        width: f32,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let name = self
+            .app_info
+            .as_ref()
+            .map(|info| info.app_name.clone())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| "Whisky".into());
+        let version = self
+            .app_info
+            .as_ref()
+            .map_or_else(|| "预览版".to_owned(), |info| info.version_label());
+        let os_version = self
+            .app_info
+            .as_ref()
+            .map(|info| info.os_version.clone())
+            .filter(|version| !version.is_empty())
+            .unwrap_or_else(|| "macOS".into());
+        let bundle = self
+            .app_info
+            .as_ref()
+            .map(|info| info.bundle_identifier.clone())
+            .unwrap_or_default();
+        let bridge = match &self.bridge_status {
+            BridgeStatus::Connected { version, .. } => version.clone(),
+            BridgeStatus::Failed { .. } => "不可用".into(),
+            BridgeStatus::Stopped => "已停止".into(),
+            BridgeStatus::Locating | BridgeStatus::Starting => "连接中".into(),
+        };
+        let pw = 420_f32.min(width - 48.);
+        let ph = 360_f32.min(height - 48.);
+        let mut facts = vec![
+            row()
+                .gap(px(18.))
+                .child(div().w(px(78.)).child(muted("版本")))
+                .child(div().flex_1().child(version))
+                .into_any_element(),
+            row()
+                .gap(px(18.))
+                .child(div().w(px(78.)).child(muted("系统")))
+                .child(div().flex_1().child(os_version))
+                .into_any_element(),
+            row()
+                .gap(px(18.))
+                .child(div().w(px(78.)).child(muted("桥接")))
+                .child(div().flex_1().child(bridge))
+                .into_any_element(),
+        ];
+        if !bundle.is_empty() {
+            facts.push(
+                row()
+                    .gap(px(18.))
+                    .child(div().w(px(78.)).child(muted("标识符")))
+                    .child(div().flex_1().min_w_0().child(bundle))
+                    .into_any_element(),
+            );
+        }
+        div()
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .bg(rgba(OVERLAY))
+            .child(
+                div()
+                    .id("about-dismiss")
+                    .absolute()
+                    .inset_0()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.about = false;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                col()
+                    .absolute()
+                    .left(px((width - pw) / 2.))
+                    .top(px((height - ph) / 2.))
+                    .w(px(pw))
+                    .h(px(ph))
+                    .rounded(px(RADIUS_LG))
+                    .overflow_hidden()
+                    .bg(rgb(SURFACE))
+                    .border_1()
+                    .border_color(rgba(SURFACE_BORDER))
+                    .shadow_xl()
+                    .child(
+                        row()
+                            .flex_shrink_0()
+                            .h(px(46.))
+                            .px(px(16.))
+                            .gap(px(12.))
+                            .border_b_1()
+                            .border_color(rgba(SURFACE_BORDER))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("关于 Whisky"),
+                            )
+                            .child(
+                                Button::new("about-close")
+                                    .label("×")
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.about = false;
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_h_0()
+                            .px(px(20.))
+                            .py(px(18.))
+                            .gap(px(12.))
+                            .child(div().text_size(px(22.)).font_weight(FontWeight::SEMIBOLD).child(name))
+                            .child(muted("在 macOS 上运行 Windows 游戏。"))
+                            .children(facts),
+                    )
+                    .child(
+                        row()
+                            .flex_shrink_0()
+                            .justify_between()
+                            .items_center()
+                            .gap(px(12.))
+                            .px(px(18.))
+                            .py(px(13.))
+                            .border_t_1()
+                            .border_color(rgba(SURFACE_BORDER))
+                            .child(muted("GNU GPL v3 · 自由软件").text_size(px(11.)))
+                            .child(
+                                Button::new("about-done")
+                                    .label("关闭")
+                                    .primary()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.about = false;
+                                        cx.notify();
+                                    })),
+                            ),
+                    ),
+            )
+            .into_any_element()
     }
 
     pub(crate) fn bridge_status_dialog(

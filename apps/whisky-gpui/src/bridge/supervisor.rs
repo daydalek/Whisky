@@ -30,7 +30,7 @@ use super::{
         EntryDto, EntryList, FoldersDto, HiddenReplyDto, JobDto, JobStartDto, KillReplyDto,
         LaunchReplyDto, LibraryPageDto, PreferencesSchemaDto, ProcessDto, ProgramDto,
         RUNTIME_METHODS, RUNTIME_SESSION_METHODS, RuntimeEntryDto, RuntimeEventBatchDto,
-        RuntimeEventPayloadDto, RuntimeSnapshotDto, ScanResultDto,
+        RuntimeEventPayloadDto, RuntimeSnapshotDto, ScanResultDto, SystemInfoDto,
     },
 };
 use crate::config::{self, ConfigField};
@@ -165,6 +165,13 @@ pub(crate) enum BridgeEvent {
     ActionFailed {
         reason: String,
     },
+    /// `system.chooseFolder`: the chosen directory, or `None` on cancel.
+    FolderChosen {
+        path: Option<String>,
+    },
+    FolderChooseFailed {
+        reason: String,
+    },
     /// Entries for one container path, in bridge order.
     Entries {
         container: String,
@@ -199,6 +206,10 @@ pub(crate) enum BridgeEvent {
     Preferences {
         values: serde_json::Value,
         schema: PreferencesSchemaDto,
+    },
+    /// `system.info`: packaged application metadata for the About panel.
+    SystemInfo {
+        info: SystemInfoDto,
     },
     /// The activity record `entry.rating` returned, not an echo of the request.
     EntryRating {
@@ -362,11 +373,21 @@ pub(crate) enum BridgeEvent {
         target_container: String,
         reason: String,
     },
+    /// A `programs.run` job failed before the game started. Long-running jobs
+    /// are no longer watched after the startup window.
+    ProgramRunFailed {
+        name: String,
+        reason: String,
+    },
 }
 
 enum Command {
     Retry,
     Shutdown,
+    /// Quit the application: the helper applies the stored kill-on-terminate
+    /// policy before the session closes.
+    ShutdownApplication,
+    LoadSystemInfo,
     LoadEntries(String),
     ConfigureRuntime(String),
     Launch {
@@ -490,6 +511,14 @@ enum Command {
         entry_id: String,
         target_container: String,
     },
+    /// Run a file the user opened or dropped, in one bottle.
+    RunProgram {
+        container: String,
+        path: String,
+        name: String,
+    },
+    /// `system.chooseFolder` starting at the current default location.
+    ChooseFolder(String),
     /// Window activation: polling pauses while the app is in the background.
     SetActive(bool),
     /// Re-read the bottle catalogue and drop the cached entries, as the
@@ -622,6 +651,17 @@ impl BridgeSupervisor {
             key: key.to_owned(),
             value,
         });
+    }
+
+    /// Read the packaged app version once per connected session.
+    pub(crate) fn load_system_info(&self) {
+        let _ = self.commands.send(Command::LoadSystemInfo);
+    }
+
+    /// Quit with the stored exit policy. The worker emits `Stopped` when the
+    /// session is closed, which is when the UI may call `cx.quit()`.
+    pub(crate) fn shutdown_application(&self) {
+        let _ = self.commands.send(Command::ShutdownApplication);
     }
 
     /// `configuration.schema` + `configuration.read` for one bottle.
@@ -802,6 +842,15 @@ impl BridgeSupervisor {
         });
     }
 
+    /// Run an opened or dropped Windows file in one bottle.
+    pub(crate) fn run_program(&self, container: &str, path: &str, name: &str) {
+        let _ = self.commands.send(Command::RunProgram {
+            container: container.to_owned(),
+            path: path.to_owned(),
+            name: name.to_owned(),
+        });
+    }
+
     /// `programs.list` for one bottle. The pin/block mutations reply with the
     /// same payload, so one event type carries all three.
     pub(crate) fn load_programs(&self, container: &str) {
@@ -874,6 +923,11 @@ impl BridgeSupervisor {
             path: Some(path.to_owned()),
             reveal: false,
         });
+    }
+
+    /// Native directory picker (`system.chooseFolder`).
+    pub(crate) fn choose_folder(&self, path: &str) {
+        let _ = self.commands.send(Command::ChooseFolder(path.to_owned()));
     }
 }
 
@@ -966,6 +1020,8 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
         let mut create: Option<LiveCreate> = None;
         // At most one winetricks install job.
         let mut tricks: Option<LiveWinetricks> = None;
+        // The one opened file being watched for startup failures.
+        let mut program_run: Option<LiveProgramRun> = None;
         loop {
             // A live session blocks only until its next poll is due. Anything
             // else parks, and a command still wakes the worker immediately.
@@ -982,6 +1038,9 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
             }
             if let Some(tricks) = &tricks {
                 wait_for = wait_for.min(tricks.due.saturating_duration_since(now));
+            }
+            if let Some(run) = &program_run {
+                wait_for = wait_for.min(run.due.saturating_duration_since(now));
             }
             let command = match commands.recv_timeout(wait_for) {
                 Ok(command) => Some(command),
@@ -1186,9 +1245,35 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                             Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                         }
                     }
+                    if let Some(active) = program_run.as_mut() {
+                        match poll_program_run(&mut client, active) {
+                            Ok(ProgramRunPoll::Pending) => {}
+                            Ok(ProgramRunPoll::Finished) => program_run = None,
+                            Ok(ProgramRunPoll::Failed(reason)) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::ProgramRunFailed {
+                                        name: active.name.clone(),
+                                        reason,
+                                    },
+                                );
+                                program_run = None;
+                            }
+                            Err(CallFailure::Remote(reason)) => {
+                                eprintln!("whisky-bridge: programs.run poll failed: {reason}");
+                                program_run = None;
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
                 }
                 Some(Command::Shutdown) => {
                     client.close();
+                    emit(&events, BridgeStatus::Stopped);
+                    return;
+                }
+                Some(Command::ShutdownApplication) => {
+                    let _ = client.shutdown(true);
                     emit(&events, BridgeStatus::Stopped);
                     return;
                 }
@@ -1442,6 +1527,16 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         // SwiftUI defaults instead of blanking the library.
                         Err(CallFailure::Remote(reason)) => {
                             eprintln!("whisky-bridge: preferences.read failed: {reason}");
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::LoadSystemInfo) => {
+                    match load_system_info(&mut client) {
+                        Ok(info) => emit_event(&events, BridgeEvent::SystemInfo { info }),
+                        // The About panel falls back to its built-in copy.
+                        Err(CallFailure::Remote(reason)) => {
+                            eprintln!("whisky-bridge: system.info failed: {reason}");
                         }
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
@@ -2123,6 +2218,43 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
                 }
+                Some(Command::RunProgram {
+                    container,
+                    path,
+                    name,
+                }) => {
+                    match client
+                        .call(
+                            "programs.run",
+                            json!({ "container": container, "executable": path }),
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(reply) => match serde_json::from_value::<JobStartDto>(reply) {
+                            Ok(start) => {
+                                let now = Instant::now();
+                                program_run = Some(LiveProgramRun {
+                                    job_id: start.job_id,
+                                    name,
+                                    due: now + PROGRAM_RUN_POLL,
+                                    deadline: now + PROGRAM_RUN_GRACE,
+                                });
+                            }
+                            Err(error) => emit_event(
+                                &events,
+                                BridgeEvent::ProgramRunFailed {
+                                    name,
+                                    reason: format!("invalid run reply: {error}"),
+                                },
+                            ),
+                        },
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::ProgramRunFailed { name, reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
                 Some(Command::ReloadLibrary) => {
                     // A refresh must re-read: the cached snapshot predates it.
                     cache = None;
@@ -2151,6 +2283,21 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         Ok(_) => {}
                         Err(CallFailure::Remote(reason)) => {
                             emit_event(&events, BridgeEvent::ActionFailed { reason });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::ChooseFolder(path)) => {
+                    match client
+                        .call("system.chooseFolder", json!({ "path": path }))
+                        .map_err(classify)
+                    {
+                        Ok(reply) => {
+                            let path = reply.get("path").and_then(|value| value.as_str()).map(str::to_owned);
+                            emit_event(&events, BridgeEvent::FolderChosen { path });
+                        }
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::FolderChooseFailed { reason });
                         }
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
@@ -2472,6 +2619,17 @@ fn start_create(
 
 /// How often `jobs.get` is polled while a scan or create job is queued or running.
 const SCAN_POLL: Duration = Duration::from_millis(250);
+/// A launched game is only watched for startup failures. After this window the
+/// job is left alone; a game may then run for hours.
+const PROGRAM_RUN_GRACE: Duration = Duration::from_secs(20);
+const PROGRAM_RUN_POLL: Duration = Duration::from_millis(500);
+
+struct LiveProgramRun {
+    job_id: String,
+    name: String,
+    due: Instant,
+    deadline: Instant,
+}
 
 struct LiveScan {
     container: String,
@@ -2732,6 +2890,41 @@ enum ScanTerminal {
     Failed { status: JobStatus, reason: String },
 }
 
+enum ProgramRunPoll {
+    Pending,
+    /// Started (or already exited) successfully; stop watching.
+    Finished,
+    Failed(String),
+}
+
+/// Watch a launched file only until the startup grace expires. After that the
+/// job is left alone so a long-running game costs no polls.
+fn poll_program_run(
+    client: &mut Client,
+    run: &mut LiveProgramRun,
+) -> Result<ProgramRunPoll, CallFailure> {
+    if Instant::now() >= run.deadline {
+        return Ok(ProgramRunPoll::Finished);
+    }
+    let reply = client
+        .call("jobs.get", json!({ "jobID": run.job_id }))
+        .map_err(classify)?;
+    let job: JobDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid job payload: {error}")))?;
+    run.due = Instant::now() + PROGRAM_RUN_POLL;
+    match job.status.as_str() {
+        "failed" | "cancelled" => Ok(ProgramRunPoll::Failed(
+            job.error
+                .as_ref()
+                .map(BridgeFailureDto::reason)
+                .unwrap_or_else(|| job.status),
+        )),
+        "completed" => Ok(ProgramRunPoll::Finished),
+        "queued" | "running" | "cancelling" => Ok(ProgramRunPoll::Pending),
+        other => Err(CallFailure::Remote(format!("unknown job status: {other}"))),
+    }
+}
+
 fn poll_scan(
     client: &mut Client,
     scan: &mut LiveScan,
@@ -2909,7 +3102,9 @@ fn wait(commands: &CommandReceiver<Command>, delay: Duration, foreground: &mut b
         let remaining = deadline.saturating_duration_since(Instant::now());
         match commands.recv_timeout(remaining) {
             Ok(Command::Retry) => return Wake::Retry,
-            Ok(Command::Shutdown) | Err(RecvTimeoutError::Disconnected) => return Wake::Stop,
+            Ok(Command::Shutdown) | Ok(Command::ShutdownApplication) | Err(RecvTimeoutError::Disconnected) => {
+                return Wake::Stop;
+            }
             // Activation is the only command that outlives the session.
             Ok(Command::SetActive(active)) => *foreground = active,
             // Reads and runtime intents queued for the failed session are
@@ -3007,8 +3202,15 @@ fn load_preferences(
     Ok((values, schema))
 }
 
-fn log_container_names(containers: &[Container]) {
-    let names = containers
+fn load_system_info(client: &mut Client) -> Result<SystemInfoDto, CallFailure> {
+    let value = client
+        .call("system.info", json!({}))
+        .map_err(classify)?;
+    serde_json::from_value(value)
+        .map_err(|error| CallFailure::Remote(format!("invalid system info payload: {error}")))
+}
+
+fn log_container_names(containers: &[Container]) {    let names = containers
         .iter()
         .map(|container| container.name.as_str())
         .collect::<Vec<_>>()

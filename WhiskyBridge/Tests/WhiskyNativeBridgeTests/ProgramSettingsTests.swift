@@ -84,9 +84,9 @@ private struct Fixture {
     }
 }
 
-@MainActor private func services() -> MacOSApplicationServices {
+@MainActor private func services(wineEnabled: Bool = false) -> MacOSApplicationServices {
     MacOSApplicationServices(
-        wineEnabled: false,
+        wineEnabled: wineEnabled,
         preferencesDomain: "com.franke.Whisky.tests.\(UUID().uuidString)",
         jobs: BridgeJobStore()
     )
@@ -157,4 +157,36 @@ private struct Fixture {
         workspace: fixture.workspace
     )
     #expect(history.object?["entries"] == .array([]))
+}
+
+@Test @MainActor func programRunValidatesRunnableExtensionsAndStartsJob() async throws {
+    let fixture = try Fixture()
+    defer { fixture.remove() }
+    let service = services(wineEnabled: true)
+
+    let txtFile = fixture.container.appendingPathComponent("drive_c/readme.txt")
+    try Data("hello".utf8).write(to: txtFile)
+    await #expect(throws: BridgeFailure.self) {
+        _ = try await service.programsCall(
+            "programs.run",
+            params: ["container": .string(fixture.container.path), "executable": .string(txtFile.path)],
+            workspace: fixture.workspace
+        )
+    }
+
+    let missing = fixture.container.appendingPathComponent("drive_c/missing.exe")
+    await #expect(throws: BridgeFailure.self) {
+        _ = try await service.programsCall(
+            "programs.run",
+            params: ["container": .string(fixture.container.path), "executable": .string(missing.path)],
+            workspace: fixture.workspace
+        )
+    }
+
+    let reply = try await service.programsCall(
+        "programs.run",
+        params: ["container": .string(fixture.container.path), "executable": .string(fixture.executable.path)],
+        workspace: fixture.workspace
+    )
+    #expect(reply.object?["jobID"]?.string?.isEmpty == false)
 }

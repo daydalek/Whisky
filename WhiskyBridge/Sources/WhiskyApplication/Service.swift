@@ -48,7 +48,7 @@ public final class ApplicationService {
     public let processes: ProcessService?
     public static let methods = [
         "bridge.describe", "bridge.shutdown", "jobs.get", "jobs.cancel", "library.scan", "library.page",
-        "workspace.containers",
+        "workspace.containers", "system.info",
         "library.entries",
         "folders.read",
         "folders.addRoot",
@@ -148,21 +148,18 @@ extension ApplicationService {
         case "programs": return try await programCall(method, params: params)
         case "environment": return try await environmentCall(method, params: params)
         case "processes": return try await processesCall(method, params: params)
+        case "system": return method == "system.info" ? ApplicationInfo.payload() : nil
         default: return nil
         }
     }
 
     private func runtimeCall(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
-        if let runtime {
-            return try await runtime.call(method, params: params, workspace: workspace)
-        }
+        if let runtime { return try await runtime.call(method, params: params, workspace: workspace) }
         return try await nativeCall(method, params: params)
     }
 
     private func processesCall(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
-        if let processes {
-            return try await processes.call(method, params: params, workspace: workspace)
-        }
+        if let processes { return try await processes.call(method, params: params, workspace: workspace) }
         return try await nativeCall(method, params: params)
     }
 

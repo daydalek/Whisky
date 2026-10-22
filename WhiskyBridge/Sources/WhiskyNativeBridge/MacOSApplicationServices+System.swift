@@ -52,6 +52,23 @@ extension MacOSApplicationServices {
         workspace: ApplicationWorkspace
     ) throws -> JSONValue {
         switch method {
+        case "system.chooseFolder":
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.canCreateDirectories = true
+            if let raw = params["path"]?.string, raw.hasPrefix("/") {
+                panel.directoryURL = URL(fileURLWithPath: raw)
+            }
+            if let prompt = params["prompt"]?.string, !prompt.isEmpty {
+                panel.prompt = prompt
+            }
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            guard panel.runModal() == .OK, let url = panel.url else {
+                return .object(["path": .null])
+            }
+            return .object(["path": .string(url.path)])
         case "system.resources":
             return .object([
                 "kitBundle": .string(WhiskyResources.kitBundleURL.path),

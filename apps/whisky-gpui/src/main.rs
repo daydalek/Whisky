@@ -1,5 +1,8 @@
 //! Application entry, root view composition, and visual-test capture hook.
 
+use std::cell::RefCell;
+use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::base::{Presence, Spring, spring};
@@ -23,6 +26,7 @@ mod runtime;
 mod scan;
 mod state;
 mod theme;
+mod ui_state;
 mod views;
 mod winetricks;
 
@@ -36,7 +40,19 @@ use crate::theme::{ACCENT, BG, DETAIL_MS, NOTICE_MS, SIDEBAR_MS, TEXT};
 
 gpui_kit::actions!(
     whisky_preview,
-    [DismissPreview, QuitPreview, ReorderLibrary, ToggleMotion]
+    [
+        DismissPreview,
+        QuitPreview,
+        ReorderLibrary,
+        ToggleMotion,
+        RefreshLibrary,
+        ShowAbout,
+        ShowSettings,
+        ToggleSidebar,
+        MinimizeWindow,
+        ZoomWindow,
+        ToggleFullScreen
+    ]
 );
 
 impl Render for WhiskyApp {
@@ -77,6 +93,11 @@ impl Render for WhiskyApp {
             .font_family(".AppleSystemUIFont")
             .text_color(rgb(TEXT))
             .text_size(px(13.))
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                if let Some(path) = paths.0.first() {
+                    this.open_external_file(path.clone(), cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &ReorderLibrary, _, cx| {
                 if this.preview.page == PreviewPage::Library
                     && !this.settings
@@ -90,13 +111,40 @@ impl Render for WhiskyApp {
                 this.motion = !this.motion;
                 cx.notify();
             }))
+            .on_action(cx.listener(|this, _: &RefreshLibrary, _, cx| {
+                if this.demo {
+                    this.show_notice(crate::state::DEMO_NOTICE, cx);
+                } else {
+                    this.refresh_library(cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ShowAbout, _, cx| this.show_about(cx)))
+            .on_action(cx.listener(|this, _: &ShowSettings, _, cx| this.open_settings(cx)))
+            .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
+                this.sidebar = !this.sidebar;
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &QuitPreview, window, cx| {
+                this.request_quit(window, cx);
+            }))
+            .on_action(cx.listener(|_, _: &MinimizeWindow, window, _| {
+                window.minimize_window();
+            }))
+            .on_action(cx.listener(|_, _: &ZoomWindow, window, _| {
+                window.zoom_window();
+            }))
+            .on_action(cx.listener(|_, _: &ToggleFullScreen, window, _| {
+                window.toggle_fullscreen();
+            }))
             .on_action(cx.listener(|this, _: &DismissPreview, _, cx| {
-                if this.preview.sheet.is_some() {
+                if this.about {
+                    this.about = false;
+                } else if this.preview.sheet.is_some() {
                     this.preview_dismiss(cx);
                 } else {
                     this.detail_open = false;
-                    cx.notify();
                 }
+                cx.notify();
             }))
             .child(
                 div()
@@ -130,6 +178,9 @@ impl Render for WhiskyApp {
         }
         if self.clipboard_prompt.is_some() {
             root = root.child(self.clipboard_dialog(ww, wh, cx));
+        }
+        if self.about {
+            root = root.child(self.about_dialog(ww, wh, cx));
         }
         if notification.should_render() {
             let message = self.notice.clone().unwrap_or_default();
@@ -257,6 +308,44 @@ fn cli_value<'a>(arguments: &'a [String], flag: &str) -> Result<Option<&'a str>,
         },
         None => Ok(None),
     }
+}
+
+/// Native menu bar. GPUI does not add the standard macOS app menu, so About,
+/// Settings and Quit are declared explicitly; text fields rely on the Editing
+/// OS actions for their standard shortcuts.
+fn install_menus(cx: &mut App) {
+    cx.set_menus(vec![
+        Menu::new("Whisky").items(vec![
+            MenuItem::action("关于 Whisky", ShowAbout),
+            MenuItem::separator(),
+            MenuItem::action("设置…", ShowSettings),
+            MenuItem::separator(),
+            MenuItem::action("退出 Whisky", QuitPreview),
+        ]),
+        Menu::new("编辑").items(vec![
+            MenuItem::os_action("撤销", NoAction, OsAction::Undo),
+            MenuItem::os_action("重做", NoAction, OsAction::Redo),
+            MenuItem::separator(),
+            MenuItem::os_action("剪切", NoAction, OsAction::Cut),
+            MenuItem::os_action("复制", NoAction, OsAction::Copy),
+            MenuItem::os_action("粘贴", NoAction, OsAction::Paste),
+            MenuItem::os_action("全选", NoAction, OsAction::SelectAll),
+        ]),
+        Menu::new("显示").items(vec![
+            MenuItem::action("刷新游戏库", RefreshLibrary),
+            MenuItem::action("重排游戏", ReorderLibrary),
+            MenuItem::separator(),
+            MenuItem::action("显示/隐藏侧边栏", ToggleSidebar),
+            MenuItem::separator(),
+            MenuItem::action("设置…", ShowSettings),
+        ]),
+        Menu::new("窗口").items(vec![
+            MenuItem::action("最小化", MinimizeWindow),
+            MenuItem::action("缩放", ZoomWindow),
+            MenuItem::separator(),
+            MenuItem::action("进入全屏幕", ToggleFullScreen),
+        ]),
+    ]);
 }
 
 fn main() {
@@ -387,17 +476,39 @@ fn main() {
         };
         std::process::exit(bridge::print_library(bottle, all));
     }
-    gpui_kit::application()
-        .with_assets(gpui_kit::assets::AllAssets)
-        .run(|cx| {
+    let pending_urls: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
+    let url_dispatch: Rc<RefCell<Option<Box<dyn FnMut(Vec<PathBuf>)>>>> =
+        Rc::new(RefCell::new(None));
+    let application = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
+    {
+        let pending_urls = pending_urls.clone();
+        let url_dispatch = url_dispatch.clone();
+        application.on_open_urls(move |urls| {
+            let paths = urls
+                .iter()
+                .map(|raw| ui_state::path_from_open_url(raw))
+                .collect::<Vec<_>>();
+            if let Some(dispatch) = url_dispatch.borrow_mut().as_mut() {
+                dispatch(paths);
+            } else {
+                // The launch URL can arrive before the window exists.
+                pending_urls.borrow_mut().extend(paths);
+            }
+        });
+    }
+    application.run(move |cx| {
             gpui_kit::init(cx);
             cx.bind_keys([
                 KeyBinding::new("escape", DismissPreview, None),
                 KeyBinding::new("cmd-q", QuitPreview, None),
-                KeyBinding::new("cmd-r", ReorderLibrary, None),
+                KeyBinding::new("cmd-r", RefreshLibrary, None),
+                KeyBinding::new("cmd-shift-r", ReorderLibrary, None),
                 KeyBinding::new("cmd-shift-m", ToggleMotion, None),
+                KeyBinding::new("cmd-,", ShowSettings, None),
+                KeyBinding::new("cmd-ctrl-s", ToggleSidebar, None),
+                KeyBinding::new("cmd-m", MinimizeWindow, None),
             ]);
-            cx.on_action(|_: &QuitPreview, cx| cx.quit());
+            install_menus(cx);
             Theme::change(ThemeMode::Dark, None, cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
@@ -405,6 +516,7 @@ fn main() {
                 }
             })
             .detach();
+            let bounds = ui_state::initial_window_bounds(cx);
             let (_handle, _view) = gpui_kit::open_window(
                 WindowOptions {
                     titlebar: Some(TitlebarOptions {
@@ -412,11 +524,7 @@ fn main() {
                         appears_transparent: true,
                         traffic_light_position: Some(point(px(15.), px(21.))),
                     }),
-                    window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                        None,
-                        size(px(1280.), px(820.)),
-                        cx,
-                    ))),
+                    window_bounds: Some(bounds),
                     window_min_size: Some(size(px(800.), px(580.))),
                     ..Default::default()
                 },
@@ -424,6 +532,22 @@ fn main() {
                 |window, cx| cx.new(|cx| WhiskyApp::new(window, cx)),
             )
             .expect("Failed to open GPUI preview");
+            let async_cx = cx.to_async();
+            let url_view = _view.clone();
+            for path in std::mem::take(&mut *pending_urls.borrow_mut()) {
+                let _ = url_view.update(cx, |this, cx| this.open_external_file(path, cx));
+            }
+            *url_dispatch.borrow_mut() = Some(Box::new(move |paths| {
+                let cx = async_cx.clone();
+                let view = url_view.clone();
+                cx.update(|cx| {
+                    let _ = view.update(cx, |this, cx| {
+                        for path in paths {
+                            this.open_external_file(path, cx);
+                        }
+                    });
+                });
+            }));
             cx.activate(true);
             #[cfg(feature = "visual-test")]
             if std::env::var_os("WHISKY_MOTION_CAPTURE").is_some() {

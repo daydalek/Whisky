@@ -361,6 +361,15 @@ private struct Fixture {
     await service.shutdown()
 }
 
+@Test @MainActor func applicationInfoIsPortableAndAdvertised() async throws {
+    let service = ApplicationService(workspace: ApplicationWorkspace())
+    let info = try await service.call("system.info", params: [:])
+    #expect(info.object?["appName"]?.string?.isEmpty == false)
+    #expect(info.object?["appVersion"]?.string?.isEmpty == false)
+    #expect(info.object?["osVersion"]?.string?.isEmpty == false)
+    #expect(ApplicationService.methods.contains("system.info"))
+}
+
 @Test @MainActor func retainedCataloguePagesHaveStableIdentityAndValidatedBounds() async throws {
     let fixture = try Fixture()
     defer { fixture.remove() }

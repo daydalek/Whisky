@@ -66,6 +66,7 @@ public final class MacOSApplicationServices: NativeApplicationServices {
                 "bottle.create",
                 "wine.configuration",
                 "processes.read",
+                "programs.launch",
                 "winetricks.verbs",
                 "winetricks.install"
             ] + RuntimeService.capabilities : [])
@@ -73,12 +74,13 @@ public final class MacOSApplicationServices: NativeApplicationServices {
 
     public var methods: [String] {
         [
-            "system.reveal", "system.open", "system.resources",
+            "system.reveal", "system.open", "system.resources", "system.chooseFolder",
             "programs.settings.read", "programs.settings.set",
             "programs.history.read", "programs.history.delete",
             "programs.shortcut.create", "entry.move"
         ] + (wineEnabled ? [
             "bottle.create",
+            "programs.run",
             "winetricks.catalog",
             "winetricks.installed",
             "winetricks.install"
