@@ -62,15 +62,22 @@ struct LinuxDesktopService {
             handlesFiles: true
         )
         if method == "system.desktop.status" {
+            let status = try LinuxDesktopUpdater.status(contents, at: target, arguments: [[]], handlesFiles: true)
             return .object([
-                "installed": .bool(LinuxDesktopEntry.regularContents(target) == Data(contents.utf8)),
+                "installed": .bool(status.installed),
+                "needsUpdate": .bool(status.needsUpdate),
                 "path": .string(target.path)
             ])
         }
         try FileManager.default.createDirectory(at: applications, withIntermediateDirectories: true)
-        try LinuxDesktopEntry.publish(contents, at: target)
+        let updated = try LinuxDesktopUpdater.publish(contents, at: target, arguments: [[]], handlesFiles: true)
         let cache = try await refreshCache()
-        return .object(["installed": .bool(true), "path": .string(target.path), "cacheUpdated": .bool(cache)])
+        return .object([
+            "installed": .bool(true),
+            "path": .string(target.path),
+            "cacheUpdated": .bool(cache),
+            "updated": .bool(updated)
+        ])
     }
 
     private func launcher(_ params: [String: JSONValue]) throws -> URL {
@@ -125,12 +132,15 @@ struct LinuxDesktopService {
             arguments: ["--open-file", relative, "--container-id", id],
             handlesFiles: false
         )
-        try LinuxDesktopEntry.publish(contents, at: target)
+        let updated = try LinuxDesktopUpdater.publish(contents, at: target, arguments: [
+            ["--open-file", relative, "--container-id", id],
+            ["--open-file", executable.path, "--container", container.path]
+        ], handlesFiles: false)
         return .object([
             "path": .string(target.path),
             "name": .string(name),
             "containerID": .string(id),
-            "programPath": .string(relative)
+            "programPath": .string(relative), "updated": .bool(updated)
         ])
     }
 

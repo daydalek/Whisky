@@ -149,6 +149,8 @@ impl WhiskyApp {
                         Button::new("install-desktop")
                             .label(if self.desktop_installing {
                                 "正在添加…"
+                            } else if self.desktop_status.as_ref().is_some_and(|status| status.needs_update) {
+                                "更新…"
                             } else if installed {
                                 "已添加"
                             } else {

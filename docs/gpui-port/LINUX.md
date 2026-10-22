@@ -10,7 +10,7 @@ and distribution gates below.
 OrbStack ARM64 Ubuntu 24.04, Swift 6.4, Rust 1.99.1, Xvfb/X11 and Mesa software
 rendering:
 
-- Shared core: 112 tests; portable bridge: 92 tests; shared metadata package: 20 tests.
+- Shared core: 112 tests; portable bridge: 101 tests; shared metadata package: 20 tests.
 - Rust SDK tests, including its real Swift helper integration test.
 - Production GPUI Linux build/link and 126 unit tests.
 - Production Rust client/helper handshake, capability list and isolated empty
@@ -575,9 +575,8 @@ decodes only the ASCII stat fields; the export process-group verifier tolerates
 arbitrary comm bytes. A focused regression supplies an invalid UTF-8 name and
 verifies the exact start-time identity.
 
-The subsequent identity stage supplies stable references for newly generated
-shortcuts. Legacy path-bound files retain their original semantics. Legacy
-shortcut regeneration and managed desktop-entry updates remain required work.
+The subsequent identity and managed-update stages supply stable references
+for new shortcuts and upgrade verified legacy path-bound entries.
 Local evidence under `build/portability/gui-linux/` includes
 `desktop-macos.log`, `desktop-gpui-macos.log`, `desktop-swift60.log`,
 `desktop-final-linux.log`, `desktop-process.log`, `desktop-final-window.log`,
@@ -608,8 +607,8 @@ the current executable. It rejects relative parent traversal and missing targets
 The frontend resolves IDs after catalogue readiness, retains pending reads across
 helper reconnects and ignores superseded replies. The combined pending/admission
 queue stays bounded at 64 requests. Legacy absolute `--container` handoffs remain
-supported. This phase changes newly generated entries; managed regeneration of
-existing path-bound entries remains on the host-integration work list.
+supported. The following managed-update stage upgrades existing path-bound
+entries after verifying their stored executable and container binding.
 
 Verification passes 92 shared bridge tests on macOS and ARM Ubuntu Swift
 6.0/6.4, 12 native macOS adapter tests and 126 GPUI tests on each platform.
@@ -630,6 +629,53 @@ launch. Local evidence under `build/portability/gui-linux/` includes
 `identity-macos.log`, `identity-gpui-macos.log`, `identity-swift60.log`,
 `identity-final-linux.log`, `identity-window.log`,
 `linux-gpui/shortcut-identity/` and `linux-gpui/desktop-window/`.
+
+## Managed desktop updates and legacy shortcut upgrade
+
+The settings desktop action reports an available update when the stored launch
+command differs from the requested frontend path. Installation refreshes an
+owned entry after verifying its exact generated Exec command against its stored
+launcher. The stored frontend may already have been removed. Shortcut creation
+also accepts the verified legacy absolute executable/container pair and upgrades
+it to the current frontend, relative executable and stable container UUID.
+
+Updates preserve custom Name/Icon fields, extra keys, comments, action groups,
+line endings and permission bits. Main application MIME types merge with the
+existing list; `mimeapps.list` contents and effective defaults remain intact.
+Edited launch commands, foreign files, symlinks and same-name shortcuts bound
+to another program retain their contents and produce a specific conflict error.
+Legacy binding verification uses the current container path; a legacy prefix
+already moved without a known mapping requires explicit reassociation.
+
+A process-shared per-entry lease serializes status and publication. A bounded
+journal records both file identities and payloads before the old entry is
+retired to a private sibling. Exclusive publication establishes the commit
+boundary. A fresh status/install request recovers an interrupted update:
+pre-publication recovery restores the old entry, and post-publication recovery
+keeps the new entry, including subsequent in-place edits. A competing target
+and its recovery backup are both retained for explicit conflict resolution.
+The recovery record lives at `<entry>.whisky-update.plist`.
+
+Verification passes 101 shared bridge tests on macOS and ARM Ubuntu Swift
+6.0/6.4; GPUI passes 126 tests on each platform. New regressions exercise four
+transaction phases, concurrent edits, malformed journals, program-binding
+collisions, legacy upgrade and preservation of customized entries. The real
+helper test launches both refreshed entries through GIO, confirms exact new
+frontend arguments and kills a live update after observing its journal. The
+recorded run observed the pre-publication boundary; a fresh helper restored a
+complete old entry, then completed the requested update.
+
+The production Xvfb flow updates a customized old application entry through
+settings and upgrades a customized legacy program shortcut. Another helper
+moves its prefix, then GIO launches the upgraded shortcut into a second
+production window with the correct container selected. Recorded requests stay
+within file/host capabilities. CI runs the process and window checks and retains
+the journal, reports, helper logs, generated entry and screenshots.
+
+Local evidence under `build/portability/gui-linux/` includes
+`desktop-update-macos.log`, `desktop-update-gpui-macos.log`,
+`desktop-update-swift60.log`, `desktop-update-final-linux.log`,
+`linux-gpui/desktop-update/` and `linux-gpui/desktop-window/`.
 
 ## Reproduce
 
@@ -675,7 +721,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux .desktop creation and GIO startup verified; broader UI override editing remains in the desktop gate |
 | Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
 | Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; complete production file-lifecycle window flow, recovery and candidate import UI | Additional platform coverage follows the desktop acceptance matrix |
-| Host integration | XDG preferences; file open/reveal; GTK dialogs; terminal discovery, independent preference and real PTY/window acceptance | Stable shortcut relocation verified; managed desktop-entry/legacy shortcut refresh and broader capability-aware settings |
+| Host integration | XDG preferences; file open/reveal; GTK dialogs; real terminal/window acceptance; managed desktop updates, legacy shortcut upgrade and stable relocation | Broader capability-aware settings and additional terminal/desktop environments |
 | Diagnostics | Native macOS adapter; Linux bounded host/file report, platform checks, exclusive export and production-window acceptance | Additional desktop platform coverage follows the acceptance matrix |
 | Distribution | macOS `.app` packaging | Linux relocatable bundle with both native helpers, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |
 | Desktop acceptance | ARM64 X11 virtual display with Mesa | Seeded end-to-end interactions, restart/recovery and Wayland coverage; x86_64 hosted CI evidence |

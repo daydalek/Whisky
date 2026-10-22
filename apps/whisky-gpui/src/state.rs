@@ -841,7 +841,7 @@ impl WhiskyApp {
                 match result {
                     Ok(status) => {
                         if install {
-                            self.show_notice(if status.cache_updated == Some(false) { "桌面入口已安装，打开方式缓存等待刷新" } else { "桌面入口和打开方式已添加" }, cx);
+                            self.show_notice(if status.cache_updated == Some(false) { "桌面入口已安装，打开方式缓存等待刷新" } else if status.updated { "桌面入口和打开方式已更新" } else { "桌面入口和打开方式已添加" }, cx);
                         }
                         self.desktop_status = Some(status);
                         self.desktop_error = None;

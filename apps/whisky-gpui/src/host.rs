@@ -54,4 +54,8 @@ pub(crate) struct DesktopDto {
     pub(crate) installed: bool,
     pub(crate) path: String,
     pub(crate) cache_updated: Option<bool>,
+    #[serde(default)]
+    pub(crate) needs_update: bool,
+    #[serde(default)]
+    pub(crate) updated: bool,
 }

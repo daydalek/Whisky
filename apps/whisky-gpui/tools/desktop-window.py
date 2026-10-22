@@ -11,16 +11,25 @@ import time
 def exercise(window, app, fixture, bottle, registry, snapshot, env):
     def click(x, y, button=1):
         subprocess.run(['xdotool', 'mousemove', '--window', window, str(x), str(y), 'click', str(button)], check=True)
+    def read_entry(path):
+        try:
+            return path.read_text()
+        except FileNotFoundError:
+            return ''
     subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+comma'], check=True)
     time.sleep(1)
     snapshot('desktop-settings')
     click(1200, 295)
     entry = fixture / 'data/applications/com.franke.Whisky.desktop'
     deadline = time.monotonic() + 15
-    while not entry.exists() and time.monotonic() < deadline:
+    frontend = os.readlink(f'/proc/{app.pid}/exe')
+    while time.monotonic() < deadline:
+        if ("X-Whisky-Launcher=" + frontend + "\n") in read_entry(entry):
+            break
         assert app.poll() is None
         time.sleep(0.1)
-    assert entry.exists(), 'UI desktop installation did not publish its application entry'
+    assert ('X-Whisky-Launcher=' + frontend + '\n') in entry.read_text(), 'UI desktop update did not refresh the frontend'
+    assert all(item in entry.read_text() for item in ('Name=Custom Whisky', 'Icon=custom-icon', 'X-User-Setting=keep'))
     subprocess.run(['desktop-file-validate', str(entry)], check=True)
     time.sleep(1)
     snapshot('desktop-installed')
@@ -41,10 +50,13 @@ def exercise(window, app, fixture, bottle, registry, snapshot, env):
     click(370, 647)
     shortcut = fixture / 'data/applications/game.desktop'
     deadline = time.monotonic() + 15
-    while not shortcut.exists() and time.monotonic() < deadline:
+    while time.monotonic() < deadline:
+        if '--container-id' in read_entry(shortcut):
+            break
         assert app.poll() is None
         time.sleep(0.1)
-    assert shortcut.exists(), 'UI shortcut creation did not publish its desktop file'
+    assert '--container-id' in shortcut.read_text(), 'UI shortcut upgrade did not publish a stable ID'
+    assert 'Name=Custom game' in shortcut.read_text()
     subprocess.run(['desktop-file-validate', str(shortcut)], check=True)
     time.sleep(0.7)
     snapshot('desktop-program-shortcut-created')

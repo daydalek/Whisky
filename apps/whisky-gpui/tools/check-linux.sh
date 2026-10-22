@@ -78,3 +78,6 @@ python3 "$repo_root/apps/whisky-gpui/tools/check-desktop.py" \
 
 python3 "$repo_root/apps/whisky-gpui/tools/check-shortcut-identity.py" \
     --helper "$helper" --output "$output/shortcut-identity"
+
+python3 "$repo_root/apps/whisky-gpui/tools/check-desktop-update.py" \
+    --helper "$helper" --output "$output/desktop-update"

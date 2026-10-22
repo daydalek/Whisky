@@ -95,6 +95,15 @@ def main():
         (other / 'Metadata.plist').write_bytes(plistlib.dumps({'info': {'name': 'Other Prefix', 'pins': [], 'blocklist': []}}))
         registry.write_bytes(plistlib.dumps({'paths': [{'relative': other.as_uri()}, {'relative': bottle.as_uri()}]}))
         startup_arguments = ['--open-file', str(executable), '--container', str(bottle)]
+        desktop_contents = runpy.run_path(str(Path(__file__).with_name('desktop-fixture.py')))['contents']
+        applications = fixture / 'data/applications'
+        applications.mkdir(parents=True)
+        removed_frontend = fixture / 'Removed frontend'
+        (applications / 'com.franke.Whisky.desktop').write_text(
+            desktop_contents('Custom Whisky', removed_frontend, files=True).replace('Icon=applications-games', 'Icon=custom-icon') +
+            '# retained desktop comment\nX-User-Setting=keep\n')
+        (applications / 'game.desktop').write_text(desktop_contents(
+            'Custom game', removed_frontend, ['--open-file', executable, '--container', bottle]))
     if args.scenario == 'terminal':
         shell = runpy.run_path(str(Path(__file__).with_name('terminal-fixture.py')))['install_shell'](fixture)
         env['SHELL'] = str(shell)
