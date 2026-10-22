@@ -39,6 +39,7 @@ cp "${HELPER_BIN}" "${CONTENTS}/Resources/whisky-bridge"
 for resource in cabextract winetricks verbs.txt; do
     cp "${REPO_ROOT}/Libraries/${resource}" "${CONTENTS}/Resources/${resource}"
 done
+cp "${REPO_ROOT}/Whisky/Resources/WhiskyAudioTest.exe" "${CONTENTS}/Resources/WhiskyAudioTest.exe"
 cp -R "${REPO_ROOT}/WhiskyBridge/.build/release/WhiskyKit_WhiskyKit.bundle" \
     "${CONTENTS}/Resources/WhiskyKit_WhiskyKit.bundle"
 chmod +x "${CONTENTS}/MacOS/whisky-gpui" "${CONTENTS}/Resources/whisky-bridge" \

@@ -44,20 +44,26 @@ GPUI product alongside it.
   - Remaining M2 notes: activity write APIs beyond rating are tracker side
     effects + library reload; `entry.move` deferred to M3 gap table
 - [x] **M3** bottle surfaces
-  - [x] schema-driven configuration, folder scan jobs, programs, processes,
-        environment
+  - [x] schema-driven configuration, folder scan jobs, folder management
+        (multi-select picker, automatic metadata and pinned/Steam visibility
+        toggles, assign/exclude/executable, root migration), programs,
+        processes, environment
   - [x] create bottle (bridge job with refreshed catalogue)
   - [x] winetricks list/install (catalog + installed reads, headless install
         job with progress, cancel and per-verb results)
   - [x] full ProgramSettings (args, locale, environment, overrides, DLL
         overrides, shortcut creation, run history)
   - [x] `entry.move`
-- [ ] **M4** application settings, localization, native menus, menu-bar extra,
-      about, file-open/drag-drop, window restore
-- [ ] **M5** remaining parity: metadata search/attach, DLL overrides, shortcuts,
-      audio, diagnostics/troubleshooting, steam, bottle migration/import/rename/
-      delete, updater
-- [ ] **M6** packaging (.app bundle, icon, codesign, CI job) for the GPUI
+- [~] **M4** application settings, native menus, about, file-open/drag-drop,
+      window restore, first-run Wine/Rosetta setup — done; menu-bar extra and
+      full localization remain
+- [~] **M5** remaining parity — metadata search/attach/detach, custom covers,
+      GameDB recommendations, bottle rename/remove/move/duplicate/export,
+      Wine tools/terminal/repair/cache cleanup, diagnostics report/export,
+      audio test tone, unedited troubleshooting checks and Wine runtime setup
+      are done; guided branching flows/fix application, Steam download snapshots,
+      bottle import/orphan scan and the updater remain
+- [x] **M6** packaging (.app bundle, icon, codesign, CI job) for the GPUI
       product alongside SwiftUI
 
 ## Bridge gap table
@@ -69,14 +75,16 @@ when new.
 
 | Gap | Swift type to encode | Target | Notes |
 | --- | --- | --- | --- |
-| Metadata search, attach, detach, custom cover | `GameMetadata`, … | M5 | |
-| Bottle rename, import, delete, copy, migrate, scan orphans | `BottleSettings`, registry | M5 | `bottle.create` exists (native, `--enable-wine`) |
+| Metadata search, attach, detach, custom cover | `GameMetadata`, … | M5 | Done: `metadata.search/sync/apply/clear/cover.*` |
+| Bottle rename, import, delete, copy, migrate, scan orphans | `BottleSettings`, registry | M5 | Rename/remove/move/duplicate/export done; import and orphan scan remain |
 | Activity write side beyond rating | `GameActivity`, … | M2 note | Rating write done; play time via tracker |
 | Steam download snapshot and subscribe | `SteamDownloadSnapshot`, … | M5 | |
-| Diagnostics report, log, fixes | `TroubleshootingSession`, … | M5 | |
-| Audio device enumeration, test tone | `AudioDeviceInfo`, … | M5 | |
-| Expanded preferences keys | `PreferencesService` schema | M4 | |
-| Shortcut creation | `ProgramShortcut` | M5 | |
+| Diagnostics report, log, fixes | `TroubleshootingSession`, … | M5 | Report/export and curated checks done (`bottle.diagnostics`, `bottle.checks`); guided flows/fixes remain |
+| Audio device enumeration, test tone | `AudioDeviceInfo`, … | M5 | Wine probe tone done (`audio.test`); device list remains |
+| Expanded preferences keys | `PreferencesService` schema | M4 | Done |
+| Shortcut creation | `ProgramShortcut` | M5 | Done |
+| First-run Wine/Rosetta setup | `WhiskyWineInstaller`, `Rosetta2` | M4 | Done: `setup.status/install/installRosetta` |
+| GameDB recommended configuration | `GameDBEntry`, `GameConfigVariant` | M5 | Done: `gameConfig.match/apply` |
 
 ## Known constraints
 
