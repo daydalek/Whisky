@@ -11,12 +11,13 @@ use serde_json::json;
 
 use crate::bridge::dto::{CandidateDto, FoldersDto, ProgramDto};
 use crate::bridge::{
-    BridgeEvent, BridgeStatus, BridgeSupervisor, EntryMutation, FolderEdit, ProgramMutation,
-    ScanUpdate,
+    BottleCreateUpdate, BridgeEvent, BridgeStatus, BridgeSupervisor, EntryMutation, FolderEdit,
+    ProgramMutation, ScanUpdate,
 };
 #[cfg(feature = "visual-test")]
 use crate::library_layout::CardRect;
 use crate::config::{self, ConfigField};
+use crate::create_bottle::CreateBottleState;
 use crate::library_view::{self, Sort};
 use crate::model::{
     BottleVm, Game, demo_bottles, demo_data, demo_requested, empty_library_message,
@@ -166,7 +167,7 @@ impl PreviewState {
             ("env-key", "变量名"),
             ("env-value", "变量值"),
             ("scan-path", "~/Games"),
-            ("bottle-name", "新建容器"),
+            ("bottle-name", ""),
             ("dll-name", "例如 d3dcompiler_47"),
             ("build", "26100"),
             ("dpi", "96"),
@@ -198,7 +199,7 @@ impl PreviewState {
                 ("updates", true),
             ]
             .into(),
-            choices: BTreeMap::new(),
+            choices: [("create-windows", "Windows 11".into())].into(),
             collapsed: [
                 "launcher",
                 "input",
@@ -299,6 +300,10 @@ pub(crate) struct WhiskyApp {
     process_generation: u64,
     /// The one scan job this session follows.
     pub(crate) scan: Option<ScanState>,
+    /// The one create-bottle job this session follows.
+    pub(crate) create_bottle: Option<CreateBottleState>,
+    /// `defaultBottleLocation` from preferences, used as `bottle.create`'s parent.
+    pub(crate) default_bottle_location: Option<String>,
     /// Key that "编辑" put in the env inputs; saving with a different name
     /// removes it first, because the bridge has no rename call.
     env_original: Option<String>,
@@ -387,6 +392,8 @@ impl WhiskyApp {
             processes: None,
             process_generation: 0,
             scan: None,
+            create_bottle: None,
+            default_bottle_location: Self::default_bottle_location(),
             env_original: None,
             env_clear_on_reply: false,
             env_fill: None,
@@ -1009,6 +1016,80 @@ impl WhiskyApp {
                     }
                 }
             }
+            BridgeEvent::BottleCreate { update } => {
+                if !self.demo {
+                    match update {
+                        BottleCreateUpdate::Started { job_id } => {
+                            let state = self.create_bottle.get_or_insert_with(CreateBottleState::default);
+                            state.job_id = Some(job_id);
+                            state.status = Some(JobStatus::Queued);
+                            state.stage = None;
+                            state.error = None;
+                            state.finished = false;
+                        }
+                        BottleCreateUpdate::Progress { status, stage } => {
+                            let state = self.create_bottle.get_or_insert_with(CreateBottleState::default);
+                            state.status = Some(status);
+                            state.stage = stage;
+                            state.error = None;
+                        }
+                        BottleCreateUpdate::Completed {
+                            path,
+                            name: _,
+                            containers,
+                        } => {
+                            let state = self.create_bottle.get_or_insert_with(CreateBottleState::default);
+                            state.status = Some(JobStatus::Completed);
+                            state.stage = None;
+                            state.finished = true;
+                            state.error = None;
+                            state.created_path = Some(path.clone());
+
+                            // Update the bottle catalogue
+                            let previous = self
+                                .selected_bottle
+                                .and_then(|index| self.bottles.get(index).map(|bottle| bottle.path.clone()));
+                            self.bottles = containers
+                                .into_iter()
+                                .map(|container| BottleVm {
+                                    path: container.path,
+                                    name: container.name,
+                                    available: container.available,
+                                })
+                                .collect();
+                            self.selected_bottle = previous
+                                .and_then(|path| self.bottles.iter().position(|bottle| bottle.path == path));
+                            self.bottle_entries.clear();
+                            self.entries.clear();
+                            self.failures.clear();
+                            self.load_error = None;
+                            self.pending.clear();
+                            self.runtime = RuntimeTable::default();
+                            self.configured.clear();
+                            self.rating_edits.clear();
+                            self.hidden_edits.clear();
+                            self.reset_bottle_surfaces();
+                            self.invalidate_view();
+                            self.request_all();
+
+                            // Select the newly created bottle
+                            if let Some(index) = self.bottles.iter().position(|bottle| bottle.path == path) {
+                                self.select_bottle(Some(index), cx);
+                            }
+                        }
+                        BottleCreateUpdate::Failed { status, reason } => {
+                            let state = self.create_bottle.get_or_insert_with(CreateBottleState::default);
+                            state.status = Some(status);
+                            state.stage = None;
+                            state.finished = true;
+                            state.error = Some(reason.clone());
+                            if status != JobStatus::Cancelled {
+                                self.show_notice(reason, cx);
+                            }
+                        }
+                    }
+                }
+            }
         }
         self.loading = self.compute_loading();
         cx.notify();
@@ -1583,10 +1664,29 @@ impl WhiskyApp {
         {
             self.preview.toggles.insert("refresh", flag);
         }
+        if let Some(location) = values
+            .get(preferences::DEFAULT_BOTTLE_LOCATION)
+            .and_then(serde_json::Value::as_str)
+        {
+            self.default_bottle_location = Some(location.to_owned());
+        }
         self.invalidate_view();
     }
 
     // MARK: - Bottle surfaces (configuration, environment, folders, scan)
+
+    /// Default bottle location, matching the SwiftUI default.
+    fn default_bottle_location() -> Option<String> {
+        let home = std::env::var_os("HOME")?.to_string_lossy().into_owned();
+        #[cfg(target_os = "macos")]
+        {
+            Some(format!("{}/Library/Containers/com.franke.Whisky/Bottles", home))
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Some(format!("{}/.local/share/whisky/Bottles", home))
+        }
+    }
 
     /// The selected bottle when it is usable; the bottle page only exists for
     /// one of those.

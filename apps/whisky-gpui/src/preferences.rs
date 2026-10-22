@@ -25,6 +25,7 @@ pub(crate) const SORT: &str = "librarySort";
 pub(crate) const SINGLE_LINE_TITLES: &str = "librarySingleLineTitles";
 pub(crate) const MIXED_COVER_LAYOUT: &str = "libraryMixedCoverLayout";
 pub(crate) const REFRESH_AFTER_EXIT: &str = "libraryRefreshAfterExit";
+pub(crate) const DEFAULT_BOTTLE_LOCATION: &str = "defaultBottleLocation";
 
 /// SwiftUI defaults, used before the bridge answers and for keys the bridge
 /// does not expose.

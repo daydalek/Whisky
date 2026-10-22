@@ -596,25 +596,71 @@ impl WhiskyApp {
                     ),
                 ],
             ),
-            PreviewSheet::CreateBottle => self.form(
-                "create-bottle-scroll",
-                vec![self.section(
-                    "create",
-                    "新容器",
-                    vec![
-                        self.field("bottle-name", "名称"),
-                        self.choice(
-                            "create-windows",
-                            "Windows 版本",
-                            &["Windows 11", "Windows 10", "Windows 7"],
+            PreviewSheet::CreateBottle => {
+                let state = self.create_bottle.as_ref();
+                let running = state.is_some_and(|s| s.running());
+                let finished = state.is_some_and(|s| s.finished);
+                let progress = state.and_then(|s| {
+                    s.status.and_then(|status| {
+                        s.stage.as_ref().map(|stage| {
+                            crate::create_bottle::progress_label(status, Some(stage)).to_owned()
+                        })
+                    })
+                });
+                let error = state.and_then(|s| s.error.clone());
+
+                if running {
+                    self.form(
+                        "create-bottle-scroll",
+                        vec![self.section(
+                            "create-progress",
+                            "创建中",
+                            vec![self.info("状态", progress.unwrap_or_else(|| "初始化中…".to_owned()))],
                             cx,
-                        ),
-                        self.info("位置", "~/Library/Containers/Whisky/Bottles"),
-                        self.info("架构", "64 位"),
-                    ],
-                    cx,
-                )],
-            ),
+                        )],
+                    )
+                } else if finished {
+                    let (title, content) = if error.is_some() {
+                        ("创建失败", error.unwrap_or_else(|| "未知错误".to_owned()))
+                    } else {
+                        ("创建完成", "容器已成功创建并添加到库中".to_owned())
+                    };
+                    self.form(
+                        "create-bottle-scroll",
+                        vec![self.section(
+                            "create-result",
+                            title,
+                            vec![self.info("详情", content)],
+                            cx,
+                        )],
+                    )
+                } else {
+                    let location = self
+                        .default_bottle_location
+                        .as_ref()
+                        .map(|path| crate::create_bottle::display_bottle_location(path))
+                        .unwrap_or_else(|| "~/Library/Containers/Whisky/Bottles".to_owned());
+                    self.form(
+                        "create-bottle-scroll",
+                        vec![self.section(
+                            "create",
+                            "新容器",
+                            vec![
+                                self.field("bottle-name", "名称"),
+                                self.choice(
+                                    "create-windows",
+                                    "Windows 版本",
+                                    &["Windows 11", "Windows 10", "Windows 7"],
+                                    cx,
+                                ),
+                                self.info("位置", &location),
+                                self.info("架构", "64 位"),
+                            ],
+                            cx,
+                        )],
+                    )
+                }
+            }
             PreviewSheet::Dll => self.form(
                 "dll-scroll",
                 vec![self.section(
@@ -788,17 +834,43 @@ impl WhiskyApp {
                             .child(
                                 Button::new("sheet-done")
                                     .label(if matches!(sheet, PreviewSheet::CreateBottle) {
-                                        "创建"
+                                        let state = self.create_bottle.as_ref();
+                                        if state.is_some_and(|s| s.running()) {
+                                            "创建中…"
+                                        } else if state.is_some_and(|s| s.finished) {
+                                            "关闭"
+                                        } else {
+                                            "创建"
+                                        }
                                     } else if matches!(sheet, PreviewSheet::Winetricks) {
                                         "安装选中组件"
                                     } else {
                                         "完成"
                                     })
                                     .primary()
+                                    .disabled(matches!(sheet, PreviewSheet::CreateBottle) && self.create_bottle.as_ref().is_some_and(|s| s.running()))
                                     .on_click(cx.listener(|this, _, _, cx| {
-                                        this.preview.sheet = None;
-                                        this.preview.sheet_history.clear();
-                                        cx.notify();
+                                        if matches!(this.preview.sheet, Some(PreviewSheet::CreateBottle)) {
+                                            let state = this.create_bottle.as_ref();
+                                            if state.is_some_and(|s| s.running()) {
+                                                // Do nothing while running
+                                                return;
+                                            }
+                                            if state.is_some_and(|s| s.finished) {
+                                                // Close on finished and clear state
+                                                this.create_bottle = None;
+                                                this.preview.sheet = None;
+                                                this.preview.sheet_history.clear();
+                                                cx.notify();
+                                            } else {
+                                                // Submit the form
+                                                this.submit_create_bottle(cx);
+                                            }
+                                        } else {
+                                            this.preview.sheet = None;
+                                            this.preview.sheet_history.clear();
+                                            cx.notify();
+                                        }
                                     })),
                             ),
                     ),
@@ -933,6 +1005,52 @@ impl WhiskyApp {
                     ),
             )
             .into_any_element()
+    }
+
+    /// Submit the create-bottle form.
+    fn submit_create_bottle(&mut self, cx: &mut Context<Self>) {
+        use crate::create_bottle::windows_version_wire;
+
+        let name = self
+            .preview
+            .inputs
+            .get("bottle-name")
+            .map(|input| input.read(cx).value().to_string())
+            .unwrap_or_default();
+        let name = name.trim();
+        if name.is_empty() {
+            self.show_notice("容器名称不能为空", cx);
+            return;
+        }
+
+        let windows_label = self
+            .preview
+            .choices
+            .get("create-windows")
+            .cloned()
+            .unwrap_or_else(|| "Windows 11".into());
+        let windows_version = windows_version_wire(&windows_label);
+
+        let parent = self
+            .default_bottle_location
+            .clone()
+            .unwrap_or_else(|| {
+                #[cfg(target_os = "macos")]
+                {
+                    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
+                    format!("{}/Library/Containers/com.franke.Whisky/Bottles", home)
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
+                    format!("{}/.local/share/whisky/Bottles", home)
+                }
+            });
+
+        self.bridge.create_bottle(name, &parent, windows_version);
+        self.preview.sheet = None;
+        self.preview.sheet_history.clear();
+        cx.notify();
     }
 
     pub(crate) fn bridge_status_dialog(

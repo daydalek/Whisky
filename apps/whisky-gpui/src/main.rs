@@ -9,6 +9,7 @@ use gpui_kit::{prelude::*, *};
 mod bridge;
 mod config;
 mod controls;
+mod create_bottle;
 mod library_layout;
 mod library_view;
 mod model;

@@ -34,6 +34,7 @@ use super::{
     },
 };
 use crate::config::{self, ConfigField};
+use crate::create_bottle::BottleCreatedDto;
 use crate::runtime::{
     CAP_LAUNCH, ClipboardDecision, ClipboardPrompt, LaunchOutcome, RuntimeAction, RuntimeState,
     RuntimeUpdate, interpret_launch_reply, poll_interval, primary_action_for,
@@ -121,6 +122,28 @@ pub(crate) enum ScanUpdate {
     },
     Completed {
         entries: Vec<EntryDto>,
+    },
+    Failed {
+        status: JobStatus,
+        reason: String,
+    },
+}
+
+/// `bottle.create` job lifecycle. On success the worker also re-reads the
+/// catalogue so the new bottle appears without a separate Refresh.
+#[derive(Debug)]
+pub(crate) enum BottleCreateUpdate {
+    Started {
+        job_id: String,
+    },
+    Progress {
+        status: JobStatus,
+        stage: Option<String>,
+    },
+    Completed {
+        path: String,
+        name: String,
+        containers: Vec<Container>,
     },
     Failed {
         status: JobStatus,
@@ -274,6 +297,10 @@ pub(crate) enum BridgeEvent {
         container: String,
         update: ScanUpdate,
     },
+    /// One `bottle.create` job. Completes with a refreshed catalogue.
+    BottleCreate {
+        update: BottleCreateUpdate,
+    },
 }
 
 enum Command {
@@ -361,6 +388,12 @@ enum Command {
     KillAllProcesses(String),
     StartScan(String),
     CancelScan,
+    /// `bottle.create` with the Wine `WinVersion` raw value and parent directory.
+    CreateBottle {
+        name: String,
+        parent: String,
+        windows_version: String,
+    },
     /// Window activation: polling pauses while the app is in the background.
     SetActive(bool),
     /// Re-read the bottle catalogue and drop the cached entries, as the
@@ -569,6 +602,16 @@ impl BridgeSupervisor {
         let _ = self.commands.send(Command::CancelScan);
     }
 
+    /// `bottle.create`. The reply is a job handle; progress and the refreshed
+    /// catalogue arrive as `BridgeEvent::BottleCreate`.
+    pub(crate) fn create_bottle(&self, name: &str, parent: &str, windows_version: &str) {
+        let _ = self.commands.send(Command::CreateBottle {
+            name: name.to_owned(),
+            parent: parent.to_owned(),
+            windows_version: windows_version.to_owned(),
+        });
+    }
+
     /// `programs.list` for one bottle. The pin/block mutations reply with the
     /// same payload, so one event type carries all three.
     pub(crate) fn load_programs(&self, container: &str) {
@@ -666,7 +709,8 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
             }
         };
         emit(&events, BridgeStatus::Starting);
-        let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+        let helper_args = helper_arguments();
+        let mut client = match Client::spawn(&helper, &helper_args, CALL_TIMEOUT) {
             Ok(client) => client,
             Err(error) => {
                 let reason = format!("Cannot start the helper at {}: {error}", helper.display());
@@ -727,6 +771,9 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
         // At most one scan job. Kept as state, not as a blocking loop, so a
         // cancel command still reaches the worker between polls.
         let mut scan: Option<LiveScan> = None;
+        // At most one create-bottle job; independent of the scan job so a
+        // folder scan does not block creating a bottle (and vice versa).
+        let mut create: Option<LiveCreate> = None;
         loop {
             // A live session blocks only until its next poll is due. Anything
             // else parks, and a command still wakes the worker immediately.
@@ -737,6 +784,9 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
             }
             if let Some(scan) = &scan {
                 wait_for = wait_for.min(scan.due.saturating_duration_since(now));
+            }
+            if let Some(create) = &create {
+                wait_for = wait_for.min(create.due.saturating_duration_since(now));
             }
             let command = match commands.recv_timeout(wait_for) {
                 Ok(command) => Some(command),
@@ -826,6 +876,67 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                     },
                                 );
                                 scan = None;
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                    if let Some(active) = create.as_mut() {
+                        match poll_create(&mut client, active, &events) {
+                            Ok(None) => {}
+                            Ok(Some(CreateTerminal::Completed { path, name })) => {
+                                match fetch_containers(&mut client) {
+                                    Ok(containers) => {
+                                        cache = None;
+                                        log_container_names(&containers);
+                                        emit_event(
+                                            &events,
+                                            BridgeEvent::BottleCreate {
+                                                update: BottleCreateUpdate::Completed {
+                                                    path,
+                                                    name,
+                                                    containers,
+                                                },
+                                            },
+                                        );
+                                        create = None;
+                                    }
+                                    Err(CallFailure::Remote(reason)) => {
+                                        emit_event(
+                                            &events,
+                                            BridgeEvent::BottleCreate {
+                                                update: BottleCreateUpdate::Failed {
+                                                    status: JobStatus::Failed,
+                                                    reason: format!(
+                                                        "Bottle created but catalogue refresh failed: {reason}"
+                                                    ),
+                                                },
+                                            },
+                                        );
+                                        create = None;
+                                    }
+                                    Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                                }
+                            }
+                            Ok(Some(CreateTerminal::Failed { status, reason })) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::BottleCreate {
+                                        update: BottleCreateUpdate::Failed { status, reason },
+                                    },
+                                );
+                                create = None;
+                            }
+                            Err(CallFailure::Remote(reason)) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::BottleCreate {
+                                        update: BottleCreateUpdate::Failed {
+                                            status: JobStatus::Failed,
+                                            reason,
+                                        },
+                                    },
+                                );
+                                create = None;
                             }
                             Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                         }
@@ -1488,6 +1599,43 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         None => eprintln!("whisky-bridge: no scan to cancel"),
                     }
                 }
+                Some(Command::CreateBottle {
+                    name,
+                    parent,
+                    windows_version,
+                }) => {
+                    if create.is_some() {
+                        eprintln!("whisky-bridge: a bottle create is already running");
+                    } else {
+                        match start_create(&mut client, &name, &parent, &windows_version) {
+                            Ok(job_id) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::BottleCreate {
+                                        update: BottleCreateUpdate::Started {
+                                            job_id: job_id.clone(),
+                                        },
+                                    },
+                                );
+                                create = Some(LiveCreate {
+                                    job_id,
+                                    due: Instant::now() + SCAN_POLL,
+                                    last: None,
+                                });
+                            }
+                            Err(CallFailure::Remote(reason)) => emit_event(
+                                &events,
+                                BridgeEvent::BottleCreate {
+                                    update: BottleCreateUpdate::Failed {
+                                        status: JobStatus::Failed,
+                                        reason,
+                                    },
+                                },
+                            ),
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                }
                 Some(Command::ReloadLibrary) => {
                     // A refresh must re-read: the cached snapshot predates it.
                     cache = None;
@@ -1530,6 +1678,18 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                             update: ScanUpdate::Failed {
                                 status: JobStatus::Failed,
                                 reason: "The bridge session ended; the scan was abandoned".into(),
+                            },
+                        },
+                    );
+                }
+                if create.take().is_some() {
+                    emit_event(
+                        &events,
+                        BridgeEvent::BottleCreate {
+                            update: BottleCreateUpdate::Failed {
+                                status: JobStatus::Failed,
+                                reason: "The bridge session ended; bottle creation was abandoned"
+                                    .into(),
                             },
                         },
                     );
@@ -1789,7 +1949,28 @@ fn start_scan(client: &mut Client, container: &str) -> Result<String, CallFailur
     Ok(start.job_id)
 }
 
-/// How often `jobs.get` is polled while a scan is queued or running.
+fn start_create(
+    client: &mut Client,
+    name: &str,
+    parent: &str,
+    windows_version: &str,
+) -> Result<String, CallFailure> {
+    let reply = client
+        .call(
+            "bottle.create",
+            json!({
+                "name": name,
+                "parent": parent,
+                "windowsVersion": windows_version,
+            }),
+        )
+        .map_err(classify)?;
+    let start: JobStartDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid create reply: {error}")))?;
+    Ok(start.job_id)
+}
+
+/// How often `jobs.get` is polled while a scan or create job is queued or running.
 const SCAN_POLL: Duration = Duration::from_millis(250);
 
 struct LiveScan {
@@ -1798,6 +1979,70 @@ struct LiveScan {
     due: Instant,
     /// Last reported `(status, stage)`, so the sheet is notified on change only.
     last: Option<(JobStatus, Option<String>)>,
+}
+
+struct LiveCreate {
+    job_id: String,
+    due: Instant,
+    last: Option<(JobStatus, Option<String>)>,
+}
+
+enum CreateTerminal {
+    Completed { path: String, name: String },
+    Failed { status: JobStatus, reason: String },
+}
+
+fn poll_create(
+    client: &mut Client,
+    create: &mut LiveCreate,
+    events: &smol::channel::Sender<BridgeEvent>,
+) -> Result<Option<CreateTerminal>, CallFailure> {
+    let reply = client
+        .call("jobs.get", json!({ "jobID": create.job_id }))
+        .map_err(classify)?;
+    let job: JobDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid job payload: {error}")))?;
+    let status = JobStatus::from_wire(&job.status).ok_or_else(|| {
+        CallFailure::Remote(format!("unknown job status: {}", job.status))
+    })?;
+    let stage = job.stage().map(str::to_owned);
+    if create.last.as_ref() != Some(&(status, stage.clone())) {
+        emit_event(
+            events,
+            BridgeEvent::BottleCreate {
+                update: BottleCreateUpdate::Progress {
+                    status,
+                    stage: stage.clone(),
+                },
+            },
+        );
+        create.last = Some((status, stage));
+    }
+    create.due = Instant::now() + SCAN_POLL;
+    match status {
+        JobStatus::Completed => {
+            let result = job
+                .result
+                .ok_or_else(|| CallFailure::Remote("completed create has no result".into()))?;
+            let result: BottleCreatedDto = serde_json::from_value(result)
+                .map_err(|error| CallFailure::Remote(format!("invalid create result: {error}")))?;
+            Ok(Some(CreateTerminal::Completed {
+                path: result.path,
+                name: result.name,
+            }))
+        }
+        JobStatus::Failed | JobStatus::Cancelled => {
+            let reason = job
+                .error
+                .as_ref()
+                .map(BridgeFailureDto::reason)
+                .unwrap_or_else(|| {
+                    crate::create_bottle::progress_label(status, None).to_owned()
+                });
+            Ok(Some(CreateTerminal::Failed { status, reason }))
+        }
+        JobStatus::Queued | JobStatus::Running | JobStatus::Cancelling => Ok(None),
+    }
 }
 
 enum ScanTerminal {
@@ -2100,6 +2345,24 @@ pub(crate) fn backoff_delay(attempt: u32) -> Duration {
     Duration::from_millis(millis.min(BACKOFF_MAX_MS))
 }
 
+/// Arguments passed to every helper spawn.
+///
+/// On macOS Wine host effects (`bottle.create`, configuration side effects,
+/// process kill) require `--enable-wine`. Opt out with `WHISKY_BRIDGE_NO_WINE=1`.
+fn helper_arguments() -> Vec<String> {
+    let mut args = Vec::new();
+    #[cfg(target_os = "macos")]
+    {
+        let disabled = std::env::var_os("WHISKY_BRIDGE_NO_WINE").is_some_and(|value| {
+            value == "1" || value.eq_ignore_ascii_case("true")
+        });
+        if !disabled {
+            args.push("--enable-wine".into());
+        }
+    }
+    args
+}
+
 /// Resolve the helper in the documented order. Every candidate is checked with
 /// `is_file`; no failure path panics.
 pub(crate) fn locate_helper() -> Result<PathBuf, String> {
@@ -2172,7 +2435,7 @@ pub(crate) fn print_status() -> i32 {
         }
     };
     eprintln!("whisky-bridge: helper {}", helper.display());
-    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+    let mut client = match Client::spawn(&helper, &helper_arguments(), CALL_TIMEOUT) {
         Ok(client) => client,
         Err(error) => {
             eprintln!("whisky-bridge: handshake failed: {error}");
@@ -2221,7 +2484,7 @@ pub(crate) fn print_runtime() -> i32 {
         }
     };
     eprintln!("whisky-bridge: helper {}", helper.display());
-    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+    let mut client = match Client::spawn(&helper, &helper_arguments(), CALL_TIMEOUT) {
         Ok(client) => client,
         Err(error) => {
             eprintln!("whisky-bridge: handshake failed: {error}");
@@ -2303,7 +2566,7 @@ pub(crate) fn watch_runtime(bottle: Option<&str>, seconds: u64) -> i32 {
         }
     };
     eprintln!("whisky-bridge: helper {}", helper.display());
-    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+    let mut client = match Client::spawn(&helper, &helper_arguments(), CALL_TIMEOUT) {
         Ok(client) => client,
         Err(error) => {
             eprintln!("whisky-bridge: handshake failed: {error}");
@@ -2492,7 +2755,7 @@ pub(crate) fn print_library(bottle: Option<&str>, all: bool) -> i32 {
         }
     };
     eprintln!("whisky-bridge: helper {}", helper.display());
-    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+    let mut client = match Client::spawn(&helper, &helper_arguments(), CALL_TIMEOUT) {
         Ok(client) => client,
         Err(error) => {
             eprintln!("whisky-bridge: handshake failed: {error}");
@@ -2596,7 +2859,7 @@ pub(crate) fn print_config(bottle: Option<&str>) -> i32 {
         }
     };
     eprintln!("whisky-bridge: helper {}", helper.display());
-    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+    let mut client = match Client::spawn(&helper, &helper_arguments(), CALL_TIMEOUT) {
         Ok(client) => client,
         Err(error) => {
             eprintln!("whisky-bridge: handshake failed: {error}");
@@ -2704,7 +2967,7 @@ pub(crate) fn print_folders(bottle: Option<&str>) -> i32 {
         }
     };
     eprintln!("whisky-bridge: helper {}", helper.display());
-    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+    let mut client = match Client::spawn(&helper, &helper_arguments(), CALL_TIMEOUT) {
         Ok(client) => client,
         Err(error) => {
             eprintln!("whisky-bridge: handshake failed: {error}");
@@ -2798,7 +3061,7 @@ pub(crate) fn print_programs(bottle: Option<&str>) -> i32 {
         }
     };
     eprintln!("whisky-bridge: helper {}", helper.display());
-    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+    let mut client = match Client::spawn(&helper, &helper_arguments(), CALL_TIMEOUT) {
         Ok(client) => client,
         Err(error) => {
             eprintln!("whisky-bridge: handshake failed: {error}");
@@ -2895,7 +3158,7 @@ pub(crate) fn print_processes(bottle: Option<&str>) -> i32 {
         }
     };
     eprintln!("whisky-bridge: helper {}", helper.display());
-    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+    let mut client = match Client::spawn(&helper, &helper_arguments(), CALL_TIMEOUT) {
         Ok(client) => client,
         Err(error) => {
             eprintln!("whisky-bridge: handshake failed: {error}");
@@ -3016,7 +3279,7 @@ pub(crate) fn diagnose_launch(bottle: Option<&str>, entry: Option<&str>) -> i32 
         }
     };
     eprintln!("whisky-bridge: helper {}", helper.display());
-    let mut client = match Client::spawn(&helper, &[], CALL_TIMEOUT) {
+    let mut client = match Client::spawn(&helper, &helper_arguments(), CALL_TIMEOUT) {
         Ok(client) => client,
         Err(error) => {
             eprintln!("whisky-bridge: handshake failed: {error}");
