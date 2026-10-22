@@ -272,6 +272,9 @@ pub(crate) fn install_label(job: &InstallJob) -> String {
         (JobStatus::Running, Some("failed")) if !verb.is_empty() => {
             format!("安装失败：{verb}")
         }
+        // The helper re-checks a nonzero exit against `winetricks
+        // list-installed` before giving up on a verb.
+        (JobStatus::Running, Some("verifying")) => "正在核对安装结果…".to_owned(),
         (JobStatus::Running, _) => "正在安装组件…".to_owned(),
         (JobStatus::Cancelling, _) => "正在取消…".to_owned(),
         (JobStatus::Completed, _) if !job.failed.is_empty() => {
@@ -445,6 +448,9 @@ mod tests {
         assert_eq!(job.label(), "正在安装 vcrun2022…");
         job.progress.stage = Some("installed".into());
         assert_eq!(job.label(), "已安装 vcrun2022");
+        job.progress.verb = None;
+        job.progress.stage = Some("verifying".into());
+        assert_eq!(job.label(), "正在核对安装结果…");
         job.status = Some(JobStatus::Cancelling);
         assert_eq!(job.label(), "正在取消…");
         job.status = Some(JobStatus::Cancelled);

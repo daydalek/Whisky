@@ -5098,7 +5098,17 @@ fn poll_winetricks(
             let reason = job
                 .error
                 .as_ref()
-                .map(BridgeFailureDto::reason)
+                .map(|error| {
+                    // The helper distinguishes a broken prefix from a plain
+                    // winetricks failure; turn it into the repair action the
+                    // SwiftUI alert offers.
+                    if error.code == "prefix_invalid" {
+                        "容器前缀不完整或已损坏，请先在容器页执行「修复容器」，然后重试"
+                            .to_owned()
+                    } else {
+                        error.reason()
+                    }
+                })
                 .unwrap_or_else(|| match status {
                     JobStatus::Cancelled => "已取消".to_owned(),
                     _ => "安装失败".to_owned(),

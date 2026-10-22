@@ -51,7 +51,18 @@ extension MacOSApplicationServices {
                 throw BridgeFailure("invalid_params", "Unknown winetricks verb: \(unknown)")
             }
             return try jobs.start(name: "winetricks.install") { progress in
-                try await self.install(verbs, for: bottle, known: known, emit: progress)
+                // SwiftUI validates the prefix before running winetricks and
+                // offers a repair; fail fast with the same distinction so the
+                // frontend can point at the repair action instead of a raw
+                // winetricks error.
+                let validation = WinePrefixValidation.validatePrefix(for: bottle)
+                guard validation.isValid else {
+                    throw BridgeFailure(
+                        "prefix_invalid",
+                        "The Wine prefix is incomplete or corrupted; repair the bottle and retry"
+                    )
+                }
+                return try await self.install(verbs, for: bottle, known: known, emit: progress)
             }
         default:
             throw BridgeFailure("method_unavailable", "Native method is unavailable")
@@ -130,6 +141,11 @@ extension MacOSApplicationServices {
     /// Installs sequentially, streaming the latest line per verb. A nonzero
     /// exit or a failed stream is recorded per verb; later verbs still run,
     /// matching `WinetricksService.installVerbs`.
+    ///
+    /// In wow64 mode winetricks exits nonzero on verbs that actually
+    /// installed (the terminal flow never checks the exit code, which is why
+    /// it "works" there), so any nonzero exit is verified against what
+    /// `winetricks list-installed` reports before being called a failure.
     private func install(
         _ verbs: [String],
         for bottle: Bottle,
@@ -138,7 +154,8 @@ extension MacOSApplicationServices {
     ) async throws -> JSONValue {
         let total = verbs.count
         var succeeded: [String] = []
-        var failed: [[String: JSONValue]] = []
+        var unresolved: [(verb: String, exitCode: Int32)] = []
+        var failures: [(verb: String, reason: String)] = []
         var exitCodes: [String: JSONValue] = [:]
 
         for (offset, verb) in verbs.enumerated() {
@@ -157,10 +174,27 @@ extension MacOSApplicationServices {
                 succeeded.append(verb)
             } else {
                 let reason = outcome.failure ?? "winetricks ended without reporting a result"
-                failed.append([
-                    "verb": .string(verb),
-                    "reason": .string(reason)
-                ])
+                failures.append((verb: verb, reason: reason))
+                if let exitCode = outcome.exitCode {
+                    unresolved.append((verb: verb, exitCode: exitCode))
+                }
+            }
+        }
+
+        // Verify-and-rescue: trust the installed set, not the exit code.
+        if !unresolved.isEmpty {
+            emit(.object(["stage": .string("verifying")]))
+            let reported = await WinetricksService.listInstalledVerbs(for: bottle) ?? []
+            for candidate in unresolved where reported.contains(candidate.verb) {
+                failures.removeAll { $0.verb == candidate.verb }
+                succeeded.append(candidate.verb)
+                emit(progress(
+                    stage: "installed",
+                    verb: candidate.verb,
+                    offset: verbs.firstIndex(of: candidate.verb) ?? 0,
+                    total: total,
+                    line: "winetricks exited with code \(candidate.exitCode), but the verb is installed"
+                ))
             }
         }
 
@@ -169,7 +203,10 @@ extension MacOSApplicationServices {
             "verbs": .array(verbs.map(JSONValue.string)),
             "installed": .array(current.verbs.intersection(known).sorted().map(JSONValue.string)),
             "succeeded": .array(succeeded.map(JSONValue.string)),
-            "failed": .array(failed.map(JSONValue.object)),
+            "failed": .array(failures.map { .object([
+                "verb": .string($0.verb),
+                "reason": .string($0.reason)
+            ]) }),
             "exitCodes": .object(exitCodes)
         ])
     }
@@ -188,7 +225,9 @@ extension MacOSApplicationServices {
         emit: @escaping BridgeJobStore.Progress
     ) async throws -> VerbOutcome {
         var outcome = VerbOutcome()
-        for await event in WinetricksService.installVerb(verb, for: bottle) {
+        // The terminal flow has no watchdog; a slow verb (large redists on a
+        // busy prefix) should not be killed at the 600s default.
+        for await event in WinetricksService.installVerb(verb, for: bottle, timeout: 1800) {
             try Task.checkCancellation()
             switch event {
             case .preparing:
