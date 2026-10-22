@@ -5079,6 +5079,16 @@ impl WhiskyApp {
         self.flag("single-title")
     }
     pub(crate) fn preview_dismiss(&mut self, cx: &mut Context<Self>) {
+        // While a bottle is being created the sheet is the only in-progress
+        // cue; keep it on screen until the job settles (the button becomes
+        // "关闭"), as the setup dialog does while installing.
+        if self
+            .create_bottle
+            .as_ref()
+            .is_some_and(crate::create_bottle::CreateBottleState::running)
+        {
+            return;
+        }
         self.preview.sheet = None;
         self.preview.sheet_history.clear();
         // A dismissed picker chose nothing, so nothing is recorded or launched.

@@ -2403,12 +2403,22 @@ impl WhiskyApp {
                 let error = state.and_then(|s| s.error.clone());
 
                 if running {
+                    // The sheet stays open for the whole job; without an
+                    // in-sheet cue the click reads as "nothing happened".
                     self.form(
                         "create-bottle-scroll",
                         vec![self.section(
                             "create-progress",
                             "创建中",
-                            vec![self.info("状态", progress.unwrap_or_else(|| "初始化中…".to_owned()))],
+                            vec![row()
+                                .gap(px(10.))
+                                .items_center()
+                                .py(px(10.))
+                                .child(Spinner::new().with_size(px(14.)))
+                                .child(
+                                    progress.unwrap_or_else(|| "初始化中…".to_owned()),
+                                )
+                                .into_any_element()],
                             cx,
                         )],
                     )
@@ -3069,8 +3079,9 @@ impl WhiskyApp {
             });
 
         self.bridge.create_bottle(name, &parent, windows_version);
-        self.preview.sheet = None;
-        self.preview.sheet_history.clear();
+        // Keep the sheet open: the Started event switches it to the
+        // running view, which is the only in-progress cue the user gets
+        // while the prefix bootstrap runs.
         cx.notify();
     }
 
