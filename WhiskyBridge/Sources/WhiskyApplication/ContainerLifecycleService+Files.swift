@@ -60,7 +60,7 @@ extension ContainerLifecycleService {
     }
 
     nonisolated static func removeOwnedCopy(_ directory: URL) throws {
-        // Only a UUID directory created by this operation reaches this cleanup.
+        // The caller verifies ownership of the staged or retired directory.
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         if let iterator = FileManager.default.enumerator(
             at: directory, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]
@@ -81,6 +81,7 @@ extension ContainerLifecycleService {
     ) async throws -> JSONValue {
         let lease = try ContainerRegistry.acquire(workspace)
         defer { ContainerRegistry.release(lease) }
+        try ContainerJournal.requireClear(workspace.registry)
         let registry = try ContainerRegistry.Document(workspace)
         let source = try registry.resolve(params)
         try validate(source, registry: workspace.registry)

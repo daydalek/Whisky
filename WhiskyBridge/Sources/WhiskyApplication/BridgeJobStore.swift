@@ -35,6 +35,13 @@ public final class BridgeJobStore {
     private var records: [String: Record] = [:]
     private var order: [String] = []
     private var tasks: [String: Task<Void, Never>] = [:]
+    var workspace: ApplicationWorkspace?
+    var hasActiveOperations: Bool { !tasks.isEmpty }
+    var hasLifecycleOperation: Bool {
+        tasks.keys.contains {
+            records[$0]?.name.hasPrefix("bottle.") == true || records[$0]?.name == "workspace.recover"
+        }
+    }
     public init() {}
     public func start(name: String, operation: @escaping Operation) throws -> JSONValue {
         while records.count >= 32, let index = order.firstIndex(where: { tasks[$0] == nil }) {
@@ -48,6 +55,11 @@ public final class BridgeJobStore {
             guard let self else { return }
             do {
                 try Task.checkCancellation()
+                let lease: Int32? = if let workspace,
+                    !name.hasPrefix("bottle."), name != "workspace.recover" {
+                    try ContainerRegistry.acquireShared(workspace)
+                } else { nil }
+                defer { if let lease { ContainerRegistry.release(lease) } }
                 records[id]?.status = "running"
                 let result = try await operation { [weak self] progress in
                     guard let self, records[id]?.status == "running" else { return }

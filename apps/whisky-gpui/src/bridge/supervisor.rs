@@ -5452,7 +5452,64 @@ fn classify(error: whisky_bridge::Error) -> CallFailure {
     }
 }
 
+/// Recovery is a retained helper job so each IPC call remains bounded while
+/// a large interrupted copy or removal is cleaned before catalogues load.
+fn recover_workspace(client: &mut Client) -> Result<(), CallFailure> {
+    if !client
+        .capabilities()
+        .methods
+        .iter()
+        .any(|method| method == "workspace.recover")
+    {
+        return Ok(());
+    }
+    loop {
+        let start = client
+            .call("workspace.recover", json!({}))
+            .map_err(classify)?;
+        let Some(id) = start.get("jobID").and_then(serde_json::Value::as_str) else {
+            return Ok(());
+        };
+        loop {
+            let value = client
+                .call("jobs.get", json!({ "jobID": id }))
+                .map_err(classify)?;
+            let job: JobDto = serde_json::from_value(value).map_err(|error| {
+                CallFailure::Remote(format!("invalid recovery payload: {error}"))
+            })?;
+            match JobStatus::from_wire(&job.status) {
+                Some(JobStatus::Completed) => return Ok(()),
+                Some(JobStatus::Failed)
+                    if job.error.as_ref().is_some_and(|error| error.code == "busy") =>
+                {
+                    break
+                }
+                Some(JobStatus::Failed | JobStatus::Cancelled) => {
+                    return Err(CallFailure::Remote(
+                        job.error
+                            .as_ref()
+                            .map(BridgeFailureDto::reason)
+                            .unwrap_or_else(|| {
+                                "Workspace recovery failed; inspect its retained journal".into()
+                            }),
+                    ));
+                }
+                Some(JobStatus::Queued | JobStatus::Running | JobStatus::Cancelling) => {}
+                None => {
+                    return Err(CallFailure::Remote(format!(
+                        "unknown recovery status: {}",
+                        job.status
+                    )))
+                }
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
 fn fetch_containers(client: &mut Client) -> Result<ContainerList, CallFailure> {
+    recover_workspace(client)?;
     let value = client
         .call("workspace.containers", json!({}))
         .map_err(classify)?;

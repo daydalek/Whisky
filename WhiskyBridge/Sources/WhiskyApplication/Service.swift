@@ -39,7 +39,7 @@ public protocol NativeApplicationServices: AnyObject {
 public final class ApplicationService {
     public let workspace: ApplicationWorkspace
     private let preferences: PreferencesService?
-    private let lifecycleService: ContainerLifecycleService
+    let lifecycleService: ContainerLifecycleService
     private let metadataService: LibraryMetadataService
     private var closed = false
     private var catalogues: [String: [EntryRecord]] = [:]
@@ -98,6 +98,7 @@ public final class ApplicationService {
             let values = try await preferences?.call("preferences.read", params: [:])
             if values?.object?["offlineMode"] == .bool(true) { throw URLError(.notConnectedToInternet) }
         })
+        if !portableLifecycleMethods.isEmpty { jobStore.workspace = workspace }
     }
 
     public func respond(_ request: BridgeRequest) async -> BridgeResponse {
@@ -123,17 +124,14 @@ public final class ApplicationService {
 
     public func call(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
         let scope = method.prefix(while: { $0 != "." })
+        let lease = try acquireWorkspaceLease(for: method)
+        defer { if let lease { ContainerRegistry.release(lease) } }
         switch scope {
         case "bridge": return try await bridgeCall(method, params: params)
         case "library", "workspace": return try await libraryCall(method, params: params)
         case "folders": return try await foldersCall(method, params: params)
         case "runtime": return try await runtimeCall(method, params: params)
-        case "bottle":
-            if native?.methods.contains(method) == true { return try await nativeCall(method, params: params) }
-            if portableLifecycleMethods.contains(method) {
-                return try await lifecycleService.call(method, params: params, workspace: workspace)
-            }
-            return try await nativeCall(method, params: params)
+        case "bottle": return try await lifecycleCall(method, params: params)
         case "metadata": return try await metadataService.call(method, params: params, workspace: workspace)
         default:
             if let result = try await scopedCall(scope, method: method, params: params) {
@@ -196,18 +194,11 @@ extension ApplicationService {
         }
     }
 
-    private var portableLifecycleMethods: [String] {
-        #if os(Linux)
-        ContainerLifecycleService.methods
-        #else
-        native == nil ? ContainerLifecycleService.methods : []
-        #endif
-    }
-
     private func describe() -> JSONValue {
         let extraMethods = (preferences == nil ? [] : PreferencesService.methods)
             + (runtime == nil ? [] : RuntimeService.methods)
             + (native?.methods ?? []) + portableLifecycleMethods
+            + (portableLifecycleMethods.isEmpty ? [] : ["workspace.recover"])
         let extraCapabilities = (runtime == nil ? [] : RuntimeService.capabilities)
             + (native?.capabilities ?? [])
             + (portableLifecycleMethods.isEmpty ? [] : ["bottle.lifecycle.file"])
@@ -255,7 +246,12 @@ extension ApplicationService {
         case "library.scan": return try scanLibrary(params)
         case "library.page": return try pageLibrary(params)
         case "library.entries": return try await listEntries(params)
-        case "workspace.containers": return try .encoded(workspace.catalogue())
+        case "workspace.recover":
+            guard !portableLifecycleMethods.isEmpty else { return try await nativeCall(method, params: params) }
+            return try lifecycleService.recover(workspace: workspace)
+        case "workspace.containers":
+            if !portableLifecycleMethods.isEmpty { try ContainerJournal.requireClear(workspace.registry) }
+            return try .encoded(workspace.catalogue())
         default: return try await nativeCall(method, params: params)
         }
     }

@@ -10,7 +10,7 @@ and distribution gates below.
 OrbStack ARM64 Ubuntu 24.04, Swift 6.4, Rust 1.99.1, Xvfb/X11 and Mesa software
 rendering:
 
-- Shared core: 112 tests; portable bridge: 52 tests; shared metadata package: 20 tests.
+- Shared core: 112 tests; portable bridge: 60 tests; shared metadata package: 20 tests.
 - Rust SDK tests, including its real Swift helper integration test.
 - Production GPUI Linux build/link and 118 unit tests.
 - Production Rust client/helper handshake, capability list and isolated empty
@@ -202,9 +202,55 @@ The first real-helper pass exposed a Linux URL directory-marker comparison;
 canonical container URLs now carry an explicit directory identity. The first
 window pass exposed lost focus after rename; the fixed window rerun passes.
 
-Interrupted-helper recovery and durable lifecycle journals, orphan discovery
-and import, portable route updates, and UI coverage for the remaining lifecycle
-actions continue as required work.
+## Interrupted-helper recovery stage
+
+Directory-changing lifecycle operations reserve private copy directories and
+publish a binary plist at `BottleVM.plist.lifecycle.plist` before copying
+contents or moving a registered tree. The journal file is
+written with mode 0600, flushed and published exclusively. The registry records
+`whiskyLifecycleCommit` in the same atomic write as its new paths, establishing
+the commit boundary. The journal retains directory device/inode identities,
+original registry paths, and the complete metadata/link undo plan for a move.
+Journal size is capped at 64 MiB before the tree changes.
+
+Before commit, recovery removes an owned partial clone or restores a moved or
+staged directory, its original settings bytes and interrupted internal links.
+After commit, recovery retains the registered copy/move and finishes retiring
+the old source or staged removal. Identity mismatches and corrupt journals
+preserve the involved paths and journal and return an explicit error.
+
+`workspace.recover` starts a retained job or returns a null `jobID` when the
+workspace is clear. The production Rust client polls recovery before its first
+container read. Each IPC request keeps its normal deadline while cleanup can
+continue as a job. Normal container requests and background jobs hold shared
+registry leases; lifecycle changes hold an exclusive lease. This covers the
+snapshot interval before journal publication as well as the pending-journal
+interval. macOS retains its existing native lifecycle enablement boundary.
+
+The 60 shared bridge tests pass on macOS and ARM Ubuntu with Swift 6.0/6.4;
+11 macOS native-adapter tests, the real Rust SDK integration and 118 GPUI tests
+per platform also pass. Unit coverage includes a link interrupted between
+unlink/recreate, committed clone/removal states, a replaced destination,
+corrupt-record preservation and lease release on task cancellation.
+
+Real Linux helpers are group-stopped at an observed filesystem/registry state
+and terminated with SIGKILL. Four recorded cases pass: copy and same-device
+move before commit, removal and cross-device move after commit. Fresh helpers
+recover the original/committed trees, preserve external symlink targets and
+clear successful journals. The production CLI recovers before listing the
+library. A real GPUI startup after a killed copy also recovers its fixture and
+passes settings, sidebar, graceful exit and persisted-window checks. CI runs
+both the process interruption gate and the production-window scenario.
+
+Evidence under `build/portability/gui-linux/` includes
+`recovery-full-linux-final.log`, `recovery-macos.log`,
+`recovery-gpui-macos.log`, `recovery-swift60-final.log`,
+`linux-gpui/recovery/{report.json,helper.log}` and
+`linux-gpui/recovery-window/`. Each process-interruption fixture preserves its
+observed journal. The verified recovery scope is helper-process termination.
+
+Required work continues with orphan discovery/import, portable route updates,
+interrupted-export temporary-file cleanup and remaining lifecycle UI actions.
 
 ## Reproduce
 
@@ -249,7 +295,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Library and configuration | Shared storage tests; empty production window and CLI | Seeded-library folder edits through the native chooser, persisted ratings/visibility and refresh/recovery |
 | Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux shortcut creation is tracked under host integration; broader UI override editing remains in the desktop gate |
 | Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
-| Container lifecycle | Linux rename/remove/move/duplicate/export; isolated same/cross-device and cancellation acceptance; production rename UI | Durable journals and interrupted-helper recovery; import/orphan scan; portable route updates; remaining lifecycle UI actions |
+| Container lifecycle | Linux file lifecycle; SIGKILL recovery across commit boundaries; production rename and recovery UI | Import/orphan scan; portable route updates; interrupted-export cleanup; remaining lifecycle UI actions |
 | Host integration | XDG registry/preferences; file open/reveal adapter; GTK file/folder/save dialogs | Terminal discovery, desktop/file associations and capability-aware settings |
 | Diagnostics | macOS report/check adapter | Linux host information, file export and appropriate platform checks |
 | Distribution | macOS `.app` packaging | Linux relocatable bundle, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |

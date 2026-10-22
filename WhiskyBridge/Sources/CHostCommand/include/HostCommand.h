@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include <sys/types.h>
+#include <stdint.h>
 
 typedef struct {
     pid_t pid;
@@ -13,3 +14,5 @@ void whisky_host_stop(pid_t pid);
 
 // Moves a path only when the destination is absent; returns an errno value.
 int whisky_host_move(const char *source, const char *destination);
+
+int whisky_host_identity(const char *path, uint64_t *device, uint64_t *inode, int *directory);

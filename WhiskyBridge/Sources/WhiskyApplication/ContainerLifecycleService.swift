@@ -29,7 +29,8 @@ import Darwin
 @MainActor
 final class ContainerLifecycleService {
     static let methods = ["bottle.rename", "bottle.duplicate", "bottle.move", "bottle.remove", "bottle.export"]
-    private let jobs: BridgeJobStore
+    let jobs: BridgeJobStore
+    var recoveryJobID: String?
     init(jobs: BridgeJobStore) {
         self.jobs = jobs
     }
@@ -41,6 +42,9 @@ final class ContainerLifecycleService {
     ) async throws -> JSONValue {
         guard Self.methods.contains(method)
         else { throw BridgeFailure("method_unavailable", "Unknown lifecycle method") }
+        guard !jobs.hasActiveOperations else {
+            throw BridgeFailure("busy", "Wait for the current workspace operation to finish", retryable: true)
+        }
         if method == "bottle.rename" {
             return try await Self.detached { try Self.mutate(method, params: params, workspace: workspace) }
         }
@@ -53,7 +57,7 @@ final class ContainerLifecycleService {
         }
     }
 
-    private nonisolated static func detached(
+    nonisolated static func detached(
         _ operation: @escaping @Sendable () throws -> JSONValue
     ) async throws -> JSONValue {
         let task = Task.detached { try operation() }
@@ -66,6 +70,25 @@ final class ContainerLifecycleService {
         let lease = try ContainerRegistry.acquire(workspace)
         defer { ContainerRegistry.release(lease) }
         try Task.checkCancellation()
+        try ContainerJournal.requireClear(workspace.registry)
+        do {
+            return try perform(method, params: params, workspace: workspace)
+        } catch {
+            if ContainerJournal.pending(workspace.registry) {
+                do { _ = try ContainerRecovery.run(workspace) } catch let recovery {
+                    throw BridgeFailure(
+                        "recovery_required",
+                        "Lifecycle recovery retained its journal: \(recovery.localizedDescription)"
+                    )
+                }
+            }
+            throw error
+        }
+    }
+
+    private nonisolated static func perform(
+        _ method: String, params: [String: JSONValue], workspace: ApplicationWorkspace
+    ) throws -> JSONValue {
         var registry = try ContainerRegistry.Document(workspace)
         let source = try registry.resolve(params)
         if method == "bottle.remove" {
@@ -77,7 +100,7 @@ final class ContainerLifecycleService {
             let name = try name(params)
             let url = source.appendingPathComponent("Metadata.plist")
             try HostFileLock().withExclusiveLock(at: url.appendingPathExtension("lock")) {
-                var relocation = ContainerRelocation(source: source, destination: source)
+                let relocation = ContainerRelocation(source: source, destination: source)
                 try relocation.apply(at: source, name: name)
             }
             return .object(["container": .string(source.path), "name": .string(name)])
@@ -119,21 +142,13 @@ final class ContainerLifecycleService {
         try FileManager.default.createDirectory(
             at: destination, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700]
         )
-        do {
-            try copyContents(source, to: destination)
-            var relocation = ContainerRelocation(source: source, destination: destination)
-            try relocation.apply(at: destination, name: name)
-            try Task.checkCancellation()
-            try registry.save(registry.paths + [destination])
-        } catch {
-            do { try removeOwnedCopy(destination) } catch let cleanup {
-                throw BridgeFailure(
-                    "recovery_required",
-                    "Clone cleanup failed at \(destination.path): \(cleanup.localizedDescription)"
-                )
-            }
-            throw error
-        }
+        let journal = try startCopy(.duplicate, source: source, destination: destination, registry: registry)
+        try copyContents(source, to: destination)
+        let relocation = ContainerRelocation(source: source, destination: destination)
+        try relocation.apply(at: destination, name: name)
+        try Task.checkCancellation()
+        try registry.save(registry.paths + [destination], transaction: journal.id)
+        try ContainerJournal.clear(registry.url)
         return .object(["path": .string(destination.path), "name": .string(name)])
     }
 
@@ -150,28 +165,28 @@ final class ContainerLifecycleService {
         guard !exists(destination) else { throw BridgeFailure("destination_exists", "The destination already exists") }
         // Resolve registry aliases while the source still exists.
         let updatedPaths = registry.paths.map { ContainerRegistry.canonical($0) == source ? destination : $0 }
-        var relocation = ContainerRelocation(source: source, destination: destination)
+        let undo = try ContainerUndo(source)
+        let journal = try ContainerJournal(
+            kind: .move,
+            source: source,
+            destination: destination,
+            paths: registry.paths,
+            undo: undo
+        )
+        try journal.save(registry.url)
         let moveError = whisky_host_move(source.path, destination.path)
         if moveError != 0 {
-            guard moveError == EXDEV else { throw POSIXError(POSIXErrorCode(rawValue: moveError) ?? .EIO) }
-            return try moveAcrossDevices(source, destination: destination, registry: &registry)
-        }
-        do {
-            try relocation.apply(at: destination)
-            try Task.checkCancellation()
-            try registry.save(updatedPaths)
-        } catch {
-            do {
-                try relocation.restore(at: destination)
-                try FileManager.default.moveItem(at: destination, to: source)
-            } catch let rollback {
-                throw BridgeFailure(
-                    "recovery_required",
-                    "Move recovery requires \(destination.path) → \(source.path): \(rollback.localizedDescription)"
-                )
+            if moveError == EXDEV {
+                try ContainerJournal.clear(registry.url)
+                return try moveAcrossDevices(source, destination: destination, registry: &registry)
             }
-            throw error
+            throw POSIXError(POSIXErrorCode(rawValue: moveError) ?? .EIO)
         }
+        let relocation = ContainerRelocation(source: source, destination: destination)
+        try relocation.apply(at: destination)
+        try Task.checkCancellation()
+        try registry.save(updatedPaths, transaction: journal.id)
+        try ContainerJournal.clear(registry.url)
         return .object(["path": .string(destination.path)])
     }
 
@@ -181,28 +196,38 @@ final class ContainerLifecycleService {
         try FileManager.default.createDirectory(
             at: destination, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700]
         )
+        let journal = try startCopy(.crossMove, source: source, destination: destination, registry: registry)
+        try copyContents(source, to: destination, cleanTransient: false)
+        let relocation = ContainerRelocation(source: source, destination: destination)
+        try relocation.apply(at: destination)
+        try Task.checkCancellation()
+        try registry.save(
+            registry.paths.map { ContainerRegistry.canonical($0) == source ? destination : $0 },
+            transaction: journal.id
+        )
+        try removeOwnedCopy(source)
+        try ContainerJournal.clear(registry.url)
+        return .object(["path": .string(destination.path)])
+    }
+
+    private nonisolated static func startCopy(
+        _ kind: ContainerJournal.Kind, source: URL, destination: URL, registry: ContainerRegistry.Document
+    ) throws -> ContainerJournal {
         do {
-            try copyContents(source, to: destination, cleanTransient: false)
-            var relocation = ContainerRelocation(source: source, destination: destination)
-            try relocation.apply(at: destination)
-            try Task.checkCancellation()
-            try registry.save(registry.paths.map { ContainerRegistry.canonical($0) == source ? destination : $0 })
+            let journal = try ContainerJournal(
+                kind: kind,
+                source: source,
+                destination: destination,
+                paths: registry.paths
+            )
+            try journal.save(registry.url)
+            return journal
         } catch {
-            do { try removeOwnedCopy(destination) } catch let cleanup {
-                throw BridgeFailure(
-                    "recovery_required",
-                    "Retained copy at \(destination.path): \(cleanup.localizedDescription)"
-                )
+            if !ContainerJournal.pending(registry.url) {
+                try removeOwnedCopy(destination)
             }
             throw error
         }
-        do { try FileManager.default.removeItem(at: source) } catch {
-            throw BridgeFailure(
-                "recovery_required",
-                "Container moved to \(destination.path); original files remain at \(source.path)"
-            )
-        }
-        return .object(["path": .string(destination.path)])
     }
 
     private nonisolated static func remove(
@@ -216,25 +241,14 @@ final class ContainerLifecycleService {
         }
         try validate(source, registry: registry.url)
         let staging = source.deletingLastPathComponent().appendingPathComponent(".whisky-removing-" + UUID().uuidString)
-        try FileManager.default.moveItem(at: source, to: staging)
-        do {
-            try Task.checkCancellation()
-            try registry.save(remaining)
-        } catch {
-            do { try FileManager.default.moveItem(at: staging, to: source) } catch let rollback {
-                throw BridgeFailure(
-                    "recovery_required",
-                    "Removal recovery requires \(staging.path): \(rollback.localizedDescription)"
-                )
-            }
-            throw error
-        }
-        do { try FileManager.default.removeItem(at: staging) } catch {
-            throw BridgeFailure(
-                "recovery_required",
-                "Container deregistered; retained files require cleanup at \(staging.path)"
-            )
-        }
+        let journal = try ContainerJournal(kind: .remove, source: source, destination: staging, paths: registry.paths)
+        try journal.save(registry.url)
+        let error = whisky_host_move(source.path, staging.path)
+        guard error == 0 else { throw POSIXError(POSIXErrorCode(rawValue: error) ?? .EIO) }
+        try Task.checkCancellation()
+        try registry.save(remaining, transaction: journal.id)
+        try removeOwnedCopy(staging)
+        try ContainerJournal.clear(registry.url)
         return .object(["container": .string(source.path), "deletedFiles": .bool(true)])
     }
 

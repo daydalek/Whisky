@@ -31,11 +31,22 @@ enum ContainerRegistry {
         guard workspace.explicitContainers.isEmpty else {
             throw BridgeFailure("read_only_workspace", "Lifecycle changes require a persisted registry")
         }
+        return try lock(workspace, exclusive: true)
+    }
+
+    static func acquireShared(_ workspace: ApplicationWorkspace) throws -> Int32? {
+        guard workspace.explicitContainers.isEmpty,
+              FileManager.default.fileExists(atPath: workspace.registry.path)
+        else { return nil }
+        return try lock(workspace, exclusive: false)
+    }
+
+    private static func lock(_ workspace: ApplicationWorkspace, exclusive: Bool) throws -> Int32 {
         let url = workspace.registry.appendingPathExtension("lock")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let descriptor = open(url.path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, mode_t(0o600))
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+        guard flock(descriptor, (exclusive ? LOCK_EX : LOCK_SH) | LOCK_NB) == 0 else {
             close(descriptor)
             throw BridgeFailure("busy", "Another container operation holds this registry", retryable: true)
         }
@@ -76,10 +87,17 @@ enum ContainerRegistry {
             return target
         }
 
-        mutating func save(_ paths: [URL]) throws {
+        var committedTransaction: String? {
+            values["whiskyLifecycleCommit"] as? String
+        }
+
+        mutating func save(_ paths: [URL], transaction: UUID? = nil) throws {
             let encoded = try PropertyListEncoder().encode(Paths(paths: paths))
             let updated = try PropertyListSerialization.propertyList(from: encoded, format: nil) as? [String: Any]
             values["paths"] = updated?["paths"]
+            if let transaction {
+                values["whiskyLifecycleCommit"] = transaction.uuidString
+            }
             try PropertyListSerialization.data(fromPropertyList: values, format: format, options: 0)
                 .write(to: url, options: .atomic)
             self.paths = paths

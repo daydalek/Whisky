@@ -20,19 +20,12 @@ import Foundation
 import WhiskyBridgeProtocol
 
 /// Rewrites declared location fields while preserving opaque settings and relative identities.
-/// Originals also cover symlinks so a failed move can restore the source tree.
+/// ContainerUndo persists the rollback plan before this transformation starts.
 struct ContainerRelocation {
     let source: URL
     let destination: URL
-    private var files: [(String, Data)] = []
-    private var links: [(String, String)] = []
 
-    init(source: URL, destination: URL) {
-        self.source = source
-        self.destination = destination
-    }
-
-    mutating func apply(at directory: URL, name: String? = nil) throws {
+    func apply(at directory: URL, name: String? = nil) throws {
         let metadata = directory.appendingPathComponent("Metadata.plist")
         let data = try ApplicationWorkspace.read(metadata)
         var format = PropertyListSerialization.PropertyListFormat.binary
@@ -55,25 +48,11 @@ struct ContainerRelocation {
             info["blocklist"] = blocked.map(relocateURL)
         }
         document["info"] = info
-        files.append(("Metadata.plist", data))
         try PropertyListSerialization.data(fromPropertyList: document, format: format, options: 0)
             .write(to: metadata, options: .atomic)
         guard source != destination else { return }
         try relocateFolders(at: directory)
         try relocateLinks(at: directory)
-    }
-
-    func restore(at directory: URL) throws {
-        for (path, data) in files {
-            try data.write(to: directory.appendingPathComponent(path), options: .atomic)
-        }
-        for (path, target) in links {
-            let url = directory.appendingPathComponent(path)
-            if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
-                try FileManager.default.removeItem(at: url)
-            }
-            try FileManager.default.createSymbolicLink(atPath: url.path, withDestinationPath: target)
-        }
     }
 
     private func relocate(_ value: String) -> String {
@@ -97,9 +76,13 @@ struct ContainerRelocation {
         return relocate(string)
     }
 
-    private mutating func relocateFolders(at directory: URL) throws {
+    private func relocateFolders(at directory: URL) throws {
         let url = directory.appendingPathComponent("Folder Games.json")
         guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard values.isRegularFile == true, values.isSymbolicLink != true else {
+            throw BridgeFailure("invalid_container", "Expected a regular folder-library document")
+        }
         let data = try ApplicationWorkspace.read(url)
         guard var document = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { throw CocoaError(.fileReadCorruptFile) }
@@ -123,11 +106,10 @@ struct ContainerRelocation {
                 result[key] = relocate(item.value)
             }
         }
-        files.append(("Folder Games.json", data))
         try JSONSerialization.data(withJSONObject: document).write(to: url, options: .atomic)
     }
 
-    private mutating func relocateLinks(at directory: URL) throws {
+    private func relocateLinks(at directory: URL) throws {
         var scanError: (any Error)?
         guard let iterator = FileManager.default.enumerator(
             at: directory, includingPropertiesForKeys: [.isSymbolicLinkKey],
@@ -143,8 +125,6 @@ struct ContainerRelocation {
             let original = try FileManager.default.destinationOfSymbolicLink(atPath: url.path)
             let target = relocate(original)
             guard target != original else { continue }
-            let relative = String(url.path.dropFirst(directory.path.count + 1))
-            links.append((relative, original))
             try FileManager.default.removeItem(at: url)
             try FileManager.default.createSymbolicLink(atPath: url.path, withDestinationPath: target)
         }

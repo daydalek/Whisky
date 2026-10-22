@@ -22,7 +22,7 @@ import Testing
 @testable import WhiskyApplication
 import WhiskyBridgeProtocol
 
-private struct LifecycleFixture {
+struct LifecycleFixture {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("lifecycle-" + UUID().uuidString)
         .resolvingSymlinksInPath()
     var source: URL {
@@ -90,7 +90,7 @@ private struct LifecycleFixture {
             case "failed", "cancelled":
                 throw BridgeFailure(
                     state.object?["error"]?.object?["code"]?.string ?? "test_failed",
-                    "Lifecycle job failed"
+                    state.object?["error"]?.object?["message"]?.string ?? "Lifecycle job failed"
                 )
             default: try await Task.sleep(for: .milliseconds(5))
             }

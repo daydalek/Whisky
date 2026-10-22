@@ -23,7 +23,7 @@ def main():
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--helper', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata', 'lifecycle'], default='empty')
+    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata', 'lifecycle', 'recovery'], default='empty')
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -36,7 +36,7 @@ def main():
     env.pop('WHISKY_GPUI_DEMO_DATA', None)
     program_identity = None
     metadata_path = None
-    if args.scenario in ('programs', 'metadata', 'lifecycle'):
+    if args.scenario in ('programs', 'metadata', 'lifecycle', 'recovery'):
         generator = runpy.run_path(str(Path(__file__).with_name('check-programs.py')))['fixture_at']
         bottle, executable, registry, identity = generator(fixture)
         env['WHISKY_REGISTRY'] = str(registry)
@@ -59,6 +59,11 @@ def main():
             assert len(replies) == len(requests) and all(reply.get('error') is None for reply in replies), replies
             key = hashlib.sha256(b'program:drive_c/Program Files/Game/game.exe').hexdigest()
             metadata_path = bottle / 'Game Metadata' / (key + '.json')
+    interrupted_destination = None
+    if args.scenario == 'recovery':
+        interrupt = runpy.run_path(str(Path(__file__).with_name('check-recovery.py')))['interrupt_copy']
+        with (output / 'interruption-helper.log').open('w') as interruption_log:
+            interrupted_destination = interrupt(args.helper.resolve(), bottle, registry, env, interruption_log)
     report = {'steps': [], 'passed': False}
     app = None
     try:
@@ -90,6 +95,11 @@ def main():
                 return path
 
             library = snapshot('library')
+            if interrupted_destination is not None:
+                assert not registry.with_suffix('.plist.lifecycle.plist').exists(), 'Startup recovery retained its journal'
+                assert bottle.exists() and not interrupted_destination.exists()
+                assert plistlib.loads((bottle / 'Metadata.plist').read_bytes())['future'] == {'keep': 'opaque'}
+                report['steps'].append('production-window-startup-recovers-sigkilled-copy-and-loads-original-library')
             if args.scenario == 'lifecycle':
                 marker = bottle / 'Metadata.plist'
                 before = marker.read_bytes()
