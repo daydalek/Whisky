@@ -445,28 +445,96 @@ impl WhiskyApp {
         let folder = picker.folder.clone();
         let mut rows: Vec<AnyElement> = Vec::new();
         if picker.candidates.is_empty() {
-            rows.push(self.info("正在查找…", "递归扫描该文件夹"));
+            rows.push(
+                row()
+                    .gap(px(10.))
+                    .py(px(14.))
+                    .justify_center()
+                    .child(Spinner::new().with_size(px(14.)))
+                    .child(muted("正在递归扫描该文件夹下的可执行程序…"))
+                    .into_any_element(),
+            );
         }
-        for candidate in &picker.candidates {
+        for (i, candidate) in picker.candidates.iter().enumerate() {
             let path = candidate.path.clone();
             let view = cx.entity().downgrade();
             let location = candidate.location(&folder);
+            let is_root = location == "根目录";
+            let row_id = SharedString::from(format!("exe-candidate-{}", i));
             rows.push(
-                Button::new(SharedString::from(format!("exe:{}", candidate.path)))
-                    .ghost()
+                row()
+                    .id(row_id)
                     .w_full()
-                    .justify_start()
-                    .child(
-                        col()
-                            .gap(px(3.))
-                            .child(candidate.name.clone())
-                            .child(muted(location).line_height(relative(1.3))),
-                    )
+                    .p(px(10.))
+                    .my(px(3.))
+                    .gap(px(12.))
+                    .rounded(px(8.))
+                    .bg(rgba(0xffffff05))
+                    .border_1()
+                    .border_color(rgba(0xffffff08))
+                    .cursor_pointer()
+                    .hover(|d| d.bg(rgba(0xffffff10)).border_color(rgba(0xffffff18)))
                     .on_click(move |_, _, cx| {
                         let _ = view.update(cx, |this, cx| {
                             this.choose_executable(&path, cx);
                         });
                     })
+                    .child(
+                        div()
+                            .size(px(36.))
+                            .rounded(px(7.))
+                            .bg(gradient(0xffffff14, 0xffffff06))
+                            .border_1()
+                            .border_color(rgba(0xffffff0d))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(icon("package", 16.).text_color(rgb(if is_root { 0xff891b } else { 0x97979b }))),
+                    )
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(2.))
+                            .child(
+                                row()
+                                    .gap(px(6.))
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_size(px(13.))
+                                            .truncate()
+                                            .child(candidate.name.clone()),
+                                    )
+                                    .when(is_root, |d| {
+                                        d.child(
+                                            div()
+                                                .px(px(6.))
+                                                .py(px(1.))
+                                                .rounded(px(4.))
+                                                .bg(rgba(0xff891b22))
+                                                .text_size(px(10.))
+                                                .text_color(rgb(0xff891b))
+                                                .child("主程序"),
+                                        )
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(11.))
+                                    .text_color(rgb(0x97979b))
+                                    .truncate()
+                                    .child(location),
+                            ),
+                    )
+                    .child(
+                        row()
+                            .gap(px(4.))
+                            .items_center()
+                            .child(muted("选择"))
+                            .child(muted("›")),
+                    )
                     .into_any_element(),
             );
         }
@@ -475,11 +543,11 @@ impl WhiskyApp {
             vec![
                 self.section(
                     "executable-folder",
-                    "文件夹",
+                    "游戏目录",
                     vec![self.info(&picker.title, &folder)],
                     cx,
                 ),
-                self.section("executable-list", "可启动的程序", rows, cx),
+                self.section("executable-list", "选择可执行程序 (.exe)", rows, cx),
             ],
         )
     }
