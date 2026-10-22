@@ -24,7 +24,7 @@ def main():
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--helper', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata', 'lifecycle', 'recovery', 'import', 'candidates', 'diagnostics', 'terminal', 'desktop'], default='empty')
+    parser.add_argument('--scenario', choices=['empty', 'programs', 'metadata', 'lifecycle', 'recovery', 'import', 'candidates', 'diagnostics', 'terminal', 'desktop', 'settings'], default='empty')
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -112,6 +112,14 @@ def main():
         env['WHISKY_REAL_HELPER'] = env['WHISKY_BRIDGE_HELPER']
         env['WHISKY_REQUEST_LOG'] = str(fixture / 'requests.jsonl')
         env['WHISKY_BRIDGE_HELPER'] = str(Path(__file__).with_name('record-helper.py').resolve())
+    if args.scenario == 'settings':
+        env['WHISKY_REAL_HELPER'] = env['WHISKY_BRIDGE_HELPER']
+        env['WHISKY_REQUEST_LOG'] = str(fixture / 'requests.jsonl')
+        env['WHISKY_BRIDGE_HELPER'] = str(Path(__file__).with_name('settings-helper.py').resolve())
+        env['WHISKY_SETTINGS_CHILD_PID'] = str(fixture / 'child.pid')
+        env['WHISKY_SETTINGS_EXCLUDED'] = str(fixture / 'excluded.json')
+        (fixture / 'excluded.json').write_text(json.dumps([
+            'system.terminals', 'system.desktop.status', 'system.desktop.install']))
     report = {'steps': [], 'passed': False}
     app = None
     try:
@@ -245,6 +253,9 @@ def main():
                 exercise = runpy.run_path(str(Path(__file__).with_name('lifecycle-window.py')))['exercise']
                 exercise(window, app, fixture, bottle, registry, snapshot)
                 report['steps'].append('production-sidebar-export-cancel-move-duplicate-deregister-delete-preserves-external-data')
+            if args.scenario == 'settings':
+                exercise = runpy.run_path(str(Path(__file__).with_name('settings-window.py')))['exercise']
+                exercise(window, app, fixture, snapshot, report)
             if args.scenario == 'desktop':
                 exercise = runpy.run_path(str(Path(__file__).with_name('desktop-window.py')))['exercise']
                 exercise(window, app, fixture, bottle, registry, snapshot, env)

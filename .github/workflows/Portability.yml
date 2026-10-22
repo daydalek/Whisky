@@ -58,6 +58,14 @@ jobs:
               --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
               --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
               --output "$WHISKY_LINUX_OUTPUT/window"
+      - name: Adapt settings across optional host services and helper reconnects
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/settings-window" --scenario settings
       - name: Edit program settings through the production window
         run: |
           xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
@@ -171,6 +179,10 @@ jobs:
             /tmp/whisky-linux-gpui/import-window/*.png
             /tmp/whisky-linux-gpui/shortcut-identity/report.json
             /tmp/whisky-linux-gpui/shortcut-identity/helper.log
+            /tmp/whisky-linux-gpui/settings-window/report.json
+            /tmp/whisky-linux-gpui/settings-window/application.log
+            /tmp/whisky-linux-gpui/settings-window/*.png
+            /tmp/whisky-linux-gpui/settings-window/fixture-*/requests.jsonl
             /tmp/whisky-linux-gpui/desktop-update/report.json
             /tmp/whisky-linux-gpui/desktop-update/helper.log
             /tmp/whisky-linux-gpui/desktop-update/observed-update.plist

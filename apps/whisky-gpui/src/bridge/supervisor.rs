@@ -333,6 +333,8 @@ pub(crate) enum BridgeEvent {
     ImportCandidatesFailed { request: u64, reason: String },
     CandidatesImported { request: u64, paths: Vec<String>, count: usize },
     Status(BridgeStatus),
+    /// Advertised methods for the current connected helper session.
+    Services(Vec<String>),
     /// The container catalogue, emitted once per connected session.
     Containers(Vec<Container>),
     /// The catalogue re-read by an explicit Refresh in the same session: the
@@ -1566,6 +1568,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                 methods: describe.methods.len(),
             },
         );
+        emit_event(&events, BridgeEvent::Services(describe.methods.clone()));
         log_container_names(&containers);
         emit_event(&events, BridgeEvent::Containers(containers));
         fetch_setup_status(&mut client, &events);
@@ -4732,27 +4735,70 @@ enum SetupTerminal {
     Failed(String),
 }
 
-/// Emits the current runtime status. Startup failures stay quiet: a Linux
-/// helper or a session without setup methods must not block the library.
+/// Refresh desktop state only through a method advertised by this session.
 fn fetch_desktop(client: &mut Client, events: &smol::channel::Sender<BridgeEvent>, install: bool) {
-    let result = std::env::current_exe().map_err(|error| error.to_string())
-        .and_then(|launcher| client.call(if install { "system.desktop.install" } else { "system.desktop.status" }, json!({ "launcher": launcher }))
-            .map_err(|error| error.to_string()))
+    let method = if install {
+        "system.desktop.install"
+    } else {
+        "system.desktop.status"
+    };
+    if !client
+        .capabilities()
+        .methods
+        .iter()
+        .any(|advertised| advertised == method)
+    {
+        emit_event(
+            events,
+            BridgeEvent::HostDesktop {
+                install,
+                result: Err("桌面集成服务接入后可配置".into()),
+            },
+        );
+        return;
+    }
+    let result = std::env::current_exe()
+        .map_err(|error| error.to_string())
+        .and_then(|launcher| {
+            client
+                .call(method, json!({ "launcher": launcher }))
+                .map_err(|error| error.to_string())
+        })
         .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()));
     emit_event(events, BridgeEvent::HostDesktop { install, result });
 }
 
 fn fetch_terminals(client: &mut Client, events: &smol::channel::Sender<BridgeEvent>) {
-    let result = client.call("system.terminals", json!({}))
+    if !client
+        .capabilities()
+        .methods
+        .iter()
+        .any(|method| method == "system.terminals")
+    {
+        emit_event(
+            events,
+            BridgeEvent::HostTerminals {
+                result: Err("终端发现服务接入后可选择".into()),
+            },
+        );
+        return;
+    }
+    let result = client
+        .call("system.terminals", json!({}))
         .map_err(|error| error.to_string())
         .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()));
     emit_event(events, BridgeEvent::HostTerminals { result });
 }
 
-fn fetch_setup_status(
-    client: &mut Client,
-    events: &smol::channel::Sender<BridgeEvent>,
-) {
+fn fetch_setup_status(client: &mut Client, events: &smol::channel::Sender<BridgeEvent>) {
+    if !client
+        .capabilities()
+        .methods
+        .iter()
+        .any(|method| method == "setup.status")
+    {
+        return;
+    }
     let Ok(reply) = client.call("setup.status", json!({})) else {
         return;
     };

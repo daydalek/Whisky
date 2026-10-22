@@ -8,6 +8,7 @@ pub(crate) mod settings;
 
 use gpui_kit::base::{ScrollBounce, ScrollBounceMotion};
 use gpui_kit::component::{
+    Disableable,
     button::{Button, ButtonVariants},
     input::Input,
     menu::{DropdownMenu, PopupMenu, PopupMenuItem},
@@ -331,9 +332,14 @@ impl WhiskyApp {
                         d.child(muted(description).line_height(relative(1.4)))
                     }),
             )
-            .child(Switch::new(key).checked(checked).on_change(
-                cx.listener(move |this, _, _, cx| this.command(Command::Toggle(key), cx)),
-            ))
+            .child(
+                Switch::new(key)
+                    .checked(checked)
+                    .disabled(!self.toggle_available(key))
+                    .on_change(cx.listener(move |this, _, _, cx| {
+                        this.command(Command::Toggle(key), cx)
+                    })),
+            )
             .into_any_element()
     }
     pub(crate) fn choice(

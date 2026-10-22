@@ -1,6 +1,5 @@
 //! Application settings surface.
 
-#[cfg(target_os = "linux")]
 use gpui_kit::component::Disableable;
 use gpui_kit::component::button::Button;
 #[cfg(target_os = "linux")]
@@ -55,7 +54,9 @@ impl WhiskyApp {
                         })
                 })
                 .collect::<Vec<_>>();
-            let status =
+            let status = if !self.service_available("system.terminals") {
+                "终端发现服务接入后可选择".to_owned()
+            } else {
                 self.host_terminal_error
                     .clone()
                     .unwrap_or_else(|| match &self.host_terminals {
@@ -78,12 +79,15 @@ impl WhiskyApp {
                             .collect::<Vec<_>>()
                             .join("；"),
                         None => "正在发现 Linux 终端…".to_owned(),
-                    });
+                    })
+            };
             let view = cx.entity().downgrade();
             let enabled = self
                 .host_terminals
                 .as_ref()
-                .is_some_and(|status| !status.available.is_empty());
+                .is_some_and(|status| !status.available.is_empty())
+                && self.service_available("system.terminals")
+                && self.service_available("preferences.set");
             crate::controls::col()
                 .gap(px(6.))
                 .child(
@@ -113,9 +117,12 @@ impl WhiskyApp {
                                 }),
                         )
                         .child(
-                            Button::new("refresh-terminals").label("重新检测").on_click(
-                                cx.listener(|this, _, _, _| this.bridge.load_terminals()),
-                            ),
+                            Button::new("refresh-terminals")
+                                .label("重新检测")
+                                .disabled(!self.service_available("system.terminals"))
+                                .on_click(
+                                    cx.listener(|this, _, _, _| this.bridge.load_terminals()),
+                                ),
                         ),
                 )
                 .child(muted(status).text_size(px(11.)))
@@ -129,15 +136,18 @@ impl WhiskyApp {
             .desktop_status
             .as_ref()
             .is_some_and(|status| status.installed);
-        let message = self
-            .desktop_error
-            .clone()
-            .or_else(|| {
-                self.desktop_status
-                    .as_ref()
-                    .map(|status| status.path.clone())
-            })
-            .unwrap_or_else(|| "正在读取桌面集成状态…".into());
+        let message = if !self.service_available("system.desktop.status") {
+            "桌面集成服务接入后可配置".into()
+        } else {
+            self.desktop_error
+                .clone()
+                .or_else(|| {
+                    self.desktop_status
+                        .as_ref()
+                        .map(|status| status.path.clone())
+                })
+                .unwrap_or_else(|| "正在读取桌面集成状态…".into())
+        };
         crate::controls::col()
             .gap(px(6.))
             .child(
@@ -149,7 +159,11 @@ impl WhiskyApp {
                         Button::new("install-desktop")
                             .label(if self.desktop_installing {
                                 "正在添加…"
-                            } else if self.desktop_status.as_ref().is_some_and(|status| status.needs_update) {
+                            } else if self
+                                .desktop_status
+                                .as_ref()
+                                .is_some_and(|status| status.needs_update)
+                            {
                                 "更新…"
                             } else if installed {
                                 "已添加"
@@ -158,10 +172,7 @@ impl WhiskyApp {
                             })
                             .disabled(
                                 self.desktop_installing
-                                    || !matches!(
-                                        self.bridge_status,
-                                        crate::bridge::BridgeStatus::Connected { .. }
-                                    ),
+                                    || !self.service_available("system.desktop.install"),
                             )
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.desktop_installing = true;
@@ -179,7 +190,7 @@ impl WhiskyApp {
         let bottle_location = self
             .default_bottle_location
             .clone()
-            .unwrap_or_else(|| "~/Library/Containers/com.franke.Whisky/Bottles".into());
+            .unwrap_or_else(|| "正在读取容器位置…".into());
         let terminal = self.terminal_preferences(cx);
         #[cfg(target_os = "linux")]
         let terminal = crate::controls::col()
@@ -197,7 +208,11 @@ impl WhiskyApp {
                         self.toggle(
                             "kill",
                             "退出 Whisky 时结束所有进程",
-                            "关闭后，退出应用不会终止仍在运行的 Windows 程序。",
+                            if self.toggle_available("kill") {
+                                "退出应用时按此设置处理运行中的 Windows 程序。"
+                            } else {
+                                "运行时服务接入后可设置。"
+                            },
                             cx,
                         ),
                         // "在菜单栏显示 Whisky" is deliberately absent: the
@@ -217,6 +232,10 @@ impl WhiskyApp {
                             .child(
                                 Button::new("choose-bottle-location")
                                     .label("更改…")
+                                    .disabled(
+                                        !self.service_available("system.chooseFolder")
+                                            || !self.service_available("preferences.set"),
+                                    )
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.choose_bottle_location(cx);
                                     })),
@@ -229,7 +248,16 @@ impl WhiskyApp {
                     "library-prefs",
                     "游戏库",
                     vec![
-                        self.toggle("refresh", "退出游戏后刷新游戏库", "", cx),
+                        self.toggle(
+                            "refresh",
+                            "退出游戏后刷新游戏库",
+                            if self.toggle_available("refresh") {
+                                ""
+                            } else {
+                                "运行时事件服务接入后可设置。"
+                            },
+                            cx,
+                        ),
                         self.toggle(
                             "mixed",
                             "混合封面布局",
@@ -262,30 +290,35 @@ impl WhiskyApp {
                 self.section(
                     "runtime",
                     "Wine 运行时",
-                    vec![
-                        self.info(
-                            "状态",
-                            self.setup_status.as_ref().map_or_else(
-                                || "未知".to_owned(),
-                                |status| {
-                                    if status.installed {
-                                        status.version.clone().map_or_else(
-                                            || "已安装".to_owned(),
-                                            |version| format!("已安装 · {version}"),
-                                        )
-                                    } else {
-                                        "未安装".to_owned()
-                                    }
-                                },
+                    if self.service_available("setup.status") {
+                        vec![
+                            self.info(
+                                "状态",
+                                self.setup_status.as_ref().map_or_else(
+                                    || "未知".to_owned(),
+                                    |status| {
+                                        if status.installed {
+                                            status.version.clone().map_or_else(
+                                                || "已安装".to_owned(),
+                                                |version| format!("已安装 · {version}"),
+                                            )
+                                        } else {
+                                            "未安装".to_owned()
+                                        }
+                                    },
+                                ),
                             ),
-                        ),
-                        self.action(
-                            "runtime-install",
-                            "安装或更新运行时…",
-                            crate::views::Command::InstallWineRuntime,
-                            cx,
-                        ),
-                    ],
+                            Button::new("runtime-install")
+                                .label("安装或更新运行时…")
+                                .disabled(!self.service_available("setup.install"))
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.install_wine_runtime(cx)),
+                                )
+                                .into_any_element(),
+                        ]
+                    } else {
+                        vec![self.info("当前服务", "文件管理与宿主集成")]
+                    },
                     cx,
                 ),
                 self.section(
@@ -298,7 +331,16 @@ impl WhiskyApp {
                             "阻止 Whisky 自身的联网请求；游戏不受影响。",
                             cx,
                         ),
-                        self.toggle("updates", "检查 WhiskyWine 更新", "", cx),
+                        self.toggle(
+                            "updates",
+                            "检查 WhiskyWine 更新",
+                            if self.toggle_available("updates") {
+                                ""
+                            } else {
+                                "运行时更新服务接入后可设置。"
+                            },
+                            cx,
+                        ),
                     ],
                     cx,
                 ),

@@ -677,6 +677,38 @@ Local evidence under `build/portability/gui-linux/` includes
 `desktop-update-swift60.log`, `desktop-update-final-linux.log`,
 `linux-gpui/desktop-update/` and `linux-gpui/desktop-window/`.
 
+## Settings follow the connected helper services
+
+Each connected session publishes its advertised method list to the view model.
+Settings use that list to enable desktop installation, terminal detection,
+container-directory selection and runtime-specific actions. Exit policy,
+post-exit refresh and Wine update preferences become read-only while their
+corresponding runtime services are absent. Their stored values remain intact;
+supported library settings continue to persist through the shared preference
+service. The runtime panel describes the current file/host services when setup
+methods are absent, and an unresolved container location shows a loading label.
+
+Disconnect and reconnect replace the method list and clear the previous setup
+status. Opening settings and startup query setup status only when it is
+advertised. Terminal and desktop queries also check the active session before
+sending an optional request. Automatic installer prompts and update checks
+follow the same method availability.
+
+The production Xvfb settings scenario uses a test-only advertisement filter
+around the real Swift helper. It starts with three host methods omitted,
+verifies inert controls and unchanged runtime preferences, and persists a
+supported cover-layout preference. It also verifies writable offline mode and
+read-only runtime update policy. It terminates the helper child and uses the
+production Refresh action to trigger reconnect. The next session advertises
+all host methods and installs a real desktop entry through the settings button.
+A third session omits those methods again and verifies restored read-only
+controls. Request traces verify the exact host methods and preserve the
+runtime exclusion throughout this flow. Local evidence includes
+`settings-services-macos.log`, `settings-services-final-linux.log`,
+`settings-services-network-window.log` and
+`linux-gpui/settings-window/` under `build/portability/gui-linux/`.
+CI retains the scenario report, screenshots, application log and request trace.
+
 ## Reproduce
 
 Use an Ubuntu 24.04 environment with Swift 6.4 and Rust 1.99.1. Install the
@@ -721,7 +753,7 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux .desktop creation and GIO startup verified; broader UI override editing remains in the desktop gate |
 | Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
 | Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; complete production file-lifecycle window flow, recovery and candidate import UI | Additional platform coverage follows the desktop acceptance matrix |
-| Host integration | XDG preferences; file open/reveal; GTK dialogs; real terminal/window acceptance; managed desktop updates, legacy shortcut upgrade and stable relocation | Broader capability-aware settings and additional terminal/desktop environments |
+| Host integration | XDG preferences; file open/reveal; GTK dialogs; real terminal/window acceptance; managed desktop updates, legacy shortcut upgrade and stable relocation | Additional terminal/desktop environments; settings now follow connected helper services |
 | Diagnostics | Native macOS adapter; Linux bounded host/file report, platform checks, exclusive export and production-window acceptance | Additional desktop platform coverage follows the acceptance matrix |
 | Distribution | macOS `.app` packaging | Linux relocatable bundle with both native helpers, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |
 | Desktop acceptance | ARM64 X11 virtual display with Mesa | Seeded end-to-end interactions, restart/recovery and Wayland coverage; x86_64 hosted CI evidence |

@@ -504,6 +504,7 @@ pub(crate) struct WhiskyApp {
     pub(crate) clipboard_prompt: Option<ClipboardPrompt>,
     pub(crate) bridge: BridgeSupervisor,
     pub(crate) bridge_status: BridgeStatus,
+    pub(crate) service_methods: BTreeSet<String>,
     pub(crate) bridge_dialog: bool,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) _subscriptions: Vec<Subscription>,
@@ -644,6 +645,7 @@ impl WhiskyApp {
             clipboard_prompt: None,
             bridge,
             bridge_status: BridgeStatus::Locating,
+            service_methods: BTreeSet::new(),
             bridge_dialog: false,
             _subscriptions: vec![subscription, dependency_subscription, activation],
         }
@@ -748,6 +750,10 @@ impl WhiskyApp {
                 };
                 let stopped = matches!(&status, BridgeStatus::Stopped);
                 self.bridge_status = status;
+                if !connected {
+                    self.service_methods.clear();
+                    self.setup_status = None;
+                }
                 if connected && !self.demo {
                     // One read per connected session; the reply carries both
                     // the stored values and the writable-key schema.
@@ -780,6 +786,9 @@ impl WhiskyApp {
                         self.load_error = reason;
                     }
                 }
+            }
+            BridgeEvent::Services(methods) => {
+                self.service_methods = methods.into_iter().collect();
             }
             BridgeEvent::Containers(containers) => {
                 if !self.demo {
@@ -2091,7 +2100,10 @@ impl WhiskyApp {
                                 rosetta_installed,
                                 apple_silicon,
                             });
-                            if !installed && !self.setup_prompted {
+                            if !installed
+                                && !self.setup_prompted
+                                && self.service_available("setup.install")
+                            {
                                 self.setup_prompted = true;
                                 self.setup_dialog = true;
                             }
@@ -2099,6 +2111,7 @@ impl WhiskyApp {
                             // place and update checks enabled, compare against
                             // the published manifest once per session.
                             if installed
+                                && self.service_available("setup.checkUpdate")
                                 && !self.wine_update_checked
                                 && self
                                     .preview
@@ -2715,7 +2728,7 @@ impl WhiskyApp {
         self.detail_open = false;
         self.preview.sheet = None;
         self.preview.sheet_history.clear();
-        if !self.demo {
+        if !self.demo && self.service_available("setup.status") {
             self.bridge.load_setup_status();
         }
         cx.notify();
@@ -2788,7 +2801,25 @@ impl WhiskyApp {
         self.request_all();
     }
 
+    pub(crate) fn service_available(&self, method: &str) -> bool {
+        self.demo
+            || (matches!(self.bridge_status, BridgeStatus::Connected { .. })
+                && self.service_methods.contains(method))
+    }
+
+    pub(crate) fn toggle_available(&self, key: &str) -> bool {
+        match key {
+            "kill" => self.service_available("runtime.stop"),
+            "refresh" => self.service_available("runtime.events"),
+            "updates" => self.service_available("setup.checkUpdate"),
+            _ => true,
+        }
+    }
+
     fn toggle_option(&mut self, key: &'static str, cx: &mut Context<Self>) {
+        if !self.toggle_available(key) {
+            return;
+        }
         let value = match key {
             "mixed" => {
                 self.mixed = !self.mixed;
@@ -3328,6 +3359,10 @@ impl WhiskyApp {
     pub(crate) fn install_wine_runtime(&mut self, cx: &mut Context<Self>) {
         if self.demo {
             self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        if !self.service_available("setup.install") {
+            self.show_notice("运行时安装服务接入后可操作", cx);
             return;
         }
         if self.offline() {
