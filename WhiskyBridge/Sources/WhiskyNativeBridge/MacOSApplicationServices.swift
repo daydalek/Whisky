@@ -27,7 +27,7 @@ import WhiskyKit
 public final class MacOSApplicationServices: NativeApplicationServices {
     private var bottles: [URL: (Data, Bottle)] = [:]
     private let wineEnabled: Bool
-    private let jobs: BridgeJobStore
+    let jobs: BridgeJobStore
     private lazy var driver = WineLibraryRuntimeDriver(
         bottleResolver: { [weak self] in self?.bottle($0) },
         driverFactory: { MonitoredSteamClientDriver(bottle: $0) }
@@ -65,13 +65,18 @@ public final class MacOSApplicationServices: NativeApplicationServices {
             (wineEnabled ? [
                 "bottle.create",
                 "wine.configuration",
-                "processes.read"
+                "processes.read",
+                "winetricks.verbs",
+                "winetricks.install"
             ] + RuntimeService.capabilities : [])
     }
 
     public var methods: [String] {
         ["system.reveal", "system.open", "system.resources"] + (wineEnabled ? [
-            "bottle.create"
+            "bottle.create",
+            "winetricks.catalog",
+            "winetricks.installed",
+            "winetricks.install"
         ] + RuntimeService.methods : [])
     }
 
@@ -81,7 +86,7 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         host: WineProcessHost(bottle: { [weak self] in self?.bottle($0) })
     )
 
-    private func bottle(_ url: URL) -> Bottle? {
+    func bottle(_ url: URL) -> Bottle? {
         guard let data = try? ApplicationWorkspace.read(url.appendingPathComponent("Metadata.plist")),
               (try? PropertyListDecoder().decode(BottleSettings.self, from: data)) != nil
         else { return nil }
@@ -129,6 +134,7 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         switch method.prefix(while: { $0 != "." }) {
         case "system": return try systemCall(method, params: params, workspace: workspace)
         case "bottle": return try await createBottle(params: params, workspace: workspace)
+        case "winetricks": return try await winetricksCall(method, params: params, workspace: workspace)
         case "runtime": return try await runtimeService.call(method, params: params, workspace: workspace)
         default: throw BridgeFailure("method_unavailable", "Native method is unavailable")
         }
@@ -190,7 +196,6 @@ extension MacOSApplicationServices {
             }
         }
     }
-
 }
 
 /// `ProcessSnapshotProviding` over the same WhiskyKit calls the SwiftUI
