@@ -145,7 +145,7 @@ impl WhiskyApp {
             );
             items.push(MenuEntry::separator(cx.entity().downgrade()));
             items.push(
-                self.menu_item("界面动画 · ⌘⇧M", Command::Toggle("motion"), cx)
+                self.menu_item(crate::platform::MOTION_MENU, Command::Toggle("motion"), cx)
                     .checked(self.motion),
             );
             items.push(

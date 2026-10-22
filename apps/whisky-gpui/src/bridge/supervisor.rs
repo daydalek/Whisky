@@ -5526,17 +5526,16 @@ pub(crate) fn backoff_delay(attempt: u32) -> Duration {
 /// On macOS Wine host effects (`bottle.create`, configuration side effects,
 /// process kill) require `--enable-wine`. Opt out with `WHISKY_BRIDGE_NO_WINE=1`.
 fn helper_arguments() -> Vec<String> {
-    let mut args = Vec::new();
     #[cfg(target_os = "macos")]
     {
         let disabled = std::env::var_os("WHISKY_BRIDGE_NO_WINE").is_some_and(|value| {
             value == "1" || value.eq_ignore_ascii_case("true")
         });
         if !disabled {
-            args.push("--enable-wine".into());
+            return vec!["--enable-wine".into()];
         }
     }
-    args
+    Vec::new()
 }
 
 /// Resolve the helper in the documented order. Every candidate is checked with

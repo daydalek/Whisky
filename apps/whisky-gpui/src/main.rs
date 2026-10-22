@@ -16,6 +16,7 @@ mod create_bottle;
 mod library_layout;
 mod library_view;
 mod model;
+mod platform;
 #[cfg(feature = "visual-test")]
 mod motion_capture;
 mod preferences;
@@ -84,12 +85,13 @@ impl Render for WhiskyApp {
             .transition(self.timing(NOTICE_MS))
             .sample(window, cx);
         let mut root = row()
+            .track_focus(&self.focus_handle)
             .relative()
             .size_full()
             .items_start()
             .overflow_hidden()
             .bg(rgb(BG))
-            .font_family(".AppleSystemUIFont")
+            .font_family(platform::UI_FONT)
             .text_color(rgb(TEXT))
             .text_size(px(13.))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
@@ -499,12 +501,12 @@ fn main() {
             gpui_kit::init(cx);
             cx.bind_keys([
                 KeyBinding::new("escape", DismissPreview, None),
-                KeyBinding::new("cmd-q", QuitPreview, None),
-                KeyBinding::new("cmd-r", RefreshLibrary, None),
-                KeyBinding::new("cmd-shift-m", ToggleMotion, None),
-                KeyBinding::new("cmd-,", ShowSettings, None),
-                KeyBinding::new("cmd-ctrl-s", ToggleSidebar, None),
-                KeyBinding::new("cmd-m", MinimizeWindow, None),
+                KeyBinding::new(platform::SHORTCUTS[0], QuitPreview, None),
+                KeyBinding::new(platform::SHORTCUTS[1], RefreshLibrary, None),
+                KeyBinding::new(platform::SHORTCUTS[2], ToggleMotion, None),
+                KeyBinding::new(platform::SHORTCUTS[3], ShowSettings, None),
+                KeyBinding::new(platform::SHORTCUTS[4], ToggleSidebar, None),
+                KeyBinding::new(platform::SHORTCUTS[5], MinimizeWindow, None),
             ]);
             install_menus(cx);
             Theme::change(ThemeMode::Dark, None, cx);

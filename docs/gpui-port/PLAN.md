@@ -1,5 +1,8 @@
 # GPUI port plan
 
+Linux implementation and headless acceptance are tracked separately in
+[`LINUX.md`](LINUX.md), including the portable service gaps behind the shared UI.
+
 Status: M2 and M3 complete. The GPUI client covers the library, runtime,
 bottle creation, full ProgramSettings, Winetricks and `entry.move`. M4 is
 next. This document tracks remaining work against the live

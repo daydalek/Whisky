@@ -8,6 +8,7 @@ on:
       - 'WhiskyKit/**'
       - 'WhiskyBridge/**'
       - 'crates/**'
+      - 'apps/whisky-gpui/**'
       - 'scripts/**'
       - 'experimental/SwiftCrossUI/**'
       - '.github/workflows/Portability.yml'
@@ -17,6 +18,7 @@ on:
       - 'WhiskyKit/**'
       - 'WhiskyBridge/**'
       - 'crates/**'
+      - 'apps/whisky-gpui/**'
       - 'scripts/**'
       - 'experimental/SwiftCrossUI/**'
       - '.github/workflows/Portability.yml'
@@ -26,6 +28,49 @@ permissions:
   contents: read
 
 jobs:
+  linux-gpui:
+    name: GPUI / Linux / headless
+    runs-on: ubuntu-latest
+    container: swift:6.4.0-noble
+    timeout-minutes: 30
+    env:
+      CC: clang
+      CXX: clang++
+      WHISKY_LINUX_OUTPUT: /tmp/whisky-linux-gpui
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Linux development and virtual display dependencies
+        run: bash apps/whisky-gpui/tools/install-linux-deps.sh
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh
+          sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.99.1
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Build and test production client and helper
+        run: bash apps/whisky-gpui/tools/check-linux.sh
+      - name: Exercise production window and Linux shortcuts
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/window"
+      - name: Preserve Linux evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: linux-gpui-evidence
+          path: |
+            /tmp/whisky-linux-gpui/foundation/*.log
+            /tmp/whisky-linux-gpui/foundation/report.json
+            /tmp/whisky-linux-gpui/bridge-status.json
+            /tmp/whisky-linux-gpui/library.json
+            /tmp/whisky-linux-gpui/window/*.log
+            /tmp/whisky-linux-gpui/window/report.json
+            /tmp/whisky-linux-gpui/window/*.png
+          retention-days: 7
+
   linux-core:
     name: WhiskyCore / Linux / Swift 6.0
     runs-on: ubuntu-latest

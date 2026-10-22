@@ -494,10 +494,13 @@ pub(crate) struct WhiskyApp {
     pub(crate) bridge: BridgeSupervisor,
     pub(crate) bridge_status: BridgeStatus,
     pub(crate) bridge_dialog: bool,
+    pub(crate) focus_handle: FocusHandle,
     pub(crate) _subscriptions: Vec<Subscription>,
 }
 impl WhiskyApp {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let focus_handle = cx.focus_handle();
+        window.focus(&focus_handle, cx);
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search programs"));
         let subscription = cx.observe(&search, |_, _, cx| cx.notify());
         let preview = PreviewState::new(window, cx);
@@ -527,6 +530,7 @@ impl WhiskyApp {
         .detach();
         let demo = demo_requested(std::env::var("WHISKY_GPUI_DEMO_DATA").ok().as_deref());
         Self {
+            focus_handle,
             preview,
             search,
             mode: 0,
