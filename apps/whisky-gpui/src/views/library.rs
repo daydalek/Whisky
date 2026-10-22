@@ -161,7 +161,8 @@ impl WhiskyApp {
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.select_bottle(Some(index), cx);
-                })),
+                }))
+                .context_menu(self.bottle_menu(index, cx)),
             );
         }
         col()
@@ -455,6 +456,15 @@ impl WhiskyApp {
                     .font_weight(FontWeight::BOLD)
                     .when(self.preview_single_line(), |d| d.truncate())
                     .when(!self.preview_single_line(), |d| d.line_clamp(2))
+                    // `libraryCenterWideCoverText`: wide covers get a
+                    // centered label instead of the leading one.
+                    .when(
+                        self.flag("center-cover-text")
+                            && self
+                                .game(index)
+                                .is_some_and(|game| game.landscape),
+                        |d| d.text_center(),
+                    )
                     .child(title),
             )
             // Running and pending states are always visible; only the idle
@@ -959,38 +969,57 @@ impl WhiskyApp {
         }
         self.library_viewport(2, content)
     }
-    /// Five-star rating control for the detail panel. Re-clicking the current
-    /// star writes `null`, matching "unrated" in the SwiftUI menu.
+    /// Rating control for the detail panel: five stars with half-star steps,
+    /// which maps onto the 1–10 stored value. Re-clicking the current value
+    /// writes `null`, matching "unrated" in the SwiftUI menu.
     fn rating_row(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+        const STAR: f32 = 20.;
         let current = self.game(index).and_then(|game| game.rating);
-        let filled = current.map_or(0, |rating| rating.min(5));
-        let mut stars = row().gap(px(3.));
-        for star in 1..=5_u8 {
-            stars = stars.child(
-                row()
-                    .id(("rating", index * 16 + star as usize))
-                    .w(px(20.))
-                    .h(px(20.))
-                    .justify_center()
-                    .rounded(px(4.))
+        let value = current.map_or(0, |rating| rating.min(10));
+        let mut stars = row().gap(px(2.));
+        for slot in 0..5_u8 {
+            // Points covered by this star: 0, 1 (half) or 2 (full).
+            let covered = value.saturating_sub(slot * 2).min(2);
+            let half = |id: usize, points: u8, left: f32| {
+                div()
+                    .id(("rating", index * 32 + id))
+                    .absolute()
+                    .left(px(left))
+                    .top(px(0.))
+                    .w(px(STAR / 2.))
+                    .h(px(STAR))
                     .cursor_pointer()
-                    .hover(|s| s.bg(rgba(0xffffff14)))
-                    .child(icon("star", 16.).text_color(rgb(if star <= filled {
-                        ACCENT
-                    } else {
-                        MUTED
-                    })))
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.set_rating(index, star, cx)),
-                    ),
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_rating(index, points, cx)))
+            };
+            stars = stars.child(
+                div()
+                    .relative()
+                    .w(px(STAR))
+                    .h(px(STAR))
+                    .child(icon("star", STAR).text_color(rgba(0xffffff26)))
+                    .child(
+                        div()
+                            .absolute()
+                            .top(px(0.))
+                            .left(px(0.))
+                            .h(px(STAR))
+                            .w(px(STAR * f32::from(covered) / 2.))
+                            .overflow_hidden()
+                            .child(div().w(px(STAR)).h(px(STAR)).child(icon("star", STAR).text_color(rgb(ACCENT)))),
+                    )
+                    .child(half(usize::from(slot) * 2, slot * 2 + 1, 0.))
+                    .child(half(usize::from(slot) * 2 + 1, slot * 2 + 2, STAR / 2.)),
             );
         }
         row()
-            .gap(px(8.))
+            .gap(px(10.))
             .items_center()
             .child(muted("评分"))
             .child(stars)
-            .when_some(current, |d, rating| d.child(muted(format!("{rating} / 10"))))
+            .child(
+                muted(current.map_or_else(|| "未评分".to_owned(), |rating| format!("{rating} / 10")))
+                    .text_size(px(12.)),
+            )
             .into_any_element()
     }
 
@@ -1060,6 +1089,8 @@ impl WhiskyApp {
             )
             .child(
                 col()
+                    // Keep clicks inside the panel from reaching the dismiss layer.
+                    .occlude()
                     .absolute()
                     .left(px((width - pw) / 2.))
                     .top(px((height - ph) / 2. + (1. - progress) * 20.))
@@ -1175,7 +1206,31 @@ impl WhiskyApp {
                                                             "继续游玩",
                                                             cx,
                                                         ),
-                                                    )),
+                                                    ))
+                                                    .when(!self.demo, |d| {
+                                                        d.child(
+                                                            row()
+                                                                .gap(px(8.))
+                                                                .child(
+                                                                    Button::new("detail-game-info")
+                                                                        .label("游戏资料与封面…")
+                                                                        .on_click(cx.listener(
+                                                                            move |this, _, _, cx| {
+                                                                                this.open_game_info(index, cx);
+                                                                            },
+                                                                        )),
+                                                                )
+                                                                .child(
+                                                                    Button::new("detail-game-config")
+                                                                        .label("GameDB 推荐配置…")
+                                                                        .on_click(cx.listener(
+                                                                            move |this, _, _, cx| {
+                                                                                this.open_game_info(index, cx);
+                                                                            },
+                                                                        )),
+                                                                ),
+                                                        )
+                                                    }),
                                             ),
                                     )
                                     .when_some(g.description.clone(), |d, description| {

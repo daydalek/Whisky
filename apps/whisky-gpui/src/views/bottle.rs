@@ -29,12 +29,18 @@ impl WhiskyApp {
             .border_color(rgba(0xffffff0d))
             .child(self.action("bottle-c-drive", "打开 C: 盘", Command::OpenDrive, cx))
             .child(self.action(
+                "bottle-terminal",
+                "终端",
+                Command::BottleTool("terminal"),
+                cx,
+            ))
+            .child(self.action(
                 "bottle-tricks",
                 "Winetricks…",
                 Command::Sheet(PreviewSheet::Winetricks),
                 cx,
             ))
-            .child(self.action("bottle-run", "运行…", Command::Notice, cx))
+            .child(self.action("bottle-run", "运行…", Command::BottleRun, cx))
             .into_any_element()
     }
     pub(crate) fn preview_page(
@@ -79,9 +85,24 @@ impl WhiskyApp {
                     .p(px(14.))
                     .border_t_1()
                     .border_color(rgba(0xffffff0d))
-                    .child(self.action("control", "控制面板", Command::Notice, cx))
-                    .child(self.action("regedit", "注册表编辑器", Command::Notice, cx))
-                    .child(self.action("winecfg", "Wine 配置", Command::Notice, cx))
+                    .child(self.action(
+                        "control",
+                        "控制面板",
+                        Command::BottleTool("control"),
+                        cx,
+                    ))
+                    .child(self.action(
+                        "regedit",
+                        "注册表编辑器",
+                        Command::BottleTool("regedit"),
+                        cx,
+                    ))
+                    .child(self.action(
+                        "winecfg",
+                        "Wine 配置",
+                        Command::BottleTool("winecfg"),
+                        cx,
+                    ))
                     .into_any_element()
             } else {
                 self.bottle_bar(cx)
@@ -578,7 +599,12 @@ impl WhiskyApp {
                             &["自动", "CoreAudio", "禁用"],
                             cx,
                         ),
-                        self.action("audio-test", "测试音频", Command::Notice, cx),
+                        self.action(
+                            "audio-test",
+                            "测试音频",
+                            Command::Sheet(PreviewSheet::Audio),
+                            cx,
+                        ),
                         self.action(
                             "audio-diagnosis",
                             "音频故障排查…",
@@ -667,8 +693,8 @@ impl WhiskyApp {
                             Command::Sheet(PreviewSheet::Diagnostics),
                             cx,
                         ),
-                        self.action("export", "导出诊断报告…", Command::Notice, cx),
-                        self.action("repair", "修复容器…", Command::Notice, cx),
+                        self.action("export", "导出诊断报告…", Command::ExportDiagnostics, cx),
+                        self.action("repair", "修复容器…", Command::BottleRepair, cx),
                     ],
                     cx,
                 ),
@@ -677,7 +703,12 @@ impl WhiskyApp {
                     "存储与清理",
                     vec![
                         self.info("容器大小", "2.4 GB"),
-                        self.action("cache-clean", "清理着色器缓存…", Command::Notice, cx),
+                        self.action(
+                            "cache-clean",
+                            "清理着色器缓存…",
+                            Command::CleanShaderCache,
+                            cx,
+                        ),
                     ],
                     cx,
                 ),
@@ -732,7 +763,11 @@ impl WhiskyApp {
                 )],
             );
         }
-        let mut rows: Vec<AnyElement> = Vec::new();
+        let mut rows: Vec<AnyElement> = vec![row()
+            .justify_end()
+            .py(px(8.))
+            .child(self.action("add-program", "添加程序…", Command::AddProgram, cx))
+            .into_any_element()];
         if page.table.is_empty() {
             rows.push(muted(crate::programs::EMPTY_PROGRAMS).into_any_element());
         }
@@ -969,7 +1004,7 @@ impl WhiskyApp {
                 vec![
                     self.info("进程名称", "PID"),
                     self.info("当前没有运行中的进程", "0"),
-                    self.action("refresh-processes", "刷新", Command::Notice, cx),
+                    self.action("refresh-processes", "刷新", Command::RefreshProcesses, cx),
                     self.action("stop-processes", "停止所有进程", Command::StopAllProcesses, cx),
                 ],
                 cx,
@@ -977,23 +1012,73 @@ impl WhiskyApp {
         )
     }
     fn game_configs(&self, cx: &Context<Self>) -> AnyElement {
+        let slot = self.bottle_slot();
+        let games: Vec<(usize, &crate::model::Game)> = self
+            .games()
+            .iter()
+            .enumerate()
+            .filter(|(_, game)| slot == 0 || game.bottle == slot)
+            .collect();
+        let mut rows: Vec<AnyElement> = vec![muted(
+            "本地 GameDB 会按可执行文件名与 Steam App ID 匹配社区验证的配置；打开游戏资料页可预览并应用推荐设置。",
+        )
+        .text_size(px(11.))
+        .into_any_element()];
+        if games.is_empty() {
+            rows.push(muted("当前容器还没有可匹配的游戏。").into_any_element());
+        }
+        for (index, game) in games {
+            rows.push(
+                row()
+                    .gap(px(14.))
+                    .p(px(11.))
+                    .border_b_1()
+                    .border_color(rgba(0xffffff0a))
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(3.))
+                            .child(div().truncate().child(game.title.clone()))
+                            .when(!game.is_folder, |d| {
+                                d.child(
+                                    muted(
+                                        game.executable
+                                            .as_ref()
+                                            .and_then(|path| path.file_name())
+                                            .map(|name| name.to_string_lossy().into_owned())
+                                            .unwrap_or_default(),
+                                    )
+                                    .text_size(px(11.)),
+                                )
+                            }),
+                    )
+                    .child(
+                        Button::new(("game-info", index))
+                            .label("资料与配置…")
+                            .ghost()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.command(Command::GameInfo(index), cx);
+                            })),
+                    )
+                    .into_any_element(),
+            );
+        }
+        rows.push(
+            row()
+                .justify_end()
+                .py(px(8.))
+                .child(self.action(
+                    "sync-metadata",
+                    "扫描并同步游戏信息",
+                    Command::SyncMetadata,
+                    cx,
+                ))
+                .into_any_element(),
+        );
         self.form(
             "game-configs-scroll",
-            vec![self.section(
-                "game-rules",
-                "游戏配置",
-                vec![
-                    self.info("匹配游戏专用兼容配置", "本地规则库"),
-                    self.info("推荐配置", "字体、视频播放与运行库"),
-                    self.action(
-                        "rule-detail",
-                        "查看推荐配置…",
-                        Command::Sheet(PreviewSheet::Diagnostics),
-                        cx,
-                    ),
-                ],
-                cx,
-            )],
+            vec![self.section("game-rules", "游戏配置", rows, cx)],
         )
     }
 }

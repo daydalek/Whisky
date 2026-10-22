@@ -12,14 +12,6 @@ const TERMINALS: [(&str, &str); 3] = [
     ("iTerm2", preferences::TERMINAL_VALUES[1]),
     ("Warp", preferences::TERMINAL_VALUES[2]),
 ];
-const COVER_FILLS: [(&str, &str); 2] = [
-    ("模糊", preferences::COVER_FILL_VALUES[0]),
-    ("主题色", preferences::COVER_FILL_VALUES[1]),
-];
-const DETAIL_LAYOUTS: [(&str, &str); 2] = [
-    ("主视觉", preferences::DETAIL_LAYOUT_VALUES[0]),
-    ("分栏", preferences::DETAIL_LAYOUT_VALUES[1]),
-];
 
 impl WhiskyApp {
     pub(crate) fn application_settings(&self, cx: &Context<Self>) -> AnyElement {
@@ -40,7 +32,10 @@ impl WhiskyApp {
                             "关闭后，退出应用不会终止仍在运行的 Windows 程序。",
                             cx,
                         ),
-                        self.toggle("menubar", "在菜单栏显示 Whisky", "", cx),
+                        // "在菜单栏显示 Whisky" is deliberately absent: the
+                        // GPUI toolkit has no menu-bar/status-item API, so
+                        // the toggle would write a shared default nothing
+                        // reads here. It stays in the schema for SwiftUI.
                         self.choice_pairs("terminal", "首选终端", &TERMINALS, cx),
                         row()
                             .py(px(10.))
@@ -63,7 +58,6 @@ impl WhiskyApp {
                     "游戏库",
                     vec![
                         self.toggle("refresh", "退出游戏后刷新游戏库", "", cx),
-                        self.toggle("blur", "详情页模糊背景", "", cx),
                         self.toggle(
                             "mixed",
                             "混合封面布局",
@@ -77,18 +71,48 @@ impl WhiskyApp {
                             "横版封面上的标题与信息居中对齐。",
                             cx,
                         ),
-                        self.toggle(
-                            "blurred-fill",
-                            "模糊封面填充",
-                            "用封面自身的模糊副本填补留白。",
-                            cx,
-                        ),
-                        self.choice_pairs("cover-fill", "封面填充方式", &COVER_FILLS, cx),
-                        self.choice_pairs("detail-layout", "详情页布局", &DETAIL_LAYOUTS, cx),
+                        // The SwiftUI-only display preferences (detail blur,
+                        // blurred cover fill, fill style, detail layout) are
+                        // deliberately absent here: this renderer has no blur
+                        // primitive, crops covers with object-fit so a fill
+                        // never shows, and implements one detail layout. They
+                        // stay in the shared preference schema and still
+                        // affect the SwiftUI app.
                         self.toggle(
                             "motion",
                             "界面动画",
                             "滚动回弹、卡片弹簧重排、悬停与详情页过渡。",
+                            cx,
+                        ),
+                    ],
+                    cx,
+                ),
+                self.section(
+                    "runtime",
+                    "Wine 运行时",
+                    vec![
+                        self.info(
+                            "状态",
+                            self.setup_status.as_ref().map_or_else(
+                                || "未知".to_owned(),
+                                |status| {
+                                    if status.installed {
+                                        status
+                                            .version
+                                            .clone()
+                                            .map_or_else(|| "已安装".to_owned(), |version| {
+                                                format!("已安装 · {version}")
+                                            })
+                                    } else {
+                                        "未安装".to_owned()
+                                    }
+                                },
+                            ),
+                        ),
+                        self.action(
+                            "runtime-install",
+                            "安装或更新运行时…",
+                            crate::views::Command::InstallWineRuntime,
                             cx,
                         ),
                     ],

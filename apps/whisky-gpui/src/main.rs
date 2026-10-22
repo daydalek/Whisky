@@ -137,7 +137,11 @@ impl Render for WhiskyApp {
                 window.toggle_fullscreen();
             }))
             .on_action(cx.listener(|this, _: &DismissPreview, _, cx| {
-                if this.about {
+                if this.bottle_dialog.is_some() {
+                    this.dismiss_bottle_dialog(cx);
+                } else if this.setup_dialog && !this.setup_installing {
+                    this.dismiss_setup(cx);
+                } else if this.about {
                     this.about = false;
                 } else if this.preview.sheet.is_some() {
                     this.preview_dismiss(cx);
@@ -178,6 +182,12 @@ impl Render for WhiskyApp {
         }
         if self.clipboard_prompt.is_some() {
             root = root.child(self.clipboard_dialog(ww, wh, cx));
+        }
+        if self.bottle_dialog.is_some() {
+            root = root.child(self.bottle_dialog_view(ww, wh, window, cx));
+        }
+        if self.setup_dialog {
+            root = root.child(self.setup_dialog_view(ww, wh, cx));
         }
         if self.about {
             root = root.child(self.about_dialog(ww, wh, cx));
