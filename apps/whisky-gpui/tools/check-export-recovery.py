@@ -20,7 +20,7 @@ def group_members(group):
         if not path.name.isdigit():
             continue
         try:
-            stat = (path / 'stat').read_text()
+            stat = (path / 'stat').read_text(errors='replace')
             end = stat.rindex(')')
             fields = stat[end + 1:].split()
             if int(fields[2]) == group and fields[0] not in ('Z', 'X'):

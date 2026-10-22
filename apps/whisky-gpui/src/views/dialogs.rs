@@ -1092,7 +1092,7 @@ impl WhiskyApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let destination = self.program_settings.shortcut_destination.clone();
-        let input = self.program_input("ps-shortcut-dest", &destination, "~/Applications", window, cx);
+        let input = self.program_input("ps-shortcut-dest", &destination, if cfg!(target_os = "linux") { "~/.local/share/applications" } else { "~/Applications" }, window, cx);
         let mut children: Vec<AnyElement> = vec![
             col()
                 .gap(px(7.))
@@ -1100,7 +1100,7 @@ impl WhiskyApp {
                 .child("快捷方式位置")
                 .child(Input::new(&input))
                 .into_any_element(),
-            muted("在目标目录创建可双击启动该程序的 .app。")
+            muted(if cfg!(target_os = "linux") { "在目标目录创建指向该容器和程序的 .desktop 快捷方式。" } else { "在目标目录创建可双击启动该程序的 .app。" })
                 .into_any_element(),
         ];
         if let Some(path) = &self.program_settings.shortcut_path {
@@ -2830,7 +2830,7 @@ impl WhiskyApp {
                                 ))
                                 .child(self.action(
                                     "reveal",
-                                    "在访达中显示",
+                                    crate::platform::REVEAL_LABEL,
                                     Command::Reveal(index),
                                     cx,
                                 ))

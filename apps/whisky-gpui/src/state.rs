@@ -416,6 +416,9 @@ pub(crate) struct WhiskyApp {
     pub(crate) import_generation: u64,
     pub(crate) host_terminals: Option<crate::host::TerminalsDto>,
     pub(crate) host_terminal_error: Option<String>,
+    pub(crate) desktop_status: Option<crate::host::DesktopDto>,
+    pub(crate) desktop_error: Option<String>,
+    pub(crate) desktop_installing: bool,
     /// Winetricks catalog, per-bottle installed sets and the one install job.
     pub(crate) winetricks: WinetricksState,
     /// Draft of the program whose run-settings sheet is open.
@@ -424,6 +427,8 @@ pub(crate) struct WhiskyApp {
     pub(crate) move_entry: Option<MoveEntryState>,
     /// The opened/dropped file, while its bottle picker is open.
     pub(crate) open_file: Option<OpenFileState>,
+    catalogue_ready: bool,
+    external_opens: std::collections::VecDeque<crate::desktop_open::ExternalOpen>,
     /// Metadata, cover and GameDB state for the open Game Info sheet.
     pub(crate) game_info: Option<GameInfoPage>,
     /// The sidebar's rename/duplicate/remove dialog.
@@ -576,10 +581,15 @@ impl WhiskyApp {
             import_generation: 0,
             host_terminals: None,
             host_terminal_error: None,
+            desktop_status: None,
+            desktop_error: None,
+            desktop_installing: false,
             winetricks: WinetricksState::default(),
             program_settings: ProgramSettingsPage::default(),
             move_entry: None,
             open_file: None,
+            catalogue_ready: false,
+            external_opens: std::collections::VecDeque::new(),
             game_info: None,
             bottle_dialog: None,
             bottle_operation: None,
@@ -745,8 +755,12 @@ impl WhiskyApp {
                     return;
                 }
                 if unavailable && !self.demo {
+                    self.catalogue_ready = false;
                     self.host_terminals = None;
                     self.host_terminal_error = None;
+                    self.desktop_status = None;
+                    self.desktop_error = None;
+                    self.desktop_installing = false;
                     if let Some(state) = self.import_bottles.as_mut() {
                         state.failed(state.request, "桥接连接已中断，请恢复连接后重新扫描".into());
                     }
@@ -802,6 +816,23 @@ impl WhiskyApp {
                     {
                         self.bridge.configure_runtime(&path);
                     }
+                    self.catalogue_ready = true;
+                    while let Some(file) = self.external_opens.pop_front() {
+                        self.receive_external_file(file, cx);
+                    }
+                }
+            }
+            BridgeEvent::HostDesktop { install, result } => {
+                if install { self.desktop_installing = false; }
+                match result {
+                    Ok(status) => {
+                        if install {
+                            self.show_notice(if status.cache_updated == Some(false) { "桌面入口已安装，打开方式缓存等待刷新" } else { "桌面入口和打开方式已添加" }, cx);
+                        }
+                        self.desktop_status = Some(status);
+                        self.desktop_error = None;
+                    }
+                    Err(reason) => self.desktop_error = Some(reason),
                 }
             }
             BridgeEvent::HostTerminals { result } => {
@@ -3741,6 +3772,16 @@ impl WhiskyApp {
     /// One bottle runs it directly; several open the bottle picker, as the
     /// SwiftUI Run panel does.
     pub(crate) fn open_external_file(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        self.receive_external_file(crate::desktop_open::ExternalOpen { path, container: None }, cx);
+    }
+
+    pub(crate) fn receive_external_file(&mut self, file: crate::desktop_open::ExternalOpen, cx: &mut Context<Self>) {
+        if !self.demo && !self.catalogue_ready {
+            if self.external_opens.len() < 64 { self.external_opens.push_back(file); }
+            else { self.show_notice("待打开文件已达到 64 项，请等待当前请求处理", cx); }
+            return;
+        }
+        let path = file.path;
         let runnable = ["exe", "msi", "bat", "msix", "appx", "url"];
         let extension = path
             .extension()
@@ -3761,6 +3802,18 @@ impl WhiskyApp {
         }
         if self.bottles.is_empty() {
             self.show_notice("请先创建一个容器", cx);
+            return;
+        }
+        if let Some(container) = file.container {
+            let selected = std::fs::canonicalize(container).ok().and_then(|container| {
+                self.bottles.iter().position(|bottle| std::fs::canonicalize(&bottle.path).ok().as_ref() == Some(&container))
+            });
+            if let Some(index) = selected {
+                self.select_bottle(Some(index), cx);
+                self.run_file_in(index, &path.to_string_lossy(), &name, cx);
+            } else {
+                self.show_notice("快捷方式指向的容器已移动或移除，请重新创建快捷方式", cx);
+            }
             return;
         }
         if self.bottles.len() == 1 {

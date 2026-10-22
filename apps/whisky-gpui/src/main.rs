@@ -11,6 +11,7 @@ use gpui_kit::{prelude::*, *};
 
 mod bridge;
 mod config;
+mod desktop_open;
 mod host;
 mod controls;
 mod create_bottle;
@@ -487,6 +488,10 @@ fn main() {
         };
         std::process::exit(bridge::print_library(bottle, all));
     }
+    let startup_file = match desktop_open::parse(&arguments) {
+        Ok(value) => value,
+        Err(reason) => { eprintln!("{reason}"); std::process::exit(2); }
+    };
     let pending_urls: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
     let url_dispatch: Rc<RefCell<Option<Box<dyn FnMut(Vec<PathBuf>)>>>> =
         Rc::new(RefCell::new(None));
@@ -542,6 +547,9 @@ fn main() {
                 |window, cx| cx.new(|cx| WhiskyApp::new(window, cx)),
             )
             .expect("Failed to open GPUI preview");
+            if let Some(file) = startup_file.clone() {
+                let _ = _view.update(cx, |this, cx| this.receive_external_file(file, cx));
+            }
             let async_cx = cx.to_async();
             let url_view = _view.clone();
             for path in std::mem::take(&mut *pending_urls.borrow_mut()) {

@@ -101,7 +101,10 @@ impl WhiskyApp {
                                         menu = menu.item(PopupMenuItem::new(label).on_click(
                                             move |_, _, cx| {
                                                 let _ = view.update(cx, |this, cx| {
-                                                    this.command(super::Command::Choose("terminal", id), cx)
+                                                    this.command(
+                                                        super::Command::Choose("terminal", id),
+                                                        cx,
+                                                    )
                                                 });
                                             },
                                         ));
@@ -120,11 +123,68 @@ impl WhiskyApp {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    fn desktop_preferences(&self, cx: &Context<Self>) -> AnyElement {
+        let installed = self
+            .desktop_status
+            .as_ref()
+            .is_some_and(|status| status.installed);
+        let message = self
+            .desktop_error
+            .clone()
+            .or_else(|| {
+                self.desktop_status
+                    .as_ref()
+                    .map(|status| status.path.clone())
+            })
+            .unwrap_or_else(|| "正在读取桌面集成状态…".into());
+        crate::controls::col()
+            .gap(px(6.))
+            .child(
+                row()
+                    .py(px(10.))
+                    .gap(px(16.))
+                    .child(div().flex_1().child("桌面入口与打开方式"))
+                    .child(
+                        Button::new("install-desktop")
+                            .label(if self.desktop_installing {
+                                "正在添加…"
+                            } else if installed {
+                                "已添加"
+                            } else {
+                                "添加…"
+                            })
+                            .disabled(
+                                self.desktop_installing
+                                    || !matches!(
+                                        self.bridge_status,
+                                        crate::bridge::BridgeStatus::Connected { .. }
+                                    ),
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.desktop_installing = true;
+                                this.desktop_error = None;
+                                this.bridge.desktop_integration(true);
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(muted(message).text_size(px(11.)))
+            .into_any_element()
+    }
+
     pub(crate) fn application_settings(&self, cx: &Context<Self>) -> AnyElement {
         let bottle_location = self
             .default_bottle_location
             .clone()
             .unwrap_or_else(|| "~/Library/Containers/com.franke.Whisky/Bottles".into());
+        let terminal = self.terminal_preferences(cx);
+        #[cfg(target_os = "linux")]
+        let terminal = crate::controls::col()
+            .gap(px(8.))
+            .child(terminal)
+            .child(self.desktop_preferences(cx))
+            .into_any_element();
         self.form(
             "app-settings-scroll",
             vec![
@@ -142,7 +202,7 @@ impl WhiskyApp {
                         // GPUI toolkit has no menu-bar/status-item API, so
                         // the toggle would write a shared default nothing
                         // reads here. It stays in the schema for SwiftUI.
-                        self.terminal_preferences(cx),
+                        terminal,
                         row()
                             .py(px(10.))
                             .gap(px(16.))

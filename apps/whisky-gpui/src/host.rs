@@ -46,3 +46,12 @@ mod tests {
         assert!(!status.can_open("auto"));
     }
 }
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) struct DesktopDto {
+    pub(crate) installed: bool,
+    pub(crate) path: String,
+    pub(crate) cache_updated: Option<bool>,
+}

@@ -31,6 +31,7 @@ public final class LinuxApplicationServices: NativeApplicationServices {
     private let picker: LinuxFilePicker
     private let terminals: LinuxTerminalService
     private let preferences: PreferencesService?
+    private let desktop: LinuxDesktopService
 
     public init(
         runtime: RuntimeService? = nil,
@@ -43,19 +44,20 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         let paths = searchPaths ?? Self.defaultSearchPaths()
         self.searchPaths = paths
         terminals = LinuxTerminalService(searchPaths: paths, environment: ProcessInfo.processInfo.environment)
+        desktop = LinuxDesktopService(environment: ProcessInfo.processInfo.environment, searchPaths: paths)
         let bundled = Bundle.main.executableURL.map { [$0.deletingLastPathComponent()] } ?? []
         picker = LinuxFilePicker(searchPaths: bundled + paths)
         self.openFile = openFile ?? Self.xdgOpen
     }
 
     public var capabilities: [String] {
-        ["system.files", "system.picker", "system.terminal"] +
+        ["system.files", "system.picker", "system.terminal", "system.desktop", "programs.shortcut"] +
             (runtimeService == nil ? [] : RuntimeService.capabilities)
     }
 
     public var methods: [String] {
         ["system.reveal", "system.open", "system.resources", "system.terminals", "bottle.tools"]
-            + LinuxFilePicker.methods
+            + LinuxFilePicker.methods + LinuxDesktopService.methods
             + (runtimeService == nil ? [] : RuntimeService.methods)
     }
 
@@ -75,6 +77,9 @@ public final class LinuxApplicationServices: NativeApplicationServices {
     ) async throws -> JSONValue {
         guard methods.contains(method) else {
             throw BridgeFailure("method_unavailable", "Native method is unavailable")
+        }
+        if LinuxDesktopService.methods.contains(method) {
+            return try await desktop.call(method, params: params, workspace: workspace)
         }
         switch method.prefix(while: { $0 != "." }) {
         case "system":

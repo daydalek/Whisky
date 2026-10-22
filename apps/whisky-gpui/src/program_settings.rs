@@ -249,13 +249,27 @@ impl ProgramSettingsPage {
 }
 
 pub(crate) fn default_shortcut_destination() -> String {
-    let home = std::env::var_os("HOME")
-        .map(|home| home.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    if home.is_empty() {
-        "/Applications".to_owned()
-    } else {
-        format!("{home}/Applications")
+    #[cfg(target_os = "linux")]
+    {
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("/"));
+        let data = std::env::var_os("XDG_DATA_HOME")
+            .map(std::path::PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .unwrap_or_else(|| home.join(".local/share"));
+        return data.join("applications").to_string_lossy().into_owned();
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let home = std::env::var_os("HOME")
+            .map(|home| home.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if home.is_empty() {
+            "/Applications".to_owned()
+        } else {
+            format!("{home}/Applications")
+        }
     }
 }
 

@@ -10,9 +10,9 @@ and distribution gates below.
 OrbStack ARM64 Ubuntu 24.04, Swift 6.4, Rust 1.99.1, Xvfb/X11 and Mesa software
 rendering:
 
-- Shared core: 112 tests; portable bridge: 80 tests; shared metadata package: 20 tests.
+- Shared core: 112 tests; portable bridge: 85 tests; shared metadata package: 20 tests.
 - Rust SDK tests, including its real Swift helper integration test.
-- Production GPUI Linux build/link and 123 unit tests.
+- Production GPUI Linux build/link and 125 unit tests.
 - Production Rust client/helper handshake, capability list and isolated empty
   library reads, with the display environment absent.
 - XDG preferences survive a real helper process exit/restart. File-backed
@@ -21,7 +21,7 @@ rendering:
 - Real production window: library, Ctrl+, settings, Ctrl+Alt+S sidebar,
   Ctrl+Q graceful exit and persisted window dimensions. Captured screenshots
   show the library and Chinese settings text using Noto Sans CJK SC.
-- macOS GPUI's 123 tests and the macOS bridge suite also pass.
+- macOS GPUI's 125 tests and the macOS bridge suite also pass.
 
 The program-storage stage adds full `programs.settings.read/set` and
 `programs.history.read/delete` to the portable helper. Both Linux and macOS now
@@ -523,6 +523,66 @@ Local evidence under `build/portability/gui-linux/` includes
 `terminal-final-linux.log`, `terminal-final-window.log`, `linux-gpui/terminal/` and
 `linux-gpui/terminal-window/`.
 
+## Desktop entries, file associations and startup handoff stage
+
+Linux exposes `system.desktop.status`, `system.desktop.install` and
+`programs.shortcut.create`, with `system.desktop` and `programs.shortcut`
+capabilities. The settings button installs `com.franke.Whisky.desktop` under
+`$XDG_DATA_HOME/applications` and refreshes the MIME application cache. Its
+MimeType list adds Whisky as an available handler for Windows executables and
+MSI packages. Existing `mimeapps.list` defaults retain their contents and remain
+the effective default application. Missing cache tools produce an explicit
+cache-refresh warning while retaining the installed entry.
+
+Program settings create `.desktop` launchers in the XDG applications directory
+or an explicitly selected existing directory. They carry the selected program
+and registered prefix as separate arguments. Desktop value escaping and Exec
+quoting follow the [freedesktop Exec specification](https://specifications.freedesktop.org/desktop-entry/latest/exec-variables.html).
+A fixed `/bin/sh` forwarding command supports frontend paths containing `=`;
+all user paths travel as positional arguments. Publication synchronizes a
+private staging file and uses an exclusive hard link. Identical entries are
+idempotent; different files and symlinks retain their contents.
+
+The frontend accepts a single absolute positional file or
+`--open-file <file> [--container <path>]`. Requests arriving before the first
+bridge catalogue are queued with a 64-item bound and processed once the
+catalogue is ready. An explicit prefix selects that registered container,
+including when another prefix appears first. File-manager URL delivery and
+drag/drop share the same admission path. An unavailable Windows execution
+service produces a visible platform message; Wine execution remains within
+the user's excluded scope. Linux reveal actions use file-manager labels.
+
+Verification passes 85 shared bridge tests on macOS and ARM Ubuntu Swift
+6.0/6.4, plus 12 macOS native-adapter tests and 125 GPUI tests on each platform.
+New shared regressions cover idempotence, foreign targets, symlinks, source-byte
+preservation, invalid launchers and unregistered prefixes. Startup argument
+regressions cover literal paths and malformed handoffs. The real Linux gate
+runs `desktop-file-validate` and GIO launches using Unicode, quotes, backslashes,
+`%f`, `$HOME` and shell characters. It verifies empty file-code expansion,
+MIME handler discovery and preservation of an existing effective default.
+
+The production Xvfb scenario installs the desktop entry through settings,
+creates a program shortcut through its settings sheet, and launches that file
+through GIO into a second production window. Both the initial cold handoff and
+the shortcut select the second registered prefix correctly. It checks metadata,
+executable and registry bytes, graceful exit for both windows, and protocol
+traces covering installation and shortcut creation. CI retains reports,
+generated desktop files, request logs and screenshots.
+
+A complete-gate run also exposed a `/proc` decoding failure from a byte-truncated
+UTF-8 process name. Process birth-identity parsing now reads raw bytes and
+decodes only the ASCII stat fields; the export process-group verifier tolerates
+arbitrary comm bytes. A focused regression supplies an invalid UTF-8 name and
+verifies the exact start-time identity.
+
+These launchers currently bind to absolute prefix/program paths. Prefix moves
+require recreating them. Stable relocation-aware targets and managed updates
+for an application moved to a different install path remain required work.
+Local evidence under `build/portability/gui-linux/` includes
+`desktop-macos.log`, `desktop-gpui-macos.log`, `desktop-swift60.log`,
+`desktop-final-linux.log`, `desktop-process.log`, `desktop-final-window.log`,
+`linux-gpui/desktop/` and `linux-gpui/desktop-window/`.
+
 ## Reproduce
 
 Use an Ubuntu 24.04 environment with Swift 6.4 and Rust 1.99.1. Install the
@@ -564,10 +624,10 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | Area | Current evidence | Required work |
 | --- | --- | --- |
 | Library and configuration | Shared storage tests; empty production window and CLI | Seeded-library folder edits through the native chooser, persisted ratings/visibility and refresh/recovery |
-| Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux shortcut creation is tracked under host integration; broader UI override editing remains in the desktop gate |
+| Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux .desktop creation and GIO startup verified; broader UI override editing remains in the desktop gate |
 | Metadata and covers | Shared package, six portable bridge methods, real provider search and seeded UI import/unlink/reset | Broader search/apply interactions in the desktop gate; portable GameDB recommendations |
 | Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; complete production file-lifecycle window flow, recovery and candidate import UI | Additional platform coverage follows the desktop acceptance matrix |
-| Host integration | XDG preferences; file open/reveal; GTK dialogs; terminal discovery, independent preference and real PTY/window acceptance | Desktop/file associations, shortcuts and broader capability-aware settings |
+| Host integration | XDG preferences; file open/reveal; GTK dialogs; terminal discovery, independent preference and real PTY/window acceptance | Relocation-aware shortcuts, managed desktop-entry refresh and broader capability-aware settings |
 | Diagnostics | Native macOS adapter; Linux bounded host/file report, platform checks, exclusive export and production-window acceptance | Additional desktop platform coverage follows the acceptance matrix |
 | Distribution | macOS `.app` packaging | Linux relocatable bundle with both native helpers, Swift runtime libraries, launcher/desktop entry and clean-environment acceptance |
 | Desktop acceptance | ARM64 X11 virtual display with Mesa | Seeded end-to-end interactions, restart/recovery and Wayland coverage; x86_64 hosted CI evidence |

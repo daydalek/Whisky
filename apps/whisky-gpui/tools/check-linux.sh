@@ -72,3 +72,6 @@ python3 "$repo_root/apps/whisky-gpui/tools/check-export-recovery.py" \
 
 python3 "$repo_root/apps/whisky-gpui/tools/check-diagnostics.py" \
     --helper "$helper" --output "$output/diagnostics"
+
+python3 "$repo_root/apps/whisky-gpui/tools/check-desktop.py" \
+    --helper "$helper" --output "$output/desktop"

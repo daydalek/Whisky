@@ -47,6 +47,14 @@ public struct HostFileLock: ActivityFileLocking {
 }
 
 public enum LinuxProcStatParser {
+    /// Kernel comm is a byte-truncated name; only fields after its closing delimiter are ASCII.
+    public static func startTime(from statContents: Data) -> UInt64? {
+        guard let close = statContents.lastIndex(of: 41),
+              let fields = String(bytes: statContents[statContents.index(after: close)...], encoding: .ascii)
+        else { return nil }
+        return startTime(from: ")" + fields)
+    }
+
     /// Parses field 22 (`starttime`) from `/proc/<pid>/stat` after the closing `)` of `comm`.
     public static func startTime(from statContents: String) -> UInt64? {
         guard let closeParen = statContents.lastIndex(of: ")") else { return nil }
@@ -84,7 +92,7 @@ public struct HostProcessIdentityProvider: ProcessIdentityProviding {
         guard size == MemoryLayout<proc_bsdinfo>.size else { return 0 }
         return UInt64(info.pbi_start_tvsec) * 1_000_000 + UInt64(info.pbi_start_tvusec)
         #elseif os(Linux)
-        guard let stat = try? String(contentsOfFile: "/proc/\(pid)/stat", encoding: .utf8) else { return 0 }
+        guard let stat = try? Data(contentsOf: URL(fileURLWithPath: "/proc/\(pid)/stat")) else { return 0 }
         return LinuxProcStatParser.startTime(from: stat) ?? 0
         #else
         return 0

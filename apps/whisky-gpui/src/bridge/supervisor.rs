@@ -385,6 +385,7 @@ pub(crate) enum BridgeEvent {
         schema: PreferencesSchemaDto,
     },
     HostTerminals { result: Result<crate::host::TerminalsDto, String> },
+    HostDesktop { install: bool, result: Result<crate::host::DesktopDto, String> },
     /// `system.info`: packaged application metadata for the About panel.
     SystemInfo {
         info: SystemInfoDto,
@@ -645,6 +646,8 @@ enum Command {
     LoadPreferences,
     #[cfg(target_os = "linux")]
     LoadTerminals,
+    #[cfg(target_os = "linux")]
+    DesktopIntegration { install: bool },
     SetPreference {
         key: String,
         value: serde_json::Value,
@@ -972,6 +975,11 @@ impl BridgeSupervisor {
     }
 
     /// Read every preference once per connected session.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn desktop_integration(&self, install: bool) {
+        let _ = self.commands.send(Command::DesktopIntegration { install });
+    }
+
     #[cfg(target_os = "linux")]
     pub(crate) fn load_terminals(&self) {
         let _ = self.commands.send(Command::LoadTerminals);
@@ -1557,6 +1565,9 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
         fetch_setup_status(&mut client, &events);
         if describe.methods.iter().any(|method| method == "system.terminals") {
             fetch_terminals(&mut client, &events);
+        }
+        if describe.methods.iter().any(|method| method == "system.desktop.status") {
+            fetch_desktop(&mut client, &events, false);
         }
         // One bottle at a time is enough: a request for another container
         // invalidates the cached snapshot, matching "invalidate on switch".
@@ -2370,6 +2381,8 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                 }
                 #[cfg(target_os = "linux")]
                 Some(Command::LoadTerminals) => fetch_terminals(&mut client, &events),
+                #[cfg(target_os = "linux")]
+                Some(Command::DesktopIntegration { install }) => fetch_desktop(&mut client, &events, install),
                 Some(Command::LoadPreferences) => {
                     match load_preferences(&mut client) {
                         Ok((values, schema)) => {
@@ -3135,6 +3148,10 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                     path,
                     name,
                 }) => {
+                    if !describe.methods.iter().any(|method| method == "programs.run") {
+                        emit_event(&events, BridgeEvent::ActionFailed { reason: "当前主机尚未提供 Windows 程序运行服务".into() });
+                        continue;
+                    }
                     match client
                         .call(
                             "programs.run",
@@ -4695,6 +4712,14 @@ enum SetupTerminal {
 
 /// Emits the current runtime status. Startup failures stay quiet: a Linux
 /// helper or a session without setup methods must not block the library.
+fn fetch_desktop(client: &mut Client, events: &smol::channel::Sender<BridgeEvent>, install: bool) {
+    let result = std::env::current_exe().map_err(|error| error.to_string())
+        .and_then(|launcher| client.call(if install { "system.desktop.install" } else { "system.desktop.status" }, json!({ "launcher": launcher }))
+            .map_err(|error| error.to_string()))
+        .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()));
+    emit_event(events, BridgeEvent::HostDesktop { install, result });
+}
+
 fn fetch_terminals(client: &mut Client, events: &smol::channel::Sender<BridgeEvent>) {
     let result = client.call("system.terminals", json!({}))
         .map_err(|error| error.to_string())
@@ -5109,10 +5134,17 @@ fn write_program_shortcut(
     executable: &str,
     destination: &str,
 ) -> Result<String, CallFailure> {
+    let params = json!({ "container": container, "executable": executable, "destination": destination });
+    #[cfg(target_os = "linux")]
+    let params = {
+        let mut params = params;
+        params["launcher"] = json!(std::env::current_exe().map_err(|error| CallFailure::Remote(error.to_string()))?);
+        params
+    };
     let reply = client
         .call(
             "programs.shortcut.create",
-            json!({ "container": container, "executable": executable, "destination": destination }),
+            params,
         )
         .map_err(classify)?;
     reply

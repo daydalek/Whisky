@@ -1,0 +1,83 @@
+"""Exercise desktop installation and program shortcuts through production UI."""
+import hashlib
+import os
+from pathlib import Path
+import subprocess
+import time
+
+
+def exercise(window, app, fixture, bottle, registry, snapshot, env):
+    def click(x, y, button=1):
+        subprocess.run(['xdotool', 'mousemove', '--window', window, str(x), str(y), 'click', str(button)], check=True)
+    subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+comma'], check=True)
+    time.sleep(1)
+    snapshot('desktop-settings')
+    click(1200, 295)
+    entry = fixture / 'data/applications/com.franke.Whisky.desktop'
+    deadline = time.monotonic() + 15
+    while not entry.exists() and time.monotonic() < deadline:
+        assert app.poll() is None
+        time.sleep(0.1)
+    assert entry.exists(), 'UI desktop installation did not publish its application entry'
+    subprocess.run(['desktop-file-validate', str(entry)], check=True)
+    time.sleep(1)
+    snapshot('desktop-installed')
+    click(90, 70)
+    time.sleep(0.5)
+    click(300, 150, 3)
+    time.sleep(0.4)
+    click(375, 290)
+    time.sleep(1)
+    snapshot('desktop-program-settings')
+    subprocess.run(['xdotool', 'mousemove', '--window', window, '980', '650', 'click', '--repeat', '70', '--delay', '15', '5'], check=True)
+    time.sleep(0.6)
+    snapshot('desktop-shortcut-section')
+    original_registry = registry.read_bytes()
+    marker = (bottle / 'Metadata.plist').read_bytes()
+    executable = bottle / 'drive_c/Program Files/Game/game.exe'
+    executable_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
+    click(370, 647)
+    shortcut = fixture / 'data/applications/game.desktop'
+    deadline = time.monotonic() + 15
+    while not shortcut.exists() and time.monotonic() < deadline:
+        assert app.poll() is None
+        time.sleep(0.1)
+    assert shortcut.exists(), 'UI shortcut creation did not publish its desktop file'
+    subprocess.run(['desktop-file-validate', str(shortcut)], check=True)
+    time.sleep(0.7)
+    snapshot('desktop-program-shortcut-created')
+    child_env = dict(env, WHISKY_GPUI_STATE=str(fixture / 'shortcut-window.json'))
+    subprocess.run(['gio', 'launch', str(shortcut)], env=child_env, check=True)
+    secondary = None
+    try:
+        deadline = time.monotonic() + 40
+        while time.monotonic() < deadline:
+            result = subprocess.run(['xdotool', 'search', '--onlyvisible', '--name', '^Whisky$'],
+                                    capture_output=True, text=True)
+            candidates = [item for item in result.stdout.splitlines() if item != window]
+            if candidates:
+                secondary = candidates[0]
+                break
+            time.sleep(0.1)
+        assert secondary, 'GIO shortcut did not open the production application'
+        subprocess.run(['xdotool', 'windowfocus', '--sync', secondary], check=True)
+        time.sleep(4)
+        subprocess.run(['import', '-window', secondary, str(fixture.parent / 'desktop-shortcut-launched.png')], check=True)
+        subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+q'], check=True)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            result = subprocess.run(['xdotool', 'getwindowname', secondary], capture_output=True)
+            if result.returncode:
+                secondary = None
+                break
+            time.sleep(0.1)
+        assert secondary is None, 'Shortcut-launched application failed graceful exit'
+    finally:
+        if secondary:
+            subprocess.run(['xdotool', 'windowkill', secondary], check=False)
+    assert registry.read_bytes() == original_registry
+    assert (bottle / 'Metadata.plist').read_bytes() == marker
+    assert hashlib.sha256(executable.read_bytes()).hexdigest() == executable_hash
+    subprocess.run(['xdotool', 'windowfocus', '--sync', window], check=True)
+    click(974, 89)
+    time.sleep(0.5)

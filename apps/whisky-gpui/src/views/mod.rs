@@ -238,7 +238,7 @@ impl WhiskyApp {
             ),
         ];
         if has_path {
-            items.push(self.menu_item("在访达中显示", Command::Reveal(index), cx));
+            items.push(self.menu_item(crate::platform::REVEAL_LABEL, Command::Reveal(index), cx));
         }
         items.extend([
             MenuEntry::separator(cx.entity().downgrade()),
@@ -277,7 +277,7 @@ impl WhiskyApp {
             items.push(self.menu_item("导出容器…", Command::BottleExport(index), cx));
             items.push(MenuEntry::separator(cx.entity().downgrade()));
         }
-        items.push(self.menu_item("在访达中显示", Command::BottleReveal(index), cx));
+        items.push(self.menu_item(crate::platform::REVEAL_LABEL, Command::BottleReveal(index), cx));
         move |mut menu, _, _| {
             for item in &items {
                 menu = menu.item(item.build());
