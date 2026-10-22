@@ -21,6 +21,7 @@ import Testing
 import WhiskyApplication
 import WhiskyBridgeProtocol
 import WhiskyCore
+import WhiskyKit
 @testable import WhiskyNativeBridge
 
 private struct Fixture {
@@ -157,6 +158,37 @@ private struct Fixture {
         workspace: fixture.workspace
     )
     #expect(history.object?["entries"] == .array([]))
+}
+
+@Test @MainActor func sharedProgramStorageRoundTripsNativeModelsAndHistory() async throws {
+    let fixture = try Fixture()
+    defer { fixture.remove() }
+    var settings = ProgramSettings()
+    settings.lastLogFileURL = URL(fileURLWithPath: "/tmp/native.log")
+    settings.lastDiagnosisDate = Date(timeIntervalSince1970: 1_000)
+    var overrides = ProgramOverrides()
+    overrides.dxvkHud = .fps
+    overrides.enhancedSync = .esync
+    overrides.dllOverrides = [DLLOverrideEntry(dllName: "dxgi", mode: .nativeThenBuiltin)]
+    settings.overrides = overrides
+    try PropertyListEncoder().encode(settings).write(to: fixture.settingsURL)
+    var params = fixture.params
+    params["patch"] = .object(["arguments": .string("--portable"), "locale": .string("ja_JP.UTF-8")])
+    let result = try await ProgramSettingsService.call("programs.settings.set", params: params, workspace: fixture.workspace)
+    #expect(result.object?["lastLogFile"] == .string("/tmp/native.log"))
+    let decoded = try PropertyListDecoder().decode(ProgramSettings.self, from: Data(contentsOf: fixture.settingsURL))
+    #expect(decoded.arguments == "--portable")
+    #expect(decoded.overrides == settings.overrides)
+    #expect(decoded.lastDiagnosisDate == settings.lastDiagnosisDate)
+    #expect(decoded.environment["LANG"] == "ja_JP.UTF-8")
+    var history = RunLogHistory()
+    let run = RunLogEntry(programName: "game.exe", logFileName: "native.log")
+    history.append(run)
+    let historyURL = RunLogStore.historyURL(for: "game.exe", in: fixture.container)
+    try PropertyListEncoder().encode(history).write(to: historyURL)
+    let read = try ProgramHistoryService.call("programs.history.read", params: fixture.params, workspace: fixture.workspace)
+    let entries = try #require(read.object?["entries"]).decoded([JSONValue].self)
+    #expect(entries.first?.object?["id"] == .string(run.id.uuidString))
 }
 
 @Test @MainActor func programRunValidatesRunnableExtensionsAndStartsJob() async throws {

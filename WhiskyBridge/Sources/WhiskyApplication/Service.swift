@@ -68,6 +68,8 @@ public final class ApplicationService {
         "programs.list",
         "programs.pin",
         "programs.block",
+        "programs.settings.read", "programs.settings.set",
+        "programs.history.read", "programs.history.delete",
         "processes.list",
         "processes.kill",
         "processes.killAll",
@@ -320,6 +322,15 @@ extension ApplicationService {
     }
 
     private func programCall(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
+        if ProgramHistoryService.methods.contains(method) {
+            if native?.methods.contains(method) == true { return try await nativeCall(method, params: params) }
+            return try ProgramHistoryService.call(method, params: params, workspace: workspace)
+        }
+        if ProgramSettingsService.methods.contains(method) {
+            // The native adapter supplies the existing macOS bottle defaults.
+            if native?.methods.contains(method) == true { return try await nativeCall(method, params: params) }
+            return try await ProgramSettingsService.call(method, params: params, workspace: workspace)
+        }
         switch method {
         case "programs.list": return try await listPrograms(params)
         case "programs.pin":

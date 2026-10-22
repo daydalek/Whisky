@@ -24,60 +24,6 @@ import WhiskyCore
 import WhiskyKit
 
 extension MacOSApplicationServices {
-    // MARK: - Run history
-
-    func historyPayload(for target: ProgramTarget) throws -> JSONValue {
-        let history = RunLogStore.load(for: target.name, in: target.container)
-        let logsFolder = Wine.logsFolder
-        let entries: [JSONValue] = history.entries.map { entry in
-            var payload: [String: JSONValue] = [
-                "id": .string(entry.id.uuidString),
-                "programName": .string(entry.programName),
-                "logFileName": .string(entry.logFileName),
-                "logPath": .string(logsFolder.appending(path: entry.logFileName).path),
-                "startTime": .integer(Int64(entry.startTime.timeIntervalSince1970)),
-                "hasWineDebugOutput": .bool(entry.hasWineDebugOutput)
-            ]
-            if let end = entry.endTime {
-                payload["endTime"] = .integer(Int64(end.timeIntervalSince1970))
-                payload["duration"] = .number(end.timeIntervalSince(entry.startTime))
-            }
-            if let code = entry.exitCode {
-                payload["exitCode"] = .integer(Int64(code))
-            }
-            return .object(payload)
-        }
-        return .object([
-            "container": .string(target.container.path),
-            "executable": .string(target.executable.path),
-            "programName": .string(target.name),
-            "entries": .array(entries)
-        ])
-    }
-
-    func deleteHistory(
-        _ params: [String: JSONValue],
-        target: ProgramTarget
-    ) throws -> JSONValue {
-        var history = RunLogStore.load(for: target.name, in: target.container)
-        let removed: [RunLogEntry]
-        if let rawID = params["runID"]?.string {
-            guard let id = UUID(uuidString: rawID), let entry = history.deleteEntry(id: id) else {
-                throw BridgeFailure("invalid_params", "Unknown run ID")
-            }
-            removed = [entry]
-        } else {
-            removed = history.entries
-            history.entries = []
-        }
-        RunLogStore.save(history, for: target.name, in: target.container)
-        let logsFolder = Wine.logsFolder
-        for entry in removed {
-            try? FileManager.default.removeItem(at: logsFolder.appending(path: entry.logFileName))
-        }
-        return try historyPayload(for: target)
-    }
-
     // MARK: - Shortcut
 
     func createShortcut(
