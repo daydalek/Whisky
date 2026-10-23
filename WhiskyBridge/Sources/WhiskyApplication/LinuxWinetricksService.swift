@@ -229,26 +229,46 @@ public final class LinuxWinetricksService {
         script: URL,
         host: LinuxWineHost
     ) async throws -> LinuxWineHost.Output {
-        // When the host uses an explicit user-mode emulator, give winetricks a
-        // small wrapper script for `WINE` so every sub-invocation runs through
-        // the same translator.
+        // When the host uses an explicit user-mode emulator, give winetricks
+        // wrapper scripts for `WINE` and `WINESERVER` so every sub-invocation
+        // runs through the same translator. On a native host the raw runtime
+        // paths are used unchanged.
         let wrapperDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("whisky-tricks-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: wrapperDir) }
         var wineCommand = host.loader.path
+        var wineserverCommand = host.wineserver.path
+        var usesEmulator = false
         if case let .emulator(emulator) = host.translation {
+            usesEmulator = true
             try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
-            let wrapper = wrapperDir.appendingPathComponent("wine")
-            let body = "#!/bin/sh\nexec \"\(emulator.path)\" \"\(host.loader.path)\" \"$@\"\n"
-            try Data(body.utf8).write(to: wrapper)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapper.path)
-            wineCommand = wrapper.path
+            for (name, target) in [("wine", host.loader), ("wineserver", host.wineserver)] {
+                let wrapper = wrapperDir.appendingPathComponent(name)
+                let body = "#!/bin/sh\nexec \"\(emulator.path)\" \"\(target.path)\" \"$@\"\n"
+                try Data(body.utf8).write(to: wrapper)
+                try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapper.path)
+            }
+            wineCommand = wrapperDir.appendingPathComponent("wine").path
+            wineserverCommand = wrapperDir.appendingPathComponent("wineserver").path
         }
         var environment = host.environment(prefix: container)
         environment["WINE"] = wineCommand
-        environment["WINESERVER"] = host.wineserver.path
+        environment["WINESERVER"] = wineserverCommand
         environment["WINETRICKS_LATEST_VERSION_CHECK"] = "disabled"
         LinuxWineHost.applyUsableLocale(to: &environment)
+        if usesEmulator {
+            // winetricks also invokes bare `wine`/`wineserver` found on PATH;
+            // those raw entries are foreign ELFs that would bypass the
+            // translator's environment, so point PATH at the wrappers instead.
+            let rawBin = host.runtimeURL.appendingPathComponent("bin").path
+            let wrapped = environment["PATH"]?
+                .components(separatedBy: ":")
+                .map { $0 == rawBin ? wrapperDir.path : $0 }
+                .joined(separator: ":")
+            if let wrapped {
+                environment["PATH"] = wrapped
+            }
+        }
 
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("whisky-winetricks-\(UUID().uuidString).log")
