@@ -76,7 +76,11 @@ struct LinuxTerminalService {
         ])
     }
 
-    func open(container: URL, preferred: String) throws -> JSONValue {
+    func open(
+        container: URL,
+        preferred: String,
+        wineEnvironment: [String: String] = [:]
+    ) throws -> JSONValue {
         guard displayAvailable else { throw BridgeFailure(
             "display_unavailable",
             "A desktop display is required to open a terminal"
@@ -88,6 +92,9 @@ struct LinuxTerminalService {
             "Install or select an available Linux terminal"
         ) }
         var environment = environment
+        for (key, value) in wineEnvironment {
+            environment[key] = value
+        }
         environment["WINEPREFIX"] = container.path
         let shell = environment["SHELL"].flatMap { path -> String? in
             path.hasPrefix("/") && Self.isExecutable(URL(fileURLWithPath: path)) ? path : nil

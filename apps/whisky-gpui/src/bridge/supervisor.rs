@@ -5789,17 +5789,58 @@ pub(crate) fn backoff_delay(attempt: u32) -> Duration {
 ///
 /// On macOS Wine host effects (`bottle.create`, configuration side effects,
 /// process kill) require `--enable-wine`. Opt out with `WHISKY_BRIDGE_NO_WINE=1`.
+/// On Linux the relocatable Wine runtime is injected with `--wine-runtime`,
+/// configured through `WHISKY_WINE_RUNTIME` or discovered beside the frontend
+/// (`../../wine` in the test layout, `../wine` inside an app bundle). Discovery
+/// keeps desktop-entry launches equivalent to launching through `run-whisky.sh`.
 fn helper_arguments() -> Vec<String> {
+    let mut arguments = Vec::new();
     #[cfg(target_os = "macos")]
     {
         let disabled = std::env::var_os("WHISKY_BRIDGE_NO_WINE").is_some_and(|value| {
             value == "1" || value.eq_ignore_ascii_case("true")
         });
         if !disabled {
-            return vec!["--enable-wine".into()];
+            arguments.push("--enable-wine".into());
         }
     }
-    Vec::new()
+    #[cfg(target_os = "linux")]
+    {
+        let disabled = std::env::var_os("WHISKY_BRIDGE_NO_WINE").is_some_and(|value| {
+            value == "1" || value.eq_ignore_ascii_case("true")
+        });
+        if disabled {
+            return arguments;
+        }
+        let configured = std::env::var_os("WHISKY_WINE_RUNTIME").map(PathBuf::from);
+        let mut runtime = configured.clone();
+        if runtime.is_none() {
+            if let Ok(executable) = std::env::current_exe() {
+                if let Some(directory) = executable.parent() {
+                    for candidate in [
+                        directory.join("../../wine"),
+                        directory.join("../wine"),
+                    ] {
+                        if candidate.join("bin/wine").is_file() {
+                            runtime = Some(candidate.canonicalize().unwrap_or(candidate));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(path) = runtime {
+            if path.is_absolute() && path.join("bin/wine").is_file() {
+                arguments.push("--wine-runtime".into());
+                arguments.push(path.to_string_lossy().into_owned());
+            } else if configured.is_some() {
+                eprintln!(
+                    "whisky-bridge: WHISKY_WINE_RUNTIME ignored (needs an absolute path with bin/wine): {path:?}"
+                );
+            }
+        }
+    }
+    arguments
 }
 
 /// Resolve the helper in the documented order. Every candidate is checked with

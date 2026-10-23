@@ -145,9 +145,25 @@ struct BridgeHost {
             preferences: preferences, jobs: jobs
         )
         #elseif os(Linux)
+        let wineRuntimePath = argument("--wine-runtime")
+        let wineDriver = wineRuntimePath.flatMap {
+            LinuxWineRuntimeDriver(runtimeURL: URL(fileURLWithPath: $0))
+        }
+        let wineRuntimeService = wineDriver.map { RuntimeService(driver: $0) }
+        let wineProcessService = ProcessService(
+            host: wineDriver.map { LinuxWineProcessHost(host: $0.host) }
+        )
+        let wineRuntimeURL = wineDriver == nil ? nil : wineRuntimePath.map { URL(fileURLWithPath: $0) }
         return ApplicationService(
             workspace: workspace,
-            native: LinuxApplicationServices(preferences: preferences),
+            native: LinuxApplicationServices(
+                runtime: wineRuntimeService,
+                preferences: preferences,
+                wineRuntimeURL: wineRuntimeURL,
+                jobs: jobs
+            ),
+            runtime: wineRuntimeService,
+            processes: wineProcessService,
             preferences: preferences,
             jobs: jobs
         )

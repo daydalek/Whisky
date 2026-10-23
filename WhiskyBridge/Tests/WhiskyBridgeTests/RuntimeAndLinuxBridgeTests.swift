@@ -312,6 +312,133 @@ struct RuntimeAndLinuxBridgeTests {
         #expect(provider.isAlive(current))
         #expect(!provider.isAlive(HostProcessIdentity(pid: -1, birth: 1)))
     }
+
+    @Test func linuxWineHostInspectsELFAndBinfmtAndLocale() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("whisky-elf-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runtime = root.appendingPathComponent("wine")
+        let bin = runtime.appendingPathComponent("bin")
+        let binfmtDir = root.appendingPathComponent("binfmt")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binfmtDir, withIntermediateDirectories: true)
+
+        var x64Header = Data(repeating: 0, count: 20)
+        x64Header[0] = 0x7F
+        x64Header[1] = 0x45
+        x64Header[2] = 0x4C
+        x64Header[3] = 0x46
+        x64Header[4] = 2 // 64-bit
+        x64Header[5] = 1 // little-endian
+        x64Header[6] = 1
+        x64Header[16] = 0x02 // ET_EXEC
+        x64Header[18] = 0x3E // EM_X86_64
+        let wineBin = bin.appendingPathComponent("wine")
+        let serverBin = bin.appendingPathComponent("wineserver")
+        try x64Header.write(to: wineBin)
+        try x64Header.write(to: serverBin)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wineBin.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: serverBin.path)
+
+        let fakeBox64 = root.appendingPathComponent("box64")
+        try Data("#!/bin/sh\n".utf8).write(to: fakeBox64)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeBox64.path)
+
+        let host = try #require(LinuxWineHost(
+            runtimeURL: runtime,
+            environment: ["WHISKY_WINE_EMULATOR": fakeBox64.path]
+        ))
+        #expect(host.architecture == "x86_64")
+        #expect(host.translation == .emulator(fakeBox64))
+        #expect(host.canExecute)
+
+        var armHeader = x64Header
+        armHeader[18] = 0xB7 // EM_AARCH64
+        let rosettaEntry = """
+        enabled
+        interpreter /run/rosetta/rosetta
+        flags: POCF
+        offset 0
+        magic 7f454c4602010100000000000000000002003e00
+        mask fffffffffffefe00fffffffffffffffffeffffff
+        """
+        try Data(rosettaEntry.utf8).write(to: binfmtDir.appendingPathComponent("rosetta"))
+        #expect(LinuxWineHost.binfmtHandler(for: [UInt8](x64Header), directory: binfmtDir) == "rosetta")
+        #expect(LinuxWineHost.binfmtHandler(for: [UInt8](armHeader), directory: binfmtDir) == nil)
+
+        var env = ["LANG": "not_A_Real_Locale.GB2312"]
+        LinuxWineHost.applyUsableLocale(to: &env)
+        #expect(env["LC_ALL"]?.uppercased().contains("UTF") == true || env["LC_ALL"] == "C.UTF-8")
+    }
+
+    @Test func linuxLaunchConfigurationComposesSettingsOverridesAndProgramOptions() {
+        let composed = LinuxLaunchConfiguration.compose(
+            values: [
+                "enhancedSync": .text("esync"),
+                "graphicsBackend": .text("dxvk"),
+                "dxvkAsync": .boolean(true),
+                "dxvkHud": .text("fps"),
+                "controllerCompatibilityMode": .boolean(true),
+                "disableHIDAPI": .boolean(true)
+            ],
+            bottleEnvironment: ["BOTTLE_VAR": "from-bottle"],
+            bottleDLLOverrides: [("dinput8", "n,b")],
+            program: [
+                "arguments": "--windowed \"--title=Hello World\"",
+                "environment": ["PROGRAM_VAR": "from-program", "LANG": "C.UTF-8"],
+                "overrides": [
+                    "dllOverrides": [
+                        ["dllName": "winmm", "mode": "n,b"]
+                    ]
+                ]
+            ]
+        )
+        #expect(composed.environment["WINEESYNC"] == "1")
+        #expect(composed.environment["DXVK_ASYNC"] == "1")
+        #expect(composed.environment["DXVK_HUD"] == "fps")
+        #expect(composed.environment["SDL_JOYSTICK_HIDAPI"] == "0")
+        #expect(composed.environment["SDL_GAMECONTROLLER_USE_BUTTON_LABELS"] == "0")
+        #expect(composed.environment["WINEDLLOVERRIDES"]?.contains("d3d11=n,b") == true)
+        #expect(composed.environment["WINEDLLOVERRIDES"]?.contains("dinput8=n,b") == true)
+        #expect(composed.environment["WINEDLLOVERRIDES"]?.contains("winmm=n,b") == true)
+        #expect(composed.environment["BOTTLE_VAR"] == "from-bottle")
+        #expect(composed.environment["PROGRAM_VAR"] == "from-program")
+        #expect(composed.environment["LC_ALL"] == "C.UTF-8")
+        #expect(composed.arguments == ["--windowed", "--title=Hello World"])
+    }
+
+    @Test @MainActor func linuxTasklistParserAndWinetricksServiceWork() async throws {
+        let csv = """
+        "services.exe","48","Console","0","12,345 K"
+        " explorer.exe ","76","Console","0","24,000 K"
+        "tasklist.exe","104","Console","0","8,000 K"
+        "game, edition.exe","220","Console","0","120,000 K"
+        """
+        let parsed = LinuxWineProcessHost.parseTasklist(csv)
+        #expect(parsed == [
+            .init(pid: 48, name: "services.exe", memory: "12,345 K", kind: "service", source: "untracked"),
+            .init(pid: 76, name: "explorer.exe", memory: "24,000 K", kind: "system", source: "untracked"),
+            .init(pid: 220, name: "game, edition.exe", memory: "120,000 K", kind: "app", source: "untracked")
+        ])
+
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("whisky-wt-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("vcrun2022\ncjkfonts\n# comment\nvcrun2022\n".utf8)
+            .write(to: root.appendingPathComponent("winetricks.log"))
+
+        let workspace = ApplicationWorkspace(containers: [root])
+        let service = LinuxWinetricksService()
+        let catalog = try await service.call("winetricks.catalog", params: [:], workspace: workspace)
+        #expect(catalog.object?["categories"]?.arrayValues?.isEmpty == false)
+        let installed = try await service.call(
+            "winetricks.installed",
+            params: ["container": .string(root.path)],
+            workspace: workspace
+        )
+        let verbs = installed.object?["verbs"]?.arrayValues?.compactMap(\.string) ?? []
+        #expect(verbs.contains("cjkfonts"))
+        #expect(verbs.contains("vcrun2022"))
+    }
 }
 
 private final class LockBox<Value>: @unchecked Sendable {

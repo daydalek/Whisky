@@ -23,11 +23,15 @@ private final class GameDatabaseResourceAnchor {}
 /// Locates the canonical database beside executables or in application resource bundles.
 public enum GameDatabaseResource {
     public static func data(searchDirectories: [URL]? = nil) throws -> Data {
+        try resource("GameDB.json", searchDirectories: searchDirectories)
+    }
+
+    public static func resource(_ file: String, searchDirectories: [URL]? = nil) throws -> Data {
         let directories = searchDirectories ?? defaults()
         for directory in directories {
             for name in ["WhiskyCore_WhiskyCore.resources", "WhiskyCore_WhiskyCore.bundle"] {
                 let bundle = directory.appendingPathComponent(name)
-                for relative in ["GameDB.json", "Contents/Resources/GameDB.json"] {
+                for relative in [file, "Contents/Resources/\(file)"] {
                     let url = bundle.appendingPathComponent(relative)
                     if FileManager.default.fileExists(atPath: url.path) {
                         let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0

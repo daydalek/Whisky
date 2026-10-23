@@ -4934,10 +4934,11 @@ impl WhiskyApp {
             self.show_notice("该程序没有可启动的游戏库条目", cx);
             return;
         };
-        // Configure the bottle lazily, exactly like a card's Play.
-        if self.configured.ensure(&container) {
-            self.bridge.configure_runtime(&container);
-        }
+        // Refresh the live entry set immediately before launch. The cached set
+        // only suppresses redundant selection/connect work; a bottle configured
+        // before this program was added would otherwise reject the launch.
+        let _ = self.configured.ensure(&container);
+        self.bridge.configure_runtime(&container);
         self.runtime.set_state(&entry_id, RuntimeState::Preparing);
         self.bridge.launch(&container, &entry_id, Some(path));
         cx.notify();
@@ -5005,9 +5006,10 @@ impl WhiskyApp {
             game.folder_path = Some(folder_path.clone());
         });
         if picker.launch_after {
-            if self.configured.ensure(&picker.container) {
-                self.bridge.configure_runtime(&picker.container);
-            }
+            // The folder may have appeared after the bottle was configured, so
+            // do not rely on the session cache before the ordered launch.
+            let _ = self.configured.ensure(&picker.container);
+            self.bridge.configure_runtime(&picker.container);
             self.runtime
                 .set_state(&picker.entry_id, RuntimeState::Preparing);
             self.bridge
@@ -5095,12 +5097,12 @@ impl WhiskyApp {
         };
         match action {
             RuntimeAction::Launch => {
-                // Configure the bottle lazily, once per helper session. The
-                // worker handles commands in order, so the launch lands after
-                // the configure that made the entry actionable.
-                if self.configured.ensure(&container) {
-                    self.bridge.configure_runtime(&container);
-                }
+                // Always refresh the live entry set before a launch. The
+                // worker handles commands in order, so this configure lands
+                // before the launch; a bottle configured while empty must be
+                // re-registered or the helper rejects it as not_configured.
+                let _ = self.configured.ensure(&container);
+                self.bridge.configure_runtime(&container);
                 if self.needs_executable(index) {
                     self.open_executable_picker(index, true, cx);
                     return;

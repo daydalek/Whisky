@@ -80,7 +80,7 @@ public enum ProgramSettingsService {
         return .object(payload)
     }
 
-    static func load(_ source: URL) throws -> [String: Any] {
+    nonisolated static func load(_ source: URL) throws -> [String: Any] {
         guard FileManager.default.fileExists(atPath: source.path) else { return [:] }
         guard try (source.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= 16 * 1_024 * 1_024,
               let raw = try PropertyListSerialization

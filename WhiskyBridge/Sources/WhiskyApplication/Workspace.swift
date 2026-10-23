@@ -126,6 +126,16 @@ public enum HostPaths {
         return base.appendingPathComponent("whisky/BottleVM.plist")
         #endif
     }
+
+    /// Wine program logs written by the Linux runtime driver.
+    public static func logs(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        let base = environment["XDG_STATE_HOME"].flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
+            ?? home.appendingPathComponent(".local/state")
+        return base.appendingPathComponent("whisky/logs", isDirectory: true)
+    }
 }
 
 public struct ContainerRecord: Codable, Sendable {
