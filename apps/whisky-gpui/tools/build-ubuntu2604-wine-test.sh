@@ -363,7 +363,7 @@ assemble_bundle() {
 set -eu
 self=$(readlink -f -- "$0")
 root=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd -P)
-export WHISKY_WINE_RUNTIME="$root/wine"
+export WHISKY_WINE_FALLBACK_RUNTIME="${WHISKY_WINE_FALLBACK_RUNTIME:-$root/wine}"
 exec "$root/Whisky/Whisky" "$@"
 EOF
     chmod 0755 "$bundle/run-whisky.sh"
@@ -390,7 +390,7 @@ wine-test-manifest.json.
 Layout:
   Whisky/          Unmodified output of build-linux-release.sh
   wine/            The supplied Linux Wine runtime (usually x86_64)
-  run-whisky.sh    Launches Whisky with WHISKY_WINE_RUNTIME=<bundle>/wine
+  run-whisky.sh    Uses <bundle>/wine as the fallback for the managed Wine channel
   run-wine.sh      Runs Wine directly with a private test prefix
   host-packages-apt.txt
                    Packages observed on the build host for Whisky and Wine
@@ -408,8 +408,9 @@ Run:
   ./run-whisky.sh
 
 The bridge status should contain "runtime.launch" when the Wine runtime was
-injected. Use run-whisky.sh rather than Whisky/Whisky directly: the outer
-launcher is what exports WHISKY_WINE_RUNTIME.
+injected. The launcher exports WHISKY_WINE_FALLBACK_RUNTIME; an installed
+managed Wine update takes priority. WHISKY_WINE_RUNTIME remains an explicit
+external override for developer-selected runtimes.
 
 Wine prefix:
   The direct Wine helper uses:
@@ -695,11 +696,11 @@ data = {
         "wine": "run-wine.sh",
     },
     "environment": {
-        "WHISKY_WINE_RUNTIME": "<bundle>/wine",
+        "WHISKY_WINE_FALLBACK_RUNTIME": "<bundle>/wine",
     },
     "notes": [
         "Whisky/ is the unmodified Linux release bundle.",
-        "Wine is a sibling runtime and is injected through WHISKY_WINE_RUNTIME.",
+        "Wine is a sibling fallback; managed Wine updates take priority.",
         "The inner Whisky manifest still describes its own packaging baseline.",
         "The Wine runtime was built separately and may target a different Ubuntu release.",
     ],

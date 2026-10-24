@@ -145,22 +145,29 @@ struct BridgeHost {
             preferences: preferences, jobs: jobs
         )
         #elseif os(Linux)
-        let wineRuntimePath = argument("--wine-runtime")
-        let wineDriver = wineRuntimePath.flatMap {
-            LinuxWineRuntimeDriver(runtimeURL: URL(fileURLWithPath: $0))
-        }
+        let environment = ProcessInfo.processInfo.environment
+        let wineDisabled = ["1", "true"].contains(environment["WHISKY_BRIDGE_NO_WINE"]?.lowercased() ?? "")
+        let externalWine = (argument("--wine-runtime") ?? environment["WHISKY_WINE_RUNTIME"])
+            .map { URL(fileURLWithPath: $0) }
+        let wineSetup = wineDisabled ? nil : LinuxWineSetupService(
+            externalRuntime: externalWine, fallbackRuntime: LinuxWineSetupService.bundledRuntime(),
+            jobs: jobs, preferences: preferences,
+            releasesURL: environment["WHISKY_LINUX_WINE_RELEASES_URL"].flatMap(URL.init(string:))
+        )
+        let wineRuntimeURL = wineSetup?.runtimeURL
+        let wineDriver = wineRuntimeURL.flatMap { LinuxWineRuntimeDriver(runtimeURL: $0) }
         let wineRuntimeService = wineDriver.map { RuntimeService(driver: $0) }
         let wineProcessService = ProcessService(
             host: wineDriver.map { LinuxWineProcessHost(host: $0.host) }
         )
-        let wineRuntimeURL = wineDriver == nil ? nil : wineRuntimePath.map { URL(fileURLWithPath: $0) }
         return ApplicationService(
             workspace: workspace,
             native: LinuxApplicationServices(
                 runtime: wineRuntimeService,
                 preferences: preferences,
                 wineRuntimeURL: wineRuntimeURL,
-                jobs: jobs
+                jobs: jobs,
+                wineSetup: wineSetup
             ),
             runtime: wineRuntimeService,
             processes: wineProcessService,

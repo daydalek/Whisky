@@ -1,9 +1,10 @@
 # Linux adaptation and headless verification
 
 The Linux product path is `apps/whisky-gpui` plus the Swift `whisky-bridge`
-child process. The active target covers the application's Linux functionality
-with Wine execution excluded. Work continues through the remaining services
-and distribution gates below.
+child process. Current work includes Wine runtime discovery, download and updates;
+the [Linux Wine update contract](LINUX_WINE_UPDATES.md) records the publisher,
+managed generations, external overrides and production-window evidence.
+Work continues through the remaining services and distribution gates below.
 
 ## Verified on 2026-10-23
 
@@ -820,8 +821,8 @@ identify the source platform as macOS and carry `canApply: false`, the minimum
 OS context and source settings/components for reference. This reports game
 identity confidence and source compatibility evidence as distinct fields.
 `gameConfig.apply` continues to depend on the platform/runtime adapter;
-Wine execution and platform runtime application remain in the user's excluded
-scope.
+Linux runtime distribution follows the [Wine update contract](LINUX_WINE_UPDATES.md);
+applying this macOS reference corpus has its own platform/runtime gate.
 
 The GPUI sheet shows source-platform labels, reference settings and a read-only
 reference action in file-only sessions. Both the view model and supervisor
@@ -973,13 +974,13 @@ Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 | --- | --- | --- |
 | Library and configuration | Shared storage tests; empty production window and CLI | Seeded-library folder edits through the native chooser, persisted ratings/visibility and refresh/recovery |
 | Program settings and history | Complete shared file services, native-model compatibility, concurrent real helpers and seeded UI writes/reload | Linux .desktop creation and GIO startup verified; broader UI override editing remains in the desktop gate |
-| Metadata and covers | Shared metadata services; live provider search; seeded UI artwork operations; shared GameDB identities and explicit macOS reference review with recovery/retry | Broader seeded search/apply interactions; runtime configuration follows the Wine scope exclusion |
+| Metadata and covers | Shared metadata services; live provider search; seeded UI artwork operations; shared GameDB identities and explicit macOS reference review with recovery/retry | Broader seeded search/apply interactions; Linux runtime configuration has separate acceptance |
 | Container lifecycle | Linux lifecycle, routes, discovery/import and export SIGKILL recovery; complete production file-lifecycle window flow, recovery and candidate import UI | Additional platform coverage follows the desktop acceptance matrix |
 | Host integration | XDG preferences; file open/reveal; GTK dialogs; real terminal/window acceptance; managed desktop updates, legacy shortcut upgrade and stable relocation | Additional terminal/desktop environments; settings now follow connected helper services |
 | Diagnostics | Native macOS adapter; Linux bounded host/file report, platform checks, exclusive export and production-window acceptance | Additional desktop platform coverage follows the acceptance matrix |
 | Distribution | macOS `.app` packaging; ARM64 Linux Release archive with Swift libraries, native helpers, source/license evidence and unprivileged clean-Ubuntu CLI/window acceptance | First x86_64 hosted archive/runtime run and additional distributions |
 | Desktop acceptance | ARM64 X11 and native headless Wayland; real GTK chooser, clipboard, GIO shortcut, Foot PTY and restart persistence | Broader seeded interactions and desktop environments; x86_64 hosted CI evidence |
 
-Wine installation, Windows process execution and game compatibility follow the
-user's explicit scope exclusion. File editing and host integration remain part
-of the Linux adaptation target.
+Wine download and update tasks follow the dedicated runtime contract. Windows
+process execution and game compatibility have separate acceptance evidence.
+File editing and host integration remain part of the Linux adaptation target.

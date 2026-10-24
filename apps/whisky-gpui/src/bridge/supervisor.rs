@@ -1505,6 +1505,8 @@ impl Drop for BridgeSupervisor {
 fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Command>) {
     let mut attempt = 0_u32;
     let mut foreground = true;
+    #[cfg(target_os = "linux")]
+    let mut completed_wine_install: Option<Option<String>> = None;
     'session: loop {
         emit(&events, BridgeStatus::Locating);
         let helper = match locate_helper() {
@@ -1572,6 +1574,10 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
         emit_event(&events, BridgeEvent::Services(describe.methods.clone()));
         log_container_names(&containers);
         emit_event(&events, BridgeEvent::Containers(containers));
+        #[cfg(target_os = "linux")]
+        if let Some(version) = completed_wine_install.take() {
+            emit_event(&events, BridgeEvent::Setup { update: SetupUpdate::Installed { version } });
+        }
         fetch_setup_status(&mut client, &events);
         if describe.methods.iter().any(|method| method == "system.terminals") {
             fetch_terminals(&mut client, &events);
@@ -1605,9 +1611,19 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
         let mut metadata_sync: Option<LiveMetadataSync> = None;
         // At most one Wine runtime installation job.
         let mut setup: Option<LiveSetup> = None;
+        #[cfg(target_os = "linux")]
+        let mut wine_restart_pending = false;
         // The one opened file being watched for startup failures.
         let mut program_run: Option<LiveProgramRun> = None;
         loop {
+            #[cfg(target_os = "linux")]
+            if wine_restart_pending && scan.is_none() && create.is_none() && tricks.is_none()
+                && update_check.is_none() && bottle_op.is_none() && diagnostic.is_none()
+                && metadata_search.is_none() && metadata_sync.is_none() && program_run.is_none()
+            {
+                client.close();
+                continue 'session;
+            }
             // A live session blocks only until its next poll is due. Anything
             // else parks, and a command still wakes the worker immediately.
             let now = Instant::now();
@@ -1640,6 +1656,9 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                 wait_for = wait_for.min(job.due.saturating_duration_since(now));
             }
             if let Some(job) = &setup {
+                wait_for = wait_for.min(job.due.saturating_duration_since(now));
+            }
+            if let Some(job) = &update_check {
                 wait_for = wait_for.min(job.due.saturating_duration_since(now));
             }
             let command = match commands.recv_timeout(wait_for) {
@@ -1978,14 +1997,24 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                     if let Some(active) = setup.as_mut() {
                         match poll_setup(&mut client, active, &events) {
                             Ok(None) => {}
-                            Ok(Some(SetupTerminal::Completed { version })) => {
-                                emit_event(
-                                    &events,
-                                    BridgeEvent::Setup {
-                                        update: SetupUpdate::Installed { version },
-                                    },
-                                );
+                            Ok(Some(SetupTerminal::Completed { version, restart_required })) => {
+                                if !cfg!(target_os = "linux") || !restart_required {
+                                    emit_event(
+                                        &events,
+                                        BridgeEvent::Setup {
+                                            update: SetupUpdate::Installed { version: version.clone() },
+                                        },
+                                    );
+                                }
                                 setup = None;
+                                let _ = restart_required;
+                                #[cfg(target_os = "linux")]
+                                {
+                                    wine_restart_pending = restart_required;
+                                    if restart_required {
+                                        completed_wine_install = Some(version);
+                                    }
+                                }
                             }
                             Ok(Some(SetupTerminal::RosettaCompleted)) => {
                                 emit_event(
@@ -4737,7 +4766,7 @@ struct LiveSetup {
 }
 
 enum SetupTerminal {
-    Completed { version: Option<String> },
+    Completed { version: Option<String>, restart_required: bool },
     RosettaCompleted,
     Failed(String),
 }
@@ -4864,12 +4893,15 @@ fn poll_setup(
                 .ok_or_else(|| CallFailure::Remote("setup job has no result".into()))?;
             match setup.kind {
                 SetupKind::Runtime => {
+                    let restart_required = result.get("restartRequired")
+                        .and_then(serde_json::Value::as_bool).unwrap_or(false);
                     let status: SetupStatusDto =
                         serde_json::from_value(result).map_err(|error| {
                             CallFailure::Remote(format!("invalid setup result: {error}"))
                         })?;
                     Ok(Some(SetupTerminal::Completed {
                         version: status.version,
+                        restart_required,
                     }))
                 }
                 SetupKind::Rosetta => Ok(Some(SetupTerminal::RosettaCompleted)),
@@ -5790,9 +5822,8 @@ pub(crate) fn backoff_delay(attempt: u32) -> Duration {
 /// On macOS Wine host effects (`bottle.create`, configuration side effects,
 /// process kill) require `--enable-wine`. Opt out with `WHISKY_BRIDGE_NO_WINE=1`.
 /// On Linux the relocatable Wine runtime is injected with `--wine-runtime`,
-/// configured through `WHISKY_WINE_RUNTIME` or discovered beside the frontend
-/// (`../../wine` in the test layout, `../wine` inside an app bundle). Discovery
-/// keeps desktop-entry launches equivalent to launching through `run-whisky.sh`.
+/// configured through `WHISKY_WINE_RUNTIME`. The helper resolves the managed
+/// channel and bundled fallback centrally, including desktop-entry launches.
 fn helper_arguments() -> Vec<String> {
     let mut arguments = Vec::new();
     #[cfg(target_os = "macos")]
@@ -5813,27 +5844,11 @@ fn helper_arguments() -> Vec<String> {
             return arguments;
         }
         let configured = std::env::var_os("WHISKY_WINE_RUNTIME").map(PathBuf::from);
-        let mut runtime = configured.clone();
-        if runtime.is_none() {
-            if let Ok(executable) = std::env::current_exe() {
-                if let Some(directory) = executable.parent() {
-                    for candidate in [
-                        directory.join("../../wine"),
-                        directory.join("../wine"),
-                    ] {
-                        if candidate.join("bin/wine").is_file() {
-                            runtime = Some(candidate.canonicalize().unwrap_or(candidate));
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        if let Some(path) = runtime {
+        if let Some(path) = configured {
             if path.is_absolute() && path.join("bin/wine").is_file() {
                 arguments.push("--wine-runtime".into());
                 arguments.push(path.to_string_lossy().into_owned());
-            } else if configured.is_some() {
+            } else {
                 eprintln!(
                     "whisky-bridge: WHISKY_WINE_RUNTIME ignored (needs an absolute path with bin/wine): {path:?}"
                 );

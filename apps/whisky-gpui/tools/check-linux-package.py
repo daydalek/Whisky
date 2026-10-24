@@ -34,6 +34,7 @@ def verify(bundle):
         assert os.access(bundle / 'bin' / product, os.X_OK), product
     assert os.access(bundle / 'Whisky', os.X_OK)
     assert 'libswiftCore.so' in manifest['swiftLibraries']
+    assert (bundle / 'bin/WhiskyBridge_WhiskyApplication.resources/linux-wine-archive.py').is_file()
     return manifest
 
 
@@ -90,7 +91,8 @@ def main():
             value = json.loads(run(name, [executable, '--print-bridge-status']))
             assert value['platform'] == 'linux', value
             assert {'system.choosePath', 'system.desktop.install', 'bottle.move', 'gameConfig.match'}.issubset(value['methods']), value
-            assert not any(method.startswith(('setup.', 'runtime.')) for method in value['methods']), value
+            assert {'setup.status', 'setup.install', 'setup.checkUpdate'}.issubset(value['methods']), value
+            assert not any(method.startswith('runtime.') for method in value['methods']), value
 
         status('initial-launcher', bundle / 'Whisky')
         status('initial-direct-binary', bundle / 'bin/whisky-gpui')
@@ -139,6 +141,12 @@ def main():
                 value = json.loads((output / (scenario + '-window') / 'report.json').read_text())
                 assert value['passed'], value
             report['steps'].append('packaged-native-pickers-settings-desktop-terminal-and-gamedb-resource-retry')
+            run('packaged-wine-update', ['python3', TOOLS / 'check-linux-wine-update.py',
+                '--helper', relocated / 'bin/whisky-bridge', '--output', output / 'wine-update'])
+            run('packaged-wine-update-window', prefix + ['python3', TOOLS / 'smoke-wine-update.py',
+                '--binary', relocated / 'Whisky', '--helper', relocated / 'bin/whisky-bridge',
+                '--output', output / 'wine-update-window'])
+            report['steps'].append('packaged-wine-download-upgrade-cancellation-and-startup-check-through-cli-and-window')
         if args.wayland:
             run('packaged-wayland', ['dbus-run-session', '--', 'python3', TOOLS / 'smoke-wayland.py',
                 '--bundle', relocated, '--output', output / 'wayland-window'])

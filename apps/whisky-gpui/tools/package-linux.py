@@ -159,6 +159,8 @@ def main():
         binary.chmod(0o755)
         subprocess.run(['patchelf', '--set-rpath', '$ORIGIN/../lib/swift', str(binary)], check=True)
     shutil.copytree(database_resources, output / 'bin/WhiskyCore_WhiskyCore.resources')
+    shutil.copytree(args.products / 'WhiskyBridge_WhiskyApplication.resources',
+                    output / 'bin/WhiskyBridge_WhiskyApplication.resources')
     for name, source in runtime.items():
         library = output / 'lib/swift' / name
         shutil.copyfile(source, library)

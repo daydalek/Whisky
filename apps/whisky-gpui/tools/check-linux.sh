@@ -84,3 +84,5 @@ python3 "$repo_root/apps/whisky-gpui/tools/check-desktop-update.py" \
 
 python3 "$repo_root/apps/whisky-gpui/tools/check-gamedb.py" \
     --helper "$helper" --output "$output/gamedb"
+python3 "$repo_root/apps/whisky-gpui/tools/check-linux-wine-update.py" \
+    --helper "$helper" --output "$output/wine-update"

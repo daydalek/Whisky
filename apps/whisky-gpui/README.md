@@ -53,6 +53,13 @@ in [`docs/gpui-port/LINUX.md`](../../docs/gpui-port/LINUX.md). Run
 `tools/check-linux.sh` from an Ubuntu environment with Swift and Rust installed.
 The Linux shortcuts use Ctrl; the UI font is Noto Sans CJK SC.
 
+Linux Wine setup downloads the producer's `wine-linux-amd64.tar.gz` release,
+checks its manifest/SHA-256 and activates a managed generation under
+`$XDG_DATA_HOME/whisky/runtime/wine`. Settings provides installation and updates;
+startup checks respect the update and offline preferences. Bundled Wine acts as
+a fallback; `WHISKY_WINE_RUNTIME` selects an externally managed fixed path.
+See the [Linux Wine update contract](../../docs/gpui-port/LINUX_WINE_UPDATES.md).
+
 ## Bridge helper
 
 The helper is the SwiftPM executable product `whisky-bridge` from

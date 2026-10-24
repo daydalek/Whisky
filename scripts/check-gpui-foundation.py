@@ -7,6 +7,7 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -19,6 +20,8 @@ output = args.output.resolve()
 output.mkdir(parents=True, exist_ok=True)
 report = {'platform': platform.platform(), 'checks': []}
 env = dict(os.environ, RUSTC_WRAPPER='')
+if sys.version_info >= (3, 12):
+    env.setdefault('WHISKY_TEST_PYTHON', sys.executable)
 if platform.system() == 'Linux':
     env.setdefault('CC', shutil.which('clang-21') or 'clang')
     env.setdefault('CXX', shutil.which('clang++-21') or shutil.which('clang-21') or 'clang++')

@@ -59,6 +59,7 @@ public struct LinuxWineHost: Sendable {
         runtimeURL: URL,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
+        let runtimeURL = runtimeURL.resolvingSymlinksInPath()
         let loader = runtimeURL.appendingPathComponent("bin/wine")
         let wineserver = runtimeURL.appendingPathComponent("bin/wineserver")
         guard FileManager.default.isExecutableFile(atPath: loader.path),
@@ -189,7 +190,9 @@ public struct LinuxWineHost: Sendable {
             process.executableURL = emulator
             process.arguments = [executable.path] + arguments
         } else {
-            process.executableURL = executable
+            let launcher = runtimeURL.appendingPathComponent("run")
+            process.executableURL = executable == loader && FileManager.default.isExecutableFile(atPath: launcher.path)
+                ? launcher : executable
             process.arguments = arguments
         }
         var environment = environment(prefix: prefix)

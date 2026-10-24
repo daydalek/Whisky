@@ -36,6 +36,7 @@ public final class LinuxApplicationServices: NativeApplicationServices {
     private let terminals: LinuxTerminalService
     private let preferences: PreferencesService?
     private let desktop: LinuxDesktopService
+    private let wineSetup: LinuxWineSetupService?
 
     public init(
         runtime: RuntimeService? = nil,
@@ -43,9 +44,11 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         openFile: FileOpener? = nil,
         preferences: PreferencesService? = nil,
         wineRuntimeURL: URL? = nil,
-        jobs: BridgeJobStore? = nil
+        jobs: BridgeJobStore? = nil,
+        wineSetup: LinuxWineSetupService? = nil
     ) {
         runtimeService = runtime
+        self.wineSetup = wineSetup
         let host = wineRuntimeURL.flatMap { LinuxWineHost(runtimeURL: $0) }
         wineHost = host
         bottleCreation = host.flatMap { LinuxBottleCreationService(host: $0, jobs: jobs) }
@@ -68,6 +71,7 @@ public final class LinuxApplicationServices: NativeApplicationServices {
 
     public var capabilities: [String] {
         var values = ["system.files", "system.picker", "system.terminal", "system.desktop", "programs.shortcut"]
+        if wineSetup != nil { values.append("setup") }
         if wineHost != nil {
             values += winetricks.capabilities
             values.append("processes.read")
@@ -92,6 +96,7 @@ public final class LinuxApplicationServices: NativeApplicationServices {
     public var methods: [String] {
         var values = ["system.reveal", "system.open", "system.resources", "system.terminals", "bottle.tools"]
             + LinuxFilePicker.methods + LinuxDesktopService.methods
+        values += wineSetup?.methods ?? []
         if wineHost != nil {
             values += winetricks.methods
         }
@@ -214,6 +219,14 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         case "winetricks":
             return try await winetricks.call(method, params: params, workspace: workspace)
         case "setup":
+            if let wineSetup, wineSetup.externalRuntime == nil || bottleCreation == nil || method != "setup.status" {
+                return try wineSetup.call(method, params: params) { [weak self] in
+                    guard let host = self?.wineHost, host.canExecute else { return }
+                    for container in try workspace.containers() where await host.serverRunning(prefix: container) {
+                        throw BridgeFailure("runtime_busy", "Close running Wine applications before updating the runtime")
+                    }
+                }
+            }
             guard method == "setup.status", let bottleCreation else {
                 throw BridgeFailure("method_unavailable", "Setup method is unavailable")
             }
@@ -227,11 +240,13 @@ public final class LinuxApplicationServices: NativeApplicationServices {
             case (nil, _): nil
             }
             return .object([
-                "installed": .bool(host.canExecute),
+                "installed": .bool(true),
                 "version": detail.map(JSONValue.string) ?? .null,
                 "path": .string(bottleCreation.runtimeURL.path),
-                "rosettaInstalled": .bool(host.canExecute),
-                "appleSilicon": .bool(host.architecture != host.hostArchitecture)
+                "canExecute": .bool(host.canExecute),
+                "translation": .string(host.translationDescription),
+                "rosettaInstalled": .bool(true),
+                "appleSilicon": .bool(false)
             ])
         case "runtime":
             guard let runtimeService else {

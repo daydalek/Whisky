@@ -1,5 +1,6 @@
 # Ubuntu 24.04 packages for the production Linux file/host build.
 ca-certificates
+python3
 libc6
 libgcc-s1
 libstdc++6

@@ -60,7 +60,8 @@ let package = Package(
         .target(name: "WhiskyBridgeProtocol"),
         .target(name: "CHostCommand"),
         .target(name: "WhiskyApplication", dependencies: ["WhiskyBridgeProtocol", "WhiskyCore", "CHostCommand",
-            .product(name: "WhiskyMetadata", package: "WhiskyMetadata")]),
+            .product(name: "WhiskyMetadata", package: "WhiskyMetadata")],
+            resources: [.copy("Resources/linux-wine-archive.py")]),
         .executableTarget(name: "WhiskyBridgeHost", dependencies: hostDependencies),
         .testTarget(
             name: "WhiskyBridgeTests",
