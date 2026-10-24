@@ -4793,7 +4793,7 @@ fn fetch_desktop(client: &mut Client, events: &smol::channel::Sender<BridgeEvent
         );
         return;
     }
-    let result = std::env::current_exe()
+    let result = crate::platform::desktop_launcher()
         .map_err(|error| error.to_string())
         .and_then(|launcher| {
             client
@@ -5245,7 +5245,7 @@ fn write_program_shortcut(
     #[cfg(target_os = "linux")]
     let params = {
         let mut params = params;
-        params["launcher"] = json!(std::env::current_exe().map_err(|error| CallFailure::Remote(error.to_string()))?);
+        params["launcher"] = json!(crate::platform::desktop_launcher().map_err(|error| CallFailure::Remote(error.to_string()))?);
         params
     };
     let reply = client

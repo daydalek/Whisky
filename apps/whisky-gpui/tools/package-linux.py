@@ -53,7 +53,8 @@ def copy_sources(output, target):
     destination.mkdir(parents=True)
     paths = command('git', '-C', ROOT, 'ls-files', '--cached', '--others', '--exclude-standard', '--',
                     'LICENSE', 'WhiskyCore', 'WhiskyMetadata', 'WhiskyBridge', 'crates', 'apps/whisky-gpui',
-                    'scripts/check-gpui-foundation.py').splitlines()
+                    'scripts/check-gpui-foundation.py', 'build.sh', 'scripts/distribution',
+                    'docs/BUILDING.md', 'docs/DistributionStrategy.md').splitlines()
     with tarfile.open(destination / 'application.tar.gz', 'w:gz') as archive:
         for relative in sorted(set(paths)):
             path = ROOT / relative
@@ -195,7 +196,10 @@ def main():
         path.chmod(0o755 if path.is_dir() or path in executables else 0o644)
     files = {str(p.relative_to(output)): dict(sha256=digest(p), bytes=p.stat().st_size,
              mode=stat.S_IMODE(p.stat().st_mode)) for p in sorted(output.rglob('*')) if p.is_file()}
-    manifest = dict(formatVersion=1, architecture=architecture, platform='linux', distribution='ubuntu-24.04',
+    application_version = os.environ.get('WHISKY_LINUX_VERSION') or tomllib.loads(
+        (ROOT / 'apps/whisky-gpui/Cargo.toml').read_text())['package']['version']
+    manifest = dict(formatVersion=1, applicationVersion=application_version,
+                    architecture=architecture, platform='linux', distribution='ubuntu-24.04',
                     sourceCommit=command('git', '-C', ROOT, 'rev-parse', 'HEAD'),
                     sourceTreeDirty=bool(command('git', '-C', ROOT, 'status', '--porcelain')),
                     sourceSnapshotSha256=digest(output / 'share/whisky/sources/application.tar.gz'),

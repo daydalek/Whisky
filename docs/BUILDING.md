@@ -21,7 +21,7 @@
 | --- | --- |
 | `whisky-macos-arm64` | Apple Silicon + Xcode；SwiftUI ad-hoc ZIP 与源码包 |
 | `whisky-macos-gpui-arm64` | Apple Silicon + Swift/Rust；GPUI 开发 `.app` |
-| `whisky-linux-amd64` | Ubuntu 24.04 amd64 或 Docker；Release tar.gz、源码与许可材料 |
+| `whisky-linux-amd64` | Ubuntu 24.04 amd64 或 Docker；Release tar.gz / deb / rpm / AppImage、源码与许可材料 |
 | `wine-macos-arm64` | macOS 27+ Apple Silicon、Rosetta、CMake/pkg-config；x86_64 Libraries 与源码包 |
 | `wine-linux-amd64` | Ubuntu 24.04 amd64 或 Docker；new WoW64 runner 与源码包 |
 
@@ -96,3 +96,36 @@ python3 scripts/distribution/audit-elf.py /path/to/Whisky \
 ```
 
 ABI 检查器需要 Linux `readelf`。基础工具检查保持只读；依赖安装由管理员或 Docker 镜像完成。
+
+## Linux 安装包与 CI
+
+`whisky-linux-amd64` 默认输出 tar、deb、rpm、AppImage。原生构建还需要 `rpm`、`dpkg-dev`、
+`patchelf`、`squashfs-tools`、`file`，Docker 构建镜像包含这些工具。
+
+```bash
+./build.sh run whisky-linux-amd64 --version 0.2.0 --formats tar deb rpm appimage
+./build.sh run whisky-linux-amd64 --executor docker --version 0.2.0 --formats deb rpm appimage
+# 只构建原始 payload（CI 的编译阶段）
+./build.sh run whisky-linux-amd64 --version 0.2.0 --formats tar
+# 为已有 Release archive 制作三种格式
+python3 scripts/distribution/package-linux.py --archive /path/to/whisky-linux-x86_64.tar.gz \
+  --version 0.2.0 --output /tmp/whisky-packages
+```
+
+默认输出中 `packages/` 保存安装包、AppImage、清单和校验和。
+`WHISKY_LINUX_BUILD_CACHE` 可将编译缓存放在独立目录，供 CI 跨任务恢复；
+`WHISKY_PACKAGING_TOOL_CACHE` 指定带 SHA-256 校验的 AppImage 工具缓存。
+
+Portability 工作流调用 `LinuxDistribution.yml` 完成三种格式的构建、安装和窗口检查。
+手动触发 **Linux distribution** 并填写版本可生成 Actions artifacts；
+推送 `linux-vX.Y.Z` 标签会在验收通过后发布 Linux prerelease。
+macOS 继续 ad-hoc ZIP；当前 CI 暂缓公证。
+
+三种格式复用一份 Release payload。安装验收使用 Ubuntu 24.04（deb）、Fedora 44（rpm），
+以及这两个系统上的同一 AppImage。rpm 与 AppImage 使用相对 RUNPATH 封装用户态库；
+宿主提供 glibc 2.39+、OpenGL ES/Vulkan 驱动与桌面工具，Wine 仍按独立渠道下载。
+原生包卸载保留用户 Bottle 数据。CI 的 Wine 下载/更新验收使用本地 HTTP，运行阶段关闭外部网络。
+
+独立的手动/标签构建执行共享核心、Swift bridge 和 Release 客户端单元测试；
+由 Portability 调用时复用该工作流已有的测试分支，避免重复执行。
+`linux-vX.Y.Z` 的发布阶段校验源码 commit、干净源码状态和三种资产摘要，创建新的 prerelease。

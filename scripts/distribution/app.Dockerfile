@@ -3,6 +3,7 @@
 FROM swift:6.4.0-noble
 COPY install-deps.sh /tmp/install-linux-deps.sh
 RUN bash /tmp/install-linux-deps.sh && rm /tmp/install-linux-deps.sh \
+    && apt-get install -y --no-install-recommends rpm dpkg-dev squashfs-tools file \
     && rm -rf /var/lib/apt/lists/*
 ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh \

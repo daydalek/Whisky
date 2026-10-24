@@ -7,15 +7,15 @@
 
 | 平台 / 人群 | 第一阶段 | 后续渠道 | 发布前验收 |
 | --- | --- | --- | --- |
-| macOS arm64 普通用户 | Developer ID 签名、公证并装订票据的 DMG；ZIP 用于更新 | Homebrew Cask 和应用内签名更新 | 浏览器下载后首次启动、Gatekeeper、下载后的 Wine、最低系统版本 |
-| Ubuntu 24.04 amd64 | 基于现有 tar.gz 产物制作 `.deb`，由包管理器安装宿主依赖 | APT 仓库 | 干净系统安装、卸载保留 Bottle、升级、X11/Wayland、真实 GPU/Wine |
-| Debian / Fedora / Arch / openSUSE amd64 | 依赖封装完成后的 AppImage；保留解压版 tar.gz | 按需求补 `.deb` / `.rpm` 和发行版维护配方 | 同一 payload 在各发行版实测，记录支持版本 |
-| 不可变桌面系统 | 单独评估 AppImage 或 Flatpak | Flatpak / Flathub | Portal、外置游戏目录、终端、进程跟踪和桌面快捷方式 |
+| macOS arm64 普通用户 | 维持 ad-hoc 签名 ZIP 预发布，当前 CI 暂缓公证 | 后续按明确需求接入签名更新 | 浏览器下载后首次启动、Gatekeeper、下载后的 Wine、最低系统版本 |
+| Ubuntu 24.04 amd64 | CI 生成 `.deb`，由包管理器安装宿主依赖 | APT 仓库 | 干净系统安装、卸载保留 Bottle、升级、X11/Wayland、真实 GPU/Wine |
+| Fedora 44 amd64 | CI 生成 `.rpm` 与 AppImage；用户态库使用私有依赖闭包 | RPM 仓库 | 同一 payload 在各发行版实测，记录支持版本 |
+| Debian / Arch / openSUSE / 不可变桌面 | AppImage 候选目标，逐个加入运行验收矩阵 | Flatpak / Flathub | Portal、外置游戏目录、终端、进程跟踪和桌面快捷方式 |
 | Linux arm64 | 保留共享代码与测试 | 独立构建和运行时策略 | ARM GUI、x86 Windows 转译、WoW64 系统调用和图形栈 |
 
 当前 macOS SwiftUI ZIP 发布继续作为预发布渠道。新的构建菜单按现有签名能力描述产物。
-公众稳定版的 Developer ID、公证和更新签名流程列入下一阶段。
-Apple 要求直接分发的软件使用相应签名，并为公证采用 Hardened Runtime 和安全时间戳；
+当前 macOS 发布按用户决定暂缓公证；Developer ID、公证和更新签名保留为后续独立配置项。
+Apple 的公证链路使用 Developer ID、Hardened Runtime 和安全时间戳；
 公证票据可通过 `notarytool` / `stapler` 集成到脚本。
 来源：[Apple 公证文档](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution)。
 
@@ -140,12 +140,12 @@ macOS Wine 的版本计数器沿用原脚本规则 `11.0.(build-number + 1)`；�
 
 ## 后续发布工程顺序
 
-1. 完成第一份原生 amd64 Ubuntu Release、干净运行时和真实桌面/GPU/Wine 验收；制作 Ubuntu `.deb`。
-2. 将“依赖的逻辑名称—各发行版包名—SONAME—最低版本”集中到版本化配置，封装 AppImage 依赖闭包。
+1. 执行首轮 amd64 hosted CI，核对三种格式及四条安装运行验收；继续真实桌面/GPU/Wine 验收。
+2. 维护 `linux-dependencies.json` 中的逻辑依赖、包名、宿主 SONAME 与最低版本，为新增发行版扩展验收。
 3. 对 Ubuntu 24.04 / 后续受支持 LTS、Debian 13、Fedora 受支持版本、Arch 固定快照和 openSUSE 建立矩阵。
    Debian 12 / Ubuntu 22.04 作为降低 ABI 基线后的独立目标。
-4. 为 macOS 应用与动态下载 Wine 分别完成 Developer ID、公证、Hardened Runtime 和真实下载启动验证。
-   接入独立 stable/beta 渠道、更新签名和可追溯的源码/构建记录。
+4. macOS 维持现有 ad-hoc ZIP 链路，暂缓公证。Linux 接入独立 stable/beta 渠道、
+   更新签名和可追溯的源码/构建记录；macOS 真实下载启动验证继续保留。
 5. 稳定重复构建后缓存工具链镜像、校验过的下载和编译缓存；CI 使用同一个 `build.sh`，按 tag 执行发布门槛。
 
 每个平台发布记录应附：两个仓库 commit、工具链/镜像版本、CPU/ABI 基线、依赖报告、
@@ -160,3 +160,47 @@ Linux 10 项回归全部通过；macOS 通过 8 项，另外 2 项 ELF 用例在
 两个 Dockerfile 通过 BuildKit `--check`；实际 Docker 挂载验证覆盖逗号、引号、中文和 `$HOME` 字面量。
 交互菜单在真实终端完成目标选择、计划预览和环境检查；修正后的图标输入通过系统 `iconutil` 编译。
 本次完整产品重编译、Developer ID 公证、AppImage/deb/rpm 生成及多发行版实体桌面验收列入上述实施阶段。
+
+## Linux 三种格式 CI，2026-10-24
+
+`LinuxDistribution.yml` 作为可复用工作流接入 Portability，原生 amd64 Release 编译并行于
+Debug 回归。同一份经过清单/哈希/ELF 基线检查的 payload 生成 deb、rpm 和 AppImage，
+每种格式分别保存 Actions artifact，附 `packages.json`、`elf-abi.json` 与校验和。
+
+原生包安装到 `/opt/whisky`，系统入口为 `/usr/bin/whisky`；rpm 额外封装用户态依赖，
+适配 Ubuntu/Fedora 的 SONAME 差异。桌面文件、图标和 AppStream 元数据
+使用统一 ID。deb 在 Ubuntu 24.04 安装和卸载，rpm 在 Fedora 44 安装和卸载，
+卸载检查保留用户 Bottle 标记。AppImage 在 Ubuntu/Fedora 检查解压运行、重定位、helper 握手、
+游戏库与生产窗口。运行验收使用普通用户，测试阶段容器网络关闭。
+
+rpm 和 AppImage 携带 Swift 之外的用户态依赖闭包、GdkPixbuf 解码器、GIO 模块、GTK schemas、版权记录和来源包版本，
+采用每个 ELF 的相对 RUNPATH；宿主工具和 Wine 的动态库搜索环境保持独立。
+AppImage 构建工具与 runtime 使用正式版本 URL 和 SHA-256 锁定；
+构建可通过 `--runtime-file` 使用锁定的 runtime。
+来源：[appimagetool 官方说明](https://github.com/AppImage/appimagetool)。
+
+`linux-vX.Y.Z` 标签触发 `LinuxRelease.yml`，三种格式完成检查后生成 GitHub prerelease。
+普通 push/PR 和手动构建保存 Actions artifacts。macOS `AppRelease.yml` 继续现有 ad-hoc ZIP 流程。
+
+### 本次本机验收
+
+本机使用 aarch64 Ubuntu 24.04 的实际应用验证包（Debug 前端 + 已验证的 Swift helper）
+生成三种格式，分别在独立 Ubuntu 24.04 / Fedora 44 镜像安装运行。
+公共 CI 固定为原生 amd64 Release；首轮 hosted 执行在分支推送后完成。
+Linux arm64 的公开分发仍保留后续目标。
+
+| 链路 | 结果 |
+| --- | --- |
+| deb / Ubuntu 24.04 | helper、空库、实际窗口、GTK 选择器、文件哈希、Wine 更新六组事务、卸载保留 Bottle 标记通过 |
+| rpm / Fedora 44 | 同上，使用 dnf 安装与 rpm 卸载，私有用户态库通过运行验收 |
+| AppImage / Ubuntu 24.04 | 两次重定位、实际窗口与 GTK 选择器、文件哈希、Wine 更新六组事务通过 |
+| 同一 AppImage / Fedora 44 | 同上 |
+
+Xvfb 与应用统一使用 UID 10001，截图检查确保窗口产生非空绘制内容。
+运行阶段网络模式为 `none`，Wine 更新事务使用本地 HTTP fixture，覆盖安装、升级、
+坏哈希/归档、版本保留、离线设置和取消。实际游戏/GPU 验收单独记录。
+
+最终报告与截图位于 `build/portability/wine-update/format-render-evidence/`；
+安装包清单及 SHA-256 位于 `format-packages-checked/packages.json`。
+Linux 构建/打包工具回归 15 项通过，GPUI 回归 128 项通过；actionlint 验证三个相关工作流通过。
+macOS 通过 9 项工具回归，另外 6 项 Linux 专用用例在 Ubuntu 执行，平台启动路径的独立 Rust 用例通过。

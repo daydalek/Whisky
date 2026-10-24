@@ -76,6 +76,18 @@ class BuildTests(unittest.TestCase):
         fields = next(csv.reader([build.mount(source, '/wine', readonly=True)]))
         self.assertEqual(['type=bind', 'src=' + str(source), 'dst=/wine', 'readonly'], fields)
 
+    def test_linux_formats_share_one_payload_and_forward_version_to_docker(self):
+        value = build.plan(self.args('whisky-linux-amd64', '--version', '0.2.0'))
+        command = value['steps'][-1]['command']
+        self.assertIn('package-linux.py', Path(command[1]).name)
+        self.assertEqual(['deb', 'rpm', 'appimage'], command[command.index('--formats') + 1:])
+        raw = build.plan(self.args('whisky-linux-amd64', '--formats', 'tar'))
+        self.assertEqual(2, len(raw['steps']))
+        docker = build.plan(self.args('whisky-linux-amd64', '--version', '0.2.0', '--formats', 'deb', '--executor', 'docker'))
+        command = docker['steps'][-1]['command']
+        self.assertIn('0.2.0', command)
+        self.assertEqual(['deb'], command[command.index('--formats') + 1:])
+
     def job(self, commands, **extra):
         value = dict(target='whisky-linux-amd64', executor='native', output=str(self.root / 'output'),
                      environment={}, steps=[dict(name='fixture', cwd=str(self.root), command=c) for c in commands])

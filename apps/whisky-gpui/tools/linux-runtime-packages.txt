@@ -22,6 +22,7 @@ libwayland-cursor0
 libwayland-egl1
 libegl1
 libgl1
+libgles2
 libvulkan1
 mesa-vulkan-drivers
 fonts-noto-cjk

@@ -41,7 +41,9 @@ def parser():
     result = argparse.ArgumentParser(description=__doc__, epilog='运行 ./build.sh menu 打开交互菜单。')
     result.add_argument('action', choices=('menu', 'list', 'doctor', 'plan', 'run'), nargs='?', default='menu')
     result.add_argument('target', choices=TARGETS, nargs='?')
-    result.add_argument('--version', help='macOS SwiftUI 应用版本 X.Y.Z')
+    result.add_argument('--version', help='应用或 Linux 安装包版本 X.Y.Z')
+    result.add_argument('--formats', nargs='+', choices=('tar', 'deb', 'rpm', 'appimage'),
+                        help='Linux 应用格式；默认 tar deb rpm appimage')
     result.add_argument('--build-number', type=positive, default=1,
                         help='应用 build number；macOS Wine 的独立运行库版本计数器，默认 1')
     result.add_argument('--jobs', type=positive, default=4)
@@ -85,6 +87,8 @@ def mount(source, destination, readonly=False):
 def plan(args):
     if not args.target:
         raise ValueError('请选择构建目标，例如 ./build.sh plan whisky-linux-amd64')
+    if args.formats and args.target != 'whisky-linux-amd64':
+        raise ValueError('--formats 适用于 whisky-linux-amd64')
     is_wine = args.target.startswith('wine-')
     if args.compile_only and args.target != 'wine-linux-amd64':
         raise ValueError('--compile-only 适用于 wine-linux-amd64')
@@ -114,10 +118,19 @@ def plan(args):
         env['WHISKY_GPUI_APP_DIR'] = str(output / 'artifacts/Whisky.app')
         step('GPUI 开发包', ['bash', repo / 'apps/whisky-gpui/tools/package-app.sh'])
     elif args.target == 'whisky-linux-amd64':
+        version = args.version or '0.1.0'
+        if not re.fullmatch(r'\d+\.\d+\.\d+', version):
+            raise ValueError('请提供 --version X.Y.Z')
+        env['WHISKY_LINUX_VERSION'] = version
         env['WHISKY_LINUX_RELEASE_OUTPUT'] = str(output / 'artifacts')
         step('Linux Release 与源码、许可证打包', ['bash', repo / 'apps/whisky-gpui/tools/build-linux-release.sh'])
         step('glibc 基线和 ELF 依赖报告', ['python3', ROOT / 'scripts/distribution/audit-elf.py',
              output / 'artifacts/Whisky', '--output', output / 'elf-abi.json'])
+        formats = [name for name in (args.formats or ['tar', 'deb', 'rpm', 'appimage']) if name != 'tar']
+        if formats:
+            step('Linux 安装包与 AppImage', ['python3', ROOT / 'scripts/distribution/package-linux.py',
+                '--archive', output / 'artifacts/whisky-linux-x86_64.tar.gz', '--version', version,
+                '--output', output / 'packages', '--formats', *formats])
     elif args.target == 'wine-macos-arm64':
         work = (args.work_dir or output / 'work').expanduser().resolve()
         env.update(POC_WORK_DIR=str(work), POC_RELEASE_DIR=str(output / 'artifacts'),
@@ -160,6 +173,10 @@ def plan(args):
                  '--output', '/output/task', '--jobs', str(args.jobs), '--wine-repo', '/wine']
         if args.compile_only:
             inner += ['--compile-only']
+        if args.version:
+            inner += ['--version', args.version]
+        if args.formats:
+            inner += ['--formats', *args.formats]
         if is_wine:
             inner += ['--work-dir', '/cache/work/' + recipe_key(repo)]
         container_name = 'whisky-build-' + uuid.uuid4().hex[:12]
@@ -170,6 +187,8 @@ def plan(args):
                '--mount', mount(cache, '/cache'),
                '--env', 'HOME=/cache/home', '--env', 'CARGO_HOME=/cache/cargo',
                '--env', 'RUSTUP_HOME=/opt/rustup',
+               '--env', 'WHISKY_LINUX_BUILD_CACHE=/cache/compile',
+               '--env', 'WHISKY_PACKAGING_TOOL_CACHE=/cache/packaging-tools',
                '--env', 'GIT_CONFIG_COUNT=2', '--env', 'GIT_CONFIG_KEY_0=safe.directory',
                '--env', 'GIT_CONFIG_VALUE_0=/workspace', '--env', 'GIT_CONFIG_KEY_1=safe.directory',
                '--env', 'GIT_CONFIG_VALUE_1=/wine']
@@ -205,6 +224,11 @@ def doctor(args):
         checks.append(dict(name='Ubuntu 24.04 构建基线', passed=bool(re.search(r'^ID=ubuntu$', release, re.M))
                            and bool(re.search(r'^VERSION_ID="?24\.04"?$', release, re.M))))
         checks.append(dict(name='Python 3.12+', passed=sys.version_info >= (3, 12)))
+        if args.target == 'whisky-linux-amd64':
+            formats = args.formats or ['tar', 'deb', 'rpm', 'appimage']
+            for name, tool in [('deb', 'dpkg-deb'), ('rpm', 'rpmbuild'), ('appimage', 'file')]:
+                if name in formats:
+                    checks.append(dict(name=tool, passed=bool(shutil.which(tool))))
         if args.target == 'wine-linux-amd64' and not args.compile_only:
             checks.append(dict(name='xvfb-run', passed=bool(shutil.which('xvfb-run'))))
     if args.target.startswith('wine-'):
@@ -337,6 +361,14 @@ def menu(args):
         if executor not in ('1', '2'):
             raise ValueError('请选择 1 或 2')
         args.executor = 'docker' if executor == '2' else 'native'
+    if args.target == 'whisky-linux-amd64':
+        args.version = args.version or input('安装包版本 X.Y.Z [0.1.0]：').strip() or '0.1.0'
+        format_choice = input('格式：1. 全部  2. tar  3. deb  4. rpm  5. AppImage [1]：').strip() or '1'
+        choices = {'1': ['tar', 'deb', 'rpm', 'appimage'], '2': ['tar'], '3': ['deb'],
+                   '4': ['rpm'], '5': ['appimage']}
+        if format_choice not in choices:
+            raise ValueError('请选择 1 至 5')
+        args.formats = choices[format_choice]
     if args.target == 'wine-linux-amd64':
         mode = input('验证：1. 运行回归  2. compile-only [1]：').strip() or '1'
         if mode not in ('1', '2'):

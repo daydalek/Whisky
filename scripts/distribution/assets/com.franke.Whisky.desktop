@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Whisky
+Comment=Manage Wine containers and Windows games
+Exec=whisky
+TryExec=whisky
+Icon=com.franke.Whisky
+Terminal=false
+Categories=Game;Utility;
+StartupWMClass=com.franke.Whisky

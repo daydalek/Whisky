@@ -13,6 +13,9 @@ on:
       - 'scripts/**'
       - 'experimental/SwiftCrossUI/**'
       - '.github/workflows/Portability.yml'
+      - '.github/workflows/LinuxDistribution.yml'
+      - '.github/workflows/LinuxRelease.yml'
+      - 'build.sh'
   pull_request:
     paths:
       - 'WhiskyCore/**'
@@ -24,10 +27,17 @@ on:
       - 'scripts/**'
       - 'experimental/SwiftCrossUI/**'
       - '.github/workflows/Portability.yml'
+      - '.github/workflows/LinuxDistribution.yml'
+      - '.github/workflows/LinuxRelease.yml'
+      - 'build.sh'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: portability-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   linux-gpui:
@@ -167,16 +177,6 @@ jobs:
             python3 apps/whisky-gpui/tools/smoke-pickers.py \
               --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
               --output "$WHISKY_LINUX_OUTPUT/pickers"
-      - name: Build a relocatable Linux release archive with sources
-        env:
-          WHISKY_LINUX_RELEASE_OUTPUT: /tmp/whisky-linux-release
-        run: bash apps/whisky-gpui/tools/build-linux-release.sh
-      - name: Preserve Linux release archive
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: linux-gpui-release
-          compression-level: 0
-          path: /tmp/whisky-linux-release/whisky-linux-*.tar.gz
       - name: Preserve Linux evidence
         if: always()
         uses: actions/upload-artifact@v7.0.2
@@ -361,9 +361,15 @@ jobs:
           name: macos-bridge-evidence
           path: build/portability/gpui-foundation/*.log
 
+  linux-distribution:
+    name: Linux distribution formats
+    uses: ./.github/workflows/LinuxDistribution.yml
+    with:
+      run_tests: false # Shared-core, bridge and client tests run in this workflow's existing lanes.
+
   linux-package-runtime:
     name: Linux release / clean Ubuntu / ${{ matrix.display }}
-    needs: linux-gpui
+    needs: linux-distribution
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
