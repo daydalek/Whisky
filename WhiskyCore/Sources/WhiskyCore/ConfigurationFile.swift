@@ -20,7 +20,7 @@ import Foundation
 
 public enum ConfigurationPlatform: String, Codable, CaseIterable, Sendable {
     case macOS = "macos"
-    case linux = "linux"
+    case linux
 
     public static let all: Set<Self> = Set(allCases)
 

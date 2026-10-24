@@ -194,7 +194,7 @@ extension MacOSApplicationServices {
             let after = await WinetricksService.listInstalledVerbs(for: bottle) ?? []
             let madeProgress = after.count > before.count
             for candidate in unresolved
-            where after.contains(candidate.verb) || madeProgress {
+                where after.contains(candidate.verb) || madeProgress {
                 failures.removeAll { $0.verb == candidate.verb }
                 succeeded.append(candidate.verb)
                 emit(progress(
@@ -236,7 +236,7 @@ extension MacOSApplicationServices {
         var outcome = VerbOutcome()
         // The terminal flow has no watchdog; a slow verb (large redists on a
         // busy prefix) should not be killed at the 600s default.
-        for await event in WinetricksService.installVerb(verb, for: bottle, timeout: 1800) {
+        for await event in WinetricksService.installVerb(verb, for: bottle, timeout: 1_800) {
             try Task.checkCancellation()
             switch event {
             case .preparing:

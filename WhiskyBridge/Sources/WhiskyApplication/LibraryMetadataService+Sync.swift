@@ -29,7 +29,6 @@ extension LibraryMetadataService {
     // their initial match, retiring the marker once providers answered
     // (`LibraryView.loadMetadata`).
     // The retained job owns the scan counters and pending-marker commit.
-    // swiftlint:disable:next function_body_length
     func syncMetadata(
         params: [String: JSONValue],
         workspace: ApplicationWorkspace

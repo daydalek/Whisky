@@ -39,3 +39,7 @@
 # Nested types don't inherit access from extensions, so explicit public is needed
 --disable extensionAccessControl
 --disable redundantExtensionACL
+
+# Key-path form breaks inside #require(...) captures: the Testing macro emits a
+# rethrows closure that fails to compile when the argument is a key path
+--disable preferKeyPath

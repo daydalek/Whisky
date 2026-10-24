@@ -48,5 +48,4 @@ extension MacOSApplicationServices {
         case .msync: "msync"
         }
     }
-
 }

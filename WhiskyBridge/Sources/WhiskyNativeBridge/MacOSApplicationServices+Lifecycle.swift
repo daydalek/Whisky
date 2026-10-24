@@ -129,7 +129,8 @@ extension MacOSApplicationServices {
             registry.loadBottles()
             guard !registry.bottlePaths.contains(where: {
                 $0.standardizedFileURL == container.standardizedFileURL
-            }) else {
+            })
+            else {
                 throw BridgeFailure("operation_failed", "Could not deregister the bottle")
             }
             bottles[container] = nil

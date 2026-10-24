@@ -50,7 +50,7 @@ public enum ProgramHistoryService {
                 if let value = params["runID"] {
                     guard let id = value.string.flatMap(UUID.init(uuidString:)),
                           let index = entries
-                              .firstIndex(where: { ($0["id"] as? String).flatMap(UUID.init(uuidString:)) == id })
+                          .firstIndex(where: { ($0["id"] as? String).flatMap(UUID.init(uuidString:)) == id })
                     else { throw BridgeFailure("invalid_params", "Unknown run ID") }
                     removed = [entries.remove(at: index)]
                 } else {

@@ -30,7 +30,7 @@ extension ApplicationService {
             let library = try FolderGameLibrary.load(bottleURL: container)
             return try Self.encodeFolders(library, container: container)
         case "folders.addRoot":
-            let target = try Self.validatedDirectory(try params.path("path"))
+            let target = try Self.validatedDirectory(params.path("path"))
             return try addRoots([target], container: container)
         case "folders.addRoots":
             guard case let .array(items)? = params["paths"] else {
@@ -57,11 +57,11 @@ extension ApplicationService {
                 try visibility.save(bottleURL: container)
             }
             return try Self.encodeFolders(
-                try FolderGameLibrary.load(bottleURL: container),
+                FolderGameLibrary.load(bottleURL: container),
                 container: container
             )
         case "folders.removeRoot":
-            let key = FolderGameLibrary.key(for: try params.path("path"), bottleURL: container)
+            let key = try FolderGameLibrary.key(for: params.path("path"), bottleURL: container)
             return try Self.mutateFolders(in: container) { library in
                 library.roots.removeAll { $0 == key }
                 library.initializedRoots.remove(key)
@@ -69,7 +69,7 @@ extension ApplicationService {
         case "folders.assign":
             return try assignFolder(params, container: container)
         case "folders.exclude":
-            let key = FolderGameLibrary.key(for: try params.path("path"), bottleURL: container)
+            let key = try FolderGameLibrary.key(for: params.path("path"), bottleURL: container)
             let excluded = try params.flag("excluded")
             return try Self.mutateFolders(in: container) { library in
                 if excluded {

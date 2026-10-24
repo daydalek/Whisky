@@ -80,7 +80,10 @@ class PackageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
             formats.download(item, cache)
 
-    @unittest.skipUnless(all(shutil.which(tool) for tool in ('dpkg-deb', 'rpmbuild', 'gio-querymodules', 'glib-compile-schemas'))
+    @unittest.skipUnless(all(shutil.which(tool) for tool in ('dpkg-deb', 'rpmbuild', 'rpm', 'patchelf',
+                                                             'dpkg-architecture', 'dpkg-query',
+                                                             'desktop-file-validate',
+                                                             'gio-querymodules', 'glib-compile-schemas'))
                          and list(Path('/usr/lib').glob('*/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders')),
                          'Requires Ubuntu native packaging tools and image loaders')
     def test_real_deb_and_rpm_preserve_payload_with_permissive_umask(self):

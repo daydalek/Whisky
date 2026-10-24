@@ -59,14 +59,25 @@ let package = Package(
     targets: [
         .target(name: "WhiskyBridgeProtocol"),
         .target(name: "CHostCommand"),
-        .target(name: "WhiskyApplication", dependencies: ["WhiskyBridgeProtocol", "WhiskyCore", "CHostCommand",
-            .product(name: "WhiskyMetadata", package: "WhiskyMetadata")],
-            resources: [.copy("Resources/linux-wine-archive.py")]),
+        .target(
+            name: "WhiskyApplication",
+            dependencies: [
+                "WhiskyBridgeProtocol",
+                "WhiskyCore",
+                "CHostCommand",
+                .product(name: "WhiskyMetadata", package: "WhiskyMetadata")
+            ],
+            resources: [.copy("Resources/linux-wine-archive.py")]
+        ),
         .executableTarget(name: "WhiskyBridgeHost", dependencies: hostDependencies),
         .testTarget(
             name: "WhiskyBridgeTests",
-            dependencies: ["WhiskyApplication", "WhiskyBridgeProtocol", "WhiskyCore",
-                .product(name: "WhiskyMetadata", package: "WhiskyMetadata")]
+            dependencies: [
+                "WhiskyApplication",
+                "WhiskyBridgeProtocol",
+                "WhiskyCore",
+                .product(name: "WhiskyMetadata", package: "WhiskyMetadata")
+            ]
         )
     ] + nativeTargets,
     swiftLanguageModes: [.v6]

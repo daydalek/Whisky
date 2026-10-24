@@ -51,13 +51,14 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
           RELEASE_REF: ${{ github.ref_name }}
         run: |
-          python3 - <<'PY'
-          import os, re
-          value = os.environ['RELEASE_REF'].removeprefix('linux-v') if os.environ['GITHUB_REF'].startswith('refs/tags/linux-v') else (os.environ['INPUT_VERSION'] or '0.1.0')
-          assert re.fullmatch(r'\d+\.\d+\.\d+', value), 'Expected X.Y.Z'
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
-              stream.write('value=' + value + '\n')
-          PY
+          # Pure sh: the swift container image ships without python3, and the
+          # toolchain that provides it is installed only in a later step.
+          case "$GITHUB_REF" in
+            refs/tags/linux-v*) value="${RELEASE_REF#linux-v}" ;;
+            *) value="${INPUT_VERSION:-0.1.0}" ;;
+          esac
+          echo "$value" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo 'Expected X.Y.Z' >&2; exit 1; }
+          echo "value=$value" >> "$GITHUB_OUTPUT"
       - name: Restore compiler and Cargo dependency caches
         uses: actions/cache@v4
         with:

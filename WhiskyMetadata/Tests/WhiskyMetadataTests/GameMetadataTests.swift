@@ -481,6 +481,7 @@ extension PublicGameMetadataProvider {
         self.init(source: source, session: session, networkAccess: {})
     }
 }
+
 extension GameMetadataStore {
     init(directory: URL) { self.init(directory: directory, networkAccess: {}) }
 }

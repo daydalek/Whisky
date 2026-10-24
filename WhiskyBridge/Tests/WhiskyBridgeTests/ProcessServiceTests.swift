@@ -71,18 +71,17 @@ private func stubRows() -> [ProcessRecord] {
             startedAt: Date(timeIntervalSince1970: 1_700_000_000),
             macosPID: live
         ),
-        ProcessRecord(pid: 4242, name: "services.exe", memory: "1,024 K", kind: "service", source: "untracked")
+        ProcessRecord(pid: 4_242, name: "services.exe", memory: "1,024 K", kind: "service", source: "untracked")
     ]
 }
 
 @Test @MainActor func processMethodsAreAdvertisedInTheHelperAllowList() async {
     let service = ApplicationService(workspace: ApplicationWorkspace(containers: []))
     let describe = await service.respond(.init(id: "1", method: "bridge.describe"))
-    let values: [JSONValue]
-    if case let .array(rows) = describe.result?.object?["methods"] {
-        values = rows
+    let values: [JSONValue] = if case let .array(rows) = describe.result?.object?["methods"] {
+        rows
     } else {
-        values = []
+        []
     }
     let methods = values.compactMap(\.string)
     #expect(methods.contains("processes.list"))
@@ -143,10 +142,10 @@ private func stubRows() -> [ProcessRecord] {
 
     // A live row: the graceful path is dispatched and the reply is `true`.
     var graceful = params
-    graceful["pid"] = .integer(4242)
+    graceful["pid"] = .integer(4_242)
     let killed = try await service.call("processes.kill", params: graceful)
     #expect(killed.object?["killed"] == .bool(true))
-    #expect(host.terminations.map(\.pid) == [4242])
+    #expect(host.terminations.map(\.pid) == [4_242])
     #expect(host.terminations.map(\.force) == [false])
 
     // `force` selects the hard path.

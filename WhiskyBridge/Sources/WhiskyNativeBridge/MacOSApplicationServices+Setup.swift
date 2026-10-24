@@ -65,8 +65,7 @@ extension MacOSApplicationServices {
                 // Skip the download when the installed runtime is already current.
                 let force = params["force"].map { if case .bool(true) = $0 { true } else { false } } ?? false
                 if !force, WhiskyWineInstaller.isWhiskyWineInstalled(),
-                   let local = WhiskyWineInstaller.whiskyWineVersion(), !(local < manifest.version)
-                {
+                   let local = WhiskyWineInstaller.whiskyWineVersion(), !(local < manifest.version) {
                     return Self.setupStatus()
                 }
 

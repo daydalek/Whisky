@@ -107,7 +107,8 @@ public final class LinuxBottleCreationService {
             prefix: prefix,
             environment: ["WINEDEBUG": "-all"],
             timeout: .seconds(4)
-        ), result.status == 0 else { return nil }
+        ), result.status == 0
+        else { return nil }
         let version = result.output
             .split(whereSeparator: \.isNewline)
             .last
@@ -228,7 +229,7 @@ public final class LinuxBottleCreationService {
 
     private func register(_ destination: URL, workspace: ApplicationWorkspace) async throws {
         var lastFailure: BridgeFailure?
-        for attempt in 0..<10 {
+        for attempt in 0 ..< 10 {
             try Task.checkCancellation()
             do {
                 let lease = try ContainerRegistry.acquire(workspace)

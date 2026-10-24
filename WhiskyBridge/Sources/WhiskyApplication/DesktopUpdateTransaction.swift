@@ -132,9 +132,9 @@ struct DesktopUpdateTransaction: Codable {
     private func validate(_ expected: URL) throws {
         guard version == 1, target.path == expected.path,
               previous.path == target.deletingLastPathComponent()
-                  .appendingPathComponent(".whisky-desktop-previous-" + id.uuidString).path,
+              .appendingPathComponent(".whisky-desktop-previous-" + id.uuidString).path,
               next.path == target.deletingLastPathComponent()
-                  .appendingPathComponent(".whisky-desktop-next-" + id.uuidString).path,
+              .appendingPathComponent(".whisky-desktop-next-" + id.uuidString).path,
               oldIdentity.kind == 2, newIdentity.kind == 2, oldData.count <= 65_536, newData.count <= 65_536
         else {
             throw conflict()

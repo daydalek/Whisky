@@ -16,10 +16,10 @@
 //  If not, see https://www.gnu.org/licenses/.
 //
 
-import Foundation
-import WhiskyCore
-import os.log
 import Combine
+import Foundation
+import os.log
+import WhiskyCore
 
 /// Represents an isolated Wine environment for running Windows applications.
 ///

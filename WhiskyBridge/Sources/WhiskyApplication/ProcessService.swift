@@ -119,7 +119,7 @@ public final class ProcessService {
     }
 
     private func list(host: any ProcessSnapshotProviding, container: URL) async throws -> JSONValue {
-        .array(try await host.listProcesses(in: container).map { record in
+        try await .array(host.listProcesses(in: container).map { record in
             .object([
                 "pid": .integer(Int64(record.pid)),
                 "name": .string(record.name),

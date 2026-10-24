@@ -74,5 +74,4 @@ extension ContainerLifecycleService {
         }
         try FileManager.default.removeItem(at: directory)
     }
-
 }

@@ -174,7 +174,11 @@ private struct Fixture {
     try PropertyListEncoder().encode(settings).write(to: fixture.settingsURL)
     var params = fixture.params
     params["patch"] = .object(["arguments": .string("--portable"), "locale": .string("ja_JP.UTF-8")])
-    let result = try await ProgramSettingsService.call("programs.settings.set", params: params, workspace: fixture.workspace)
+    let result = try await ProgramSettingsService.call(
+        "programs.settings.set",
+        params: params,
+        workspace: fixture.workspace
+    )
     #expect(result.object?["lastLogFile"] == .string("/tmp/native.log"))
     let decoded = try PropertyListDecoder().decode(ProgramSettings.self, from: Data(contentsOf: fixture.settingsURL))
     #expect(decoded.arguments == "--portable")
@@ -186,7 +190,11 @@ private struct Fixture {
     history.append(run)
     let historyURL = RunLogStore.historyURL(for: "game.exe", in: fixture.container)
     try PropertyListEncoder().encode(history).write(to: historyURL)
-    let read = try ProgramHistoryService.call("programs.history.read", params: fixture.params, workspace: fixture.workspace)
+    let read = try ProgramHistoryService.call(
+        "programs.history.read",
+        params: fixture.params,
+        workspace: fixture.workspace
+    )
     let entries = try #require(read.object?["entries"]).decoded([JSONValue].self)
     #expect(entries.first?.object?["id"] == .string(run.id.uuidString))
 }

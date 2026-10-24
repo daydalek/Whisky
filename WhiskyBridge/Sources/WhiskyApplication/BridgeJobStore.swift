@@ -42,6 +42,7 @@ public final class BridgeJobStore {
             records[$0]?.name.hasPrefix("bottle.") == true || records[$0]?.name == "workspace.recover"
         }
     }
+
     public init() {}
     public func start(name: String, operation: @escaping Operation) throws -> JSONValue {
         while records.count >= 32, let index = order.firstIndex(where: { tasks[$0] == nil }) {
@@ -56,7 +57,7 @@ public final class BridgeJobStore {
             do {
                 try Task.checkCancellation()
                 let lease: Int32? = if let workspace,
-                    !name.hasPrefix("bottle."), name != "workspace.recover" {
+                                       !name.hasPrefix("bottle."), name != "workspace.recover" {
                     try ContainerRegistry.acquireShared(workspace)
                 } else { nil }
                 defer { if let lease { ContainerRegistry.release(lease) } }

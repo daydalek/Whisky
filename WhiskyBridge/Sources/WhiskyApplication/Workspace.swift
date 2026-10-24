@@ -259,7 +259,7 @@ public final class ApplicationWorkspace: Sendable {
     }
 
     public func catalogue() throws -> [ContainerRecord] {
-        return try containers().map { url in
+        try containers().map { url in
             let available = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
             let metadata = url.appendingPathComponent("Metadata.plist")
             let name: String = if available, FileManager.default.fileExists(atPath: metadata.path) {

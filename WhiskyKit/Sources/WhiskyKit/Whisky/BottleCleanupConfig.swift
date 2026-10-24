@@ -16,8 +16,8 @@
 //  If not, see https://www.gnu.org/licenses/.
 //
 
-import WhiskyCore
 import Foundation
+import WhiskyCore
 
 /// Per-bottle policy for handling running processes when navigating away from a bottle.
 ///

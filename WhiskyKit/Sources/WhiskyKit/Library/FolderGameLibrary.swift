@@ -181,5 +181,4 @@ extension FolderGameLibrary {
         )
         try? fileManager.copyItem(at: sourceFile, to: targetLocations.identity)
     }
-
 }

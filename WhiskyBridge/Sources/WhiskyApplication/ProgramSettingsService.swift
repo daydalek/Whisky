@@ -84,7 +84,7 @@ public enum ProgramSettingsService {
         guard FileManager.default.fileExists(atPath: source.path) else { return [:] }
         guard try (source.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= 16 * 1_024 * 1_024,
               let raw = try PropertyListSerialization
-                  .propertyList(from: Data(contentsOf: source), format: nil) as? [String: Any]
+              .propertyList(from: Data(contentsOf: source), format: nil) as? [String: Any]
         else { throw BridgeFailure("invalid_settings", "Program storage is unreadable or too large") }
         return raw
     }

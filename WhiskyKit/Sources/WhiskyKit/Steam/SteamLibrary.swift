@@ -56,4 +56,5 @@ public struct ProgramOverrideCandidate: Equatable, Sendable {
     public init(url: URL, overrides: ProgramOverrides) {
         self.url = url
         self.overrides = overrides
-    }}
+    }
+}

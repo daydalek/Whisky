@@ -112,7 +112,8 @@ public final class PreferencesService {
             if FileManager.default.fileExists(atPath: url.path) {
                 guard let dictionary = try PropertyListSerialization.propertyList(
                     from: Data(contentsOf: url), options: [], format: nil
-                ) as? [String: Any] else {
+                ) as? [String: Any]
+                else {
                     throw BridgeFailure("invalid_settings", "Application preferences are unreadable")
                 }
                 stored = dictionary

@@ -75,7 +75,8 @@ public enum ExecutableCandidateFinder {
                 at: directory.url,
                 includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey],
                 options: [.skipsHiddenFiles]
-            ) else { continue }
+            )
+            else { continue }
             var deeper: [URL] = []
             for item in items {
                 let values = try? item.resourceValues(

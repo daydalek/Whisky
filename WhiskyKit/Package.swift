@@ -39,8 +39,11 @@ let package = Package(
     targets: [
         .target(
             name: "WhiskyKit",
-            dependencies: ["SemanticVersion", .product(name: "WhiskyCore", package: "WhiskyCore"),
-                           .product(name: "WhiskyMetadata", package: "WhiskyMetadata")],
+            dependencies: [
+                "SemanticVersion",
+                .product(name: "WhiskyCore", package: "WhiskyCore"),
+                .product(name: "WhiskyMetadata", package: "WhiskyMetadata")
+            ],
             resources: [
                 .process("Diagnostics/Resources/"),
                 .process("Troubleshooting/Resources/"),

@@ -32,7 +32,7 @@ struct LiveWineSessionTests {
         var successfulSnapshots = 0
         let polling = Task {
             while !Task.isCancelled {
-                if (try? await Wine.queryProcesses(executable: binary, environment: environment)) != nil {
+                if await (try? Wine.queryProcesses(executable: binary, environment: environment)) != nil {
                     successfulSnapshots += 1
                 }
                 do { try await Task.sleep(for: .milliseconds(200)) } catch { return }

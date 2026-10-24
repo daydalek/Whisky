@@ -1,0 +1,31 @@
+# Relaxed metrics for the portability bridge. WhiskyBridge hosts the ported
+# Linux application services, whose request handlers intentionally read as one
+# flat switch per operation; the repository-wide limits would force splitting
+# them without making them clearer. Everything outside this package keeps the
+# root configuration's stricter defaults.
+opt_in_rules:
+  - file_header
+
+disabled_rules:
+  - nesting
+  - force_unwrapping
+  - optional_data_string_conversion
+
+function_body_length:
+  warning: 120
+  error: 200
+cyclomatic_complexity:
+  warning: 25
+  error: 35
+function_parameter_count:
+  warning: 8
+  error: 12
+type_body_length:
+  warning: 400
+  error: 600
+file_length:
+  warning: 600
+  error: 800
+line_length:
+  warning: 160
+  error: 250

@@ -16,10 +16,10 @@
 //  If not, see https://www.gnu.org/licenses/.
 //
 
-import WhiskyCore
+import Combine
 import Foundation
 import os.log
-import Combine
+import WhiskyCore
 
 /// Represents a Windows executable program within a ``Bottle``.
 ///

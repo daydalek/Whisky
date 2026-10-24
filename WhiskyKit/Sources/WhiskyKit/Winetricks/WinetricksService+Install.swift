@@ -270,7 +270,7 @@ final class WinetricksOutputDecoder: @unchecked Sendable {
     }
 
     /// Lossy decoding is intentional: a split multibyte scalar must not drop a line.
-    private static func lossyString<Bytes: Collection>(_ bytes: Bytes) -> String where Bytes.Element == UInt8 {
+    private static func lossyString(_ bytes: some Collection<UInt8>) -> String {
         /* Lossy decoding is intentional. */ // swiftlint:disable:next optional_data_string_conversion
         String(decoding: bytes, as: UTF8.self)
     }

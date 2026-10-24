@@ -96,7 +96,8 @@ enum WorkspaceHost {
                 }
                 return (width: 1_920, height: 1_080)
             }
-        ) else {
+        )
+        else {
             throw CocoaError(.coderInvalidValue)
         }
         return resolution

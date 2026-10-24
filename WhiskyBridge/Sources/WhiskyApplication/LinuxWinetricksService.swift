@@ -329,7 +329,7 @@ public final class LinuxWinetricksService {
     }
 
     private func knownVerbs() throws -> Set<String> {
-        Set(try catalog().flatMap(\.verbs).map(\.name))
+        try Set(catalog().flatMap(\.verbs).map(\.name))
     }
 
     public nonisolated static func parseCatalog(_ contents: String) -> [Category] {

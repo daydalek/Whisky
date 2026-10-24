@@ -41,7 +41,8 @@ extension MacOSApplicationServices {
                     height: Int(screen.frame.height * scale)
                 )
             }
-        ) else {
+        )
+        else {
             throw BridgeFailure("invalid_params", "Resolution preset is unavailable")
         }
         return resolution

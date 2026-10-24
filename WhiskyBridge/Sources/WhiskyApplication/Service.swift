@@ -167,15 +167,15 @@ extension ApplicationService {
         params: [String: JSONValue]
     ) async throws -> JSONValue? {
         switch scope {
-        case "preferences": return try await preferencesCall(method, params: params)
-        case "jobs": return try await jobsCall(method, params: params)
-        case "entry": return try await entryCall(method, params: params)
-        case "configuration": return try await configurationCall(method, params: params)
-        case "programs": return try await programCall(method, params: params)
-        case "environment": return try await environmentCall(method, params: params)
-        case "processes": return try await processesCall(method, params: params)
-        case "system": return method == "system.info" ? ApplicationInfo.payload() : nil
-        default: return nil
+        case "preferences": try await preferencesCall(method, params: params)
+        case "jobs": try await jobsCall(method, params: params)
+        case "entry": try await entryCall(method, params: params)
+        case "configuration": try await configurationCall(method, params: params)
+        case "programs": try await programCall(method, params: params)
+        case "environment": try await environmentCall(method, params: params)
+        case "processes": try await processesCall(method, params: params)
+        case "system": method == "system.info" ? ApplicationInfo.payload() : nil
+        default: nil
         }
     }
 
@@ -240,8 +240,8 @@ extension ApplicationService {
 
     private func jobsCall(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
         switch method {
-        case "jobs.get", "jobs.cancel": return try jobs.call(method, params: params)
-        default: return try await nativeCall(method, params: params)
+        case "jobs.get", "jobs.cancel": try jobs.call(method, params: params)
+        default: try await nativeCall(method, params: params)
         }
     }
 
@@ -267,10 +267,11 @@ extension ApplicationService {
                     try ContainerImportService.register(params, workspace: workspace)
                 }
             }
-            let location = try preferences?.call("preferences.read", params: [:]).object?["defaultBottleLocation"]?.string
-            let roots = try params["path"].map { _ in [try params.path("path")] }
+            let location = try preferences?.call("preferences.read", params: [:]).object?["defaultBottleLocation"]?
+                .string
+            let roots = try params["path"].map { _ in try [params.path("path")] }
                 ?? [workspace.registry.deletingLastPathComponent().appendingPathComponent("Bottles")]
-                    + (location.map { [URL(fileURLWithPath: $0)] } ?? [])
+                + (location.map { [URL(fileURLWithPath: $0)] } ?? [])
             return try await ContainerLifecycleService.detached { [workspace] in
                 try ContainerImportService.discover(roots: roots, workspace: workspace)
             }
@@ -348,7 +349,7 @@ extension ApplicationService {
         switch method {
         case "entry.rating":
             let entry = try await workspace.entry(params)
-            return try .encoded(workspace.setRating(try rating(params), entry: entry))
+            return try .encoded(workspace.setRating(rating(params), entry: entry))
         case "entry.hidden":
             let entry = try await workspace.entry(params)
             _ = try workspace.setHidden(params.flag("hidden"), entry: entry)
