@@ -31,21 +31,24 @@ let package = Package(
         )
     ],
     dependencies: [
+        .package(path: "../WhiskyCore"),
+        .package(path: "../WhiskyMetadata"),
         .package(url: "https://github.com/SwiftPackageIndex/SemanticVersion.git", from: "0.4.0"),
         .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.4.3")
     ],
     targets: [
         .target(
             name: "WhiskyKit",
-            dependencies: ["SemanticVersion"],
+            dependencies: ["SemanticVersion", .product(name: "WhiskyCore", package: "WhiskyCore"),
+                           .product(name: "WhiskyMetadata", package: "WhiskyMetadata")],
             resources: [
                 .process("Diagnostics/Resources/"),
-                .process("GameDatabase/Resources/"),
                 .process("Troubleshooting/Resources/"),
                 // Copied rather than processed: it is a PE binary built by
                 // scripts/discord-bridge, not something the resource pipeline
                 // should try to interpret.
                 .copy("Discord/Resources/WhiskyDiscordBridge.exe"),
+                .copy("Wine/Resources/WhiskyProcessSnapshot.exe"),
                 // Carries `client-id.txt` when a build was given one. The file
                 // is gitignored, so a plain checkout copies an empty directory.
                 .copy("Discord/Local")

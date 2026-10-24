@@ -19,6 +19,7 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import WhiskyCore
 import WhiskyKit
 
 enum LibraryDetailLayoutStyle: String, CaseIterable, Identifiable {
@@ -551,10 +552,10 @@ extension LibraryGameSheet {
                 }
             }
 
-            if let lastPlayed = activity.lastPlayed {
+            if let lastPlayed = activity.lastSessionEndedAt ?? activity.lastPlayed {
                 Divider().frame(height: 22)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("library.activity.lastPlayed")
+                    Text(activityDateLabel)
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                     Text(lastPlayed, style: .date)
@@ -613,10 +614,10 @@ extension LibraryGameSheet {
                 .fixedSize()
             }
 
-            if let lastPlayed = activity.lastPlayed {
+            if let lastPlayed = activity.lastSessionEndedAt ?? activity.lastPlayed {
                 Divider()
                 HStack {
-                    Label("library.activity.lastPlayed", systemImage: "calendar")
+                    Label(activityDateLabel, systemImage: "calendar")
                         .font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Text(lastPlayed, style: .date).font(.caption)
@@ -837,6 +838,10 @@ extension LibraryGameSheet {
         }
     }
 
+    private var activityDateLabel: LocalizedStringKey {
+        activity.lastSessionEndedAt == nil ? "library.activity.legacyActivity" : "library.activity.lastSessionEnded"
+    }
+
     var usesDetailBackground: Bool {
         blurredDetailBackground && selectedCoverURL != nil
     }
@@ -879,6 +884,7 @@ extension LibraryGameSheet {
 }
 
 struct LibraryCoverCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: LibraryEntry
     let metadata: GameMetadata?
     let bottleName: String?
@@ -912,7 +918,8 @@ struct LibraryCoverCard: View {
                 y: isHovered ? 6 : 4
             )
             .zIndex(isHovered ? 2 : 0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isHovered)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: state)
             .onHover { hovering in
                 isHovered = hovering
                 onHoverCoverChanged(hovering, coverURL, item.metadataDirectory)
@@ -1204,6 +1211,7 @@ struct LibrarySteamSettingsSheet: View {
 }
 
 private struct LibraryMetadataArtwork: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let url: URL?
     let directory: URL
     var settings = GameCoverSettings()
@@ -1216,31 +1224,31 @@ private struct LibraryMetadataArtwork: View {
     @State private var cachedAmbient: NSImage?
     @State private var palette: IconPalette = .neutral
 
-    private var localURL: URL? {
-        guard let url else { return nil }
-        if url.isFileURL {
-            return url
-        }
-        return GameMetadataStore(directory: directory).cachedCoverURL(for: url)
-    }
-
     var body: some View {
         Group {
             if backgroundOnly {
                 LibraryDetailBackdrop(ambientImage: cachedAmbient ?? cachedImage)
             } else if let cachedImage {
-                artwork(cachedImage)
+                artwork(cachedImage).transition(.opacity)
             } else {
                 Rectangle().fill(.quaternary).overlay { Image(systemName: "photo") }
             }
         }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: cachedImage != nil)
         .onChange(of: cachedImage) {
             if let cachedImage, cachedImage.size.height > 0 {
                 imageDidLoad(cachedImage.size.width / cachedImage.size.height)
             }
         }
-        .task(id: localURL ?? url) {
-            if let local = localURL {
+        .task(id: "\(directory.absoluteString)\u{1F}\(url?.absoluteString ?? "")") {
+            let source = url
+            let folder = directory
+            let local = await Task.detached(priority: .utility) {
+                guard let source else { return nil as URL? }
+                return source.isFileURL ? source : GameMetadataStore(directory: folder).cachedCoverURL(for: source)
+            }.value
+            guard !Task.isCancelled else { return }
+            if let local {
                 guard let sampled = await IconCache.shared.sampledArtwork(for: local),
                       !Task.isCancelled
                 else { return }
@@ -1409,7 +1417,7 @@ final class LibraryAmbientController: ObservableObject {
     private var hoveredID: String?
     private var debounceTask: Task<Void, Never>?
 
-    func updateHover(hovering: Bool, id: String, url: URL?, directory: URL) {
+    func updateHover(hovering: Bool, id: String, url: URL?, directory: URL, reduceMotion: Bool = false) {
         if hovering {
             guard hoveredID != id else { return }
             hoveredID = id
@@ -1419,7 +1427,7 @@ final class LibraryAmbientController: ObservableObject {
                 guard !Task.isCancelled else { return }
                 let ambient = await Self.resolveAmbientImage(url: url, directory: directory)
                 guard !Task.isCancelled, self.hoveredID == id else { return }
-                withAnimation(.easeInOut(duration: 0.32)) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
                     self.activeAmbientImage = ambient
                 }
             }
@@ -1429,7 +1437,7 @@ final class LibraryAmbientController: ObservableObject {
             debounceTask = Task {
                 try? await Task.sleep(for: .milliseconds(120))
                 guard !Task.isCancelled, self.hoveredID == nil else { return }
-                withAnimation(.easeInOut(duration: 0.35)) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
                     self.activeAmbientImage = nil
                 }
             }
@@ -1498,13 +1506,15 @@ struct LibraryAmbientBackdrop: View {
 /// date axis with a fixed-width (`200pt`) cover showcase slot so portrait (`2:3`)
 /// and landscape (`16:9` / `4:3`) covers align on a single editorial text axis.
 struct LibraryTimelineRow<MenuContent: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
     let item: LibraryEntry
     let metadata: GameMetadata?
     let bottleName: String?
-    let lastPlayed: Date?
+    let lastSessionEndedAt: Date?
     let state: LibraryEntryState
+    var activity = GameActivity()
     var showsDateHeader: Bool = true
     var groupTitle: String?
     var isFirstEntry: Bool = false
@@ -1518,7 +1528,6 @@ struct LibraryTimelineRow<MenuContent: View>: View {
     @ViewBuilder let menuContent: () -> MenuContent
 
     @State private var coverSettings = GameCoverSettings()
-    @State private var activity = GameActivity()
     @State private var loadedAspect: Double?
     @State private var isHovered = false
 
@@ -1539,7 +1548,7 @@ struct LibraryTimelineRow<MenuContent: View>: View {
     }
 
     private var effectiveDate: Date? {
-        activity.lastPlayed ?? lastPlayed
+        lastSessionEndedAt
     }
 
     var body: some View {
@@ -1557,8 +1566,9 @@ struct LibraryTimelineRow<MenuContent: View>: View {
         }
         .frame(maxWidth: 1_160, alignment: .leading)
         .contentShape(Rectangle())
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: state)
         .onHover { hovering in
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.75)) {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
                 isHovered = hovering
             }
             onHoverCoverChanged(hovering, coverURL, item.metadataDirectory)
@@ -1566,10 +1576,6 @@ struct LibraryTimelineRow<MenuContent: View>: View {
         .task(id: "\(item.id):\(coverRevision)") {
             coverSettings = await (try? GameMetadataStore(directory: item.metadataDirectory)
                 .loadCoverSettings(for: item.metadataIdentity)) ?? GameCoverSettings()
-            let currentItem = item
-            activity = await (try? GameActivityStore.shared.perform {
-                try $0.load(for: currentItem)
-            }) ?? GameActivity()
         }
     }
 
@@ -1585,6 +1591,9 @@ struct LibraryTimelineRow<MenuContent: View>: View {
                 if let date = effectiveDate {
                     let currentYear = Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year)
                     VStack(alignment: .trailing, spacing: 2) {
+                        Text("library.activity.lastSessionEnded")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
                         if !currentYear {
                             Text(date.formatted(.dateTime.year()))
                                 .font(.system(size: 11, weight: .regular))
@@ -1601,12 +1610,6 @@ struct LibraryTimelineRow<MenuContent: View>: View {
                         Text("library.timeline.unplayed")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.tertiary)
-                        if let release = metadata?.releaseDate, !release.isEmpty {
-                            Text(release)
-                                .font(.system(size: 10, weight: .regular))
-                                .foregroundStyle(.quaternary)
-                                .lineLimit(1)
-                        }
                     }
                 }
             } else {
@@ -1843,6 +1846,14 @@ extension LibraryTimelineRow {
 
     var badgeRow: some View {
         HStack(spacing: 8) {
+            if let date = effectiveDate {
+                Label {
+                    Text(date, format: .dateTime.hour().minute()).monospacedDigit()
+                } icon: { Image(systemName: "clock") }
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .help(Text(date.formatted(date: .complete, time: .shortened)))
+            }
             if let bottleName {
                 HStack(spacing: 4) {
                     Image(systemName: "shippingbox")

@@ -21,7 +21,7 @@ import SwiftUI
 import WhiskyKit
 
 /// Filter modes for the log viewer.
-enum LogFilterMode: Equatable {
+enum LogFilterMode: Equatable, Sendable {
     case all
     case tagged
     case crashRelated
@@ -35,6 +35,7 @@ struct LogViewerView: View {
     @Binding var filterMode: LogFilterMode
     @Binding var activeCategoryFilter: CrashCategory?
     @Binding var searchText: String
+    @State private var appliedSearch = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,8 +44,12 @@ struct LogViewerView: View {
                 logText: logText,
                 matches: matches,
                 filterMode: filterMode,
-                searchText: searchText
+                searchText: appliedSearch
             )
+        }
+        .task(id: searchText) {
+            do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
+            appliedSearch = searchText
         }
     }
 }
@@ -99,12 +104,12 @@ struct LogTextView: NSViewRepresentable {
     let matches: [DiagnosisMatch]
     let filterMode: LogFilterMode
     let searchText: String
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()
-        guard let textView = scrollView.documentView as? NSTextView else {
-            return scrollView
-        }
+        guard let textView = scrollView.documentView as? NSTextView else { return scrollView }
         textView.isEditable = false
         textView.isSelectable = true
         textView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -114,22 +119,97 @@ struct LogTextView: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         textView.backgroundColor = NSColor.textBackgroundColor
         textView.textContainerInset = NSSize(width: 4, height: 4)
+        textView.layoutManager?.allowsNonContiguousLayout = true
         context.coordinator.textView = textView
-        applyContent(to: textView)
+        updateNSView(scrollView, context: context)
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else { return }
-        applyContent(to: textView)
+        context.coordinator.update(
+            presentation: presentation,
+            renderer: DiagnosticLogRenderer(
+                logText: logText,
+                matches: matches,
+                filterMode: filterMode,
+                searchText: searchText,
+                appearanceName: scrollView.effectiveAppearance.name.rawValue
+            ),
+            scrollView: scrollView
+        )
+    }
+
+    static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
+        coordinator.renderTask?.cancel()
+    }
+
+    private var presentation: Presentation {
+        Presentation(
+            text: logText,
+            filter: filterMode,
+            search: searchText,
+            dark: colorScheme == .dark,
+            highContrast: contrast == .increased,
+            matches: matches.map {
+                MatchKey(
+                    id: $0.pattern.id,
+                    line: $0.lineIndex,
+                    text: $0.lineText,
+                    category: $0.pattern.category,
+                    severity: $0.pattern.severity
+                )
+            }
+        )
+    }
+
+    struct MatchKey: Equatable {
+        let id: String
+        let line: Int
+        let text: String
+        let category: CrashCategory
+        let severity: PatternSeverity
+    }
+
+    struct Presentation: Equatable {
+        let text: String
+        let filter: LogFilterMode
+        let search: String
+        let dark: Bool
+        let highContrast: Bool
+        let matches: [MatchKey]
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
+    @MainActor
     final class Coordinator {
         weak var textView: NSTextView?
+        var presentation: Presentation?
+        var renderTask: Task<Void, Never>?
+
+        fileprivate func update(presentation: Presentation, renderer: DiagnosticLogRenderer, scrollView: NSScrollView) {
+            guard self.presentation != presentation else { return }
+            self.presentation = presentation
+            renderTask?.cancel()
+            renderTask = Task { @MainActor [weak self, weak scrollView] in
+                let work = Task.detached(priority: .userInitiated) { renderer.render() }
+                let rendered = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+                guard !Task.isCancelled, let self, self.presentation == presentation,
+                      let scrollView, let textView = self.textView, let storage = textView.textStorage
+                else { return }
+                let origin = scrollView.contentView.bounds.origin
+                let selection = textView.selectedRanges
+                storage.beginEditing()
+                storage.setAttributedString(rendered.value)
+                storage.endEditing()
+                let validSelection = selection.filter { $0.rangeValue.upperBound <= storage.length }
+                textView.selectedRanges = validSelection.isEmpty
+                    ? [NSValue(range: NSRange(location: 0, length: 0))] : validSelection
+                scrollView.contentView.scroll(to: origin)
+            }
+        }
 
         func scrollToLine(_ lineIndex: Int) {
             guard let textView, let storage = textView.textStorage else { return }
@@ -143,191 +223,6 @@ struct LogTextView: NSViewRepresentable {
             }
             let targetRange = NSRange(location: charIndex, length: 0)
             textView.scrollRangeToVisible(targetRange)
-        }
-    }
-
-    // MARK: - Content Application
-
-    private func applyContent(to textView: NSTextView) {
-        let allLines = logText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let matchedLineIndices = Set(matches.map(\.lineIndex))
-
-        let filteredLines: [(index: Int, text: String)] = filterLines(
-            allLines: allLines,
-            matchedIndices: matchedLineIndices
-        )
-
-        let matchLookup = buildMatchLookup()
-        let attributed = buildAttributedString(
-            filteredLines: filteredLines,
-            matchLookup: matchLookup
-        )
-
-        guard let storage = textView.textStorage else { return }
-        storage.beginEditing()
-        storage.setAttributedString(attributed)
-        storage.endEditing()
-    }
-
-    private func filterLines(
-        allLines: [String],
-        matchedIndices: Set<Int>
-    ) -> [(index: Int, text: String)] {
-        allLines.enumerated()
-            .filter { passesFilter(lineIndex: $0.offset, lineText: $0.element, matchedIndices: matchedIndices) }
-            .map { (index: $0.offset, text: $0.element) }
-    }
-
-    private func passesFilter(lineIndex: Int, lineText: String, matchedIndices: Set<Int>) -> Bool {
-        // Search text filter
-        if !searchText.isEmpty, !lineText.localizedCaseInsensitiveContains(searchText) {
-            return false
-        }
-
-        switch filterMode {
-        case .all:
-            return true
-        case .tagged:
-            return matchedIndices.contains(lineIndex)
-        case .crashRelated:
-            return matches.contains { match in
-                match.lineIndex == lineIndex &&
-                    (match.pattern.category == .coreCrashFatal || match.pattern.category == .graphics)
-            }
-        case let .category(category):
-            return matches.contains { $0.lineIndex == lineIndex && $0.pattern.category == category }
-        }
-    }
-}
-
-// MARK: - Match Lookup
-
-extension LogTextView {
-    private func buildMatchLookup() -> [Int: DiagnosisMatch] {
-        var lookup: [Int: DiagnosisMatch] = [:]
-        for match in matches {
-            if let existing = lookup[match.lineIndex] {
-                if match.pattern.severity > existing.pattern.severity {
-                    lookup[match.lineIndex] = match
-                }
-            } else {
-                lookup[match.lineIndex] = match
-            }
-        }
-        return lookup
-    }
-}
-
-// MARK: - Attributed String Builder
-
-extension LogTextView {
-    private func buildAttributedString(
-        filteredLines: [(index: Int, text: String)],
-        matchLookup: [Int: DiagnosisMatch]
-    ) -> NSAttributedString {
-        let result = NSMutableAttributedString()
-        let baseFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        let baseColor = NSColor.textColor
-        let baseParagraph = NSMutableParagraphStyle()
-        baseParagraph.lineSpacing = 1
-
-        let baseAttributes: [NSAttributedString.Key: Any] = [
-            .font: baseFont,
-            .foregroundColor: baseColor,
-            .paragraphStyle: baseParagraph
-        ]
-
-        for (idx, entry) in filteredLines.enumerated() {
-            let lineNumber = String(format: "%5d ", entry.index + 1)
-            var lineContent: String
-
-            if let match = matchLookup[entry.index] {
-                let marker = gutterMarker(for: match)
-                lineContent = "\(lineNumber)\(marker) \(entry.text)"
-            } else {
-                lineContent = "\(lineNumber)  \(entry.text)"
-            }
-
-            if idx < filteredLines.count - 1 {
-                lineContent += "\n"
-            }
-
-            let lineAttr = NSMutableAttributedString(string: lineContent, attributes: baseAttributes)
-
-            // Apply background tint for tagged lines
-            if let match = matchLookup[entry.index] {
-                let bgColor = backgroundColor(for: match)
-                let fullRange = NSRange(location: 0, length: lineAttr.length)
-                lineAttr.addAttribute(.backgroundColor, value: bgColor, range: fullRange)
-
-                // Color the gutter marker
-                let markerColor = markerColor(for: match)
-                let markerStart = lineNumber.count
-                let markerLength = 1
-                if markerStart + markerLength <= lineAttr.length {
-                    let markerRange = NSRange(location: markerStart, length: markerLength)
-                    lineAttr.addAttribute(.foregroundColor, value: markerColor, range: markerRange)
-                }
-            }
-
-            result.append(lineAttr)
-        }
-
-        return result
-    }
-
-    private func gutterMarker(for match: DiagnosisMatch) -> String {
-        switch match.pattern.category {
-        case .coreCrashFatal:
-            "\u{25CF}" // filled circle
-        case .graphics:
-            "\u{25CF}"
-        case .dependenciesLoading:
-            "\u{25CF}"
-        case .prefixFilesystem:
-            "\u{25CF}"
-        case .networkingLaunchers:
-            "\u{25CF}"
-        case .antiCheatUnsupported:
-            "\u{25CF}"
-        case .otherUnknown:
-            "\u{25CB}" // open circle
-        }
-    }
-
-    private func backgroundColor(for match: DiagnosisMatch) -> NSColor {
-        switch match.pattern.category {
-        case .coreCrashFatal:
-            NSColor.systemRed.withAlphaComponent(0.08)
-        case .graphics:
-            NSColor.systemOrange.withAlphaComponent(0.08)
-        default:
-            if match.pattern.severity >= .error {
-                NSColor.systemRed.withAlphaComponent(0.06)
-            } else if match.pattern.severity >= .warning {
-                NSColor.systemYellow.withAlphaComponent(0.06)
-            } else {
-                NSColor.clear
-            }
-        }
-    }
-
-    private func markerColor(for match: DiagnosisMatch) -> NSColor {
-        switch match.pattern.category {
-        case .coreCrashFatal:
-            .systemRed
-        case .graphics:
-            .systemOrange
-        case .dependenciesLoading:
-            .systemBlue
-        case .prefixFilesystem:
-            .systemPurple
-        case .networkingLaunchers:
-            .systemCyan
-        case .antiCheatUnsupported:
-            .systemGray
-        case .otherUnknown:
-            .secondaryLabelColor
         }
     }
 }

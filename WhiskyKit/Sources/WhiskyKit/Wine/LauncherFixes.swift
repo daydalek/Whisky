@@ -18,6 +18,7 @@
 
 import Foundation
 import os.log
+import WhiskyCore
 
 /// Applies launcher-specific bottle configuration when a known launcher runs.
 ///

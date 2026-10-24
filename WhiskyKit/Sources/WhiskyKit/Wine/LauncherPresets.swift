@@ -17,6 +17,7 @@
 //
 
 import Foundation
+import WhiskyCore
 
 /// Categorizes the type of fix an environment variable override addresses.
 ///
@@ -61,90 +62,7 @@ public struct LauncherFixDetail: Sendable {
     public let category: FixCategory
 }
 
-/// Represents different game launcher platforms with optimized configurations.
-///
-/// This enum provides launcher-specific environment variable presets to address
-/// compatibility issues documented in frankea/Whisky#41 and ~100 related upstream issues.
-///
-/// ## Overview
-///
-/// Game launchers (Steam, Rockstar, EA App, etc.) often have specific requirements
-/// for locale settings, sandbox configuration, and graphics drivers. This system
-/// applies optimized settings automatically based on launcher type.
-///
-/// ## Example
-///
-/// ```swift
-/// let launcher = LauncherType.steam
-/// let environment = launcher.environmentOverrides()
-/// // Returns Steam-specific fixes for steamwebhelper and CEF sandbox
-/// ```
-///
-/// ## Topics
-///
-/// ### Launcher Types
-/// - ``steam``
-/// - ``rockstar``
-/// - ``eaApp``
-/// - ``epicGames``
-/// - ``ubisoft``
-/// - ``battleNet``
-/// - ``paradox``
-///
-/// ### Configuration
-/// - ``environmentOverrides()``
-/// - ``requiresDXVK``
-/// - ``recommendedLocale``
-public enum LauncherType: String, Codable, CaseIterable, Sendable, Identifiable {
-    /// Valve Steam platform
-    case steam = "Steam"
-    /// Rockstar Games Launcher
-    case rockstar = "Rockstar Games Launcher"
-    /// Electronic Arts App (formerly Origin)
-    case eaApp = "EA App"
-    /// Epic Games Store launcher
-    case epicGames = "Epic Games Store"
-    /// Ubisoft Connect (formerly Uplay)
-    case ubisoft = "Ubisoft Connect"
-    /// Blizzard Battle.net launcher
-    case battleNet = "Battle.net"
-    /// Paradox Launcher
-    case paradox = "Paradox Launcher"
-
-    public var id: String {
-        rawValue
-    }
-
-    /// Display name for the launcher.
-    public var displayName: String {
-        switch self {
-        case .steam:
-            "Steam"
-        case .rockstar:
-            "Rockstar Games Launcher"
-        case .eaApp:
-            "EA App"
-        case .epicGames:
-            "Epic Games Store"
-        case .ubisoft:
-            "Ubisoft Connect"
-        case .battleNet:
-            "Battle.net"
-        case .paradox:
-            "Paradox Launcher"
-        }
-    }
-
-    /// Whether this launcher is known to use the clipboard for multiplayer features.
-    public var usesClipboard: Bool {
-        switch self {
-        case .steam, .epicGames, .battleNet:
-            true
-        default:
-            false
-        }
-    }
-
+extension LauncherType {
     /// Returns optimized environment variables for this launcher.
     ///
     /// These overrides address specific compatibility issues:

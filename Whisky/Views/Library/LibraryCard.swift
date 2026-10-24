@@ -17,6 +17,7 @@
 //
 
 import SwiftUI
+import WhiskyCore
 import WhiskyKit
 
 extension Color {
@@ -25,23 +26,11 @@ extension Color {
     }
 }
 
-/// Where an entry is in a launch.
-enum LibraryEntryState: Equatable {
-    /// Not started, or started and already exited.
-    case idle
-    /// Whisky has been asked to start it and Wine has not put a window up yet.
-    case launching
-    case startingSteam
-    case waitingForSteam
-    /// It has a process of its own in ``ProcessRegistry``.
-    case running
-
-    var isPending: Bool {
-        self == .launching || self == .startingSteam || self == .waitingForSteam
-    }
-
+extension LibraryEntryState {
     var phaseLabel: LocalizedStringKey {
         switch self {
+        case .checkingLaunch: "library.card.queryUnavailable"
+        case .preparing: "library.card.preparing"
         case .startingSteam: "library.steam.starting"
         case .waitingForSteam: "library.steam.waiting"
         default: "library.card.launching"
@@ -57,6 +46,7 @@ enum LibraryEntryState: Equatable {
 /// shape an icon and a name actually want, and it leaves the icon at its native
 /// size where it stays crisp.
 struct LibraryCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: LibraryEntry
     /// Only shown when there is more than one bottle, since with a single bottle
     /// the prefix is plumbing and naming it on every card is noise.
@@ -110,11 +100,13 @@ struct LibraryCard: View {
             return .handled
         }
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.16)) { isHovering = hovering }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) { isHovering = hovering }
         }
         .task(id: item.id) {
             await loadIcon()
         }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: state)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: artwork != nil)
         .accessibilityLabel(title)
         .accessibilityValue(Text(subtitle))
         .accessibilityHint(Text("library.card.hint"))
@@ -206,7 +198,7 @@ struct LibraryCard: View {
     @ViewBuilder
     private var statusView: some View {
         switch state {
-        case .launching, .startingSteam, .waitingForSteam:
+        case .checkingLaunch, .preparing, .launching, .startingSteam, .waitingForSteam:
             HStack(spacing: 5) {
                 ProgressView().controlSize(.mini)
                 Text(state.phaseLabel).font(.caption2).lineLimit(1)

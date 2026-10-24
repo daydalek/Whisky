@@ -1,0 +1,435 @@
+name: Portability
+
+on:
+  push:
+    branches: [main, portability]
+    paths:
+      - 'WhiskyCore/**'
+      - 'WhiskyMetadata/**'
+      - 'WhiskyKit/**'
+      - 'WhiskyBridge/**'
+      - 'crates/**'
+      - 'apps/whisky-gpui/**'
+      - 'scripts/**'
+      - 'experimental/SwiftCrossUI/**'
+      - '.github/workflows/Portability.yml'
+      - '.github/workflows/LinuxDistribution.yml'
+      - '.github/workflows/LinuxRelease.yml'
+      - 'build.sh'
+  pull_request:
+    paths:
+      - 'WhiskyCore/**'
+      - 'WhiskyMetadata/**'
+      - 'WhiskyKit/**'
+      - 'WhiskyBridge/**'
+      - 'crates/**'
+      - 'apps/whisky-gpui/**'
+      - 'scripts/**'
+      - 'experimental/SwiftCrossUI/**'
+      - '.github/workflows/Portability.yml'
+      - '.github/workflows/LinuxDistribution.yml'
+      - '.github/workflows/LinuxRelease.yml'
+      - 'build.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-gpui:
+    name: GPUI / Linux / headless
+    runs-on: ubuntu-latest
+    container: swift:6.4.0-noble
+    timeout-minutes: 45
+    env:
+      CC: /usr/bin/clang-21
+      CXX: /usr/bin/clang-21
+      WHISKY_LINUX_OUTPUT: /tmp/whisky-linux-gpui
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Linux development and virtual display dependencies
+        run: bash apps/whisky-gpui/tools/install-linux-deps.sh
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh
+          sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.99.1
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Build and test production client and helper
+        run: bash apps/whisky-gpui/tools/check-linux.sh
+      - name: Exercise production window and Linux shortcuts
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/window"
+      - name: Download and update Wine through the production window
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-wine-update.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/wine-update-window"
+      - name: Adapt settings across optional host services and helper reconnects
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/settings-window" --scenario settings
+      - name: Read canonical GameDB references and retry restored resources
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/gamedb-window" --scenario gamedb
+      - name: Edit program settings through the production window
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/program-window" --scenario programs
+      - name: Preserve the window after a failed exit policy and allow explicit quit
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/check-quit-failure.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/quit-window"
+      - name: Edit metadata and artwork through the production window
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/metadata-window" --scenario metadata
+      - name: Open real Linux terminals with literal prefix paths and interactive PTYs
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            python3 apps/whisky-gpui/tools/check-terminal.py \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/terminal"
+      - name: Update desktop integration and launch an upgraded relocated shortcut
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/desktop-window" --scenario desktop
+      - name: Choose and open a terminal through the production window
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/terminal-window" --scenario terminal
+      - name: Collect and export Linux host and container diagnostics
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/diagnostics-window" --scenario diagnostics
+      - name: Exercise the complete production container file lifecycle
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/lifecycle-window" --scenario lifecycle
+      - name: Recover a killed copy before loading the production window
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/recovery-window" --scenario recovery
+      - name: Import an existing container through the native chooser
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/import-window" --scenario import
+      - name: Select and import discovered containers with identity revalidation
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/smoke-linux.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/candidates-window" --scenario candidates
+      - name: Exercise native file, directory, multiple and save dialogs
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 \
+            python3 apps/whisky-gpui/tools/smoke-pickers.py \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/pickers"
+      - name: Preserve Linux evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: linux-gpui-evidence
+          path: |
+            /tmp/whisky-linux-gpui/foundation/*.log
+            /tmp/whisky-linux-gpui/foundation/report.json
+            /tmp/whisky-linux-gpui/wine-update/report.json
+            /tmp/whisky-linux-gpui/wine-update/helper.log
+            /tmp/whisky-linux-gpui/wine-update-window/report.json
+            /tmp/whisky-linux-gpui/wine-update-window/*.log
+            /tmp/whisky-linux-gpui/wine-update-window/*.png
+            /tmp/whisky-linux-gpui/wine-update-window/fixture-*/requests.jsonl
+            /tmp/whisky-linux-gpui/wine-update-window/fixture-*/responses.jsonl
+            /tmp/whisky-linux-gpui/bridge-status.json
+            /tmp/whisky-linux-gpui/library.json
+            /tmp/whisky-linux-gpui/export-recovery/report.json
+            /tmp/whisky-linux-gpui/export-recovery/helper.log
+            /tmp/whisky-linux-gpui/export-recovery/observed-export.plist
+            /tmp/whisky-linux-gpui/recovery/report.json
+            /tmp/whisky-linux-gpui/recovery/helper.log
+            /tmp/whisky-linux-gpui/recovery/*/observed-journal.plist
+            /tmp/whisky-linux-gpui/recovery-window/*.log
+            /tmp/whisky-linux-gpui/recovery-window/report.json
+            /tmp/whisky-linux-gpui/recovery-window/*.png
+            /tmp/whisky-linux-gpui/candidates-window/*.log
+            /tmp/whisky-linux-gpui/candidates-window/report.json
+            /tmp/whisky-linux-gpui/candidates-window/*.png
+            /tmp/whisky-linux-gpui/import/report.json
+            /tmp/whisky-linux-gpui/import-window/*.log
+            /tmp/whisky-linux-gpui/import-window/report.json
+            /tmp/whisky-linux-gpui/import-window/*.png
+            /tmp/whisky-linux-gpui/shortcut-identity/report.json
+            /tmp/whisky-linux-gpui/shortcut-identity/helper.log
+            /tmp/whisky-linux-gpui/settings-window/report.json
+            /tmp/whisky-linux-gpui/settings-window/application.log
+            /tmp/whisky-linux-gpui/settings-window/*.png
+            /tmp/whisky-linux-gpui/settings-window/fixture-*/requests.jsonl
+            /tmp/whisky-linux-gpui/desktop-update/report.json
+            /tmp/whisky-linux-gpui/desktop-update/helper.log
+            /tmp/whisky-linux-gpui/desktop-update/observed-update.plist
+            /tmp/whisky-linux-gpui/desktop/report.json
+            /tmp/whisky-linux-gpui/desktop/helper.log
+            /tmp/whisky-linux-gpui/desktop/fixture-*/data/applications/*.desktop
+            /tmp/whisky-linux-gpui/desktop-window/report.json
+            /tmp/whisky-linux-gpui/desktop-window/*.png
+            /tmp/whisky-linux-gpui/desktop-window/*.log
+            /tmp/whisky-linux-gpui/desktop-window/fixture-*/requests.jsonl
+            /tmp/whisky-linux-gpui/desktop-window/fixture-*/data/applications/*.desktop
+            /tmp/whisky-linux-gpui/terminal/report.json
+            /tmp/whisky-linux-gpui/terminal/*.png
+            /tmp/whisky-linux-gpui/terminal/helper.log
+            /tmp/whisky-linux-gpui/terminal/fixture-*/probe.json
+            /tmp/whisky-linux-gpui/terminal-window/report.json
+            /tmp/whisky-linux-gpui/terminal-window/*.png
+            /tmp/whisky-linux-gpui/terminal-window/*.log
+            /tmp/whisky-linux-gpui/terminal-window/fixture-*/requests.jsonl
+            /tmp/whisky-linux-gpui/terminal-window/fixture-*/probe.json
+            /tmp/whisky-linux-gpui/diagnostics/report.json
+            /tmp/whisky-linux-gpui/diagnostics/helper.log
+            /tmp/whisky-linux-gpui/diagnostics-window/*.png
+            /tmp/whisky-linux-gpui/diagnostics-window/*.log
+            /tmp/whisky-linux-gpui/diagnostics-window/report.json
+            /tmp/whisky-linux-gpui/diagnostics-window/fixture-*/requests.jsonl
+            /tmp/whisky-linux-gpui/lifecycle/report.json
+            /tmp/whisky-linux-gpui/lifecycle/helper.log
+            /tmp/whisky-linux-gpui/lifecycle-window/*.log
+            /tmp/whisky-linux-gpui/lifecycle-window/report.json
+            /tmp/whisky-linux-gpui/lifecycle-window/*.png
+            /tmp/whisky-linux-gpui/lifecycle-window/fixture-*/requests.jsonl
+            /tmp/whisky-linux-gpui/pickers/*.log
+            /tmp/whisky-linux-gpui/pickers/report.json
+            /tmp/whisky-linux-gpui/pickers/*.png
+            /tmp/whisky-linux-gpui/window/*.log
+            /tmp/whisky-linux-gpui/window/report.json
+            /tmp/whisky-linux-gpui/window/*.png
+            /tmp/whisky-linux-gpui/programs/report.json
+            /tmp/whisky-linux-gpui/gamedb/report.json
+            /tmp/whisky-linux-gpui/gamedb/helper.log
+            /tmp/whisky-linux-gpui/gamedb-window/report.json
+            /tmp/whisky-linux-gpui/gamedb-window/application.log
+            /tmp/whisky-linux-gpui/gamedb-window/*.png
+            /tmp/whisky-linux-gpui/gamedb-window/fixture-*/requests.jsonl
+            /tmp/whisky-linux-gpui/gamedb-window/fixture-*/responses.jsonl
+            /tmp/whisky-linux-gpui/metadata/report.json
+            /tmp/whisky-linux-gpui/metadata/helper.log
+            /tmp/whisky-linux-gpui/metadata-window/*.log
+            /tmp/whisky-linux-gpui/metadata-window/report.json
+            /tmp/whisky-linux-gpui/metadata-window/*.png
+            /tmp/whisky-linux-gpui/program-window/*.log
+            /tmp/whisky-linux-gpui/program-window/report.json
+            /tmp/whisky-linux-gpui/program-window/*.png
+            /tmp/whisky-linux-gpui/quit-window/*.log
+            /tmp/whisky-linux-gpui/quit-window/report.json
+            /tmp/whisky-linux-gpui/quit-window/*.png
+          retention-days: 7
+
+  linux-core:
+    name: WhiskyCore / Linux / Swift 6.0
+    runs-on: ubuntu-latest
+    container: swift:6.0-noble
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check shared core boundaries
+        run: |
+          swift package dump-package --package-path WhiskyCore > /tmp/whisky-core-package.json
+          swift scripts/check-portability-boundaries.swift /tmp/whisky-core-package.json
+      - run: swift test --package-path WhiskyCore
+
+  macos-core:
+    name: WhiskyCore / macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check shared core boundaries
+        run: |
+          swift package dump-package --package-path WhiskyCore > /tmp/whisky-core-package.json
+          swift scripts/check-portability-boundaries.swift /tmp/whisky-core-package.json
+      - run: swift test --package-path WhiskyCore
+
+  # The SwiftCrossUI prototype is an unfinished reference backend. Building and
+  # driving its Gtk window needs a 6.4 toolchain plus Xvfb/AT-SPI tooling, which
+  # is too expensive and too brittle to pay for on every push and pull request.
+  # It was demoted to a manual workflow_dispatch run; nothing in the default
+  # build or the migration path depends on it.
+  linux-crossui:
+    name: SwiftCrossUI / Linux Gtk / Swift 6.4 (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    container: swift:6.4.0-noble
+    env:
+      CC: /usr/bin/clang-21
+      CXX: /usr/bin/clang-21
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Gtk development dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libgtk-4-dev clang pkg-config \
+            xvfb xauth dbus-x11 python3-pyatspi imagemagick fonts-noto-cjk xdotool
+      - name: Build and test the Gtk prototype
+        run: bash experimental/SwiftCrossUI/ci/check-linux.sh
+      - name: Exercise the Gtk window
+        env:
+          WHISKY_GUI_OUTPUT_DIR: /tmp/whisky-gui-evidence/library
+        run: bash experimental/SwiftCrossUI/ci/smoke-linux.sh
+      - name: Exercise container configuration and program settings
+        env:
+          WHISKY_GUI_OUTPUT_DIR: /tmp/whisky-gui-evidence/containers
+          WHISKY_GUI_SCENARIO: containers
+        run: bash experimental/SwiftCrossUI/ci/smoke-linux.sh
+      - name: Preserve Gtk interaction evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: gtk-interaction-evidence
+          path: /tmp/whisky-gui-evidence
+          if-no-files-found: ignore
+          retention-days: 7
+
+  linux-bridge:
+    name: GPUI foundation / Linux / Swift 6.0
+    runs-on: ubuntu-latest
+    container: swift:6.0-noble
+    steps:
+      - uses: actions/checkout@v6
+      - run: apt-get update && apt-get install -y --no-install-recommends libgdk-pixbuf-2.0-dev libgtk-4-dev webp-pixbuf-loader
+      - run: python3 scripts/check-gpui-foundation.py --swift-only
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: linux-bridge-evidence
+          path: build/portability/gpui-foundation/*.log
+
+  macos-bridge:
+    name: GPUI foundation / macOS / Rust to Swift
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: python3 scripts/check-gpui-foundation.py
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: macos-bridge-evidence
+          path: build/portability/gpui-foundation/*.log
+
+  linux-distribution:
+    name: Linux distribution formats
+    uses: ./.github/workflows/LinuxDistribution.yml
+    with:
+      run_tests: false # Shared-core, bridge and client tests run in this workflow's existing lanes.
+
+  linux-package-runtime:
+    name: Linux release / clean Ubuntu / ${{ matrix.display }}
+    needs: linux-distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - display: X11
+            target: acceptance
+            checks: --gui
+          - display: Wayland
+            target: wayland-acceptance
+            checks: --wayland
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux-gpui-release
+          path: linux-release
+      - name: Build the clean runtime acceptance image
+        run: |
+          docker build --target '${{ matrix.target }}' -t whisky-package-acceptance \
+            -f apps/whisky-gpui/tools/linux-runtime.Dockerfile apps/whisky-gpui/tools
+      - name: Verify the relocated release as an unprivileged user with network disabled
+        run: |
+          archive="$(find "$PWD/linux-release" -maxdepth 1 -name 'whisky-linux-*.tar.gz' -print -quit)"
+          test -f "$archive"
+          docker run --name whisky-package-acceptance --network none \
+            --mount "type=bind,src=$archive,dst=/archive.tar.gz,readonly" \
+            --mount "type=bind,src=$PWD/apps/whisky-gpui/tools,dst=/tests,readonly" \
+            whisky-package-acceptance python3 /tests/check-linux-package.py \
+              --archive /archive.tar.gz --output /evidence ${{ matrix.checks }}
+      - name: Collect clean-runtime evidence
+        if: always()
+        run: docker cp whisky-package-acceptance:/evidence package-evidence
+      - name: Preserve clean-runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: linux-package-runtime-evidence-${{ matrix.display }}
+          path: |
+            package-evidence/report.json
+            package-evidence/*.log
+            package-evidence/*/report.json
+            package-evidence/*/*.log
+            package-evidence/*/*.png
+            package-evidence/*/*-tree.json
+            package-evidence/*/outputs.json
+            package-evidence/*/sway.conf
+            package-evidence/*/fixture-*/requests.jsonl
+            package-evidence/*/fixture-*/responses.jsonl
+            package-evidence/*/fixture-*/probe.json
+            package-evidence/*/fixture-*/data/applications/*.desktop

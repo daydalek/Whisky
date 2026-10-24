@@ -25,10 +25,10 @@ public enum NetworkSettings {
     public static let wineUpdatesKey = "checkWhiskyWineUpdates"
 
     public static var isOffline: Bool {
-        UserDefaults.standard.bool(forKey: offlineModeKey)
+        WhiskyPreferences.userDefaults.bool(forKey: offlineModeKey)
     }
 
-    public static func shouldCheckWineUpdates(defaults: UserDefaults = .standard) -> Bool {
+    public static func shouldCheckWineUpdates(defaults: UserDefaults = WhiskyPreferences.userDefaults) -> Bool {
         !defaults.bool(forKey: offlineModeKey)
             && (defaults.object(forKey: wineUpdatesKey) as? Bool ?? true)
     }

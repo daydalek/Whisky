@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-24 (Whisky VN fork, prerelease)
+
+### Added
+- Shared application services and a GPUI frontend for Linux, alongside the macOS SwiftUI frontend.
+- Linux amd64 deb, rpm and AppImage distribution pipelines with installation and update checks.
+- Verified Linux Wine downloads, runtime updates, process inspection, program settings and run history.
+
+### Fixed
+- Linux launch configuration now applies virtual desktops, audio latency and GPU identification through Wine.
+- Linux playtime tracks the selected program's processes and preserves launch logs and history.
+- Application exit waits for configured Wine cleanup and presents cleanup errors with an explicit exit action.
+- Linux settings and actions reflect implemented platform capabilities. Remaining parity work is documented in `docs/gpui-port/LINUX_PARITY.md`.
+
+### Distribution
+- macOS arm64 uses the `vn-v0.4.0` prerelease stream.
+- Linux amd64 starts the independent `linux-v0.1.0` prerelease stream; hardware GPU and game acceptance remains outstanding.
+
 ## [0.3.0] - 2026-10-18 (Whisky VN fork)
 
 ### Added

@@ -16,19 +16,8 @@
 //  If not, see https://www.gnu.org/licenses/.
 //
 
-import AppKit
 import Foundation
-import os.log
-
-/// An error opening a program in the user's terminal.
-public struct TerminalLaunchError: LocalizedError, Equatable {
-    /// What went wrong, as the terminal or AppleScript reported it.
-    public let message: String
-
-    public var errorDescription: String? {
-        message
-    }
-}
+import WhiskyCore
 
 public extension Program {
     /// Runs this program in the user's terminal, reporting a failure in an alert.
@@ -36,12 +25,12 @@ public extension Program {
     /// The shift-click Run. The bottle is prepared the way a launch prepares it
     /// before the terminal opens, so this returns at once and the work happens
     /// in a task.
-    func runInTerminal() {
+    func runInTerminal(using interaction: any ProgramUserInteraction = MacOSProgramInteraction.shared) {
         Task {
             do {
                 try await openInTerminal()
             } catch {
-                showRunError(message: error.localizedDescription)
+                showRunError(message: error.localizedDescription, interaction: interaction)
             }
         }
     }
@@ -55,7 +44,7 @@ public extension Program {
     ///
     /// - Throws: An error if the bottle cannot be prepared, the script cannot be
     ///   written, or the terminal cannot be opened.
-    func openInTerminal() async throws {
+    func openInTerminal(using terminal: any TerminalLaunching = MacOSTerminalLauncher.shared) async throws {
         let arguments = settings.arguments.split { $0.isWhitespace }.map(String.init)
         let scriptURL = try await writeTerminalScript(args: arguments)
 
@@ -68,20 +57,7 @@ public extension Program {
             }
         }
 
-        let appleScript = TerminalApp.preferred.generateAppleScript(for: scriptURL.path)
-        guard let script = NSAppleScript(source: appleScript) else {
-            throw TerminalLaunchError(message: String(
-                localized: "program.terminal.error.scriptInvalid",
-                defaultValue: "The command to open the terminal couldn't be prepared."
-            ))
-        }
-        var error: NSDictionary?
-        script.executeAndReturnError(&error)
-        if let error {
-            Logger.wineKit.error("Failed to run terminal script \(error)")
-            let description = error["NSAppleScriptErrorMessage"] as? String
-            throw TerminalLaunchError(message: description ?? String(describing: error))
-        }
+        try await terminal.openScript(at: scriptURL)
     }
 }
 
@@ -110,10 +86,7 @@ extension Program {
         )
         let command = Wine.generateRunCommand(for: launch)
 
-        let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("whisky-run-\(UUID().uuidString).sh")
-        try "#!/bin/bash\n\(command)\n".write(to: scriptURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+        let scriptURL = try TerminalScriptWriter.write(command: command)
         TempFileTracker.shared.register(file: scriptURL)
         return scriptURL
     }

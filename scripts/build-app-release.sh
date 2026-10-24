@@ -8,7 +8,7 @@ version="${1:?Usage: build-app-release.sh X.Y.Z}"
 build_number="${BUILD_NUMBER:-1}"
 [[ "$build_number" =~ ^[0-9]+$ ]] || { echo 'BUILD_NUMBER must be numeric' >&2; exit 2; }
 project="$(cd "$(dirname "$0")/.." && pwd -P)"
-output="$project/build/app-release"
+output="${WHISKY_APP_RELEASE_OUTPUT:-$project/build/app-release}"
 assets="$output/assets"
 test ! -e "$assets" || { echo 'Release assets directory must be fresh' >&2; exit 1; }
 mkdir -p "$output"

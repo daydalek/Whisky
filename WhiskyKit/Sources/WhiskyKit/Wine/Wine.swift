@@ -19,6 +19,7 @@
 
 import Foundation
 import os.log
+import WhiskyCore
 
 private let logger = Logger(subsystem: Bundle.whiskyBundleIdentifier, category: "Wine")
 

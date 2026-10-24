@@ -17,81 +17,7 @@
 //
 
 import Foundation
-
-/// Where a library entry came from.
-///
-/// A raw-value type rather than an enum so a launcher can be added without
-/// recompiling everything that switches over the existing ones.
-public struct LibrarySourceID: RawRepresentable, Hashable, Sendable, Codable {
-    public let rawValue: String
-
-    public init(rawValue: String) {
-        self.rawValue = rawValue
-    }
-
-    /// Programs the user pinned. The library shows these and not every
-    /// executable found in a prefix: a Windows install is full of uninstallers,
-    /// crash handlers and redistributables, and a library that lists them is a
-    /// file browser rather than a library.
-    public static let pinned = LibrarySourceID(rawValue: "pinned")
-    /// Games installed through the Steam client inside a bottle.
-    public static let steam = LibrarySourceID(rawValue: "steam")
-    public static let folder = LibrarySourceID(rawValue: "folder")
-}
-
-/// One thing a person can launch, whatever put it there.
-public struct LibraryEntry: Identifiable, Hashable, Sendable {
-    /// How to start it. Sources that need their own launch path add a case;
-    /// everything else in the library stays the same.
-    public enum Launch: Hashable, Sendable {
-        /// An executable inside the bottle, run directly.
-        case program(URL)
-        /// A Steam app, run through the client so Steam sees it as a launch.
-        case steam(appID: Int)
-    }
-
-    public let id: String
-    public let name: String
-    /// The executable to read an icon out of, when there is one.
-    public let iconURL: URL?
-    /// Wide artwork for this entry, when the source has some on disk. Steam
-    /// caches its own banners inside the bottle, so a Steam game shows the art
-    /// its store page uses without anything being fetched.
-    public let artworkURL: URL?
-    public let bottleURL: URL
-    public let source: LibrarySourceID
-    public let launch: Launch
-    /// Whether this entry is a storefront client rather than a game.
-    ///
-    /// A launcher is worth keeping in the library, since it is how you reach an
-    /// account, a store and an update. It is not what somebody scanning the grid
-    /// is looking for, so it is labelled and sorted below the games.
-    public let launcher: LauncherType?
-
-    public var isLauncher: Bool {
-        launcher != nil
-    }
-
-    public init(
-        id: String,
-        name: String,
-        iconURL: URL?,
-        artworkURL: URL? = nil,
-        bottleURL: URL,
-        source: LibrarySourceID,
-        launch: Launch,
-        launcher: LauncherType? = nil
-    ) {
-        self.id = id
-        self.name = name
-        self.iconURL = iconURL
-        self.artworkURL = artworkURL
-        self.bottleURL = bottleURL
-        self.source = source
-        self.launch = launch
-        self.launcher = launcher
-    }
-}
+import WhiskyCore
 
 /// Somewhere library entries come from.
 ///
@@ -126,118 +52,26 @@ public enum PinnedLibrarySource: LibrarySource {
     }
 }
 
-/// The games a bottle's Steam client has installed.
-public enum SteamLibrarySource: LibrarySource {
-    public static let id = LibrarySourceID.steam
+public typealias SteamLibrarySource = WhiskyCore.SteamLibrarySource
 
+extension SteamLibrarySource: LibrarySource {
     public static func items(inBottleAt url: URL, settings _: BottleSettings) -> [LibraryEntry] {
         entries(inBottleAt: url)
     }
-
-    /// Without the settings parameter, so a caller can run this off the main
-    /// actor: enumerating Steam walks libraryfolders.vdf and every manifest in
-    /// it, which is the one part of building the library that touches disk.
-    public static func entries(inBottleAt url: URL) -> [LibraryEntry] {
-        let steamRoot = SteamLibrary.detectInstall(bottleURL: url)
-        return SteamLibrary.enumerate(bottleURL: url).map { game in
-            LibraryEntry(
-                // Scoped to the bottle, because the same game can be installed
-                // in two of them and an id shared by two rows breaks the grid's
-                // diffing rather than merely looking odd. A pin is already
-                // scoped: its id carries the executable's full path.
-                id: "steam:\(url.path(percentEncoded: false)):\(game.appId)",
-                name: game.name,
-                iconURL: steamRoot.flatMap { iconURL(appID: game.appId, steamRoot: $0) },
-                artworkURL: steamRoot.flatMap { artworkURL(appID: game.appId, steamRoot: $0) },
-                bottleURL: url,
-                source: id,
-                launch: .steam(appID: game.appId)
-            )
-        }
-    }
-
-    /// The best art Steam already cached for `appID`.
-    ///
-    /// Steam has changed this layout more than once: a flat `<appid>_header.jpg`,
-    /// then `<appid>/header.jpg`, and now `<appid>/<hash>/library_header.jpg`.
-    /// Matching on the filename rather than the path survives all three, and the
-    /// next one as long as the names hold.
-    ///
-    /// Landscape first because that is the shape of a card. A portrait capsule
-    /// is the fallback and gets cropped, which still beats an empty card.
-    public static func artworkURL(appID: Int, steamRoot: URL) -> URL? {
-        let landscape = ["library_header.jpg", "header.jpg", "\(appID)_header.jpg"]
-        let portrait = ["library_capsule.jpg", "library_600x900.jpg", "\(appID)_library_600x900.jpg"]
-        let cached = cachedFiles(appID: appID, steamRoot: steamRoot)
-
-        for name in landscape + portrait {
-            if let match = cached.first(where: { $0.lastPathComponent == name }) {
-                return match
-            }
-        }
-        return nil
-    }
-
-    /// The small square icon Steam caches beside the art, if it left one.
-    ///
-    /// It sits directly in the app's folder rather than in one of the hashed
-    /// subfolders, which is what separates it from the artwork.
-    public static func iconURL(appID: Int, steamRoot: URL) -> URL? {
-        let folder = steamRoot.appending(path: "appcache").appending(path: "librarycache")
-            .appending(path: "\(appID)")
-        let contents = try? FileManager.default.contentsOfDirectory(
-            at: folder, includingPropertiesForKeys: [.isRegularFileKey]
-        )
-        return contents?.first { $0.pathExtension.lowercased() == "jpg" }
-    }
-
-    /// Every cached file for one app, from either layout.
-    ///
-    /// Both are always checked rather than one being a fallback for the other:
-    /// an enumerator over a folder that does not exist yields nothing instead of
-    /// failing, so "did the walk work" cannot decide which layout is in use.
-    private static func cachedFiles(appID: Int, steamRoot: URL) -> [URL] {
-        let cache = steamRoot.appending(path: "appcache").appending(path: "librarycache")
-        let walked = FileManager.default.enumerator(
-            at: cache.appending(path: "\(appID)"), includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
-        )?.compactMap { $0 as? URL } ?? []
-
-        // The layout Steam used before it made a folder per app.
-        let flat = ["\(appID)_header.jpg", "\(appID)_library_600x900.jpg"]
-            .map { cache.appending(path: $0) }
-            .filter { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }
-
-        return walked + flat
-    }
 }
 
-/// Every source, merged.
-public enum LibraryCatalogue {
+extension LibraryCatalogue {
     /// Registered sources, in the order their entries are produced. Adding a
     /// launcher is this line plus the type.
-    public static let sources: [any (LibrarySource & Sendable).Type] = [
-        PinnedLibrarySource.self,
-        SteamLibrarySource.self
-    ]
+    public static var sources: [any (LibrarySource & Sendable).Type] {
+        [
+            PinnedLibrarySource.self,
+            SteamLibrarySource.self
+        ]
+    }
 
     /// Everything one bottle contributes to the library.
     public static func items(inBottleAt url: URL, settings: BottleSettings) -> [LibraryEntry] {
         merge(sources.map { $0.items(inBottleAt: url, settings: settings) })
-    }
-
-    /// Collapse repeated identities, not repeated titles. A pinned executable
-    /// must never silently shadow a same-named Steam App ID and bypass Steam.
-    public static func merge(_ groups: [[LibraryEntry]]) -> [LibraryEntry] {
-        var seenIDs = Set<String>()
-        var items: [LibraryEntry] = []
-
-        for group in groups {
-            for item in group {
-                guard seenIDs.insert(item.id).inserted else { continue }
-                items.append(item)
-            }
-        }
-
-        return items
     }
 }

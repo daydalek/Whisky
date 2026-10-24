@@ -27,6 +27,7 @@ struct ContentView: View {
     @Binding var showSetup: Bool
 
     @State var selected: URL?
+    @StateObject var sidebarCounts = LibrarySidebarCounts.shared
     @State var showBottleCreation: Bool = false
     @State var bottlesLoaded: Bool = false
     @State var showBottleSelection: Bool = false

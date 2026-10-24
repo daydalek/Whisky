@@ -1,0 +1,245 @@
+name: Linux distribution
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        default: '0.1.0'
+      run_tests:
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version X.Y.Z'
+        required: true
+        default: '0.1.0'
+        type: string
+      run_tests:
+        description: 'Run shared-core, bridge and production client unit tests'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-distribution-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: amd64 / one Release payload
+    runs-on: ubuntu-24.04
+    container: swift:6.4.0-noble
+    timeout-minutes: 90
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    env:
+      CC: /usr/bin/clang-21
+      CXX: /usr/bin/clang-21
+      WHISKY_LINUX_BUILD_CACHE: /tmp/whisky-compile-cache
+      CARGO_HOME: /root/.cargo
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Resolve and validate the package version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_REF: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          value = os.environ['RELEASE_REF'].removeprefix('linux-v') if os.environ['GITHUB_REF'].startswith('refs/tags/linux-v') else (os.environ['INPUT_VERSION'] or '0.1.0')
+          assert re.fullmatch(r'\d+\.\d+\.\d+', value), 'Expected X.Y.Z'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write('value=' + value + '\n')
+          PY
+      - name: Restore compiler and Cargo dependency caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            /root/.cargo/registry
+            /root/.cargo/git
+            /tmp/whisky-compile-cache
+          key: linux-amd64-swift6.4.0-rust1.99.1-${{ hashFiles('apps/whisky-gpui/Cargo.lock', '**/Package.resolved', 'apps/whisky-gpui/tools/build-linux-release.sh', '.github/workflows/LinuxDistribution.yml') }}-${{ github.sha }}
+          restore-keys: |
+            linux-amd64-swift6.4.0-rust1.99.1-${{ hashFiles('apps/whisky-gpui/Cargo.lock', '**/Package.resolved', 'apps/whisky-gpui/tools/build-linux-release.sh', '.github/workflows/LinuxDistribution.yml') }}-
+      - name: Install the fixed build toolchain
+        run: |
+          bash apps/whisky-gpui/tools/install-linux-deps.sh
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh
+          sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.99.1
+          echo /root/.cargo/bin >> "$GITHUB_PATH"
+      - name: Build once through the shared command line
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.value }}
+        run: ./build.sh run whisky-linux-amd64 --version "$PACKAGE_VERSION" --formats tar --jobs 4 --output /tmp/linux-release-task
+      - name: Verify source behavior for standalone release builds
+        if: inputs.run_tests
+        run: |
+          python3 scripts/check-gpui-foundation.py --swift-only --output /tmp/linux-release-checks
+          cargo test --release --locked --jobs 4 --manifest-path apps/whisky-gpui/Cargo.toml \
+            --target-dir "$WHISKY_LINUX_BUILD_CACHE/rust-build"
+          python3 -m unittest discover -s scripts/distribution -p 'test_*.py' -v
+      - name: Preserve the reusable release archive
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: linux-gpui-release
+          path: /tmp/linux-release-task/artifacts/whisky-linux-*.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+      - name: Preserve build and ABI diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: linux-release-build-evidence
+          path: |
+            /tmp/linux-release-task/build-report.json
+            /tmp/linux-release-task/*.log
+            /tmp/linux-release-task/elf-abi.json
+            /tmp/linux-release-checks/*.log
+            /tmp/linux-release-checks/report.json
+          if-no-files-found: ignore
+
+  package:
+    name: deb / rpm / AppImage from one payload
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux-gpui-release
+          path: input
+      - name: Cache checksum-pinned AppImage tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/whisky-packaging-tools
+          key: appimage-tools-${{ runner.arch }}-${{ hashFiles('scripts/distribution/appimage-tools.json') }}
+      - name: Install package builders and the declared runtime libraries
+        run: |
+          sudo bash apps/whisky-gpui/tools/install-linux-runtime-deps.sh
+          sudo apt-get install -y --no-install-recommends rpm dpkg-dev patchelf binutils squashfs-tools file
+      - name: Generate and inspect all three formats
+        env:
+          PACKAGE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          python3 -m unittest discover -s scripts/distribution -p 'test_*.py' -v
+          python3 scripts/distribution/package-linux.py --archive input/whisky-linux-x86_64.tar.gz \
+            --version "$PACKAGE_VERSION" --output packages
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: linux-deb
+          path: |
+            packages/*.deb
+            packages/packages.json
+            packages/elf-abi.json
+            packages/SHA256SUMS
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: linux-rpm
+          path: |
+            packages/*.rpm
+            packages/packages.json
+            packages/elf-abi.json
+            packages/SHA256SUMS
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: linux-appimage
+          path: |
+            packages/*.AppImage
+            packages/packages.json
+            packages/elf-abi.json
+            packages/SHA256SUMS
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: linux-package-build-evidence
+          path: |
+            packages/*.json
+            packages/SHA256SUMS
+          if-no-files-found: ignore
+
+  smoke:
+    name: ${{ matrix.target }} / install and production window
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {format: deb, target: deb, filename: package.deb}
+          - {format: rpm, target: rpm, filename: package.rpm}
+          - {format: appimage, target: appimage-ubuntu, filename: Whisky.AppImage}
+          - {format: appimage, target: appimage-fedora, filename: Whisky.AppImage}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux-${{ matrix.format }}
+          path: packages
+      - name: Verify the package digest and prepare a minimal build context
+        env:
+          FORMAT: ${{ matrix.format }}
+          FILENAME: ${{ matrix.filename }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, shutil
+          root = pathlib.Path('packages')
+          report = json.loads((root / 'packages.json').read_text())
+          assert report['passed'] and report['architecture'] == 'x86_64'
+          asset, = [a for a in report['assets'] if a['format'] == os.environ['FORMAT']]
+          package = root / asset['name']
+          with package.open('rb') as stream:
+              assert hashlib.file_digest(stream, 'sha256').hexdigest() == asset['sha256']
+          context = pathlib.Path('smoke-context')
+          context.mkdir()
+          shutil.copyfile(package, context / os.environ['FILENAME'])
+          for name in ('package-smoke.Dockerfile', 'smoke-format.py'):
+              shutil.copyfile(pathlib.Path('scripts/distribution') / name, context / name)
+          for name in ('check-linux-wine-update.py', 'check-diagnostics.py'):
+              shutil.copyfile(pathlib.Path('apps/whisky-gpui/tools') / name, context / name)
+          PY
+      - name: Install with the distro package manager
+        run: docker build --target '${{ matrix.target }}' -t whisky-format-test -f smoke-context/package-smoke.Dockerfile smoke-context
+      - name: Exercise the package with network disabled and verify user-data preservation
+        env:
+          FORMAT: ${{ matrix.format }}
+        run: |
+          docker run --name whisky-format-test --network none whisky-format-test bash -c \
+            'runuser -u whisky-test -- Xvfb :99 -screen 0 1280x900x24 -nolisten tcp -ac >/tmp/xvfb.log 2>&1 & export DISPLAY=:99; python3 /tests/smoke-format.py --format "$1"' \
+            smoke "$FORMAT"
+      - name: Collect runtime evidence
+        if: always()
+        run: docker cp whisky-format-test:/evidence format-evidence || true
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: linux-format-evidence-${{ matrix.target }}
+          path: |
+            format-evidence/*.json
+            format-evidence/*.log
+            format-evidence/*.png
+            format-evidence/wine-update/report.json
+            format-evidence/wine-update/*.log
+            format-evidence/wine-update/fixture-*/requests.jsonl
+            format-evidence/wine-update/fixture-*/responses.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
+

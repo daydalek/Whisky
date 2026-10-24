@@ -18,6 +18,7 @@
 
 import Foundation
 import os.log
+import WhiskyCore
 
 /// Resolves the `.recommended` graphics backend to a concrete backend.
 ///

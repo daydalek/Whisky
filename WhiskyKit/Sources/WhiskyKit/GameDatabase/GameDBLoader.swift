@@ -17,6 +17,7 @@
 //
 
 import Foundation
+import WhiskyCore
 
 /// Loads game database entries from a bundled JSON resource.
 ///
@@ -47,15 +48,11 @@ public enum GameDBLoader {
     /// Returns an empty array if the resource is missing or cannot be
     /// decoded. In debug builds, a missing resource triggers a fatal error.
     public static func loadDefaults() -> [GameDBEntry] {
-        guard let url = Bundle.module.url(forResource: "GameDB", withExtension: "json") else {
-            #if DEBUG
-            fatalError("Missing resource: GameDB.json in Bundle.module")
-            #else
-            return []
-            #endif
-        }
         do {
-            return try loadEntries(from: url)
+            let data = try GameDatabaseResource.data()
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(GameDBFile.self, from: data).entries
         } catch {
             #if DEBUG
             fatalError("Failed to load GameDB: \(error)")

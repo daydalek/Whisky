@@ -77,13 +77,13 @@ public enum TerminalApp: String, CaseIterable, Identifiable {
     /// Falls back to Terminal.app if the preferred app is not installed.
     public static var preferred: TerminalApp {
         get {
-            let rawValue = UserDefaults.standard.string(forKey: "preferredTerminal") ?? "terminal"
+            let rawValue = WhiskyPreferences.userDefaults.string(forKey: "preferredTerminal") ?? "terminal"
             let preferred = TerminalApp(rawValue: rawValue) ?? .terminal
             // Fall back to Terminal if preferred is not installed
             return preferred.isInstalled ? preferred : .terminal
         }
         set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: "preferredTerminal")
+            WhiskyPreferences.userDefaults.set(newValue.rawValue, forKey: "preferredTerminal")
         }
     }
 
@@ -91,8 +91,9 @@ public enum TerminalApp: String, CaseIterable, Identifiable {
     /// - Parameter scriptPath: The path to the shell script to execute.
     /// - Returns: The AppleScript source code.
     public func generateAppleScript(for scriptPath: String) -> String {
-        let escapedPath = scriptPath
-            .replacingOccurrences(of: "\\", with: "\\\\")
+        let quotedPath = "'" + scriptPath.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        let command = self == .warp ? "open -a Warp " + quotedPath : "source " + quotedPath
+        let escapedCommand = command.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
 
         switch self {
@@ -100,7 +101,7 @@ public enum TerminalApp: String, CaseIterable, Identifiable {
             return """
             tell application "Terminal"
                 activate
-                do script "source \\"\(escapedPath)\\""
+                do script "\(escapedCommand)"
             end tell
             """
 
@@ -110,7 +111,7 @@ public enum TerminalApp: String, CaseIterable, Identifiable {
                 activate
                 create window with default profile
                 tell current session of current window
-                    write text "source \\"\(escapedPath)\\""
+                    write text "\(escapedCommand)"
                 end tell
             end tell
             """
@@ -123,7 +124,7 @@ public enum TerminalApp: String, CaseIterable, Identifiable {
             tell application "Warp"
                 activate
             end tell
-            do shell script "open -a Warp \\"\(escapedPath)\\""
+            do shell script "\(escapedCommand)"
             """
         }
     }

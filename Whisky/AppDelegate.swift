@@ -70,35 +70,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        let globalKill = Self.killOnTerminate
-
-        // Per-bottle kill-on-quit with policy overrides
-        for bottle in BottleVM.shared.bottles {
-            let bottlePolicy = bottle.settings.killOnQuit
-            let shouldKill: Bool = switch bottlePolicy {
-            case .inherit:
-                globalKill
-            case .alwaysKill:
-                true
-            case .neverKill:
-                false
-            }
-
-            if shouldKill {
-                // Synchronous: the app exits when this delegate returns.
-                Wine.killBottleAndWait(bottle: bottle)
-                ProcessRegistry.shared.clearRegistry(for: bottle.url)
-                logger.info(
-                    "Killing bottle '\(bottle.settings.name)' on quit (policy: \(String(describing: bottlePolicy)))"
-                )
-            }
-        }
-
-        // Synchronous best-effort temp file cleanup (cannot await in applicationWillTerminate)
-        let trackedFiles = TempFileTracker.shared.getAllTrackedFiles()
-        for (fileURL, _) in trackedFiles {
-            try? FileManager.default.removeItem(at: fileURL)
-        }
+        ApplicationShutdownService.apply(to: BottleVM.shared.bottles, globalKill: Self.killOnTerminate)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

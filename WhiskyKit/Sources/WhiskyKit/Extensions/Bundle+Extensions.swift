@@ -20,6 +20,29 @@ import Foundation
 
 public extension Bundle {
     static var whiskyBundleIdentifier: String {
-        Bundle.main.bundleIdentifier ?? "com.franke.Whisky"
+        WhiskyDataIdentity.selectedIdentifier
+            ?? Bundle.main.object(forInfoDictionaryKey: "WhiskyDataBundleIdentifier") as? String
+            ?? Bundle.main.bundleIdentifier ?? "com.franke.Whisky"
+    }
+}
+
+/// Select once during host composition, before resolving runtime and support directories.
+public enum WhiskyDataIdentity {
+    private final class Storage: @unchecked Sendable {
+        let lock = NSLock()
+        var identifier: String?
+    }
+
+    private static let storage = Storage()
+    public static func configure(_ identifier: String?) {
+        storage.lock.lock()
+        storage.identifier = identifier
+        storage.lock.unlock()
+    }
+
+    static var selectedIdentifier: String? {
+        storage.lock.lock()
+        defer { storage.lock.unlock() }
+        return storage.identifier
     }
 }

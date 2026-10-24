@@ -121,16 +121,22 @@ struct GameActivityTests {
         tracker.wineserverProbe = { _ in serverRunning }
         tracker.processProbe = { _ in
             processCalls += 1
-            if processFailure { throw CocoaError(.fileReadUnknown) }
+            if processFailure {
+                throw CocoaError(.fileReadUnknown)
+            }
             return processes
         }
         tracker.track(game, executable: url.appendingPathComponent("drive_c/game.exe"), bottle: bottle)
 
         await tracker.poll()
+        #expect(tracker.observation.runningEntryIDs == [game.id])
+        let revision = tracker.observation.revision
+        await tracker.poll()
+        #expect(tracker.observation.revision == revision)
         let store = GameActivityStore.shared
         let owner = try #require(store.load(for: game).owner)
         #expect(owner.source == .gui)
-        #expect(processCalls == 1)
+        #expect(processCalls == 2)
 
         switch end {
         case .gameExit: processes = []
@@ -138,9 +144,19 @@ struct GameActivityTests {
         case .processListFailure: processFailure = true
         }
         await tracker.poll()
+        if end == .gameExit {
+            await tracker.poll()
+        }
 
         #expect(try store.load(for: game).owner == nil)
-        #expect(processCalls == (end == .wineserverStop ? 1 : 2))
+        #expect(processCalls == (end == .wineserverStop ? 2 : (end == .gameExit ? 4 : 3)))
+        if end == .processListFailure {
+            #expect(tracker.observation.runningEntryIDs == [game.id])
+            #expect(tracker.observation.endedEntryIDs.isEmpty)
+        } else {
+            #expect(tracker.observation.runningEntryIDs.isEmpty)
+            #expect(tracker.observation.endedEntryIDs == [game.id])
+        }
         let nextOwner = try store.acquireOwnership(for: game, source: .gui, ownerID: UUID())
         #expect(nextOwner.generation > owner.generation)
         try store.releaseOwnership(for: game, ownerID: nextOwner.ownerID, generation: nextOwner.generation)
@@ -175,5 +191,69 @@ struct GameActivityTests {
         #expect(serverProbes == 1)
         #expect(processProbes == 0)
         #expect(try GameActivityStore.shared.load(for: game).owner == nil)
+    }
+
+    @Test @MainActor
+    func localLauncherHandoffKeepsGameRunningUntilLastKnownExecutableExits() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("drive_c/Games/Example")
+        let bin = folder.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let launcher = folder.appendingPathComponent("launch.exe")
+        try Data().write(to: launcher)
+        try Data().write(to: bin.appendingPathComponent("game.exe"))
+        let game = LibraryEntry(
+            id: "local-example", name: "Example", iconURL: launcher,
+            bottleURL: root, source: .folder, launch: .program(folder)
+        )
+        var library = FolderGameLibrary()
+        library.executables[FolderGameLibrary.key(for: folder, bottleURL: root)] =
+            FolderGameLibrary.key(for: launcher, bottleURL: root)
+        try library.save(bottleURL: root)
+        let bottle = Bottle(bottleUrl: root)
+        let tracker = GameActivityTracker()
+        tracker.automaticallyPolls = false
+        tracker.wineserverProbe = { _ in true }
+        var processes = [WineProcess(imageName: "launch.exe", winePID: 1, memoryUsage: "0 K", kind: .app)]
+        tracker.processProbe = { _ in processes }
+        await tracker.configure(entries: [game], bottle: bottle)
+        tracker.select(game)
+        await tracker.poll()
+        #expect(tracker.observation.runningEntryIDs == [game.id])
+        processes = [WineProcess(imageName: "game.exe", winePID: 2, memoryUsage: "0 K", kind: .app)]
+        await tracker.poll()
+        #expect(tracker.observation.runningEntryIDs == [game.id])
+        #expect(tracker.observation.endedEntryIDs.isEmpty)
+        processes = []
+        await tracker.poll()
+        await tracker.poll()
+        #expect(tracker.observation.endedEntryIDs == [game.id])
+        tracker.retainBottles([])
+        #expect(tracker.observation.runningEntryIDs.isEmpty)
+    }
+
+    @Test @MainActor
+    func pinnedProgramsInOneDirectoryKeepSeparateRunningStates() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("drive_c"),
+            withIntermediateDirectories: true
+        )
+        let first = entry(bottle: root, name: "first.exe")
+        let second = entry(bottle: root, name: "second.exe")
+        try Data().write(to: root.appendingPathComponent("drive_c/first.exe"))
+        try Data().write(to: root.appendingPathComponent("drive_c/second.exe"))
+        let tracker = GameActivityTracker()
+        tracker.automaticallyPolls = false
+        tracker.wineserverProbe = { _ in true }
+        tracker.processProbe = { _ in
+            [WineProcess(imageName: "second.exe", winePID: 2, memoryUsage: "0 K", kind: .app)]
+        }
+        await tracker.configure(entries: [first, second], bottle: Bottle(bottleUrl: root))
+        tracker.select(first)
+        await tracker.poll()
+        #expect(tracker.observation.runningEntryIDs == [second.id])
     }
 }

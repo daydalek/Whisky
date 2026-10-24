@@ -18,6 +18,7 @@
 
 import Foundation
 import os.log
+import WhiskyCore
 
 public extension Wine {
     /// Where a set of DLL overrides lives in the prefix registry.
@@ -81,7 +82,7 @@ public extension Wine {
         let start = clock.now
         dllOverrideLogger.info("Beginning DLL override import for \(scopes.count) scope(s)")
         do {
-            try await runWine(["reg", "import", url.path(percentEncoded: false)], bottle: bottle)
+            try await runRegistryImport(["reg", "import", url.path(percentEncoded: false)], bottle: bottle)
         } catch {
             let elapsed = String(describing: start.duration(to: clock.now))
             dllOverrideLogger.error("DLL override import failed after \(elapsed, privacy: .public)")

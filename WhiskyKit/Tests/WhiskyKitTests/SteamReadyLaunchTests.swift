@@ -23,12 +23,16 @@ import Testing
 @Suite("Steam ready launch sequencing")
 @MainActor
 struct SteamReadyLaunchTests {
-    @Test func backgroundWineServicesDoNotTriggerTasklist() async throws {
+    @Test func genericHostNamesPreserveTheBottleProcessSnapshot() async throws {
         let (bottle, _) = try SteamOrchestratorFixture.makeBottle()
         let driver = FakeSteamClientDriver(script: [["services.exe", "winedevice.exe"]])
+        driver.hostOverride = ["wine64", "wineserver"]
         let model = SteamClientOrchestrator(bottle: bottle, driver: driver)
-        #expect(await model.runningImageNames().isEmpty)
-        #expect(driver.listCalls == 0)
+        let names = await model.runningImageNames()
+        #expect(names == ["services.exe", "winedevice.exe"])
+        #expect(!names.contains("steam.exe"))
+        #expect(driver.hostCalls == 0)
+        #expect(driver.listCalls == 1)
     }
 
     @Test func trackingDoesNotRunTasklistDuringClientReadiness() async throws {

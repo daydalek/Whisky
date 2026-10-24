@@ -17,6 +17,7 @@
 //
 
 import SwiftUI
+import WhiskyCore
 import WhiskyKit
 
 struct CleanupConfigSection: View {

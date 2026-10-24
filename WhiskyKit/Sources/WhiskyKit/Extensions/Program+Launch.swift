@@ -83,6 +83,7 @@ extension Program {
         importer: Wine.RegistryImporter = { try await Wine.importRegistry(document: $0, bottle: $1) },
         bootstrapper: Wine.PrefixBootstrapper = { try await Wine.bootstrapPrefix(bottle: $0) }
     ) async throws -> Wine.PreparedLaunch {
+        SettingsPersistence.shared.flush()
         try await Wine.prepareBottlePrefix(bottle: bottle, bootstrapper: bootstrapper)
         await Wine.syncAudioRegistry(bottle: bottle)
         await Wine.syncGPURegistry(bottle: bottle)

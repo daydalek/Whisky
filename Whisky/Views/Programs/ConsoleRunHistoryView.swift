@@ -29,8 +29,7 @@ struct ConsoleRunHistoryView: View {
     let bottle: Bottle
     @Binding var selectedRunId: UUID?
 
-    @State private var history = RunLogHistory()
-    @State private var refreshTimer: Timer?
+    @Binding var history: RunLogHistory
 
     var body: some View {
         Group {
@@ -40,9 +39,18 @@ struct ConsoleRunHistoryView: View {
                 runHistoryContent
             }
         }
-        .onAppear { loadHistory() }
-        .onDisappear { stopRefreshTimer() }
-        .task { startRefreshTimer() }
+        .task(id: program.settings.lastLogFileURL) {
+            let name = program.name
+            let url = bottle.url
+            while !Task.isCancelled {
+                let loaded = await Task.detached(priority: .utility) { RunLogStore.load(for: name, in: url) }.value
+                guard !Task.isCancelled else { return }
+                if history != loaded {
+                    history = loaded
+                }
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            }
+        }
     }
 
     // MARK: - Empty State
@@ -286,10 +294,6 @@ struct ConsoleRunHistoryView: View {
 
     // MARK: - Data Operations
 
-    private func loadHistory() {
-        history = RunLogStore.load(for: program.name, in: bottle.url)
-    }
-
     private func deleteEntry(_ entry: RunLogEntry) {
         if let removed = history.deleteEntry(id: entry.id) {
             let logURL = Wine.logsFolder.appending(path: removed.logFileName)
@@ -309,22 +313,6 @@ struct ConsoleRunHistoryView: View {
         }
         RunLogStore.save(history, for: program.name, in: bottle.url)
     }
-
-    // MARK: - Refresh Timer
-
-    private func startRefreshTimer() {
-        stopRefreshTimer()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
-            Task { @MainActor in
-                loadHistory()
-            }
-        }
-    }
-
-    private func stopRefreshTimer() {
-        refreshTimer?.invalidate()
-        refreshTimer = nil
-    }
 }
 
 // MARK: - Pulse Animation Modifier
@@ -338,6 +326,20 @@ private struct PulseAnimationModifier: ViewModifier {
             .opacity(isPulsing ? 0.4 : 1.0)
             .animation(
                 .easeInOut(duration: 0.8).repeatForever(autoreverses: true),
+                value: isPulsing
+            )
+            .onAppear { isPulsing = true }
+    }
+}
+
+struct ConsoleLogPulseModifier: ViewModifier {
+    @State private var isPulsing = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isPulsing ? 0.4 : 1.0)
+            .animation(
+                .easeInOut(duration: 0.6).repeatForever(autoreverses: true),
                 value: isPulsing
             )
             .onAppear { isPulsing = true }

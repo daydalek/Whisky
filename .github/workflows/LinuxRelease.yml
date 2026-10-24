@@ -1,0 +1,57 @@
+name: Publish Linux packages
+on:
+  push:
+    tags: ['linux-v*']
+permissions:
+  contents: read
+concurrency:
+  group: linux-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  distribution:
+    uses: ./.github/workflows/LinuxDistribution.yml
+  release:
+    name: Publish checked Linux prerelease assets
+    needs: distribution
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: linux-{deb,rpm,appimage}
+          merge-multiple: true
+          path: release
+      - name: Verify all formats and create an immutable prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          RELEASE_COMMIT="$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)"
+          export RELEASE_COMMIT
+          python3 - <<'PY'
+          import hashlib,json,pathlib,os
+          root=pathlib.Path('release')
+          report=json.loads((root/'packages.json').read_text())
+          assert report['passed'] and {a['format'] for a in report['assets']} == {'deb','rpm','appimage'}
+          assert report['sourceTreeDirty'] is False and report['sourceCommit'] == os.environ['RELEASE_COMMIT']
+          for asset in report['assets']:
+              with (root/asset['name']).open('rb') as stream:
+                  assert hashlib.file_digest(stream,'sha256').hexdigest() == asset['sha256']
+          (root/'RELEASE-NOTES.md').write_text(
+              'Whisky ' + report['version'] + ' for Linux amd64 (prerelease).\n\n'
+              '- Baseline: glibc 2.39 or newer; Python 3.12 or newer.\n'
+              '- deb: Ubuntu 24.04; install with `sudo apt install ./whisky_*.deb`.\n'
+              '- rpm: Fedora 44; install with `sudo dnf install ./whisky-*.rpm`.\n'
+              '- AppImage: tested on Ubuntu 24.04 and Fedora 44. Make executable and run. '
+              'For environments without FUSE, use `APPIMAGE_EXTRACT_AND_RUN=1 ./Whisky-*.AppImage`.\n'
+              '- Graphics drivers, OpenGL ES/Vulkan, fonts and host desktop tools use the system installation.\n'
+              '- Wine downloads separately; Bottle and game data remain in user data directories.\n'
+              '- Sources, dependency records and notices are included in each package.\n'
+              '- CI checks package installation, helper/library access, production window, GTK chooser, '
+              'Wine update transactions and native-package uninstall preservation.\n'
+              '- Hardware GPU and game acceptance is tracked separately.\n')
+          PY
+          gh release create "$RELEASE_TAG" --verify-tag --prerelease --notes-file release/RELEASE-NOTES.md \
+            release/*.deb release/*.rpm release/*.AppImage release/packages.json release/elf-abi.json release/SHA256SUMS

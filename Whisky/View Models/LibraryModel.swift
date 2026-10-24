@@ -17,22 +17,12 @@
 //  If not, see https://www.gnu.org/licenses/.
 //
 
-import AppKit
 import Combine
 import Foundation
-import UniformTypeIdentifiers
+import WhiskyCore
 import WhiskyKit
 
-/// How the library grid is ordered.
-enum LibrarySort: String, CaseIterable, Identifiable {
-    case recent
-    case name
-    case bottle
-
-    var id: String {
-        rawValue
-    }
-
+extension LibrarySort {
     var label: LocalizedStringResource {
         switch self {
         case .recent: "library.sort.recent"
@@ -43,43 +33,129 @@ enum LibrarySort: String, CaseIterable, Identifiable {
 }
 
 /// A library entry plus what the grid needs to draw it. `bottleName` and
-/// `lastPlayed` are presentation, which is why they live here rather than in
+/// `lastSessionEndedAt` are presentation, which is why they live here rather than in
 /// ``LibraryEntry``.
-struct LibraryRow: Identifiable {
+struct LibraryRow: Identifiable, Equatable, LibrarySortableRow {
     let item: LibraryEntry
     let bottleName: String?
-    let lastPlayed: Date?
+    var lastSessionEndedAt: Date?
+    var activity = GameActivity()
 
     var id: String {
         item.id
     }
 }
 
-/// Builds the library and owns what is currently starting or running.
-///
-/// A view model rather than view state because the running half comes from a
-/// ``SteamClientOrchestrator`` per bottle, and those are long-lived objects with
-/// their own pollers: the library previously made one per launch and threw it
-/// away, so everything it published (the launch phase, the running App IDs, the
-/// launch error) went nowhere.
+/// Builds UI rows and translates shared runtime events into Combine observation.
 @MainActor
 final class LibraryModel: ObservableObject {
-    @Published private(set) var rows: [LibraryRow] = []
+    @Published private(set) var rows: [LibraryRow] = [] {
+        didSet {
+            let ids = Set(rows.map(\.id))
+            if ids != catalogueIDs {
+                catalogueIDs = ids
+                catalogueRevision &+= 1
+                NotificationCenter.default.post(name: LibrarySidebarCounts.didChange, object: nil)
+            }
+        }
+    }
+
+    private var catalogueIDs: Set<String> = []
+    @Published private(set) var catalogueRevision: UInt64 = 0
     @Published private var hiddenByBottle: [URL: Set<String>] = [:]
     @Published var launchError: String?
     @Published var toast: ToastData?
 
-    /// App IDs with a launch in flight, per bottle.
-    @Published private var steamLaunching: [URL: Set<Int>] = [:]
-    @Published private var steamPhases: [URL: [Int: SteamClientOrchestrator.Phase]] = [:]
-    /// App IDs whose own processes are in the bottle's process list.
-    @Published private var steamRunning: [URL: Set<Int>] = [:]
-    /// Programs whose launch call has not returned yet.
-    @Published private var programLaunching: Set<URL> = []
+    @Published private var runtimeState = LibraryRuntimeState()
+    private let runtime: any LibraryRuntime
+    private let content: any LibraryContentProviding
+    private var runtimeEventsTask: Task<Void, Never>?
+    private var activityRefreshGeneration = 0
+    private var pendingActivityIDs: Set<String> = []
+    @Published private(set) var completionRevision: UInt64 = 0
+    private(set) var completedEntryIDs: Set<String> = []
+    private let executablePicker: any ExecutablePicker
+    private let terminalLaunchRequested: @MainActor () -> Bool
+    private var executableSelections: [String: Task<URL?, any Error>] = [:]
+
+    init(
+        runtime: any LibraryRuntime, content: any LibraryContentProviding, executablePicker: any ExecutablePicker,
+        terminalLaunchRequested: @escaping @MainActor () -> Bool
+    ) {
+        self.runtime = runtime
+        self.content = content
+        self.runtimeState = runtime.state
+        self.executablePicker = executablePicker
+        self.terminalLaunchRequested = terminalLaunchRequested
+        let events = runtime.events()
+        runtimeEventsTask = Task { [weak self] in
+            for await event in events {
+                guard !Task.isCancelled else { return }
+                self?.consume(event)
+            }
+        }
+    }
+
+    private func consume(_ event: LibraryRuntimeEvent) {
+        switch event {
+        case let .state(updated):
+            let changed = updated.observation != runtimeState.observation
+            runtimeState = updated
+            let observation = updated.observation
+            guard changed, !observation.endedEntryIDs.isEmpty,
+                  UserDefaults.standard.object(forKey: "libraryRefreshAfterExit") as? Bool ?? true
+            else { return }
+            applyCompletions(observation.completedAt, entryIDs: observation.endedEntryIDs)
+            Task { await self.refreshActivity(entryIDs: observation.endedEntryIDs) }
+        case let .launchResult(id, result):
+            if let error = result.errorDescription, !runtimeState.launch.runningEntryIDs.contains(id) {
+                launchError = error
+            }
+            toast = result.toastData
+        case let .failure(failure):
+            switch failure {
+            case let .launchTimedOut(_, detail):
+                launchError = String(localized: "library.launch.timeout") + (detail.map { "\n" + $0 } ?? "")
+            case .unavailable: launchError = CocoaError(.fileNoSuchFile).localizedDescription
+            case let .driver(message): launchError = message
+            }
+        }
+    }
+
+    deinit {
+        runtimeEventsTask?.cancel()
+        for task in executableSelections.values {
+            task.cancel()
+        }
+    }
+
+    /// Refresh only personal records. Artwork, catalogue discovery and network matching stay cached.
+    func refreshActivity(entryIDs: Set<String>? = nil) async {
+        activityRefreshGeneration += 1
+        let generation = activityRefreshGeneration
+        pendingActivityIDs.formUnion(entryIDs ?? Set(rows.map(\.id)))
+        let entries = rows.filter { pendingActivityIDs.contains($0.id) }.map(\.item)
+        guard let records = try? await content.activities(for: entries),
+              !Task.isCancelled, generation == activityRefreshGeneration
+        else { return }
+        pendingActivityIDs.removeAll()
+        var updated = rows
+        for index in updated.indices {
+            if let activity = records[updated[index].id] {
+                let current = activityWithCompletions(activity, for: updated[index].item)
+                updated[index].activity = current
+                updated[index].lastSessionEndedAt = current.lastSessionEndedAt
+            }
+        }
+        let ordered = sorted(updated)
+        if ordered != rows {
+            rows = ordered
+        }
+    }
 
     var sort: LibrarySort = .recent {
         didSet {
-            guard sort != oldValue else { return }
+            guard sort != oldValue, !presentationUpdate else { return }
             rows = sorted(rows)
         }
     }
@@ -88,13 +164,13 @@ final class LibraryModel: ObservableObject {
     /// Timeline views follow the selected ordering across all entries.
     var groupsLaunchers = true {
         didSet {
-            guard groupsLaunchers != oldValue else { return }
+            guard groupsLaunchers != oldValue, !presentationUpdate else { return }
             rows = sorted(rows)
         }
     }
 
-    private var orchestrators: [URL: SteamClientOrchestrator] = [:]
-    private var cancellables: Set<AnyCancellable> = []
+    private var presentationUpdate = false
+
     private var settingsSubscriptions: [AnyCancellable] = []
     private var discoveredEntries: [URL: [LibraryEntry]] = [:]
     private var reloadGeneration = 0
@@ -111,22 +187,7 @@ final class LibraryModel: ObservableObject {
     /// grace period for up to two minutes while shaders precompile, which can
     /// outlast the game actually appearing.
     func state(for entry: LibraryEntry) -> LibraryEntryState {
-        switch entry.launch {
-        case let .program(url):
-            programLaunching.contains(url) ? .launching : .idle
-        case let .steam(appID):
-            if steamRunning[entry.bottleURL]?.contains(appID) == true {
-                .running
-            } else if steamLaunching[entry.bottleURL]?.contains(appID) == true {
-                switch steamPhases[entry.bottleURL]?[appID] {
-                case .startingClient: .startingSteam
-                case .waitingForClient: .waitingForSteam
-                default: .launching
-                }
-            } else {
-                .idle
-            }
-        }
+        runtimeState.launch.state(for: entry)
     }
 
     // MARK: - Building
@@ -140,16 +201,9 @@ final class LibraryModel: ObservableObject {
         reloadGeneration += 1
         let generation = reloadGeneration
         let showBottleName = bottles.count > 1
-        settingsSubscriptions = bottles.map { bottle in
-            bottle.$settings.dropFirst().sink { [weak self, weak bottle] settings in
-                guard let self, let bottle else { return }
-                // @Published emits before bottle.settings changes: use the new
-                // value, not a read of the old settings through the bottle.
-                self.updateEntries(in: bottle, settings: settings, showBottleName: showBottleName)
-            }
-        }
+        settingsSubscriptions = observeSettings(in: bottles, showBottleName: showBottleName)
         let available = Set(bottles.map(\.url))
-        GameActivityTracker.shared.retainBottles(available)
+        runtime.retainContainers(available)
         rows.removeAll { !available.contains($0.item.bottleURL) }
         discoveredEntries = discoveredEntries.filter { available.contains($0.key) }
         // Publish pins immediately; slow filesystem discovery must not delay a
@@ -161,26 +215,10 @@ final class LibraryModel: ObservableObject {
             let url = bottle.url
             let discovered: [LibraryEntry]
             do {
-                let result = try await Task.detached {
-                    let steam = SteamLibrarySource.entries(inBottleAt: url)
-                    var folders = try FolderGameLibrary.load(bottleURL: url)
-                    let exclusions = SteamLibrary.enumerate(bottleURL: url).map(\.installURL)
-                        + [SteamLibrary.detectInstall(bottleURL: url)].compactMap { $0 }
-                    let entries = folders.scan(bottleURL: url, steamDirectories: exclusions)
-                    return (steam + entries, folders)
-                }.value
+                let result = try await content.discover(in: url)
                 guard !Task.isCancelled, generation == reloadGeneration else { return }
-                var current = try FolderGameLibrary.load(bottleURL: url)
-                if current.roots == result.1.roots,
-                   current.assignedFolders == result.1.assignedFolders,
-                   current.excludedFolders == result.1.excludedFolders,
-                   !current.roots.isEmpty || !current.assignedFolders.isEmpty {
-                    current.knownFolders = result.1.knownFolders
-                    current.initializedRoots = result.1.initializedRoots
-                    current.pendingMetadata.formUnion(result.1.pendingMetadata)
-                    try current.save(bottleURL: url)
-                }
-                discovered = result.0
+                try content.commit(result)
+                discovered = result.entries
             } catch {
                 launchError = error.localizedDescription
                 continue
@@ -190,14 +228,13 @@ final class LibraryModel: ObservableObject {
             // Read pins after the await so an earlier scan cannot resurrect a
             // pin removed while discovery was running.
             updateEntries(in: bottle, settings: bottle.settings, showBottleName: showBottleName)
-            trackSteam(in: bottle)
-            await trackActivity(in: bottle)
+            await configureRuntime(in: bottle)
         }
     }
 
-    private func trackActivity(in bottle: Bottle) async {
-        await GameActivityTracker.shared.configure(
-            entries: rows.filter { $0.item.bottleURL == bottle.url }.map(\.item), bottle: bottle
+    private func configureRuntime(in bottle: Bottle) async {
+        await runtime.configure(
+            entries: rows.filter { $0.item.bottleURL == bottle.url }.map(\.item), containerURL: bottle.url
         )
     }
 
@@ -205,7 +242,7 @@ final class LibraryModel: ObservableObject {
         let pinned = PinnedLibrarySource.items(inBottleAt: bottle.url, settings: settings)
         let visibility: LibraryVisibility
         do {
-            visibility = try LibraryVisibility.load(bottleURL: bottle.url)
+            visibility = try content.visibility(in: bottle.url)
         } catch {
             launchError = error.localizedDescription
             return
@@ -213,82 +250,24 @@ final class LibraryModel: ObservableObject {
         hiddenByBottle[bottle.url] = visibility.hiddenIdentities
         let items = LibraryCatalogue.merge([pinned, discoveredEntries[bottle.url] ?? []])
             .filter { visibility.includes($0, showHidden: true) }
-        let routed = GameRouting().lastLaunches()
         let updated = items.map { item in
-            LibraryRow(
+            let activity = activityWithCompletions(
+                (try? content.activity(for: item)) ?? GameActivity(),
+                for: item
+            )
+            return LibraryRow(
                 item: item,
                 bottleName: showBottleName ? settings.name : nil,
-                lastPlayed: lastPlayed(for: item, routed: routed)
+                lastSessionEndedAt: activity.lastSessionEndedAt,
+                activity: activity
             )
         }
         rows = sorted(rows.filter { $0.item.bottleURL != bottle.url } + updated)
     }
 
-    /// When an entry was last started in Whisky.
-    private func lastPlayed(
-        for item: LibraryEntry, routed: [Int: Date]
-    ) -> Date? {
-        if let recorded = try? GameActivityStore.shared.load(for: item).lastPlayed {
-            return recorded
-        }
-        return switch item.launch {
-        case let .program(url):
-            RunLogStore.load(for: url.lastPathComponent, in: item.bottleURL)
-                .entries.map(\.startTime).max()
-        case let .steam(appID):
-            routed[appID]
-        }
-    }
-
     /// Presentation may group launchers after games; timelines use a single order.
     private func sorted(_ rows: [LibraryRow]) -> [LibraryRow] {
-        rows.sorted { first, second in
-            if groupsLaunchers, first.item.isLauncher != second.item.isLauncher {
-                return second.item.isLauncher
-            }
-            return switch sort {
-            case .recent: byRecency(first, second)
-            case .name: byName(first, second)
-            case .bottle: byBottle(first, second)
-            }
-        }
-    }
-
-    private func byRecency(_ first: LibraryRow, _ second: LibraryRow) -> Bool {
-        switch (first.lastPlayed, second.lastPlayed) {
-        case let (lhs?, rhs?): lhs == rhs ? byName(first, second) : lhs > rhs
-        case (_?, nil): true
-        case (nil, _?): false
-        case (nil, nil): byName(first, second)
-        }
-    }
-
-    private func byName(_ first: LibraryRow, _ second: LibraryRow) -> Bool {
-        let comparison = first.item.name.localizedStandardCompare(second.item.name)
-        if comparison != .orderedSame {
-            return comparison == .orderedAscending
-        }
-        let lhs = first.item.bottleURL.absoluteString
-        let rhs = second.item.bottleURL.absoluteString
-        if lhs != rhs {
-            return lhs < rhs
-        }
-        return first.id < second.id
-    }
-
-    private func byBottle(_ first: LibraryRow, _ second: LibraryRow) -> Bool {
-        let lhs = first.bottleName ?? ""
-        let rhs = second.bottleName ?? ""
-        let comparison = lhs.localizedStandardCompare(rhs)
-        if comparison != .orderedSame {
-            return comparison == .orderedAscending
-        }
-        let lhsURL = first.item.bottleURL.absoluteString
-        let rhsURL = second.item.bottleURL.absoluteString
-        if lhsURL != rhsURL {
-            return lhsURL < rhsURL
-        }
-        return byName(first, second)
+        LibraryOrdering.sorted(rows, by: sort, groupsLaunchers: groupsLaunchers)
     }
 }
 
@@ -297,65 +276,17 @@ final class LibraryModel: ObservableObject {
 extension LibraryModel {
     func setHidden(_ hidden: Bool, for item: LibraryEntry) {
         do {
-            var visibility = try LibraryVisibility.load(bottleURL: item.bottleURL)
-            visibility.setHidden(hidden, for: item)
-            try visibility.save(bottleURL: item.bottleURL)
+            let visibility = try content.setHidden(hidden, for: item)
             hiddenByBottle[item.bottleURL] = visibility.hiddenIdentities
+            NotificationCenter.default.post(name: LibrarySidebarCounts.didChange, object: nil)
         } catch { launchError = error.localizedDescription }
     }
 
     @discardableResult
-    // swiftlint:disable:next function_body_length
     func moveEntry(_ item: LibraryEntry, to targetBottle: Bottle, bottles: [Bottle]) async -> LibraryRow? {
-        guard item.bottleURL != targetBottle.url,
-              case let .program(url) = item.launch
-        else { return nil }
-        let wasHidden = isHidden(item)
+        guard item.bottleURL != targetBottle.url, case .program = item.launch else { return nil }
         do {
-            let targetEntry = LibraryEntry(
-                id: item.id,
-                name: item.name,
-                iconURL: item.iconURL,
-                artworkURL: item.artworkURL,
-                bottleURL: targetBottle.url,
-                source: item.source,
-                launch: item.launch,
-                launcher: item.launcher
-            )
-            if item.source == .folder {
-                try FolderGameLibrary.moveFolder(url, from: item.bottleURL, to: targetBottle.url)
-            } else {
-                // Program initialization writes defaults when no settings file exists.
-                FolderGameLibrary.migrateProgramSettings(for: url, from: item.bottleURL, to: targetBottle.url)
-                if let sourceBottle = bottles.first(where: { $0.url == item.bottleURL }) {
-                    sourceBottle.settings.pins.removeAll { $0.url == url }
-                    if let program = sourceBottle.programs.first(where: { $0.url == url }) {
-                        program.pinned = false
-                    }
-                }
-                if !targetBottle.settings.pins.contains(where: { $0.url == url }) {
-                    targetBottle.settings.pins.append(PinnedProgram(name: item.name, url: url))
-                }
-                if let program = targetBottle.programs.first(where: { $0.url == url }) {
-                    program.pinned = true
-                } else {
-                    let program = Program(url: url, bottle: targetBottle)
-                    program.pinned = true
-                    targetBottle.programs.append(program)
-                }
-            }
-
-            let sourceStore = GameMetadataStore(directory: item.metadataDirectory)
-            let targetStore = GameMetadataStore(directory: targetEntry.metadataDirectory)
-            try await sourceStore.copyEntry(
-                for: item.metadataIdentity,
-                to: targetStore,
-                targetIdentity: targetEntry.metadataIdentity
-            )
-            try await GameActivityStore.shared.perform { try $0.copy(from: item, to: targetEntry) }
-            var visibility = try LibraryVisibility.load(bottleURL: targetBottle.url)
-            visibility.setHidden(wasHidden, for: targetEntry)
-            try visibility.save(bottleURL: targetBottle.url)
+            _ = try await content.move(item, to: targetBottle.url, hidden: isHidden(item))
             await reload(bottles: bottles)
             return rows.first { $0.item.bottleURL == targetBottle.url && $0.item.launch == item.launch }
         } catch {
@@ -365,143 +296,111 @@ extension LibraryModel {
     }
 
     func cancelLaunch(_ row: LibraryRow) {
-        guard case let .steam(appID) = row.item.launch else { return }
-        orchestrators[row.item.bottleURL]?.cancelLaunch(appID: appID)
+        runtime.cancelLaunch(for: row.item)
     }
 
     func launch(_ row: LibraryRow, bottles: [Bottle]) {
-        guard let bottle = bottles.first(where: { $0.url == row.item.bottleURL }) else { return }
-
-        switch row.item.launch {
-        case let .program(url):
-            if row.item.source == .folder {
-                if let executable = folderExecutable(row.item) {
-                    launchProgram(at: executable, in: bottle, entry: row.item)
-                }
+        guard bottles.contains(where: { $0.url == row.item.bottleURL }) else { return }
+        let mode: LibraryLaunchRequest.Mode = terminalLaunchRequested() ? .terminal : .standard
+        if case .program = row.item.launch, row.item.source == .folder {
+            Task {
+                guard let executable = await folderExecutable(row.item),
+                      rows.contains(where: { $0.id == row.id && $0.item.bottleURL == row.item.bottleURL })
+                else { return }
+                launch(LibraryLaunchRequest(entry: row.item, executableURL: executable, mode: mode))
+            }
+        } else {
+            let requestedMode: LibraryLaunchRequest.Mode = if case .steam = row.item.launch {
+                .standard
             } else {
-                launchProgram(at: url, in: bottle, entry: row.item)
+                mode
             }
-        case let .steam(appID):
-            let games = SteamLibrary.enumerate(bottleURL: bottle.url)
-            guard let game = games.first(where: { $0.appId == appID }) else {
-                launchError = String(localized: "library.launch.steamGameMissing")
-                return
-            }
-            GameActivityTracker.shared.select(row.item)
-            orchestrator(for: bottle).launch(game)
+            launch(LibraryLaunchRequest(entry: row.item, mode: requestedMode))
         }
     }
 
-    func folderExecutable(_ item: LibraryEntry, chooseAgain: Bool = false) -> URL? {
-        guard case let .program(folder) = item.launch else { return nil }
+    private func launch(_ request: LibraryLaunchRequest) {
+        if case .program = request.entry.launch {
+            Telemetry.capture(.firstProgramLaunchAttempted)
+        }
+        runtime.launch(request)
+    }
+
+    func folderExecutable(_ item: LibraryEntry, chooseAgain: Bool = false) async -> URL? {
         do {
-            var library = try FolderGameLibrary.load(bottleURL: item.bottleURL)
-            if !chooseAgain, let url = library.executable(for: folder, bottleURL: item.bottleURL),
-               FileManager.default.fileExists(atPath: url.path) {
-                return url
+            if let pending = executableSelections[item.id] {
+                return try await pending.value
             }
-            let panel = NSOpenPanel()
-            panel.directoryURL = folder
-            panel.canChooseDirectories = false
-            panel.allowsMultipleSelection = false
-            panel.allowedContentTypes = [UTType(filenameExtension: "exe") ?? .data]
-            guard panel.runModal() == .OK, let url = panel.url else { return nil }
-            library.executables[FolderGameLibrary.key(for: folder, bottleURL: item.bottleURL)] =
-                FolderGameLibrary.key(for: url, bottleURL: item.bottleURL)
-            try library.save(bottleURL: item.bottleURL)
-            return url
+            let picker = executablePicker
+            let task = Task {
+                try await FolderGameLibrary.resolveExecutable(for: item, chooseAgain: chooseAgain, picker: picker)
+            }
+            executableSelections[item.id] = task
+            defer { executableSelections[item.id] = nil }
+            return try await task.value
         } catch {
             launchError = error.localizedDescription
             return nil
         }
     }
 
-    /// Stops a running Steam game. Programs have no per-entry stop: the launch
-    /// path returns long before the program exits, so there is nothing tracked
-    /// to stop. The bottle's own stop is what reaches those.
     func stop(_ row: LibraryRow, bottles: [Bottle]) {
-        guard case let .steam(appID) = row.item.launch,
-              let bottle = bottles.first(where: { $0.url == row.item.bottleURL })
-        else { return }
-
-        let games = SteamLibrary.enumerate(bottleURL: bottle.url)
-        guard let game = games.first(where: { $0.appId == appID }) else { return }
-        Task { await orchestrator(for: bottle).stop(game) }
+        guard bottles.contains(where: { $0.url == row.item.bottleURL }) else { return }
+        Task { await runtime.stop(row.item) }
     }
 
-    private func launchProgram(at url: URL, in bottle: Bottle, entry: LibraryEntry) {
-        GameActivityTracker.shared.track(entry, executable: url, bottle: bottle)
-        // Through the bottle's own program list where possible, so the launch
-        // picks up that program's overrides rather than only the bottle's.
-        guard let program = bottle.programs.first(where: { $0.url == url }) else {
-            programLaunching.insert(url)
-            Task {
-                defer { programLaunching.remove(url) }
-                do {
-                    try await Program(url: url, bottle: bottle).launch()
-                } catch {
-                    launchError = error.localizedDescription
-                }
-            }
-            return
-        }
-
-        programLaunching.insert(url)
-        Telemetry.capture(.firstProgramLaunchAttempted)
-        let useTerminal = NSEvent.modifierFlags.contains(.shift)
-        Task {
-            let result = await program.launchWithUserMode(useTerminal: useTerminal)
-            programLaunching.remove(url)
-            toast = result.toastData
-        }
-    }
-
-    /// The orchestrator for a bottle, made once and kept.
-    ///
-    /// Its `phases` and `runningAppIds` are what the cards read, so it has to
-    /// outlive the launch that created it.
-    private func orchestrator(for bottle: Bottle) -> SteamClientOrchestrator {
-        if let existing = orchestrators[bottle.url] {
-            return existing
-        }
-
-        let made = SteamClientOrchestrator(bottle: bottle, driver: AppSteamClientDriver(bottle: bottle))
-        let url = bottle.url
-        made.$phases
-            .sink { [weak self] phases in
-                self?.steamLaunching[url] = Set(phases.keys)
-                self?.steamPhases[url] = phases
-            }
-            .store(in: &cancellables)
-        made.$runningAppIds
-            .sink { [weak self] running in
-                self?.steamRunning[url] = running
-            }
-            .store(in: &cancellables)
-        made.$launchError
-            .compactMap { $0 }
-            .sink { [weak self] error in
-                self?.launchError = error
-            }
-            .store(in: &cancellables)
-
-        orchestrators[bottle.url] = made
-        return made
-    }
-
-    /// Starts (or restarts) running-state polling for a bottle's Steam games.
-    private func trackSteam(in bottle: Bottle) {
-        let games = SteamLibrary.enumerate(bottleURL: bottle.url)
-        guard !games.isEmpty else { return }
-        orchestrator(for: bottle).startTracking(games: games)
-    }
-
-    /// Stops every poller. Called when the library leaves the screen.
+    /// Stops UI pollers while application-scoped activity tracking continues.
     func stopTracking() {
         settingsSubscriptions.removeAll()
         reloadGeneration += 1
-        for orchestrator in orchestrators.values {
-            orchestrator.stop()
+        runtime.stopTracking()
+    }
+}
+
+private extension LibraryModel {
+    private func activityWithCompletions(_ record: GameActivity, for item: LibraryEntry) -> GameActivity {
+        var activity = record
+        if let observed = runtimeState.observation.completedAt[item.id] {
+            activity.lastSessionEndedAt = max(activity.lastSessionEndedAt ?? observed, observed)
         }
+        return activity
+    }
+}
+
+extension LibraryModel {
+    private func observeSettings(in bottles: [Bottle], showBottleName: Bool) -> [AnyCancellable] {
+        bottles.map { bottle in
+            let updates = bottle.$settings.removeDuplicates { lhs, rhs in
+                lhs.name == rhs.name && lhs.pins == rhs.pins
+            }
+            return updates.dropFirst().sink { [weak self, weak bottle] settings in
+                guard let self, let bottle else { return }
+                self.updateEntries(in: bottle, settings: settings, showBottleName: showBottleName)
+            }
+        }
+    }
+
+    /// A presentation change reuses loaded activity and sorts once.
+    func configurePresentation(sort: LibrarySort, groupsLaunchers: Bool) {
+        guard self.sort != sort || self.groupsLaunchers != groupsLaunchers else { return }
+        presentationUpdate = true
+        self.sort = sort
+        self.groupsLaunchers = groupsLaunchers
+        presentationUpdate = false
+        rows = sorted(rows)
+    }
+
+    private func applyCompletions(_ dates: [String: Date], entryIDs: Set<String>) {
+        var updated = rows
+        for index in updated.indices where entryIDs.contains(updated[index].id) {
+            updated[index].lastSessionEndedAt = dates[updated[index].id]
+            updated[index].activity.lastSessionEndedAt = dates[updated[index].id]
+        }
+        let ordered = sorted(updated)
+        if ordered != rows {
+            rows = ordered
+        }
+        completedEntryIDs = entryIDs
+        completionRevision &+= 1
     }
 }

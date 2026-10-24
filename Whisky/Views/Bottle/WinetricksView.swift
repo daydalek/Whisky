@@ -22,7 +22,7 @@ import WhiskyKit
 struct WinetricksView: View {
     var bottle: Bottle
     @State private var winetricks: [WinetricksCategory]?
-    @State private var selectedTrick: UUID?
+    @State private var selectedTrick: String?
     @State private var installedVerbs: Set<String> = []
     @State private var isLoadingInstalledVerbs = true
     @State private var verbFilter: VerbFilter = .all
@@ -80,7 +80,7 @@ struct WinetricksView: View {
                             }
 
                             let trick = winetricks.flatMap(\.verbs)
-                                .first(where: { $0.id == selectedTrick })
+                                .first(where: { $0.name == selectedTrick })
                             if let trickName = trick?.name {
                                 Task.detached {
                                     await Winetricks.runCommand(
@@ -106,7 +106,7 @@ struct WinetricksView: View {
         .searchable(text: $searchText, placement: .toolbar, prompt: "winetricks.search.prompt")
         .onAppear {
             Task.detached {
-                let tricks = await Winetricks.parseVerbs()
+                let tricks = Winetricks.parseVerbs()
 
                 await MainActor.run {
                     winetricks = tricks

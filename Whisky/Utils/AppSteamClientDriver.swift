@@ -1,6 +1,6 @@
 //
 //  AppSteamClientDriver.swift
-//  Whisky
+//  WhiskyKit
 //
 //  This file is part of Whisky.
 //
@@ -16,22 +16,7 @@
 //  If not, see https://www.gnu.org/licenses/.
 //
 
-import Foundation
 import WhiskyKit
 
-/// The kit's Wine-backed driver plus the one thing that is the app's business:
-/// Steam download monitoring for the session, started when the client is up
-/// and stopped with the orchestrator.
-@MainActor
-final class AppSteamClientDriver: WineSteamClientDriver {
-    private let downloadMonitor = SteamDownloadMonitor()
-
-    override func clientDidBecomeReady() {
-        guard !downloadMonitor.isMonitoring else { return }
-        downloadMonitor.startMonitoring(bottleURL: bottle.url, detectedLauncher: .steam)
-    }
-
-    override func shutdown() {
-        downloadMonitor.stopMonitoring()
-    }
-}
+/// Both frontend compositions retain the shared Steam download monitor lifecycle.
+typealias AppSteamClientDriver = MonitoredSteamClientDriver

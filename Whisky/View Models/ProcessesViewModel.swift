@@ -146,7 +146,9 @@ class ProcessesViewModel: ObservableObject {
                 return lhs.imageName.localizedCaseInsensitiveCompare(rhs.imageName) == .orderedAscending
             }
 
-            processes = parsed
+            if processes != parsed {
+                processes = parsed
+            }
         } catch {
             logger.error("Failed to refresh process list: \(error.localizedDescription)")
             // Keep previous process list on error

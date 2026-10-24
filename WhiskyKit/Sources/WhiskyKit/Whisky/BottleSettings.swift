@@ -20,6 +20,7 @@
 import Foundation
 import os.log
 import SemanticVersion
+import WhiskyCore
 
 /// Represents a pinned program entry in a bottle's quick-access list.
 ///
@@ -752,6 +753,7 @@ public struct BottleSettings: Codable, Equatable {
     /// - Throws: An error if the file cannot be read or decoded.
     @discardableResult
     public static func decode(from metadataURL: URL) throws -> BottleSettings {
+        SettingsPersistence.shared.flush(for: metadataURL)
         guard FileManager.default.fileExists(atPath: metadataURL.path(percentEncoded: false)) else {
             // File doesn't exist - create default settings and save them
             let settings = BottleSettings()
@@ -799,7 +801,14 @@ public struct BottleSettings: Codable, Equatable {
     ///
     /// - Parameter metadataUrl: The URL where settings should be saved.
     /// - Throws: An error if the settings cannot be encoded or written.
+    func scheduleSave(to url: URL) throws {
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .xml
+        try SettingsPersistence.shared.enqueue(encoder.encode(self), to: url)
+    }
+
     func encode(to metadataUrl: URL) throws {
+        SettingsPersistence.shared.flush(for: metadataUrl)
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .xml
         let data = try encoder.encode(self)

@@ -18,13 +18,13 @@
 
 import Foundation
 import os.log
-import SemanticVersion
 import WhiskyKit
 
 // MARK: - Bottle Creation Errors
 
 enum BottleCreationError: LocalizedError, Equatable {
     case directoryCreationFailed
+    case emptyName
     case metadataCreationFailed
     case wineVersionChangeFailed
     case persistenceSaveFailed
@@ -38,6 +38,8 @@ enum BottleCreationError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
+        case .emptyName:
+            "Bottle name is required."
         case .directoryCreationFailed:
             String(localized: "bottle.creation.error.directoryCreationFailed")
         case .metadataCreationFailed:
@@ -164,75 +166,48 @@ final class BottleVM: ObservableObject {
     private func createBottleTask(request: BottleCreationRequest) async {
         var bottle: Bottle?
         do {
-            // The Wine runtime is required to initialize the prefix; fail fast
-            // with an actionable error instead of a low-level file-not-found
-            // failure from the wine invocation (issue #61).
-            guard WhiskyWineInstaller.isWhiskyWineInstalled() else {
-                throw BottleCreationError.runtimeMissing
-            }
-
-            // Pre-flight the chosen location before creating anything, so an
-            // unwritable or near-full destination surfaces a clear error up
-            // front instead of a cryptic late wineboot failure (issue #61).
-            if let refusal = bottleLocationRefusal(BottleLocationValidation.validate(at: request.bottleURL)) {
-                throw BottleCreationError.locationUnsuitable(message: refusal)
-            }
-
-            try createBottleDirectory(at: request.newBottleDir)
-
-            // Create bottle on main actor (since Bottle is @MainActor)
-            let createdBottle = Bottle(bottleUrl: request.newBottleDir, inFlight: true)
-            bottle = createdBottle
-            bottles.append(createdBottle)
-
-            // Configure bottle settings (all on MainActor)
-            createdBottle.settings.windowsVersion = request.winVersion
-            createdBottle.settings.name = request.bottleName
-
-            // Wine operations are async and can run on background threads
-            try await Wine.changeWinVersion(bottle: createdBottle, win: request.winVersion)
-            let wineVer = try await Wine.wineVersion()
-            createdBottle.settings.wineVersion = SemanticVersion(wineVer) ?? SemanticVersion(0, 0, 0)
-
-            // Bootstrap host fonts so Unity titles render fallback glyphs correctly.
-            BottleFontBootstrap.copySystemFonts(toPrefix: createdBottle.url)
-
-            // Save settings
-            createdBottle.saveBottleSettings()
-
-            try persistBottleCreation(request: request)
+            let result = try await BottleCreationService.create(
+                name: request.bottleName,
+                windowsVersion: request.winVersion,
+                parentDirectory: request.bottleURL,
+                destinationDirectory: request.newBottleDir,
+                registry: bottlesList,
+                onBottleCreated: { [weak self] createdBottle in
+                    bottle = createdBottle
+                    self?.bottles.append(createdBottle)
+                }
+            )
+            bottlesList = result.registry
             // Reload while the bottle is still in flight so the reload keeps
             // this instance. Reloading after clearing the flag replaced it,
             // and the selected bottle page kept writing to the old one: its
             // first pin never reached the library, the Dock menu, or the menu
             // bar extra until the next reload.
             loadBottles()
-            createdBottle.isAvailable = true
-            createdBottle.inFlight = false
+            result.bottle.isAvailable = true
+            result.bottle.inFlight = false
             Telemetry.capture(.firstBottleCreated)
         } catch {
-            handleBottleCreationFailure(error, request: request, bottle: bottle)
+            let surfacedError = mapBottleCreationError(error)
+            handleBottleCreationFailure(surfacedError, request: request, bottle: bottle)
         }
     }
 
-    private func createBottleDirectory(at url: URL) throws {
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(
-            at: url,
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
-        guard fileManager.fileExists(atPath: url.path(percentEncoded: false)) else {
-            throw BottleCreationError.directoryCreationFailed
-        }
-    }
-
-    private func persistBottleCreation(request: BottleCreationRequest) throws {
-        // registerBottlePath verifies the entries file on disk actually
-        // contains the new path; a silent save failure here used to make the
-        // bottle vanish on the next launch with no explanation (issue #61).
-        guard bottlesList.registerBottlePath(request.newBottleDir) else {
-            throw BottleCreationError.persistenceSaveFailed
+    private func mapBottleCreationError(_ error: Error) -> Error {
+        guard let serviceError = error as? BottleCreationServiceError else { return error }
+        switch serviceError {
+        case .emptyName:
+            return BottleCreationError.emptyName
+        case .runtimeMissing:
+            return BottleCreationError.runtimeMissing
+        case let .locationUnsuitable(result):
+            return BottleCreationError.locationUnsuitable(message: bottleLocationRefusal(result) ?? "")
+        case .directoryCreationFailed:
+            return BottleCreationError.directoryCreationFailed
+        case .metadataCreationFailed:
+            return BottleCreationError.metadataCreationFailed
+        case .registrySaveFailed:
+            return BottleCreationError.persistenceSaveFailed
         }
     }
 
@@ -261,7 +236,7 @@ final class BottleVM: ObservableObject {
         if let bottle, let index = bottles.firstIndex(of: bottle) {
             bottles.remove(at: index)
         }
-        try? FileManager.default.removeItem(at: request.newBottleDir)
+        // The shared service cleans up only the directory owned by this creation.
     }
 
     private func makeBottleCreationDiagnostics(

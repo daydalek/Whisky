@@ -23,27 +23,6 @@ import WhiskyKit
 
 private let logger = Logger(subsystem: Bundle.whiskyBundleIdentifier, category: "Winetricks")
 
-enum WinetricksCategories: String {
-    case apps
-    case benchmarks
-    case dlls
-    case fonts
-    case games
-    case settings
-}
-
-struct WinetricksVerb: Identifiable {
-    var id = UUID()
-
-    var name: String
-    var description: String
-}
-
-struct WinetricksCategory {
-    var category: WinetricksCategories
-    var verbs: [WinetricksVerb]
-}
-
 class Winetricks {
     @MainActor
     static func runCommand(command: String, bottle: Bottle) async {
@@ -235,57 +214,12 @@ class Winetricks {
         }
     }
 
-    static func parseVerbs() async -> [WinetricksCategory] {
-        // Grab the verbs file bundled in the app Resources.
-        guard let verbsURL = Bundle.main.url(forResource: "verbs.txt", withExtension: nil) else {
-            logger.warning("Could not locate bundled verbs.txt resource")
+    static func parseVerbs() -> [WinetricksCategory] {
+        do {
+            return try WinetricksService.catalog()
+        } catch {
+            logger.warning("Could not load bundled winetricks catalog: \(error.localizedDescription)")
             return []
         }
-        let verbs = (try? String(contentsOf: verbsURL, encoding: .utf8)) ?? String()
-
-        // Read the file line by line
-        let lines = verbs.components(separatedBy: "\n")
-        var categories: [WinetricksCategory] = []
-        var currentCategory: WinetricksCategory?
-
-        for line in lines {
-            // Categories are label as "===== <name> ====="
-            if line.starts(with: "=====") {
-                // If we have a current category, add it to the list
-                if let currentCategory {
-                    categories.append(currentCategory)
-                }
-
-                // Create a new category
-                // Capitalize the first letter of the category name
-                let categoryName = line.replacingOccurrences(of: "=====", with: "").trimmingCharacters(in: .whitespaces)
-                if let cateogry = WinetricksCategories(rawValue: categoryName) {
-                    currentCategory = WinetricksCategory(
-                        category: cateogry,
-                        verbs: []
-                    )
-                } else {
-                    currentCategory = nil
-                }
-            } else {
-                guard currentCategory != nil else {
-                    continue
-                }
-
-                // If we have a current category, add the verb to it
-                // Verbs eg. "3m_library               3M Cloud Library (3M Company, 2015) [downloadable]"
-                let verbName = line.components(separatedBy: " ")[0]
-                let verbDescription = line.replacingOccurrences(of: "\(verbName) ", with: "")
-                    .trimmingCharacters(in: .whitespaces)
-                currentCategory?.verbs.append(WinetricksVerb(name: verbName, description: verbDescription))
-            }
-        }
-
-        // Add the last category
-        if let currentCategory {
-            categories.append(currentCategory)
-        }
-
-        return categories
     }
 }

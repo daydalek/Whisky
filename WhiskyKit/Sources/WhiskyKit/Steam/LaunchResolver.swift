@@ -17,6 +17,7 @@
 //
 
 import Foundation
+import WhiskyCore
 
 /// The resolved configuration for launching one game once.
 ///

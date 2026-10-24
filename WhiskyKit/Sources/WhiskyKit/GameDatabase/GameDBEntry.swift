@@ -18,6 +18,7 @@
 //
 
 import Foundation
+import WhiskyCore
 
 // MARK: - Supporting Types
 
@@ -26,27 +27,7 @@ import Foundation
 /// Combines optional SHA-256 hash, file size, and PE timestamp to match
 /// against known game executables. At least one field should be non-nil
 /// for a meaningful fingerprint.
-public struct ExeFingerprint: Codable, Sendable, Equatable {
-    /// The SHA-256 hash of the executable file, if computed.
-    public let sha256: String?
-    /// The file size in bytes.
-    public let fileSize: Int64?
-    /// The PE COFF header timestamp.
-    public let peTimestamp: Date?
-
-    public init(sha256: String? = nil, fileSize: Int64? = nil, peTimestamp: Date? = nil) {
-        self.sha256 = sha256
-        self.fileSize = fileSize
-        self.peTimestamp = peTimestamp
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.sha256 = try container.decodeIfPresent(String.self, forKey: .sha256)
-        self.fileSize = try container.decodeIfPresent(Int64.self, forKey: .fileSize)
-        self.peTimestamp = try container.decodeIfPresent(Date.self, forKey: .peTimestamp)
-    }
-}
+public typealias ExeFingerprint = WhiskyCore.ExeFingerprint
 
 /// Hardware and software constraints for a game configuration.
 ///

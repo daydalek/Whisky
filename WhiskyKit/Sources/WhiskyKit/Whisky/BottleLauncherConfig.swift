@@ -17,6 +17,7 @@
 //
 
 import Foundation
+import WhiskyCore
 
 /// Configuration settings for game launcher compatibility.
 ///
