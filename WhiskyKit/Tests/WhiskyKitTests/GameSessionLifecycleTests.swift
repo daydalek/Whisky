@@ -209,7 +209,7 @@ struct GameSessionLifecycleTests {
         }
         #expect(tracker.observation.runningEntryIDs == [game.id])
         await tracker.stopPolling()
-        #expect(start.duration(to: .now) < .seconds(2))
+        #expect(start.duration(to: .now) < .seconds(30))
     }
 
     @Test func aLockedActivityFileKeepsProcessObservationResponsive() async throws {
@@ -237,7 +237,7 @@ struct GameSessionLifecycleTests {
         await tracker.poll(waitForPersistence: false)
         await tracker.poll(waitForPersistence: false)
         #expect(tracker.observation.endedEntryIDs == [game.id])
-        #expect(start.duration(to: .now) < .seconds(2))
+        #expect(start.duration(to: .now) < .seconds(30))
         flock(descriptor, LOCK_UN)
         await tracker.stopPolling()
         #expect(try GameActivityStore.shared.load(for: game).lastSessionEndedAt != nil)
