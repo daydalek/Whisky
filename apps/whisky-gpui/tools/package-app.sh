@@ -116,15 +116,10 @@ cp "${ICONSET_SRC}/512@2x.png"    "${ICONSET_BUILD}/icon_512x512@2x.png"
 iconutil -c icns "${ICONSET_BUILD}" -o "${CONTENTS}/Resources/AppIcon.icns"
 rm -rf "$(dirname "${ICONSET_BUILD}")"
 
-# Sign embedded executables and bundles, then the main app with entitlements.
-for file in "${CONTENTS}/Resources/whisky-bridge" "${CONTENTS}/Resources/cabextract" "${CONTENTS}/MacOS/whisky-gpui"; do
+# Sign embedded executables, then the main app with entitlements.
+for file in "${CONTENTS}/MacOS/whisky-gpui" "${CONTENTS}/Resources/whisky-bridge" "${CONTENTS}/Resources/cabextract"; do
     if [[ -f "$file" ]]; then
         codesign --force --sign - "$file"
-    fi
-done
-for bundle in "${CONTENTS}/Resources"/*.bundle; do
-    if [[ -d "$bundle" ]]; then
-        codesign --force --sign - "$bundle"
     fi
 done
 ENTITLEMENTS="${REPO_ROOT}/Whisky/Whisky.entitlements"
