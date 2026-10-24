@@ -209,6 +209,20 @@ impl ProgramSettingsPage {
     }
 
     pub(crate) fn apply_settings(&mut self, settings: ProgramSettingsDto) {
+        #[cfg(target_os = "linux")]
+        let mut settings = settings;
+        #[cfg(target_os = "linux")]
+        for values in std::iter::once(&mut settings.defaults).chain(settings.overrides.iter_mut()) {
+            if matches!(values.graphics_backend.as_deref(), Some("d3dMetal" | "dxmt")) {
+                values.graphics_backend = Some("recommended".into());
+            }
+            if values.enhanced_sync.as_deref() == Some("msync") {
+                values.enhanced_sync = Some("esync".into());
+            }
+            if values.resolution_preset.as_deref() == Some("matchDisplay") {
+                values.resolution_preset = Some("r1920x1080".into());
+            }
+        }
         self.env_rows = settings
             .environment
             .iter()
@@ -327,6 +341,10 @@ pub(crate) fn settings_patch(
             "taggedVerbs": overrides.tagged_verbs,
         }),
     };
+    #[cfg(target_os = "linux")]
+    if let Some(overrides) = patch["overrides"].as_object_mut() {
+        overrides.remove("metal4Enabled");
+    }
     patch
 }
 
@@ -469,6 +487,23 @@ mod tests {
             "dxgi"
         );
         assert_eq!(settings.defaults.graphics_backend.as_deref(), Some("recommended"));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn imported_macos_preferences_render_and_save_supported_linux_values() {
+        let mut source = settings();
+        source.overrides_mut().graphics_backend = Some("d3dMetal".into());
+        source.overrides_mut().enhanced_sync = Some("msync".into());
+        source.overrides_mut().resolution_preset = Some("matchDisplay".into());
+        source.overrides_mut().metal4_enabled = Some(true);
+        let mut page = ProgramSettingsPage::default();
+        page.apply_settings(source);
+        let patch = settings_patch(page.settings.as_ref().unwrap(), "--test", &BTreeMap::new());
+        assert_eq!(patch["overrides"]["graphicsBackend"], "recommended");
+        assert_eq!(patch["overrides"]["enhancedSync"], "esync");
+        assert_eq!(patch["overrides"]["resolutionPreset"], "r1920x1080");
+        assert!(patch["overrides"].get("metal4Enabled").is_none());
     }
 
     #[test]

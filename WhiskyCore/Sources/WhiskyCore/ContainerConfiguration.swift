@@ -53,9 +53,18 @@ public enum ContainerConfiguration {
                 ("winxp64", "Windows XP"), ("win7", "Windows 7"), ("win8", "Windows 8"),
                 ("win81", "Windows 8.1"), ("win10", "Windows 10"), ("win11", "Windows 11")
             ], requires: ["wine.configuration"]),
-            choice("enhancedSync", "增强同步", "wineConfig.enhancedSync", "msync", [
-                ("none", "关闭"), ("esync", "ESync"), ("msync", "MSync")
-            ], tagged: true),
+            ConfigurationField(
+                "enhancedSync",
+                "增强同步",
+                path: "wineConfig.enhancedSync",
+                input: .choice([
+                    .init("none", "关闭"),
+                    .init("esync", "ESync"),
+                    .init("msync", "MSync", platforms: [.macOS])
+                ]),
+                defaultValue: .text("msync"),
+                taggedEnum: true
+            ),
             toggle("avxEnabled", "AVX 支持", "wineConfig.avxEnabled", false)
         ]),
         .init(id: "launcher", title: "启动器兼容性", fields: [
@@ -252,14 +261,6 @@ public enum ContainerConfiguration {
         .init(id: "program", title: "程序配置", fields: programFields)
     ]
 
-    public static func sections(for platform: ConfigurationPlatform) -> [ConfigurationSection] {
-        sections.compactMap { $0.filtered(for: platform) }
-    }
-
-    public static func fields(for platform: ConfigurationPlatform) -> [ConfigurationField] {
-        sections(for: platform).flatMap(\.fields)
-    }
-
     public static func virtualDesktopResolution(
         from values: [String: ConfigurationValue],
         displayDimensions: () -> (width: Int, height: Int)? = { nil }
@@ -315,7 +316,12 @@ public enum ContainerConfiguration {
             id,
             title,
             path: path,
-            input: .choice(options.map { .init($0.0, $0.1) }),
+            input: .choice(options.map { .init(
+                $0.0,
+                $0.1,
+                platforms: $0.0 == "matchDisplay" ? [.macOS] : ConfigurationPlatform
+                    .all
+            ) }),
             defaultValue: .text(value),
             taggedEnum: tagged,
             requires: requires,

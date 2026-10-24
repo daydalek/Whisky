@@ -41,7 +41,7 @@ public final class LinuxWineProcessHost: ProcessSnapshotProviding {
     }
 
     public func listProcesses(in container: URL) async throws -> [ProcessRecord] {
-        guard await host.serverRunning(prefix: container) else { return [] }
+        guard try await host.probeServer(prefix: container) else { return [] }
         let result = try await host.run(
             host.loader,
             arguments: ["tasklist.exe", "/FO", "CSV", "/NH"],
@@ -49,7 +49,7 @@ public final class LinuxWineProcessHost: ProcessSnapshotProviding {
             environment: ["WINEDEBUG": "-all"],
             timeout: .seconds(4)
         )
-        guard !result.timedOut, result.status == 0 else { return [] }
+        try Self.check(result, operation: "Query Wine processes")
         return Self.parseTasklist(result.output)
     }
 
@@ -58,22 +58,35 @@ public final class LinuxWineProcessHost: ProcessSnapshotProviding {
         if force {
             arguments.append("/F")
         }
-        _ = try? await host.run(
+        let result = try await host.run(
             host.loader,
             arguments: arguments,
             prefix: container,
             environment: ["WINEDEBUG": "-all"],
             timeout: .seconds(4)
         )
+        try Self.check(result, operation: "Terminate Wine process \(pid)")
     }
 
     public func terminateAllProcesses(in container: URL) async throws {
-        _ = try? await host.run(
+        let result = try await host.run(
             host.wineserver,
             arguments: ["-k"],
             prefix: container,
             timeout: .seconds(5)
         )
+        try Self.check(result, operation: "Terminate container processes")
+        let waited = try await host.run(host.wineserver, arguments: ["-w"], prefix: container, timeout: .seconds(5))
+        try Self.check(waited, operation: "Wait for container processes to exit")
+    }
+
+    nonisolated static func check(_ result: LinuxWineHost.Output, operation: String) throws {
+        guard !result.timedOut, result.status == 0 else {
+            throw BridgeFailure(
+                "operation_failed",
+                "\(operation) failed (exit \(result.status), timeout \(result.timedOut)): \(result.output.suffix(500))"
+            )
+        }
     }
 
     /// Parses quoted CSV rows produced by `tasklist.exe /FO CSV`.

@@ -167,7 +167,9 @@ struct BridgeHost {
                 preferences: preferences,
                 wineRuntimeURL: wineRuntimeURL,
                 jobs: jobs,
-                wineSetup: wineSetup
+                wineSetup: wineSetup,
+                shutdownContainers: { try workspace.containers() },
+                finalObservation: { await wineDriver?.poll() }
             ),
             runtime: wineRuntimeService,
             processes: wineProcessService,

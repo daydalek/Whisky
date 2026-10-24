@@ -483,6 +483,8 @@ pub(crate) struct WhiskyApp {
     pub(crate) app_info: Option<SystemInfoDto>,
     /// An explicit quit is waiting for the helper to apply the exit policy.
     quitting: bool,
+    quit_generation: u64,
+    pub(crate) quit_error: Option<String>,
     pub(crate) motion: bool,
     pub(crate) lively: bool,
     pub(crate) reversed: bool,
@@ -628,6 +630,8 @@ impl WhiskyApp {
             about: false,
             app_info: None,
             quitting: false,
+            quit_generation: 0,
+            quit_error: None,
             motion: true,
             lively: false,
             reversed: false,
@@ -728,6 +732,12 @@ impl WhiskyApp {
     /// and never discard entries that are already on screen.
     pub(crate) fn apply_bridge_event(&mut self, event: BridgeEvent, cx: &mut Context<Self>) {
         match event {
+            BridgeEvent::ShutdownFailed { reason } => {
+                self.quitting = false;
+                self.quit_error = Some(reason);
+                self.bridge_dialog = true;
+                cx.notify();
+            }
             BridgeEvent::Status(status) => {
                 if let BridgeStatus::Connected {
                     helper,
@@ -2556,7 +2566,22 @@ impl WhiskyApp {
         indices
     }
 
+    pub(crate) fn command_available(&self, command: Command) -> bool {
+        let method = match command {
+            Command::TestAudio => Some("audio.test"),
+            Command::BottleRepair => Some("bottle.repair"),
+            Command::CleanShaderCache => Some("bottle.cleanCache"),
+            Command::Move(_) => Some("entry.move"),
+            _ => None,
+        };
+        method.is_none_or(|method| self.service_available(method))
+    }
+
     pub(crate) fn command(&mut self, command: Command, cx: &mut Context<Self>) {
+        if !self.command_available(command) {
+            self.show_notice("当前平台尚未提供此功能。", cx);
+            return;
+        }
         match command {
             Command::Page(page) => self.navigate(page, cx),
             Command::Sheet(sheet) => self.open_preview_sheet(sheet, cx),
@@ -2718,14 +2743,26 @@ impl WhiskyApp {
         if self.quitting {
             return;
         }
+        if !matches!(self.bridge_status, BridgeStatus::Connected { .. }) {
+            self.quit_error = Some("桥接连接不可用，现有 Windows 程序可能继续运行。".into());
+            self.bridge_dialog = true;
+            cx.notify();
+            return;
+        }
         self.quitting = true;
+        self.quit_error = None;
+        self.quit_generation = self.quit_generation.wrapping_add(1);
+        let generation = self.quit_generation;
         crate::ui_state::save_window(window.window_bounds());
         self.bridge.shutdown_application();
         cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(Duration::from_secs(8)).await;
+            cx.background_executor().timer(Duration::from_secs(65)).await;
             let _ = this.update(cx, |this, cx| {
-                if this.quitting {
-                    cx.quit();
+                if this.quitting && this.quit_generation == generation {
+                    this.quitting = false;
+                    this.quit_error = Some("退出清理等待超时，请检查进程状态后重试。".into());
+                    this.bridge_dialog = true;
+                    cx.notify();
                 }
             });
         })

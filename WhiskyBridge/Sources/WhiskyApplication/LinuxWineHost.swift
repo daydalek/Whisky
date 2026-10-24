@@ -221,12 +221,13 @@ public struct LinuxWineHost: Sendable {
         environment extra: [String: String] = [:],
         workingDirectory: URL? = nil,
         timeout: Duration? = nil,
-        outputLimit: Int = 256 * 1_024
+        outputLimit: Int = 256 * 1_024,
+        logFile: URL? = nil
     ) async throws -> Output {
         guard canExecute else {
             throw BridgeFailure("runtime_unavailable", unavailableReason ?? "The Wine runtime cannot run")
         }
-        let logURL = FileManager.default.temporaryDirectory
+        let logURL = logFile ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("whisky-wine-\(UUID().uuidString).log")
         guard FileManager.default.createFile(atPath: logURL.path, contents: nil) else {
             throw BridgeFailure("host_failed", "Could not create a Wine output file")
@@ -234,7 +235,9 @@ public struct LinuxWineHost: Sendable {
         let log = try FileHandle(forWritingTo: logURL)
         defer {
             try? log.close()
-            try? FileManager.default.removeItem(at: logURL)
+            if logFile == nil {
+                try? FileManager.default.removeItem(at: logURL)
+            }
         }
         let process = process(executable, arguments: arguments, prefix: prefix, environment: extra)
         process.standardOutput = log
@@ -243,13 +246,14 @@ public struct LinuxWineHost: Sendable {
             process.currentDirectoryURL = workingDirectory
         }
         let box = TimeoutFlag()
+        let control = WineChildControl(process)
         let status: Int32 = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 process.terminationHandler = { finished in
                     continuation.resume(returning: finished.terminationStatus)
                 }
                 do {
-                    try process.run()
+                    try control.start()
                 } catch {
                     process.terminationHandler = nil
                     continuation.resume(throwing: BridgeFailure(
@@ -270,10 +274,9 @@ public struct LinuxWineHost: Sendable {
                 }
             }
         } onCancel: {
-            if process.isRunning {
-                process.terminate()
-            }
+            control.cancel()
         }
+        try Task.checkCancellation()
         try? log.synchronize()
         let data = (try? Data(contentsOf: logURL)) ?? Data()
         let output = String(decoding: data.suffix(outputLimit), as: UTF8.self)
@@ -282,9 +285,15 @@ public struct LinuxWineHost: Sendable {
 
     /// Whether a wineserver is running for `prefix`, without starting one.
     public func serverRunning(prefix: URL) async -> Bool {
-        guard canExecute else { return false }
-        let result = try? await run(wineserver, arguments: ["-k0"], prefix: prefix, timeout: .seconds(5))
-        return result?.status == 0
+        await (try? probeServer(prefix: prefix)) ?? false
+    }
+
+    public func probeServer(prefix: URL) async throws -> Bool {
+        let result = try await run(wineserver, arguments: ["-k0"], prefix: prefix, timeout: .seconds(5))
+        guard !result.timedOut, result.status == 0 || result.status == 1 else {
+            throw BridgeFailure("process_query_failed", "Could not query the Wine server: \(result.output.suffix(500))")
+        }
+        return result.status == 0
     }
 
     // MARK: - Architecture detection
@@ -376,7 +385,8 @@ public struct LinuxWineHost: Sendable {
             guard let text = try? String(
                 contentsOf: directory.appendingPathComponent(name),
                 encoding: .utf8
-            ) else { continue }
+            )
+            else { continue }
             let lines = text.split(whereSeparator: \.isNewline).map(String.init)
             guard lines.first == "enabled" else { continue }
             var offset = 0
@@ -415,6 +425,33 @@ public struct LinuxWineHost: Sendable {
             index = next
         }
         return bytes
+    }
+}
+
+/// Serializes cancellation with spawn so a pre-cancelled job cannot start a child later.
+private final class WineChildControl: @unchecked Sendable {
+    private let lock = NSLock()
+    private let process: Process
+    private var cancelled = false
+
+    init(_ process: Process) {
+        self.process = process
+    }
+
+    func start() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !cancelled else { throw CancellationError() }
+        try process.run()
+    }
+
+    func cancel() {
+        lock.lock()
+        defer { lock.unlock() }
+        cancelled = true
+        if process.isRunning {
+            process.terminate()
+        }
     }
 }
 

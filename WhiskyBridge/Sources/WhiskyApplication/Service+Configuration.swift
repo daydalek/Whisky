@@ -28,7 +28,7 @@ extension ApplicationService {
         case "configuration.schema": return try .array(Self.schemaFields(params).map(Self.describe))
         case "configuration.read":
             let file = try configuration(params)
-            return try await .object(file.values(for: Self.fields(params)).mapValues(Self.encode))
+            return try await Self.encodeValues(file.values(for: Self.fields(params)))
         case "configuration.set": return try await setConfiguration(params)
         default: return try await nativeCall(method, params: params)
         }
@@ -43,6 +43,12 @@ extension ApplicationService {
         }
         let value = try Self.decode(input)
         try field.validate(value)
+        #if os(Linux)
+        guard let supported = field.filtered(for: .linux),
+              !ContainerConfiguration.linuxUnavailableFields.contains(fieldID)
+        else { throw BridgeFailure("capability_unavailable", "This setting requires a platform host service") }
+        try supported.validate(value)
+        #endif
         let file = try configuration(params)
         let current = try await file.values(for: fields)
         if current[field.id] != value {
@@ -55,7 +61,23 @@ extension ApplicationService {
             }
             try await file.update(field, to: value)
         }
-        return try await .object(file.values(for: fields).mapValues(Self.encode))
+        return try await Self.encodeValues(file.values(for: fields))
+    }
+
+    private static func encodeValues(_ source: [String: ConfigurationValue]) -> JSONValue {
+        var values = source
+        #if os(Linux)
+        if values["enhancedSync"] == .text("msync") {
+            values["enhancedSync"] = .text("esync")
+        }
+        if values["graphicsBackend"] == .text("d3dMetal") || values["graphicsBackend"] == .text("dxmt") {
+            values["graphicsBackend"] = .text("recommended")
+        }
+        if values["resolutionPreset"] == .text("matchDisplay") {
+            values["resolutionPreset"] = .text("r1920x1080")
+        }
+        #endif
+        return .object(values.mapValues(Self.encode))
     }
 
     private static var containerFields: [ConfigurationField] {
@@ -68,18 +90,19 @@ extension ApplicationService {
 
     private static func schemaFields(_ params: [String: JSONValue]) throws -> [ConfigurationField] {
         let base = fields(params)
-        guard let rawPlatform = params["platform"]?.string else { return base }
+        let rawPlatform = params["platform"]?.string ?? ConfigurationPlatform.current.rawValue
         guard let platform = ConfigurationPlatform(rawValue: rawPlatform) else {
             throw BridgeFailure("invalid_params", "Unknown configuration platform: \(rawPlatform)")
         }
-        return base.compactMap { $0.filtered(for: platform) }
+        return params["executable"] == nil
+            ? ContainerConfiguration.fields(for: platform) : base.compactMap { $0.filtered(for: platform) }
     }
 
     private nonisolated static func encode(_ value: ConfigurationValue) -> JSONValue {
         switch value {
-        case let .boolean(boolean): return .bool(boolean)
-        case let .integer(integer): return .integer(Int64(integer))
-        case let .text(text): return .string(text)
+        case let .boolean(boolean): .bool(boolean)
+        case let .integer(integer): .integer(Int64(integer))
+        case let .text(text): .string(text)
         }
     }
 

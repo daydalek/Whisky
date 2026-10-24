@@ -2,6 +2,8 @@
 
 Linux implementation and headless acceptance are tracked separately in
 [`LINUX.md`](LINUX.md), including the portable service gaps behind the shared UI.
+The current execution-wiring fixes and explicit Linux capability boundaries are
+recorded in [`LINUX_PARITY.md`](LINUX_PARITY.md).
 
 Status: M2 and M3 complete. The GPUI client covers the library, runtime,
 bottle creation, full ProgramSettings, Winetricks and `entry.move`. M4 is

@@ -286,7 +286,9 @@ impl Client {
             "bridge.shutdown",
             json!({"applyExitPolicy": apply_exit_policy}),
         );
-        self.close();
+        if result.is_ok() || !apply_exit_policy {
+            self.close();
+        }
         result
     }
     pub fn close(&mut self) {

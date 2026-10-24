@@ -100,6 +100,14 @@ jobs:
               --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
               --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
               --output "$WHISKY_LINUX_OUTPUT/program-window" --scenario programs
+      - name: Preserve the window after a failed exit policy and allow explicit quit
+        run: |
+          xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
+            env GTK_A11Y=atspi GDK_BACKEND=x11 WGPU_BACKEND=vulkan \
+            python3 apps/whisky-gpui/tools/check-quit-failure.py \
+              --binary "$WHISKY_LINUX_OUTPUT/rust-build/debug/whisky-gpui" \
+              --helper "$WHISKY_LINUX_OUTPUT/foundation/bridge-build/debug/whisky-bridge" \
+              --output "$WHISKY_LINUX_OUTPUT/quit-window"
       - name: Edit metadata and artwork through the production window
         run: |
           xvfb-run -a -s '-screen 0 1280x900x24 -nolisten tcp' dbus-run-session -- \
@@ -270,6 +278,9 @@ jobs:
             /tmp/whisky-linux-gpui/program-window/*.log
             /tmp/whisky-linux-gpui/program-window/report.json
             /tmp/whisky-linux-gpui/program-window/*.png
+            /tmp/whisky-linux-gpui/quit-window/*.log
+            /tmp/whisky-linux-gpui/quit-window/report.json
+            /tmp/whisky-linux-gpui/quit-window/*.png
           retention-days: 7
 
   linux-core:

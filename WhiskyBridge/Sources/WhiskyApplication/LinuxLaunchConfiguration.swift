@@ -17,6 +17,7 @@
 //
 
 import Foundation
+import WhiskyBridgeProtocol
 import WhiskyCore
 
 /// The environment and arguments a Linux Wine launch derives from the
@@ -32,6 +33,8 @@ import WhiskyCore
 public struct LinuxLaunchConfiguration: Sendable, Equatable {
     public var environment: [String: String] = [:]
     public var arguments: [String] = []
+    var desktopResolution: String?
+    var requiresDXVK = false
 
     public init(environment: [String: String] = [:], arguments: [String] = []) {
         self.environment = environment
@@ -42,25 +45,39 @@ public struct LinuxLaunchConfiguration: Sendable, Equatable {
 
     /// Loads the configuration for `executable` in `container`. Unreadable
     /// optional files fall back to defaults; Wine still starts.
-    public static func load(container: URL, executable: URL?) async -> Self {
+    public static func load(container: URL, executable: URL?) async throws -> Self {
         let metadataURL = container.appendingPathComponent("Metadata.plist")
         let file = ConfigurationFile(url: metadataURL, locking: HostFileLock())
-        let values = (try? await file.values(for: ContainerConfiguration.fields)) ?? [:]
-        let bottleEnvironment = (try? await file.strings(at: "environment")) ?? [:]
-        let metadata = (try? ProgramSettingsService.load(metadataURL)) ?? [:]
+        let values = try await file.values(for: ContainerConfiguration.fields)
+        let bottleEnvironment = try await file.strings(at: "environment")
+        let metadata = try ProgramSettingsService.load(metadataURL)
         var program: [String: Any] = [:]
         if let executable {
             let locations = ProgramStorageLayout.locations(for: executable, containerURL: container)
             let source = FileManager.default.fileExists(atPath: locations.identity.path)
                 ? locations.identity : locations.legacy
-            program = (try? ProgramSettingsService.load(source)) ?? [:]
+            program = try ProgramSettingsService.load(source)
         }
-        return compose(
+        let configuration = compose(
             values: values,
             bottleEnvironment: bottleEnvironment,
             bottleDLLOverrides: dllOverrides(metadata["customDLLOverrides"]),
             program: program
         )
+        if configuration.requiresDXVK {
+            for directory in ["system32", "syswow64"] {
+                for dll in ["dxgi.dll", "d3d11.dll"] {
+                    let url = container.appendingPathComponent("drive_c/windows/\(directory)/\(dll)")
+                    guard let data = try? Data(contentsOf: url), data.range(of: Data("DXVK".utf8)) != nil else {
+                        throw BridgeFailure(
+                            "component_missing",
+                            "Install DXVK with Winetricks before selecting DXVK (\(directory)/\(dll))"
+                        )
+                    }
+                }
+            }
+        }
+        return configuration
     }
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
@@ -70,14 +87,18 @@ public struct LinuxLaunchConfiguration: Sendable, Equatable {
         bottleDLLOverrides: [(String, String)],
         program: [String: Any]
     ) -> Self {
-        var environment: [String: String] = ["WINEDEBUG": "fixme-all"]
+        var environment = ["WINEDEBUG": "fixme-all"]
         var overrides: [(String, String)] = []
         func text(_ key: String) -> String? {
-            if case let .text(value) = values[key] { return value }
+            if case let .text(value) = values[key] {
+                return value
+            }
             return nil
         }
         func flag(_ key: String) -> Bool? {
-            if case let .boolean(value) = values[key] { return value }
+            if case let .boolean(value) = values[key] {
+                return value
+            }
             return nil
         }
 
@@ -175,7 +196,9 @@ public struct LinuxLaunchConfiguration: Sendable, Equatable {
             var order: [String] = []
             var modes: [String: String] = [:]
             for (dll, mode) in overrides {
-                if modes[dll] == nil { order.append(dll) }
+                if modes[dll] == nil {
+                    order.append(dll)
+                }
                 modes[dll] = mode
             }
             let composed = order.map { "\($0)=\(modes[$0] ?? "")" }
@@ -188,7 +211,30 @@ public struct LinuxLaunchConfiguration: Sendable, Equatable {
         }
 
         let arguments = splitArguments(program["arguments"] as? String ?? "")
-        return Self(environment: environment, arguments: arguments)
+        var result = Self(environment: environment, arguments: arguments)
+        result.requiresDXVK = backend == "dxvk" || (backend == "recommended" && overrideFlag("dxvk") == true)
+        if overrideFlag("virtualDesktopEnabled") == true {
+            var display: [String: ConfigurationValue] = [
+                "resolutionPreset": .text(overrideText("resolutionPreset") ?? "r1920x1080"),
+                "customResolutionWidth": .integer(programOverrides["customResolutionWidth"] as? Int ?? 1_920),
+                "customResolutionHeight": .integer(programOverrides["customResolutionHeight"] as? Int ?? 1_080)
+            ]
+            // Imported match-display preferences receive the documented fixed fallback.
+            if display["resolutionPreset"] ==
+                .text("matchDisplay") {
+                display["resolutionPreset"] = .text("r1920x1080")
+            }
+            result.desktopResolution = ContainerConfiguration.virtualDesktopResolution(from: display)
+        }
+        return result
+    }
+
+    func wineArguments(for executable: URL) -> [String] {
+        if let desktopResolution {
+            return ["explorer", "/desktop=Whisky-\(UUID().uuidString),\(desktopResolution)", executable.path] +
+                arguments
+        }
+        return LinuxWineRuntimeDriver.wineArguments(for: executable) + arguments
     }
 
     static func dllOverrides(_ raw: Any?) -> [(String, String)] {

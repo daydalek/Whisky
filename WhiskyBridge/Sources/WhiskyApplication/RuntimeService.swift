@@ -45,6 +45,10 @@ public final class RuntimeService {
     private let policyLoader: (@MainActor (URL) throws -> ClipboardPolicySnapshot)?
     private let beforeLaunch: (@MainActor (LibraryEntry) -> Void)?
     private var configured: [String: LibraryEntry] = [:]
+    public var containerURLs: Set<URL> {
+        Set(configured.values.map(\.bottleURL))
+    }
+
     private var sequence: UInt64 = 0
     private var eventBuffer: [(UInt64, JSONValue)] = []
     private var observer: Task<Void, Never>?

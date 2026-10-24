@@ -330,6 +330,7 @@ pub(crate) enum BottleCreateUpdate {
 
 #[derive(Debug)]
 pub(crate) enum BridgeEvent {
+    ShutdownFailed { reason: String },
     ImportCandidates { request: u64, candidates: Vec<crate::container_import::Candidate> },
     ImportCandidatesFailed { request: u64, reason: String },
     CandidatesImported { request: u64, paths: Vec<String>, count: usize },
@@ -2169,9 +2170,19 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                     return;
                 }
                 Some(Command::ShutdownApplication) => {
-                    let _ = client.shutdown(true);
-                    emit(&events, BridgeStatus::Stopped);
-                    return;
+                    match client.call_with_timeout("bridge.shutdown", json!({"applyExitPolicy": true}), Duration::from_secs(60)) {
+                        Ok(_) => {
+                            client.close();
+                            emit(&events, BridgeStatus::Stopped);
+                            return;
+                        }
+                        Err(error) => {
+                            emit_event(&events, BridgeEvent::ShutdownFailed { reason: error.to_string() });
+                            if let CallFailure::Session(reason) = classify(error) {
+                                reconnect = Some(reason);
+                            }
+                        }
+                    }
                 }
                 Some(Command::Retry) => {
                     client.close();
@@ -2499,7 +2510,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                     value,
                 }) => {
                     let params = config::set_payload(&container, &field, &value);
-                    match client.call("configuration.set", params).map_err(classify) {
+                    match client.call_with_timeout("configuration.set", params, Duration::from_secs(45)).map_err(classify) {
                         Ok(reply) => match decode_values(&reply) {
                             Ok(values) => emit_event(
                                 &events,
@@ -2788,7 +2799,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                 }
                 Some(Command::KillProcess { container, pid }) => {
                     let params = json!({ "container": container, "pid": pid });
-                    match client.call("processes.kill", params).map_err(classify) {
+                    match client.call_with_timeout("processes.kill", params, Duration::from_secs(20)).map_err(classify) {
                         Ok(reply) => match serde_json::from_value::<KillReplyDto>(reply) {
                             Ok(kill) => emit_event(
                                 &events,
@@ -2820,7 +2831,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                 }
                 Some(Command::KillAllProcesses(container)) => {
                     let params = json!({ "container": container });
-                    match client.call("processes.killAll", params).map_err(classify) {
+                    match client.call_with_timeout("processes.killAll", params, Duration::from_secs(20)).map_err(classify) {
                         Ok(_) => {
                             // Immediately fetch updated processes list
                             match fetch_processes(&mut client, &container) {

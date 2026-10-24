@@ -17,15 +17,14 @@
 //
 
 import Foundation
+import WhiskyBridgeProtocol
 import WhiskyCore
 
 /// Linux Wine runtime driver backed by a relocatable Wine runtime tree
 /// (the ge-proton Linux build: `bin/wine`, `bin/wineserver`, bundled `lib`).
 ///
-/// Process observation feeds the shared launch state machine directly; there is
-/// no Combine or Steam client tracking on this host. A program counts as
-/// running while its Wine process lives and, after a launcher hands off and
-/// exits, while the bottle's wineserver still serves processes.
+/// Windows process observations feed the shared state machine and activity store.
+/// Each game is matched by its executable names and the user's launch selection.
 @MainActor
 public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
     public private(set) var snapshot = LibraryRuntimeDriverSnapshot()
@@ -34,7 +33,14 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
     private let logDirectory: URL
     private var processes: [String: Process] = [:]
     private var entries: [String: LibraryEntry] = [:]
-    private var watchers: [String: Task<Void, Never>] = [:]
+    private var observationTask: Task<Void, Never>?
+    private var names: [String: Set<String>] = [:]
+    private var selections: [URL: [String: String]] = [:]
+    private var clocks: [URL: GameActivityClock] = [:]
+    private var completions: [String: Date] = [:]
+    private var histories: [String: LinuxProgramRunHistory] = [:]
+    private let activity = LinuxActivityStore()
+    private var polling = false
 
     /// How long a fresh Wine process is watched for an immediate failure
     /// (missing libraries, an absent translator, a broken prefix).
@@ -56,7 +62,7 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
 
     public func capabilities(for entry: LibraryEntry) -> LibraryRuntimeCapabilities {
         guard case .program = entry.launch else { return [] }
-        return [.launch, .cancelLaunch, .stop]
+        return [.launch, .cancelLaunch]
     }
 
     public func retainContainers(_ urls: Set<URL>) {
@@ -70,12 +76,32 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
     }
 
     public func configure(entries newEntries: [LibraryEntry], containerURL: URL) async {
+        entries = entries.filter { $0.value.bottleURL != containerURL || processes[$0.key] != nil }
         for entry in newEntries where entry.bottleURL == containerURL {
             entries[entry.id] = entry
+            let selected = executable(for: .init(entry: entry))
+            names[entry.id] = await Task.detached {
+                switch entry.launch {
+                case let .program(url):
+                    if entry
+                        .source == .folder {
+                        return SteamLibrary.executableNames(under: url, selectedURL: selected)
+                    }
+                    return Set([url.lastPathComponent.lowercased()])
+                case let .steam(appID):
+                    let game = SteamLibrary.enumerate(bottleURL: containerURL).first { $0.appId == appID }
+                    return game.map { SteamLibrary.executableNames(under: $0.installURL) } ?? []
+                }
+            }.value
         }
-        let ids = Set(newEntries.map(\.id))
-        snapshot.observation.endedEntryIDs = snapshot.observation.endedEntryIDs.intersection(ids)
-        snapshot.observation.completedAt = snapshot.observation.completedAt.filter { ids.contains($0.key) }
+        if observationTask == nil {
+            observationTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    await self?.poll()
+                    do { try await Task.sleep(for: .seconds(3)) } catch { return }
+                }
+            }
+        }
         publish()
     }
 
@@ -83,43 +109,83 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
         _ request: LibraryLaunchRequest, onStarted: @escaping @MainActor () -> Void
     ) async -> LaunchResult {
         let entry = request.entry
+        do {
+            let executable = try launchTarget(request)
+            let configuration = try await LinuxLaunchConfiguration.load(
+                container: entry.bottleURL,
+                executable: executable
+            )
+            try await LinuxWineConfiguration.prepare(container: entry.bottleURL, host: host)
+            try Task.checkCancellation()
+            let started = try spawn(entry, executable: executable, configuration: configuration)
+            let process = started.process, run = started.history, exit = started.exit
+            do {
+                let deadline = ContinuousClock.now + Self.startupWindow
+                while ContinuousClock.now < deadline, exit.status == nil {
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                try Task.checkCancellation()
+            } catch {
+                if process.isRunning {
+                    process.terminate()
+                }
+                if let run = histories.removeValue(forKey: entry.id) {
+                    try run.finish(exitCode: -1)
+                }
+                processes.removeValue(forKey: entry.id)
+                throw error
+            }
+            if let status = exit.status, status != 0 {
+                throw BridgeFailure("launch_failed", "Wine exited with status \(status): \(Self.tail(of: run.log))")
+            }
+            onStarted()
+            await poll()
+            if exit.status == 0, !snapshot.observation.runningEntryIDs.contains(entry.id) {
+                snapshot.observation.endedEntryIDs.insert(entry.id)
+                snapshot.observation.completedAt[entry.id] = Date()
+                snapshot.observation.revision &+= 1
+                publish()
+            }
+            return .launchedSuccessfully(programName: entry.name)
+        } catch {
+            return .launchFailed(programName: entry.name, errorDescription: error.localizedDescription)
+        }
+    }
+
+    private func launchTarget(_ request: LibraryLaunchRequest) throws -> URL {
         guard host.canExecute else {
-            return .launchFailed(
-                programName: entry.name,
-                errorDescription: host.unavailableReason ?? "The Wine runtime cannot run on this host"
+            throw BridgeFailure(
+                "runtime_unavailable",
+                host.unavailableReason ?? "The Wine runtime cannot run on this host"
             )
         }
-        guard let executable = executable(for: request) else {
-            return .launchFailed(programName: entry.name, errorDescription: "Launch target unavailable")
+        guard let executable = executable(for: request), FileManager.default.fileExists(atPath: executable.path) else {
+            throw BridgeFailure("file_missing", "Launch target unavailable")
         }
-        guard FileManager.default.fileExists(atPath: executable.path) else {
-            return .launchFailed(
-                programName: entry.name,
-                errorDescription: "Executable is missing: \(executable.lastPathComponent)"
-            )
+        guard processes[request.entry.id]?.isRunning != true else {
+            throw BridgeFailure("runtime_busy", "This program is already running")
         }
-        if processes[entry.id]?.isRunning == true {
-            return .launchFailed(programName: entry.name, errorDescription: "This program is already running")
-        }
-        let configuration = await LinuxLaunchConfiguration.load(
-            container: entry.bottleURL,
-            executable: executable
-        )
-        // Wine resolves the executable against the working directory. Passing a
-        // relative name keeps the parent directory out of the command line and
-        // gives the game its own folder as the current directory, which many
-        // titles rely on to find their data.
+        return executable
+    }
+
+    private func spawn(_ entry: LibraryEntry, executable: URL, configuration: LinuxLaunchConfiguration) throws
+        -> StartedWineProcess {
         let process = host.process(
             host.loader,
-            arguments: Self.wineArguments(for: executable) + configuration.arguments,
+            arguments: configuration.wineArguments(for: executable),
             prefix: entry.bottleURL,
             environment: configuration.environment
         )
         process.currentDirectoryURL = executable.deletingLastPathComponent()
-        // Protocol traffic owns the bridge's stdout; game output goes to a log.
-        let log = openLog(for: executable)
-        process.standardOutput = log?.handle ?? FileHandle.nullDevice
-        process.standardError = log?.handle ?? FileHandle.nullDevice
+        let run = try LinuxProgramRunHistory.begin(
+            container: entry.bottleURL,
+            executable: executable,
+            logs: logDirectory
+        )
+        let log = try FileHandle(forWritingTo: run.log)
+        defer { try? log.close() }
+        process.standardOutput = log
+        process.standardError = log
         let id = entry.id
         let exit = ExitRecorder()
         process.terminationHandler = { [weak self] finished in
@@ -128,45 +194,18 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
         }
         do {
             try process.run()
-        } catch {
-            try? log?.handle.close()
-            return .launchFailed(
-                programName: entry.name,
-                errorDescription: "Could not start Wine: \(error.localizedDescription)"
-            )
+        } catch { try run.finish(exitCode: -1)
+            throw error
         }
-        try? log?.handle.close()
         processes[id] = process
+        histories[id] = run
         entries[id] = entry
-
-        // Report a startup failure instead of a launch that silently vanishes.
-        let deadline = ContinuousClock.now + Self.startupWindow
-        while ContinuousClock.now < deadline, exit.status == nil {
-            try? await Task.sleep(for: .milliseconds(100))
-        }
-        if let status = exit.status, status != 0 {
-            let tail = log.map { Self.tail(of: $0.url) } ?? ""
-            let detail = tail.isEmpty ? "" : ": \(tail)"
-            return .launchFailed(
-                programName: entry.name,
-                errorDescription: "Wine exited with status \(status)\(detail)"
-            )
-        }
-
-        onStarted()
-        snapshot.observation.runningEntryIDs.insert(id)
-        snapshot.observation.endedEntryIDs.remove(id)
-        snapshot.observation.revision &+= 1
-        publish()
-        if exit.status != nil, processes[id] == nil {
-            // A launcher exited cleanly inside the window; follow the server.
-            watchServer(id: id, prefix: entry.bottleURL)
-        }
-        return .launchedSuccessfully(programName: entry.name)
+        selections[entry.bottleURL, default: [:]][executable.lastPathComponent.lowercased()] = id
+        return StartedWineProcess(process: process, history: run, exit: exit)
     }
 
     public func programDidStart(_ request: LibraryLaunchRequest) {
-        // Running state is published at spawn; there is no separate PID probe.
+        // The configured process observer publishes confirmed Windows process state.
     }
 
     public func launchSteam(_ entry: LibraryEntry) {
@@ -176,23 +215,24 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
     public func cancelSteamLaunch(_ entry: LibraryEntry) {}
 
     public func stop(_ entry: LibraryEntry) async {
-        watchers.removeValue(forKey: entry.id)?.cancel()
-        processes[entry.id]?.terminate()
-        _ = try? await host.run(host.wineserver, arguments: ["-k"], prefix: entry.bottleURL, timeout: .seconds(10))
-        watchers.removeValue(forKey: entry.id)?.cancel()
-        markEnded(entry.id)
+        channel.send(.failure("Use the Processes page to select the Windows process to terminate"))
     }
 
     public func stopTracking() {
-        // Launched games outlive helper tracking, matching the native driver.
-        for watcher in watchers.values {
-            watcher.cancel()
+        observationTask?.cancel()
+        observationTask = nil
+        for entry in entries.values {
+            do {
+                try activity.release(entry)
+            } catch {
+                channel.send(.failure(error.localizedDescription))
+            }
         }
-        watchers.removeAll()
+        clocks.removeAll()
     }
 
     /// `wine` arguments for a Windows file, relative to its own directory.
-    static func wineArguments(for executable: URL) -> [String] {
+    nonisolated static func wineArguments(for executable: URL) -> [String] {
         let name = executable.lastPathComponent
         switch executable.pathExtension.lowercased() {
         case "msi": return ["msiexec", "/i", name]
@@ -205,37 +245,14 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
     private func processDidTerminate(id: String, process: Process) {
         guard processes[id] === process else { return }
         processes.removeValue(forKey: id)
-        guard snapshot.observation.runningEntryIDs.contains(id) else { return }
-        guard let entry = entries[id] else {
-            markEnded(id)
-            return
-        }
-        // Launchers often start the game and exit; the game keeps the
-        // bottle's wineserver alive until it ends.
-        watchServer(id: id, prefix: entry.bottleURL)
-    }
-
-    private func watchServer(id: String, prefix: URL) {
-        watchers[id]?.cancel()
-        let host = host
-        watchers[id] = Task { [weak self] in
-            while !Task.isCancelled {
-                guard await host.serverRunning(prefix: prefix) else { break }
-                try? await Task.sleep(for: .seconds(3))
+        if let run = histories.removeValue(forKey: id) {
+            do {
+                try run.finish(exitCode: process.terminationStatus)
+            } catch {
+                channel.send(.failure("Could not save run history: \(error.localizedDescription)"))
             }
-            guard !Task.isCancelled else { return }
-            self?.watchers.removeValue(forKey: id)
-            self?.markEnded(id)
         }
-    }
-
-    private func markEnded(_ id: String) {
-        guard snapshot.observation.runningEntryIDs.contains(id) else { return }
-        snapshot.observation.runningEntryIDs.remove(id)
-        snapshot.observation.endedEntryIDs.insert(id)
-        snapshot.observation.completedAt[id] = Date()
-        snapshot.observation.revision &+= 1
-        publish()
+        Task { [weak self] in await self?.poll() }
     }
 
     private func executable(for request: LibraryLaunchRequest) -> URL? {
@@ -252,37 +269,9 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
         return executable
     }
 
-    private func openLog(for executable: URL) -> (url: URL, handle: FileHandle)? {
-        let manager = FileManager.default
-        guard (try? manager.createDirectory(at: logDirectory, withIntermediateDirectories: true)) != nil else {
-            return nil
-        }
-        pruneLogs()
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let stem = executable.deletingPathExtension().lastPathComponent
-            .replacingOccurrences(of: "/", with: "_")
-        let url = logDirectory.appendingPathComponent("\(formatter.string(from: Date()))-\(stem).log")
-        guard manager.createFile(atPath: url.path, contents: nil),
-              let handle = try? FileHandle(forWritingTo: url)
-        else { return nil }
-        return (url, handle)
-    }
-
-    /// Keeps the newest 30 program logs.
-    private func pruneLogs() {
-        let manager = FileManager.default
-        guard let names = try? manager.contentsOfDirectory(atPath: logDirectory.path) else { return }
-        let logs = names.filter { $0.hasSuffix(".log") }.sorted()
-        for name in logs.dropLast(30) {
-            try? manager.removeItem(at: logDirectory.appendingPathComponent(name))
-        }
-    }
-
     static func tail(of url: URL, lines count: Int = 6) -> String {
         guard let data = try? Data(contentsOf: url) else { return "" }
-        let text = String(decoding: data.suffix(16 * 1_024), as: UTF8.self)
+        let text = String(bytes: data.suffix(16 * 1_024), encoding: .utf8) ?? ""
         let lines = text.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -293,6 +282,72 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
         snapshot.revision &+= 1
         channel.send(.changed(snapshot))
     }
+}
+
+extension LinuxWineRuntimeDriver {
+    public func poll() async {
+        guard !polling else { return }
+        polling = true
+        defer { polling = false }
+        let probe = LinuxWineProcessHost(host: host)
+        for container in Set(entries.values.map(\.bottleURL)) {
+            let targets = entries.values.filter { $0.bottleURL == container }
+            do {
+                let records = try await probe.listProcesses(in: container)
+                try Task.checkCancellation()
+                let runningNames = Set(records.map { $0.name.lowercased() })
+                let candidates = Dictionary(uniqueKeysWithValues: targets.map { ($0.id, names[$0.id] ?? []) })
+                let matched = GameActivityClock.match(
+                    executables: candidates,
+                    runningNames: runningNames,
+                    preferred: selections[container] ?? [:]
+                )
+                let old = snapshot.observation.runningEntryIDs.intersection(targets.map(\.id))
+                let date = Date()
+                for id in old.subtracting(matched) {
+                    completions[id] = date
+                }
+                snapshot.observation.runningEntryIDs.subtract(old)
+                snapshot.observation.runningEntryIDs.formUnion(matched)
+                for id in old.subtracting(matched) {
+                    snapshot.observation.endedEntryIDs.insert(id)
+                    snapshot.observation.completedAt[id] = date
+                    selections[container] = selections[container]?.filter { $0.value != id }
+                }
+                snapshot.observation.endedEntryIDs.subtract(matched)
+                snapshot.observation.revision &+= 1
+                let samples = clocks[container, default: GameActivityClock()].sample(
+                    running: matched, at: date, uptime: ProcessInfo.processInfo.systemUptime
+                )
+                try persist(targets: targets, samples: samples, at: date)
+                snapshot.queryFailures[container] = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                clocks[container]?.reset()
+                snapshot.queryFailures[container] = error.localizedDescription
+            }
+        }
+        publish()
+    }
+
+    private func persist(targets: [LibraryEntry], samples: [String: TimeInterval], at date: Date) throws {
+        for entry in targets {
+            if let ended = completions[entry.id] {
+                try activity.sample(entry, seconds: 0, at: ended, completed: true)
+                completions[entry.id] = nil
+            }
+            if let seconds = samples[entry.id] {
+                try activity.sample(entry, seconds: seconds, at: date)
+            }
+        }
+    }
+}
+
+private struct StartedWineProcess {
+    let process: Process
+    let history: LinuxProgramRunHistory
+    let exit: ExitRecorder
 }
 
 /// The exit status, written from Foundation's termination thread.

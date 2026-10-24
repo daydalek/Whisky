@@ -36,8 +36,10 @@ const PROGRAM_LOCALES: &[(&str, &str)] = &[
 ];
 const GRAPHICS_BACKENDS: &[(&str, &str)] = &[
     ("recommended", "自动推荐"),
+    #[cfg(not(target_os = "linux"))]
     ("d3dMetal", "D3DMetal"),
     ("dxvk", "DXVK"),
+    #[cfg(not(target_os = "linux"))]
     ("dxmt", "DXMT"),
     ("wined3d", "WineD3D"),
 ];
@@ -50,6 +52,7 @@ const DXVK_HUDS: &[(&str, &str)] = &[
 const SYNC_MODES: &[(&str, &str)] = &[
     ("none", "关闭"),
     ("esync", "ESync"),
+    #[cfg(not(target_os = "linux"))]
     ("msync", "MSync"),
 ];
 const RESOLUTIONS: &[(&str, &str)] = &[
@@ -58,6 +61,7 @@ const RESOLUTIONS: &[(&str, &str)] = &[
     ("r1920x1080", "1920 × 1080"),
     ("r2560x1440", "2560 × 1440"),
     ("r3840x2160", "3840 × 2160"),
+    #[cfg(not(target_os = "linux"))]
     ("matchDisplay", "匹配显示器"),
     ("custom", "自定义"),
 ];
@@ -616,6 +620,8 @@ impl WhiskyApp {
                     cx,
                 ),
             ));
+            #[cfg(not(target_os = "linux"))]
+            {
             let metal4 = overrides
                 .and_then(|value| value.metal4_enabled)
                 .or(defaults.metal4_enabled)
@@ -627,6 +633,7 @@ impl WhiskyApp {
                 |this, on| this.set_program_override_bool("metal4Enabled", on),
                 cx,
             ));
+            }
         } else {
             let backend = defaults.graphics_backend.as_deref().unwrap_or("recommended");
             let hud = defaults.dxvk_hud.as_deref().unwrap_or("off");
@@ -3715,6 +3722,8 @@ impl WhiskyApp {
                 "The bridge helper is starting.".into(),
             ),
         };
+        let (title, detail) = self.quit_error.as_ref()
+            .map(|error| ("退出清理未完成", error.clone())).unwrap_or((title, detail));
         let retry = matches!(self.bridge_status, BridgeStatus::Failed { .. });
         let pw = 440_f32.min(width - 48.);
         let ph = 210_f32.min(height - 48.);
@@ -3809,6 +3818,11 @@ impl WhiskyApp {
                                             this.bridge_retry(cx);
                                         })),
                                 )
+                            })
+                            .when(self.quit_error.is_some(), |row| {
+                                row.child(Button::new("quit-without-cleanup")
+                                    .label("直接退出应用")
+                                    .on_click(|_, _, cx| cx.quit()))
                             }),
                     ),
             )

@@ -118,7 +118,7 @@ public struct ConfigurationField: Identifiable, Sendable {
             titleKey: titleKey,
             path: path.joined(separator: "."),
             input: .choice(available),
-            defaultValue: defaultValue,
+            defaultValue: platform == .linux && id == "enhancedSync" ? .text("esync") : defaultValue,
             taggedEnum: taggedEnum,
             removesEmptyText: removesEmptyText,
             requires: requires,

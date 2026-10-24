@@ -25,8 +25,10 @@ for line in sys.stdin:
     if request['method']=='bridge.describe':
         if mode=='stderr':
             sys.stderr.write('x'*100000);sys.stderr.flush()
-        result={'protocolVersion':1,'platform':'fixture','methods':['bridge.describe','probe'],'maximumFrameBytes':1048576,'registry':'/tmp/fixture','dateUnit':'unix_seconds','pathFormat':'absolute_native'}
+        result={'protocolVersion':1,'platform':'fixture','methods':['bridge.describe','bridge.shutdown','probe'],'maximumFrameBytes':1048576,'registry':'/tmp/fixture','dateUnit':'unix_seconds','pathFormat':'absolute_native'}
         print(json.dumps({'version':1,'id':request['id'],'result':result}),flush=True)
+    elif mode=='shutdown-error' and request['method']=='bridge.shutdown':
+        print(json.dumps({'version':1,'id':request['id'],'error':{'code':'operation_failed','message':'process termination failed','retryable':True}}),flush=True)
     elif mode=='timeout': time.sleep(30)
     elif mode=='exit': sys.exit(3)
     elif mode=='oversize': print('x'*1048577,flush=True)
@@ -89,4 +91,12 @@ fn timeout_marks_unknown_mutation_outcome_and_closes_session() {
         client.call("probe", json!({})),
         Err(Error::Closed)
     ));
+}
+
+#[test]
+fn failed_exit_policy_keeps_the_helper_available_for_retry() {
+    let script = Script::new();
+    let mut client = script.client("shutdown-error");
+    assert!(matches!(client.shutdown(true), Err(Error::Remote(_))));
+    assert!(client.call("probe", json!({})).is_ok());
 }

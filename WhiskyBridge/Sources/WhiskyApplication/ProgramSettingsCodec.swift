@@ -160,6 +160,21 @@ enum ProgramSettingsCodec {
                     continue
                 }
                 try validate(value, key: key)
+                #if os(Linux)
+                if key == "metal4Enabled" ||
+                    (key == "graphicsBackend" && ["d3dMetal", "dxmt"].contains(value.string ?? ""))
+                    || (key == "enhancedSync" && value.string == "msync")
+                    || (key == "resolutionPreset" && value.string == "matchDisplay") {
+                    // Imported values survive unrelated edits; new unsupported selections fail explicitly.
+                    let previous = try overrides[key].map { try wire($0) }
+                    let unchanged = previous == value ||
+                        (tagged.contains(key) && (overrides[key] as? [String: Any])?.keys.first == value.string)
+                    guard unchanged else { throw BridgeFailure(
+                        "capability_unavailable",
+                        "This program setting requires the macOS adapter: \(key)"
+                    ) }
+                }
+                #endif
                 overrides[key] = try tagged.contains(key)
                     ? [value.textValue(): [String: String]()] : try foundation(value)
             }

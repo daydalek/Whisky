@@ -37,6 +37,8 @@ public final class LinuxApplicationServices: NativeApplicationServices {
     private let preferences: PreferencesService?
     private let desktop: LinuxDesktopService
     private let wineSetup: LinuxWineSetupService?
+    private let shutdownContainers: (() throws -> [URL])?
+    private let finalObservation: (() async -> Void)?
 
     public init(
         runtime: RuntimeService? = nil,
@@ -45,11 +47,16 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         preferences: PreferencesService? = nil,
         wineRuntimeURL: URL? = nil,
         jobs: BridgeJobStore? = nil,
-        wineSetup: LinuxWineSetupService? = nil
+        wineSetup: LinuxWineSetupService? = nil,
+        shutdownContainers: (() throws -> [URL])? = nil,
+        finalObservation: (() async -> Void)? = nil,
+        host: LinuxWineHost? = nil
     ) {
         runtimeService = runtime
         self.wineSetup = wineSetup
-        let host = wineRuntimeURL.flatMap { LinuxWineHost(runtimeURL: $0) }
+        self.shutdownContainers = shutdownContainers
+        self.finalObservation = finalObservation
+        let host = host ?? wineRuntimeURL.flatMap { LinuxWineHost(runtimeURL: $0) }
         wineHost = host
         bottleCreation = host.flatMap { LinuxBottleCreationService(host: $0, jobs: jobs) }
         self.jobs = jobs
@@ -71,7 +78,9 @@ public final class LinuxApplicationServices: NativeApplicationServices {
 
     public var capabilities: [String] {
         var values = ["system.files", "system.picker", "system.terminal", "system.desktop", "programs.shortcut"]
-        if wineSetup != nil { values.append("setup") }
+        if wineSetup != nil {
+            values.append("setup")
+        }
         if wineHost != nil {
             values += winetricks.capabilities
             values.append("processes.read")
@@ -136,7 +145,7 @@ public final class LinuxApplicationServices: NativeApplicationServices {
                 environment: ["WINEDEBUG": "-all"],
                 timeout: .seconds(30)
             )
-            guard result.status == 0 else {
+            guard !result.timedOut, result.status == 0 else {
                 throw BridgeFailure(
                     "operation_failed",
                     "Could not change the Windows version (Wine exit \(result.status))"
@@ -146,44 +155,9 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         }
         var updated = values
         updated[field.id] = value
-        if updated["virtualDesktopEnabled"] == .boolean(true) {
-            let resolution = ContainerConfiguration.virtualDesktopResolution(from: updated) ?? "1920x1080"
-            _ = try await host.run(
-                host.loader,
-                arguments: [
-                    "reg", "add", #"HKCU\Software\Wine\Explorer\Desktops"#,
-                    "/f", "/v", "Whisky", "/d", resolution
-                ],
-                prefix: container,
-                environment: ["WINEDEBUG": "-all"],
-                timeout: .seconds(30)
-            )
-            _ = try await host.run(
-                host.loader,
-                arguments: [
-                    "reg", "add", #"HKCU\Software\Wine\Explorer"#,
-                    "/f", "/v", "Desktop", "/d", "Whisky"
-                ],
-                prefix: container,
-                environment: ["WINEDEBUG": "-all"],
-                timeout: .seconds(30)
-            )
-        } else if field.id == "virtualDesktopEnabled" {
-            _ = try await host.run(
-                host.loader,
-                arguments: ["reg", "delete", #"HKCU\Software\Wine\Explorer\Desktops"#, "/f"],
-                prefix: container,
-                environment: ["WINEDEBUG": "-all"],
-                timeout: .seconds(30)
-            )
-            _ = try await host.run(
-                host.loader,
-                arguments: ["reg", "delete", #"HKCU\Software\Wine\Explorer"#, "/f", "/v", "Desktop"],
-                prefix: container,
-                environment: ["WINEDEBUG": "-all"],
-                timeout: .seconds(30)
-            )
-        }
+        try await LinuxWineConfiguration.importRegistry(
+            LinuxWineConfiguration.virtualDesktop(updated), container: container, host: host
+        )
     }
 
     public func call(
@@ -223,7 +197,10 @@ public final class LinuxApplicationServices: NativeApplicationServices {
                 return try wineSetup.call(method, params: params) { [weak self] in
                     guard let host = self?.wineHost, host.canExecute else { return }
                     for container in try workspace.containers() where await host.serverRunning(prefix: container) {
-                        throw BridgeFailure("runtime_busy", "Close running Wine applications before updating the runtime")
+                        throw BridgeFailure(
+                            "runtime_busy",
+                            "Close running Wine applications before updating the runtime"
+                        )
                     }
                 }
             }
@@ -260,6 +237,24 @@ public final class LinuxApplicationServices: NativeApplicationServices {
 
     public func shutdown(applyExitPolicy: Bool) async {
         runtimeService?.stopTracking()
+    }
+
+    public func prepareShutdown(applyExitPolicy: Bool) async throws {
+        guard applyExitPolicy, let host = wineHost else { return }
+        let globalKill = try preferences?.call("preferences.read", params: [:])
+            .object?["killOnTerminate"]?.bool ?? true
+        let containers = try shutdownContainers?() ?? Array(runtimeService?.containerURLs ?? [])
+        let processes = LinuxWineProcessHost(host: host)
+        for container in Set(containers).sorted(by: { $0.path < $1.path }) {
+            let metadata = try ProgramSettingsService.load(container.appendingPathComponent("Metadata.plist"))
+            let cleanup = metadata["cleanupConfig"] as? [String: Any] ?? [:]
+            let policy = cleanup["killOnQuit"] as? String ?? "inherit"
+            guard policy == "always" || (policy == "inherit" && globalKill) else { continue }
+            if try await host.probeServer(prefix: container) {
+                try await processes.terminateAllProcesses(in: container)
+            }
+        }
+        await finalObservation?()
     }
 
     // MARK: - Bottle tools & ad-hoc runs
@@ -311,7 +306,7 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         }
         let container = try workspace.resolve(params)
         let executable = try params.path("executable")
-        let runnable: Set<String> = ["exe", "msi", "bat", "cmd", "com", "url"]
+        let runnable: Set = ["exe", "msi", "bat", "cmd", "com", "url"]
         guard runnable.contains(executable.pathExtension.lowercased()) else {
             throw BridgeFailure("invalid_params", "Expected a runnable Windows file")
         }
@@ -319,15 +314,30 @@ public final class LinuxApplicationServices: NativeApplicationServices {
             throw BridgeFailure("file_missing", "Selected file is unavailable")
         }
         return try jobs.start(name: "programs.run") { _ in
-            let configuration = await LinuxLaunchConfiguration.load(container: container, executable: executable)
-            let result = try await host.run(
-                host.loader,
-                arguments: LinuxWineRuntimeDriver.wineArguments(for: executable) + configuration.arguments,
-                prefix: container,
-                environment: configuration.environment,
-                workingDirectory: executable.deletingLastPathComponent(),
-                outputLimit: 32 * 1_024
+            let configuration = try await LinuxLaunchConfiguration.load(container: container, executable: executable)
+            try await LinuxWineConfiguration.prepare(container: container, host: host)
+            let history = try LinuxProgramRunHistory.begin(
+                container: container,
+                executable: executable,
+                logs: HostPaths.logs()
             )
+            let result: LinuxWineHost.Output
+            do {
+                result = try await host.run(
+                    host.loader,
+                    arguments: configuration.wineArguments(for: executable),
+                    prefix: container,
+                    environment: configuration.environment,
+                    workingDirectory: executable.deletingLastPathComponent(),
+                    outputLimit: 32 * 1_024,
+                    logFile: history.log
+                )
+            } catch {
+                try history.finish(exitCode: -1)
+                throw error
+            }
+            try history.finish(exitCode: result.status)
+            try Task.checkCancellation()
             guard result.status == 0 else {
                 let tail = result.output.split(whereSeparator: \.isNewline).suffix(4).joined(separator: " | ")
                 let detail = tail.isEmpty ? "" : ": \(tail)"
@@ -390,8 +400,12 @@ public final class LinuxApplicationServices: NativeApplicationServices {
 
     private func locateTool(_ name: String) -> URL? {
         if let host = wineHost {
-            if name == "wine" { return host.loader }
-            if name == "wineserver" { return host.wineserver }
+            if name == "wine" {
+                return host.loader
+            }
+            if name == "wineserver" {
+                return host.wineserver
+            }
         }
         if name == "winetricks", let script = winetricks.winetricksExecutable {
             return script

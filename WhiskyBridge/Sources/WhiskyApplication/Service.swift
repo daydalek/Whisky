@@ -33,6 +33,11 @@ public protocol NativeApplicationServices: AnyObject {
         container: URL
     ) async throws
     func shutdown(applyExitPolicy: Bool) async
+    func prepareShutdown(applyExitPolicy: Bool) async throws
+}
+
+public extension NativeApplicationServices {
+    func prepareShutdown(applyExitPolicy: Bool) async throws {}
 }
 
 @MainActor
@@ -190,6 +195,7 @@ extension ApplicationService {
             return describe()
         case "bridge.shutdown":
             let applyPolicy = params["applyExitPolicy"] == nil ? false : try params.flag("applyExitPolicy")
+            try await native?.prepareShutdown(applyExitPolicy: applyPolicy)
             await shutdown(applyExitPolicy: applyPolicy)
             return .object(["accepted": .bool(true)])
         default:

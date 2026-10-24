@@ -245,7 +245,8 @@ impl WhiskyApp {
             MenuEntry::separator(cx.entity().downgrade()),
             self.menu_item("配置容器", Command::Configure(index), cx),
         ]);
-        if has_path && !game.is_some_and(|game| game.id.starts_with("steam:")) {
+        if has_path && self.service_available("entry.move")
+            && !game.is_some_and(|game| game.id.starts_with("steam:")) {
             items.push(self.menu_item("移动到容器…", Command::Move(index), cx));
         }
         // Only a folder entry runs something the user picked; a pin or a Steam
@@ -303,6 +304,7 @@ impl WhiskyApp {
     ) -> AnyElement {
         Button::new(id)
             .label(label)
+            .disabled(!self.command_available(command))
             .on_click(cx.listener(move |this, _, _, cx| this.command(command, cx)))
             .into_any_element()
     }
