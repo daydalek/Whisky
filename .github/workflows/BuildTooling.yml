@@ -1,0 +1,26 @@
+name: Build tooling
+on:
+  pull_request:
+    paths: ['build.sh', 'scripts/distribution/**', '.github/workflows/BuildTooling.yml']
+  push:
+    branches: [main, portability]
+    paths: ['build.sh', 'scripts/distribution/**', '.github/workflows/BuildTooling.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-interface:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify planning, process cancellation, literal paths and ABI guards
+        run: python3 -m unittest discover -s scripts/distribution -p 'test_*.py' -v
+      - name: Validate the public command line
+        run: |
+          bash -n build.sh
+          ./build.sh list --json
+          ./build.sh plan whisky-macos-arm64 --version 0.2.0 --json
+          ./build.sh plan whisky-linux-amd64 --executor docker --json

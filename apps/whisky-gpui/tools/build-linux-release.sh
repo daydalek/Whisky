@@ -11,6 +11,7 @@ export RUSTC_WRAPPER=
 # Linux and macOS have distinct lock graphs; keep the checkout read-only.
 python3 - "$repo_root" "$output" <<'PY'
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import sys
@@ -23,7 +24,8 @@ with tempfile.TemporaryDirectory(prefix='whisky-linux-release-') as folder:
                     ignore=shutil.ignore_patterns('.build', '.swiftpm', 'Package.resolved'))
     for name in ('WhiskyCore', 'WhiskyMetadata'):
         (workspace / name).symlink_to(root / name, target_is_directory=True)
-    command = ['swift', 'build', '--package-path', str(bridge), '--scratch-path', str(output / 'bridge-build'),
+    command = ['swift', 'build', '--jobs', os.environ.get('WHISKY_BUILD_JOBS', '4'),
+               '--package-path', str(bridge), '--scratch-path', str(output / 'bridge-build'),
                '--build-system', 'native', '-c', 'release']
     subprocess.run(command, check=True)
     products = subprocess.check_output(command + ['--show-bin-path'], text=True).strip()

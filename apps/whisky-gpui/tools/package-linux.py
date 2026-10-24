@@ -187,7 +187,8 @@ def main():
         'Dependency declarations and supplied license texts are in share/whisky/dependencies.json and share/licenses.\n'
         'Copied ELF programs and Swift libraries have modified RUNPATH values using $ORIGIN-relative directories.\n'
         'Original binary/runtime hashes and modified file hashes are recorded in manifest.json.\n'
-        'Wine installation and Windows execution are outside this build capability set.\n')
+        'Settings can download and update the separately published Linux Wine runtime.\n'
+        'Wine execution requires an x86_64 runtime and compatible host libraries and kernel.\n')
     executables = {output / 'Whisky'} | {output / 'bin' / name for name in PRODUCTS}
     output.chmod(0o755)
     for path in output.rglob('*'):

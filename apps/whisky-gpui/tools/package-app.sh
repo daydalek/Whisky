@@ -15,13 +15,21 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
-APP_DIR="${REPO_ROOT}/dist/Whisky.app"
+APP_DIR="${WHISKY_GPUI_APP_DIR:-${REPO_ROOT}/dist/Whisky.app}"
 CONTENTS="${APP_DIR}/Contents"
 ICONSET_SRC="${REPO_ROOT}/Whisky/Assets.xcassets/AppIcon.appiconset"
 
+# Preserve previous artifacts before starting an expensive compilation.
+if [[ -e "${APP_DIR}" || -L "${APP_DIR}" ]]; then
+    echo "Choose a fresh WHISKY_GPUI_APP_DIR: ${APP_DIR}" >&2
+    exit 1
+fi
+
 # Release builds: Swift helper first, then the GPUI binary.
-swift build --package-path "${REPO_ROOT}/WhiskyBridge" -c release
-env RUSTC_WRAPPER= cargo build --offline --locked --release \
+swift build --package-path "${REPO_ROOT}/WhiskyBridge" -c release --jobs "${WHISKY_BUILD_JOBS:-4}"
+cargo_options=(--locked --release --jobs "${WHISKY_BUILD_JOBS:-4}")
+if [[ "${WHISKY_BUILD_OFFLINE:-0}" == 1 ]]; then cargo_options+=(--offline); fi
+env RUSTC_WRAPPER= cargo build "${cargo_options[@]}" \
     --manifest-path "${REPO_ROOT}/apps/whisky-gpui/Cargo.toml"
 
 HELPER_BIN="${REPO_ROOT}/WhiskyBridge/.build/release/whisky-bridge"
@@ -29,8 +37,7 @@ GPUI_BIN="${REPO_ROOT}/apps/whisky-gpui/target/release/whisky-gpui"
 test -x "${HELPER_BIN}"
 test -x "${GPUI_BIN}"
 
-# Assemble the bundle.
-rm -rf "${APP_DIR}"
+# Assemble into the fresh destination.
 mkdir -p "${CONTENTS}/MacOS" "${CONTENTS}/Resources"
 cp "${GPUI_BIN}" "${CONTENTS}/MacOS/whisky-gpui"
 cp "${HELPER_BIN}" "${CONTENTS}/Resources/whisky-bridge"
@@ -91,15 +98,15 @@ PLIST
 ICONSET_BUILD="$(mktemp -d)/AppIcon.iconset"
 mkdir -p "${ICONSET_BUILD}"
 cp "${ICONSET_SRC}/16R64x1.png"   "${ICONSET_BUILD}/icon_16x16.png"
-cp "${ICONSET_SRC}/16@2x.png"     "${ICONSET_BUILD}/diana.k@example.org"
+cp "${ICONSET_SRC}/16@2x.png"     "${ICONSET_BUILD}/icon_16x16@2x.png"
 cp "${ICONSET_SRC}/32R64x1.png"   "${ICONSET_BUILD}/icon_32x32.png"
-cp "${ICONSET_SRC}/32@2x.png"     "${ICONSET_BUILD}/adam.d@example.org"
+cp "${ICONSET_SRC}/32@2x.png"     "${ICONSET_BUILD}/icon_32x32@2x.png"
 cp "${ICONSET_SRC}/128R128x1.png" "${ICONSET_BUILD}/icon_128x128.png"
-cp "${ICONSET_SRC}/128@2x.png"    "${ICONSET_BUILD}/pete.r@example.net"
+cp "${ICONSET_SRC}/128@2x.png"    "${ICONSET_BUILD}/icon_128x128@2x.png"
 cp "${ICONSET_SRC}/256R256x1.png" "${ICONSET_BUILD}/icon_256x256.png"
-cp "${ICONSET_SRC}/256@2x.png"    "${ICONSET_BUILD}/wendy.h@example.net"
+cp "${ICONSET_SRC}/256@2x.png"    "${ICONSET_BUILD}/icon_256x256@2x.png"
 cp "${ICONSET_SRC}/512R512x1.png" "${ICONSET_BUILD}/icon_512x512.png"
-cp "${ICONSET_SRC}/512@2x.png"    "${ICONSET_BUILD}/naomi.r@example.net"
+cp "${ICONSET_SRC}/512@2x.png"    "${ICONSET_BUILD}/icon_512x512@2x.png"
 iconutil -c icns "${ICONSET_BUILD}" -o "${CONTENTS}/Resources/AppIcon.icns"
 rm -rf "$(dirname "${ICONSET_BUILD}")"
 
