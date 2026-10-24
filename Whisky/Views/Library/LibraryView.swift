@@ -101,7 +101,109 @@ struct LibraryView: View {
         (bottles.map(\.url.path) + ["\(refresh)"]).joined(separator: "\u{1F}")
     }
 
+    // One long modifier chain exceeds the older toolchains' type-check budget
+    // (the 26.x compiler times out at CI); the identical chain is split into
+    // staged computed properties in unchanged order.
     var body: some View {
+        sheetStack
+            .onChange(of: sort, initial: true) {
+                model.configurePresentation(
+                    sort: displayMode == .timeline ? sort : .name,
+                    groupsLaunchers: displayMode != .timeline
+                )
+            }
+            .onChange(of: displayMode, initial: true) {
+                model.configurePresentation(
+                    sort: displayMode == .timeline ? sort : .name,
+                    groupsLaunchers: displayMode != .timeline
+                )
+                coverMode = displayMode != .classic
+            }
+            .onChange(of: model.completionRevision) {
+                guard displayMode == .timeline, sort == .recent, let first = visible.first,
+                      model.completedEntryIDs.contains(first.id)
+                else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.28)) { scrollAnchor = first.id }
+            }
+            .onChange(of: refreshAfterExit) {
+                if refreshAfterExit {
+                    Task { await model.refreshActivity() }
+                }
+            }
+            .onChange(of: coverMode) {
+                if !coverMode, displayMode != .classic {
+                    displayMode = .classic
+                } else if coverMode, displayMode == .classic {
+                    displayMode = .covers
+                }
+            }
+            .onDisappear {
+                model.stopTracking()
+            }
+            .alert(
+                Text(model.launchError == nil ? "library.metadata.error" : "library.launch.failed"),
+                isPresented: Binding(
+                    get: { model.launchError != nil || metadataError != nil },
+                    set: {
+                        if !$0 {
+                            model.launchError = nil
+                            metadataError = nil
+                        }
+                    }
+                )
+            ) {
+                Button("button.ok") { model.launchError = nil
+                    metadataError = nil
+                }
+            } message: {
+                Text(model.launchError ?? metadataError ?? "")
+            }
+    }
+
+    private var sheetStack: some View {
+        chrome
+            .sheet(item: $detailRow) { row in
+                LibraryGameSheet(
+                    item: row.item,
+                    bottles: bottles,
+                    launch: { model.launch(row, bottles: bottles) },
+                    moveBottle: { targetBottle in
+                        Task {
+                            if let moved = await model.moveEntry(row.item, to: targetBottle, bottles: bottles) {
+                                detailRow = moved
+                            }
+                        }
+                    },
+                    didSave: { metadataRevision += 1 }
+                )
+                .onDisappear { Task { await model.refreshActivity(entryIDs: [row.id]) } }
+            }
+            .sheet(isPresented: $showScanSettings) {
+                LibraryFolderSettings(bottles: bottles, initialBottleURL: selectedBottle) { refresh.toggle() }
+            }
+            .sheet(item: $settingsProgram) { program in
+                VStack(spacing: 0) {
+                    HStack {
+                        Text(program.name).font(.headline)
+                        Spacer()
+                        Button("button.ok") { settingsProgram = nil }
+                    }.padding()
+                    ProgramView(program: program)
+                }
+                .frame(minWidth: 640, minHeight: 560)
+            }
+            .sheet(item: $steamSettingsRow) { row in
+                if let bottle = bottles.first(where: { $0.url == row.item.bottleURL }),
+                   case let .steam(appID) = row.item.launch {
+                    LibrarySteamSettingsSheet(bottle: bottle, appID: appID, title: row.item.name) {
+                        steamSettingsRow = nil
+                        selectedBottle = row.item.bottleURL
+                    }
+                }
+            }
+    }
+
+    private var chrome: some View {
         Group {
             if model.rows.isEmpty {
                 emptyState
@@ -128,97 +230,6 @@ struct LibraryView: View {
         }
         .task(id: "\(model.catalogueRevision):\(metadataRevision)") {
             await loadMetadata()
-        }
-        .sheet(item: $detailRow) { row in
-            LibraryGameSheet(
-                item: row.item,
-                bottles: bottles,
-                launch: { model.launch(row, bottles: bottles) },
-                moveBottle: { targetBottle in
-                    Task {
-                        if let moved = await model.moveEntry(row.item, to: targetBottle, bottles: bottles) {
-                            detailRow = moved
-                        }
-                    }
-                },
-                didSave: { metadataRevision += 1 }
-            )
-            .onDisappear { Task { await model.refreshActivity(entryIDs: [row.id]) } }
-        }
-        .sheet(isPresented: $showScanSettings) {
-            LibraryFolderSettings(bottles: bottles, initialBottleURL: selectedBottle) { refresh.toggle() }
-        }
-        .sheet(item: $settingsProgram) { program in
-            VStack(spacing: 0) {
-                HStack {
-                    Text(program.name).font(.headline)
-                    Spacer()
-                    Button("button.ok") { settingsProgram = nil }
-                }.padding()
-                ProgramView(program: program)
-            }
-            .frame(minWidth: 640, minHeight: 560)
-        }
-        .sheet(item: $steamSettingsRow) { row in
-            if let bottle = bottles.first(where: { $0.url == row.item.bottleURL }),
-               case let .steam(appID) = row.item.launch {
-                LibrarySteamSettingsSheet(bottle: bottle, appID: appID, title: row.item.name) {
-                    steamSettingsRow = nil
-                    selectedBottle = row.item.bottleURL
-                }
-            }
-        }
-        .onChange(of: sort, initial: true) {
-            model.configurePresentation(
-                sort: displayMode == .timeline ? sort : .name,
-                groupsLaunchers: displayMode != .timeline
-            )
-        }
-        .onChange(of: displayMode, initial: true) {
-            model.configurePresentation(
-                sort: displayMode == .timeline ? sort : .name,
-                groupsLaunchers: displayMode != .timeline
-            )
-            coverMode = displayMode != .classic
-        }
-        .onChange(of: model.completionRevision) {
-            guard displayMode == .timeline, sort == .recent, let first = visible.first,
-                  model.completedEntryIDs.contains(first.id)
-            else { return }
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.28)) { scrollAnchor = first.id }
-        }
-        .onChange(of: refreshAfterExit) {
-            if refreshAfterExit {
-                Task { await model.refreshActivity() }
-            }
-        }
-        .onChange(of: coverMode) {
-            if !coverMode, displayMode != .classic {
-                displayMode = .classic
-            } else if coverMode, displayMode == .classic {
-                displayMode = .covers
-            }
-        }
-        .onDisappear {
-            model.stopTracking()
-        }
-        .alert(
-            Text(model.launchError == nil ? "library.metadata.error" : "library.launch.failed"),
-            isPresented: Binding(
-                get: { model.launchError != nil || metadataError != nil },
-                set: {
-                    if !$0 {
-                        model.launchError = nil
-                        metadataError = nil
-                    }
-                }
-            )
-        ) {
-            Button("button.ok") { model.launchError = nil
-                metadataError = nil
-            }
-        } message: {
-            Text(model.launchError ?? metadataError ?? "")
         }
     }
 

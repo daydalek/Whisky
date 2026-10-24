@@ -27,12 +27,13 @@ public enum GameDatabaseResource {
     }
 
     public static func resource(_ file: String, searchDirectories: [URL]? = nil) throws -> Data {
-        let directories = searchDirectories ?? defaults()
-        for directory in directories {
-            for name in ["WhiskyCore_WhiskyCore.resources", "WhiskyCore_WhiskyCore.bundle"] {
-                let bundle = directory.appendingPathComponent(name)
-                for relative in [file, "Contents/Resources/\(file)"] {
-                    let url = bundle.appendingPathComponent(relative)
+        for directory in searchDirectories ?? defaults() {
+            let candidates = [directory]
+                + ["WhiskyCore_WhiskyCore.resources", "WhiskyCore_WhiskyCore.bundle", "Contents/Resources"]
+                .map { directory.appendingPathComponent($0) }
+            for base in candidates {
+                for relative in [file, "Resources/\(file)", "Contents/Resources/\(file)"] {
+                    let url = base.appendingPathComponent(relative)
                     if FileManager.default.fileExists(atPath: url.path) {
                         let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
                         guard size <= 8 * 1_024 * 1_024 else { throw CocoaError(.fileReadTooLarge) }
@@ -65,6 +66,18 @@ public enum GameDatabaseResource {
         #if os(macOS)
         let module = Bundle(for: GameDatabaseResourceAnchor.self)
         result += [module.resourceURL, module.bundleURL].compactMap { $0 }
+        #endif
+        #if DEBUG
+        // swift-test places resources in layouts that differ per toolchain
+        // (.build/debug vs .build/<triple>/debug, scratch run directories), so
+        // the executable walk-up below misses them on some runners. The
+        // checked-out sources exist on every machine that compiled this binary
+        // and locate the resource deterministically in development builds.
+        let sourceRoot = URL(fileURLWithPath: #filePath) // …/WhiskyCore/Sources/WhiskyCore/GameDatabaseResource.swift
+            .deletingLastPathComponent() // …/Sources/WhiskyCore
+        if FileManager.default.fileExists(atPath: sourceRoot.appendingPathComponent("Resources").path) {
+            result.insert(sourceRoot, at: 0)
+        }
         #endif
         var executable = Bundle.main.executableURL
             ?? URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()

@@ -41,6 +41,12 @@ jobs:
       CXX: /usr/bin/clang-21
       WHISKY_LINUX_BUILD_CACHE: /tmp/whisky-compile-cache
       CARGO_HOME: /root/.cargo
+      # The job container runs as root while the checkout keeps the host
+      # runner's uid, so git refuses repository access ("dubious ownership")
+      # exactly like the docker executor path, which injects the same setting.
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: '*'
     steps:
       - uses: actions/checkout@v6
         with:
