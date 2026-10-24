@@ -88,6 +88,22 @@ class BuildTests(unittest.TestCase):
         self.assertIn('0.2.0', command)
         self.assertEqual(['deb'], command[command.index('--formats') + 1:])
 
+    def test_macos_gpui_plan_adds_package_step_when_version_provided(self):
+        dev = build.plan(self.args('whisky-macos-gpui-arm64'))
+        self.assertEqual(1, len(dev['steps']))
+        self.assertIn('package-app.sh', dev['steps'][0]['command'][1])
+        self.assertNotIn('WHISKY_VERSION', dev['environment'])
+
+        release = build.plan(self.args('whisky-macos-gpui-arm64', '--version', '0.4.0', '--build-number', '7'))
+        self.assertEqual(2, len(release['steps']))
+        self.assertEqual('0.4.0', release['environment']['WHISKY_VERSION'])
+        self.assertEqual('7', release['environment']['BUILD_NUMBER'])
+        self.assertIn('package-macos.py', release['steps'][1]['command'][1])
+        self.assertIn('--version', release['steps'][1]['command'])
+        self.assertIn('0.4.0', release['steps'][1]['command'])
+        with self.assertRaises(ValueError):
+            build.plan(self.args('whisky-macos-gpui-arm64', '--version', 'invalid_version'))
+
     def job(self, commands, **extra):
         value = dict(target='whisky-linux-amd64', executor='native', output=str(self.root / 'output'),
                      environment={}, steps=[dict(name='fixture', cwd=str(self.root), command=c) for c in commands])

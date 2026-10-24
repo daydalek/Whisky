@@ -23,7 +23,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 TARGETS = {
     'whisky-macos-arm64': ('Darwin', 'arm64', 'SwiftUI · ad-hoc ZIP · 预发布', ('xcodebuild', 'codesign', 'ditto')),
-    'whisky-macos-gpui-arm64': ('Darwin', 'arm64', 'GPUI · 开发用 .app', ('swift', 'cargo', 'iconutil', 'codesign')),
+    'whisky-macos-gpui-arm64': ('Darwin', 'arm64', 'GPUI · ad-hoc ZIP · 预发布', ('swift', 'cargo', 'iconutil', 'codesign', 'ditto')),
     'whisky-linux-amd64': ('Linux', 'x86_64', 'GPUI · Ubuntu 24.04 · tar.gz', ('swift', 'cargo', 'clang', 'patchelf', 'pkg-config')),
     'wine-macos-arm64': ('Darwin', 'arm64', 'Apple Silicon 主机 · x86_64 Wine/Rosetta · Libraries', ('cmake', 'pkg-config', 'xcrun')),
     'wine-linux-amd64': ('Linux', 'x86_64', 'Ubuntu 24.04 · new WoW64 · tar.gz', ('cc', 'make', 'patchelf', 'pkg-config', 'git')),
@@ -115,8 +115,19 @@ def plan(args):
         env.update(WHISKY_APP_RELEASE_OUTPUT=str(output / 'artifacts'), BUILD_NUMBER=str(args.build_number))
         step('应用构建、签名和源码打包', ['bash', repo / 'scripts/build-app-release.sh', args.version])
     elif args.target == 'whisky-macos-gpui-arm64':
-        env['WHISKY_GPUI_APP_DIR'] = str(output / 'artifacts/Whisky.app')
-        step('GPUI 开发包', ['bash', repo / 'apps/whisky-gpui/tools/package-app.sh'])
+        app_dir = output / 'artifacts/Whisky.app'
+        env['WHISKY_GPUI_APP_DIR'] = str(app_dir)
+        if args.version:
+            if not re.fullmatch(r'\d+\.\d+\.\d+', args.version):
+                raise ValueError('请提供 --version X.Y.Z')
+            env['WHISKY_VERSION'] = args.version
+            env['BUILD_NUMBER'] = str(args.build_number)
+        step('GPUI 应用构建与封装', ['bash', repo / 'apps/whisky-gpui/tools/package-app.sh'])
+        if args.version:
+            packages_dir = output / 'packages'
+            step('macOS Release 资产打包与校验和', ['python3', ROOT / 'scripts/distribution/package-macos.py',
+                 '--app', app_dir, '--version', args.version, '--build-number', str(args.build_number),
+                 '--output', packages_dir])
     elif args.target == 'whisky-linux-amd64':
         version = args.version or '0.1.0'
         if not re.fullmatch(r'\d+\.\d+\.\d+', version):

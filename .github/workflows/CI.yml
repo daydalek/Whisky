@@ -301,3 +301,34 @@ jobs:
           name: coverage-report
           path: WhiskyKit/coverage.lcov
           if-no-files-found: ignore
+
+  gpui:
+    name: GPUI (macOS)
+    needs: [lint, format]
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            apps/whisky-gpui/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('apps/whisky-gpui/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Run WhiskyBridge tests
+        run: swift test --package-path WhiskyBridge
+      - name: Run GPUI tests
+        run: cargo test --locked --manifest-path apps/whisky-gpui/Cargo.toml
+      - name: Verify GPUI app packaging
+        run: ./build.sh run whisky-macos-gpui-arm64

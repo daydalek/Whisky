@@ -55,13 +55,19 @@ chmod +x "${CONTENTS}/MacOS/whisky-gpui" "${CONTENTS}/Resources/whisky-bridge" \
 cp -R "${REPO_ROOT}/WhiskyBridge/.build/release/WhiskyCore_WhiskyCore.bundle" \
     "${CONTENTS}/Resources/WhiskyCore_WhiskyCore.bundle"
 
-# Version mirrors the SwiftUI app (Whisky.xcodeproj).
-VERSION="$(sed -n 's/^[[:space:]]*MARKETING_VERSION = \(.*\);$/\1/p' \
-    "${REPO_ROOT}/Whisky.xcodeproj/project.pbxproj" | head -n 1)"
-BUILD="$(sed -n 's/^[[:space:]]*CURRENT_PROJECT_VERSION = \(.*\);$/\1/p' \
-    "${REPO_ROOT}/Whisky.xcodeproj/project.pbxproj" | head -n 1)"
+if [[ -d "${REPO_ROOT}/ThirdParty" ]]; then
+    mkdir -p "${CONTENTS}/Resources/ThirdParty"
+    cp -R "${REPO_ROOT}/ThirdParty/"* "${CONTENTS}/Resources/ThirdParty/"
+fi
+
+# Version mirrors the SwiftUI app (Whisky.xcodeproj) unless overridden.
+VERSION="${WHISKY_VERSION:-$(sed -n 's/^[[:space:]]*MARKETING_VERSION = \(.*\);$/\1/p' \
+    "${REPO_ROOT}/Whisky.xcodeproj/project.pbxproj" | head -n 1)}"
+BUILD="${BUILD_NUMBER:-$(sed -n 's/^[[:space:]]*CURRENT_PROJECT_VERSION = \(.*\);$/\1/p' \
+    "${REPO_ROOT}/Whisky.xcodeproj/project.pbxproj" | head -n 1)}"
 : "${VERSION:?MARKETING_VERSION not found in Whisky.xcodeproj}"
 : "${BUILD:=1}"
+BUNDLE_ID="${WHISKY_BUNDLE_ID:-com.franke.Whisky}"
 
 cat > "${CONTENTS}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -69,7 +75,7 @@ cat > "${CONTENTS}/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>com.franke.Whisky.gpui</string>
+	<string>${BUNDLE_ID}</string>
 	<key>CFBundleName</key>
 	<string>Whisky</string>
 	<key>CFBundleDisplayName</key>
@@ -110,8 +116,24 @@ cp "${ICONSET_SRC}/512@2x.png"    "${ICONSET_BUILD}/icon_512x512@2x.png"
 iconutil -c icns "${ICONSET_BUILD}" -o "${CONTENTS}/Resources/AppIcon.icns"
 rm -rf "$(dirname "${ICONSET_BUILD}")"
 
-# Ad-hoc signing (no entitlements claimed).
-codesign -s - "${APP_DIR}"
+# Sign embedded executables and bundles, then the main app with entitlements.
+for file in "${CONTENTS}/Resources/whisky-bridge" "${CONTENTS}/Resources/cabextract" "${CONTENTS}/MacOS/whisky-gpui"; do
+    if [[ -f "$file" ]]; then
+        codesign --force --sign - "$file"
+    fi
+done
+for bundle in "${CONTENTS}/Resources"/*.bundle; do
+    if [[ -d "$bundle" ]]; then
+        codesign --force --sign - "$bundle"
+    fi
+done
+ENTITLEMENTS="${REPO_ROOT}/Whisky/Whisky.entitlements"
+if [[ -f "${ENTITLEMENTS}" ]]; then
+    codesign --force --sign - --entitlements "${ENTITLEMENTS}" "${APP_DIR}"
+else
+    codesign --force --sign - "${APP_DIR}"
+fi
+codesign --verify --deep --strict "${APP_DIR}"
 
 # Strip a quarantine flag if one is present.
 xattr -dr com.apple.quarantine "${APP_DIR}" 2>/dev/null || true
