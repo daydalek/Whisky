@@ -25,6 +25,10 @@ permissions:
 
 # Shared environment variables for consistency across jobs
 env:
+  # macos-26 runners: their latest-stable Xcode is 27, which is what this
+  # codebase is developed and released against. The Xcode 26.3 toolchain on
+  # macos-15 cannot type-check some SwiftUI here and its runtime allocator
+  # aborts inside the Steam library discovery tests.
   XCODE_VERSION: 'latest-stable'
 
 # Prevent duplicate runs on the same PR
@@ -91,7 +95,7 @@ jobs:
   build:
     name: Build all schemes
     needs: [lint, format]
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - name: Checkout
@@ -170,7 +174,7 @@ jobs:
   test:
     name: Run Tests
     needs: [lint, format]
-    runs-on: macos-15
+    runs-on: macos-26
     
     steps:
       - name: Checkout
