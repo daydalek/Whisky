@@ -100,3 +100,26 @@ records the published `v0.1.6-linux-amd64` payload, SHA-256
 `2abd9cfdea9e262243d272edce89ea200e704858382686641b3a7ca700c9c611`.
 The producer marks this payload `compile-only`. Download/install verification
 and Wine/game execution have distinct acceptance evidence.
+
+### Clean runtime evidence, 2026-10-24
+
+Implementation commit `e68147ffb3fbbe4be5201feb692a5f762a40daf9` was packaged
+from a clean tree into a development-binary validation archive, carrying 17
+Swift runtime libraries and 1,490 inventoried files. Archive SHA-256:
+`340918f77b094a2de485aeb07b91b19c978979a44c2a75f65090d686484a9dca`.
+The optimized Release build remains the CI `build-linux-release.sh` path.
+
+The archive passed all 16 checks as `whisky-test` (UID 10001) in a clean Ubuntu
+24.04 image with network mode `none`, compilers absent and the source/build
+workspace outside the container. After relocation into a Unicode/quote/literal
+`$HOME` path, the real helper and window passed Wine install, upgrade,
+cancellation, failure preservation and startup update detection over local HTTP.
+The archive validator resource was resolved from the packaged SwiftPM bundle.
+Final bundle hashes remained intact. Reports and screenshots are retained under
+`build/portability/wine-update/clean-runtime-evidence/`; its `report.json`
+records the implementation commit and archive checksum.
+
+Swift 6.0 also passes Core 116, Metadata 20 and Bridge 117 cases. The controlled
+window channel installs fixture 0.1.6, upgrades to fixture 0.1.7 and detects
+fixture 0.1.8 after restart. The separate public-network evidence records the
+actual published 0.1.6 payload and its producer checksum above.
