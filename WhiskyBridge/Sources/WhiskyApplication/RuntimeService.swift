@@ -145,6 +145,12 @@ public final class RuntimeService {
         workspace: ApplicationWorkspace
     ) async throws -> JSONValue {
         let entry = try await workspace.entry(params)
+        // A frontend's registration cache can outlive a helper session, a move,
+        // or a library refresh. Resolve the live workspace entry first, then
+        // restore its container's driver registration at the launch boundary.
+        if method == "runtime.launch", configured[entry.id] == nil {
+            _ = try await configureRuntime(params: params, workspace: workspace)
+        }
         guard configured[entry.id] != nil else { throw BridgeFailure(
             "not_configured",
             "Configure this library before launching"

@@ -7,19 +7,20 @@ This document describes the current release paths for `daydalek/Whisky` and its 
 | Stream | Repository | Tags | Main artifact |
 | --- | --- | --- | --- |
 | Whisky app | `daydalek/Whisky` | `vn-vX.Y.Z`, `app-vX.Y.Z`, or `vX.Y.Z` | `Whisky-X.Y.Z-arm64.zip` |
+| Whisky Linux GPUI | `daydalek/Whisky` | `linux-vX.Y.Z` | deb, rpm and AppImage |
 | Wine Libraries | `daydalek/ge-proton-macos-wine-poc` | `vX.Y.Z` | `Libraries.tar.gz` |
 
 The app workflow publishes prereleases with ad-hoc signatures. Users download and replace the app manually. The current Wine runtime requires macOS 27+ on Apple Silicon with Rosetta 2; the app target itself has a macOS 15.0 deployment target.
 
 ## App release
 
-The authoritative workflow is [AppRelease.yml](../.github/workflows/AppRelease.yml), which invokes [build-app-release.sh](../scripts/build-app-release.sh).
+The authoritative macOS GPUI workflow is [AppRelease.yml](../.github/workflows/AppRelease.yml), which invokes `./build.sh run whisky-macos-gpui-arm64`. Linux GPUI uses [LinuxRelease.yml](../.github/workflows/LinuxRelease.yml) and its reusable distribution and package acceptance jobs.
 
 ### Prepare the release
 
 1. Review the changes and update `CHANGELOG.md` for the app version.
-2. Run the relevant checks before tagging. The release workflow also runs `swift test --package-path WhiskyKit` before building.
-3. Choose the app version `X.Y.Z`. The workflow derives `MARKETING_VERSION` from the tag and supplies `CURRENT_PROJECT_VERSION` from `github.run_number` at build time.
+2. Run the relevant checks before tagging. The macOS release workflow also runs WhiskyBridge and GPUI tests before building; Linux runs shared-core, bridge, GPUI and package checks.
+3. Choose the app version `X.Y.Z`. The workflow derives the version from the tag and supplies the build number from `github.run_number` at build time. macOS and Linux use independent version streams.
 
 ### Build and publish
 
