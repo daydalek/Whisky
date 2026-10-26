@@ -32,6 +32,7 @@ struct SettingsView: View {
     @AppStorage("libraryMixedCoverLayout") private var mixedCoverLayout = true
     @AppStorage("libraryCoverFillStyle") private var coverFillStyle = "blurred"
     @AppStorage("libraryBlurredCoverFill") private var blurredCoverFill = true
+    @AppStorage("libraryMetadataScrapeCharacters") private var scrapeCharacters = true
     @AppStorage("preferredTerminal") var preferredTerminal = "terminal"
     @AppStorage(Telemetry.consentDefaultsKey) private var telemetryConsentRaw: String = Telemetry.ConsentState
         .undecided.rawValue
@@ -94,6 +95,8 @@ struct SettingsView: View {
                     Text("settings.library.coverFillStyle.theme").tag("theme")
                 }
                 .disabled(!blurredCoverFill)
+                Toggle("settings.library.scrapeCharacters", isOn: $scrapeCharacters)
+                    .help("settings.library.scrapeCharacters.help")
             }
             Section("settings.updates") {
                 Toggle("settings.toggle.offlineMode", isOn: $offlineMode)

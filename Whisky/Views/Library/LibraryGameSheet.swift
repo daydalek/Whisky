@@ -91,6 +91,9 @@ struct LibraryGameSheet: View {
     @State var query = ""
     @State var results: [GameMetadataSearchResult] = []
     @AppStorage("libraryMetadataEnabledSources") var enabledSourceIDs = "bangumi,vndb,steam,ymgal"
+    @AppStorage("libraryMetadataScrapeCharacters") var scrapeCharacters = true
+    @State var selectedCharacter: GameCharacter?
+    @State var fetchingCharacters = false
     @State var searching = false
     @State var saving = false
     @State var searchTask: Task<Void, Never>?
@@ -121,7 +124,9 @@ struct LibraryGameSheet: View {
             Divider()
 
             Group {
-                if layoutStyle == .hero {
+                if let character = selectedCharacter {
+                    characterExpandedLayout(character)
+                } else if layoutStyle == .hero {
                     heroLayout
                 } else {
                     splitLayout
@@ -153,6 +158,9 @@ struct LibraryGameSheet: View {
                 metadata = try await store.load(for: item.metadataIdentity)
                 coverSettings = try await store.loadCoverSettings(for: item.metadataIdentity)
                 activity = try await GameActivityStore.shared.perform { [item] in try $0.load(for: item) }
+                if scrapeCharacters, let current = metadata, current.characters == nil {
+                    Task { await fetchCharactersForCurrentGame() }
+                }
             } catch {
                 self.error = error.localizedDescription
             }
@@ -177,64 +185,93 @@ struct LibraryGameSheet: View {
 extension LibraryGameSheet {
     var navigationHeader: some View {
         HStack(alignment: .center, spacing: 12) {
-            if layoutStyle == .hero {
-                if let source = metadata?.source {
-                    HStack(spacing: 5) {
-                        Image(systemName: "gamecontroller.fill")
-                            .font(.caption2)
-                        Text(source.title)
-                            .font(.caption.weight(.semibold))
+            if let character = selectedCharacter {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        selectedCharacter = nil
                     }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .foregroundStyle(.secondary)
-                } else {
-                    Text(item.source == .steam ? "Steam" : "Game")
-                        .font(.caption.weight(.semibold))
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "chevron.left")
+                            .fontWeight(.semibold)
+                        Text(metadata?.title ?? item.name)
+                            .lineLimit(1)
+                    }
+                    .font(.subheadline.weight(.medium))
+                }
+                .buttonStyle(.plain)
+
+                Text("/")
+                    .foregroundStyle(.tertiary)
+
+                Text(character.name)
+                    .font(.headline)
+                    .lineLimit(1)
+
+                Spacer()
+
+                Button("button.ok") { dismiss() }
+                    .controlSize(.small)
+            } else {
+                if layoutStyle == .hero {
+                    if let source = metadata?.source {
+                        HStack(spacing: 5) {
+                            Image(systemName: "gamecontroller.fill")
+                                .font(.caption2)
+                            Text(source.title)
+                                .font(.caption.weight(.semibold))
+                        }
                         .padding(.horizontal, 9)
                         .padding(.vertical, 4)
                         .background(.ultraThinMaterial, in: Capsule())
                         .foregroundStyle(.secondary)
-                }
-            } else {
-                Text(metadata?.title ?? item.name)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-
-            Spacer()
-
-            Picker("", selection: $layoutStyle) {
-                ForEach(LibraryDetailLayoutStyle.allCases) { style in
-                    Label(style.label, systemImage: style.icon).tag(style)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
-            .fixedSize()
-
-            if case .program = item.launch, bottles.count > 1 {
-                Picker("library.bottle.target", selection: Binding(
-                    get: { item.bottleURL },
-                    set: { targetURL in
-                        guard let target = bottles.first(where: { $0.url == targetURL }) else { return }
-                        moveBottle(target)
+                    } else {
+                        Text(item.source == .steam ? "Steam" : "Game")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .foregroundStyle(.secondary)
                     }
-                )) {
-                    ForEach(bottles, id: \.url) { bottle in
-                        Text(bottle.settings.name).tag(bottle.url)
+                } else {
+                    Text(metadata?.title ?? item.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+
+                Spacer()
+
+                Picker("", selection: $layoutStyle) {
+                    ForEach(LibraryDetailLayoutStyle.allCases) { style in
+                        Label(style.label, systemImage: style.icon).tag(style)
                     }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
                 .controlSize(.small)
-                .frame(maxWidth: 180)
-            }
+                .fixedSize()
 
-            Button("button.ok") { dismiss() }
-                .controlSize(.small)
-                .keyboardShortcut(.defaultAction)
+                if case .program = item.launch, bottles.count > 1 {
+                    Picker("library.bottle.target", selection: Binding(
+                        get: { item.bottleURL },
+                        set: { targetURL in
+                            guard let target = bottles.first(where: { $0.url == targetURL }) else { return }
+                            moveBottle(target)
+                        }
+                    )) {
+                        ForEach(bottles, id: \.url) { bottle in
+                            Text(bottle.settings.name).tag(bottle.url)
+                        }
+                    }
+                    .controlSize(.small)
+                    .frame(maxWidth: 180)
+                }
+
+                Button("button.ok") { dismiss() }
+                    .controlSize(.small)
+                    .keyboardShortcut(.defaultAction)
+            }
         }
     }
 
@@ -256,6 +293,8 @@ extension LibraryGameSheet {
                     }
                     .modifier(LibraryDetailReadingPanel(enabled: usesDetailBackground))
                 }
+
+                charactersSection
 
                 VStack(alignment: .leading, spacing: 12) {
                     DisclosureGroup("library.cover.title") {
@@ -373,6 +412,7 @@ extension LibraryGameSheet {
                                     .foregroundStyle(.secondary)
                                     .padding(.top, 20)
                             }
+                            charactersSection
                         case .cover:
                             coverOptionsForm
                         case .metadata:
@@ -808,7 +848,7 @@ extension LibraryGameSheet {
         defer { saving = false }
         do {
             let candidate = try await PublicGameMetadataProvider(source: candidate.source)
-                .details(for: candidate).usingLibraryTitle(item.name)
+                .details(for: candidate, includeCharacters: scrapeCharacters).usingLibraryTitle(item.name)
             try await store.save(candidate, for: item.metadataIdentity)
             metadata = candidate
             didSave()
@@ -817,6 +857,25 @@ extension LibraryGameSheet {
                 didSave()
             }
         } catch { self.error = error.localizedDescription }
+    }
+
+    func fetchCharactersForCurrentGame() async {
+        guard let current = metadata, !fetchingCharacters else { return }
+        fetchingCharacters = true
+        defer { fetchingCharacters = false }
+        do {
+            let provider = PublicGameMetadataProvider(source: current.source)
+            let chars = try await provider.fetchCharacters(for: current)
+            if !chars.isEmpty {
+                var updated = current
+                updated.characters = chars
+                metadata = updated
+                try await store.save(updated, for: item.metadataIdentity)
+                didSave()
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 
     func unlink() async {
@@ -1996,5 +2055,382 @@ extension LibraryTimelineRow {
             )
             .help("library.metadata.details")
         }
+    }
+}
+
+// MARK: - Characters Presentation
+
+extension LibraryGameSheet {
+    @ViewBuilder
+    var charactersSection: some View {
+        if let characters = metadata?.characters, !characters.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center, spacing: 8) {
+                    Label("library.detail.characters", systemImage: "person.2.fill")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+
+                    Text("\(characters.count)")
+                        .font(.caption.bold())
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+
+                    Spacer()
+
+                    if fetchingCharacters {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Button {
+                            Task { await fetchCharactersForCurrentGame() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .help("library.detail.refreshCharacters")
+                    }
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 14) {
+                        ForEach(characters) { character in
+                            CharacterCardView(character: character) {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    selectedCharacter = character
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 2)
+                }
+            }
+            .modifier(LibraryDetailReadingPanel(enabled: usesDetailBackground))
+        } else if metadata != nil, metadata?.source == .vndb || metadata?.source == .bangumi {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label("library.detail.characters", systemImage: "person.2.fill")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if fetchingCharacters {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Button("library.detail.fetchCharacters") {
+                            Task { await fetchCharactersForCurrentGame() }
+                        }
+                        .controlSize(.small)
+                    }
+                }
+            }
+            .modifier(LibraryDetailReadingPanel(enabled: usesDetailBackground))
+        }
+    }
+
+    func characterExpandedLayout(_ character: GameCharacter) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top, spacing: 24) {
+                    // Left column: portrait & quick badges
+                    VStack(spacing: 14) {
+                        ZStack(alignment: .bottomTrailing) {
+                            if let imageURL = character.imageURL {
+                                AsyncImage(url: imageURL) { phase in
+                                    switch phase {
+                                    case .empty:
+                                        Rectangle()
+                                            .fill(.quaternary)
+                                            .overlay { ProgressView() }
+                                    case let .success(image):
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fit)
+                                    case .failure:
+                                        Rectangle()
+                                            .fill(.quaternary)
+                                            .overlay {
+                                                Image(systemName: "person.crop.rectangle")
+                                                    .font(.largeTitle)
+                                                    .foregroundStyle(.tertiary)
+                                            }
+                                    @unknown default:
+                                        EmptyView()
+                                    }
+                                }
+                            } else {
+                                Rectangle()
+                                    .fill(.quaternary)
+                                    .overlay {
+                                        Image(systemName: "person.crop.rectangle")
+                                            .font(.largeTitle)
+                                            .foregroundStyle(.tertiary)
+                                    }
+                            }
+                        }
+                        .frame(width: 200, height: 270)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14)
+                                .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.35), radius: 10, x: 0, y: 5)
+
+                        if let cv = character.voiceActor, !cv.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Label("library.detail.voiceActor", systemImage: "mic.fill")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.secondary)
+                                Text(cv)
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.primary)
+                                    .textSelection(.enabled)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+                        }
+
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                selectedCharacter = nil
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "chevron.left")
+                                Text("library.detail.backToGame")
+                            }
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.regular)
+                    }
+                    .frame(width: 200)
+
+                    // Right column: Name, Role, Full description
+                    VStack(alignment: .leading, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                Text(character.name)
+                                    .font(.title.bold())
+                                    .textSelection(.enabled)
+
+                                if let role = character.role, !role.isEmpty {
+                                    Text(role)
+                                        .font(.caption.bold())
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background(Color.accentColor.opacity(0.2), in: Capsule())
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                            }
+
+                            if let original = character.originalName, !original.isEmpty, original != character.name {
+                                Text(original)
+                                    .font(.title3)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                        }
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("library.detail.characterAbout", systemImage: "text.alignleft")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+
+                            Text(character.summary ?? String(localized: "library.detail.noCharacterSummary"))
+                                .font(.body)
+                                .lineSpacing(5)
+                                .textSelection(.enabled)
+                                .foregroundStyle(.primary.opacity(0.92))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .modifier(LibraryDetailReadingPanel(enabled: usesDetailBackground))
+
+                // Bottom strip of other characters in the game
+                if let allCharacters = metadata?.characters, allCharacters.count > 1 {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("library.detail.otherCharacters", systemImage: "person.2")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.secondary)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(allCharacters) { other in
+                                    Button {
+                                        withAnimation(.easeInOut(duration: 0.18)) {
+                                            selectedCharacter = other
+                                        }
+                                    } label: {
+                                        HStack(spacing: 8) {
+                                            if let img = other.imageURL {
+                                                AsyncImage(url: img) { phase in
+                                                    if let im = phase.image {
+                                                        im.resizable().aspectRatio(contentMode: .fill)
+                                                    } else {
+                                                        Rectangle().fill(.quaternary)
+                                                    }
+                                                }
+                                                .frame(width: 28, height: 28)
+                                                .clipShape(Circle())
+                                            }
+                                            Text(other.name)
+                                                .font(.caption.bold())
+                                                .lineLimit(1)
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(
+                                            other.id == character.id ? Color.accentColor.opacity(0.25) : Color.primary
+                                                .opacity(0.06),
+                                            in: Capsule()
+                                        )
+                                        .overlay(Capsule().strokeBorder(
+                                            other.id == character.id ? Color.accentColor : Color.secondary.opacity(0.2),
+                                            lineWidth: 1
+                                        ))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                    .modifier(LibraryDetailReadingPanel(enabled: usesDetailBackground))
+                }
+            }
+        }
+    }
+}
+
+private struct CharacterCardView: View {
+    let character: GameCharacter
+    let onSelect: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 0) {
+                // Character image container
+                ZStack(alignment: .bottomTrailing) {
+                    if let imageURL = character.imageURL {
+                        AsyncImage(url: imageURL) { phase in
+                            switch phase {
+                            case .empty:
+                                Rectangle()
+                                    .fill(.quaternary)
+                                    .overlay {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                    }
+                            case let .success(image):
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            case .failure:
+                                Rectangle()
+                                    .fill(.quaternary)
+                                    .overlay {
+                                        Image(systemName: "person.crop.rectangle")
+                                            .font(.title2)
+                                            .foregroundStyle(.tertiary)
+                                    }
+                            @unknown default:
+                                EmptyView()
+                            }
+                        }
+                    } else {
+                        Rectangle()
+                            .fill(.quaternary)
+                            .overlay {
+                                Image(systemName: "person.crop.rectangle")
+                                    .font(.title2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                    }
+
+                    if let role = character.role, !role.isEmpty {
+                        Text(role)
+                            .font(.system(size: 10, weight: .semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .padding(6)
+                    }
+                }
+                .frame(width: 170, height: 135)
+                .clipped()
+
+                // Character info container
+                VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(character.name)
+                            .font(.subheadline.bold())
+                            .lineLimit(1)
+                            .foregroundStyle(.primary)
+
+                        if let original = character.originalName, !original.isEmpty, original != character.name {
+                            Text(original)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+
+                    if let cv = character.voiceActor, !cv.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 8))
+                            Text(cv)
+                                .font(.system(size: 10, weight: .medium))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                    }
+
+                    if let summary = character.summary, !summary.isEmpty {
+                        Text(summary)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                    } else {
+                        Spacer(minLength: 0)
+                    }
+                }
+                .padding(10)
+                .frame(width: 170, height: 115, alignment: .topLeading)
+            }
+            .frame(width: 170, height: 250)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(
+                        isHovered ? Color.accentColor.opacity(0.6) : Color.white.opacity(0.12),
+                        lineWidth: isHovered ? 1.5 : 1
+                    )
+            )
+            .shadow(
+                color: isHovered ? Color.black.opacity(0.3) : Color.black.opacity(0.15),
+                radius: isHovered ? 8 : 4,
+                x: 0,
+                y: isHovered ? 4 : 2
+            )
+            .scaleEffect(isHovered ? 1.02 : 1.0)
+            .animation(.easeInOut(duration: 0.18), value: isHovered)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }

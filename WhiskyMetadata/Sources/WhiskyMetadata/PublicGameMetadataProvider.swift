@@ -65,11 +65,29 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
 
     /// Steam's search endpoint only returns identity and thumbnails. Fetch the
     /// selected item's details, rather than issuing ten extra requests per search.
-    public func details(for candidate: GameMetadata) async throws -> GameMetadata {
+    public func details(for candidate: GameMetadata, includeCharacters: Bool = true) async throws -> GameMetadata {
         try await networkAccess()
         guard candidate.source == source else { throw URLError(.badURL) }
         if source == .ymgal {
             return try await ymgalClient.details(candidate, networkAccess: networkAccess)
+        }
+        if source == .vndb {
+            return try await gatekeeper.details("vndb-details:\(candidate.sourceID):\(includeCharacters)") {
+                var game = candidate
+                if includeCharacters, game.characters == nil || game.characters?.isEmpty == true {
+                    game.characters = try await fetchVNDBCharacters(for: candidate.sourceID)
+                }
+                return game
+            }
+        }
+        if source == .bangumi {
+            return try await gatekeeper.details("bgm-details:\(candidate.sourceID):\(includeCharacters)") {
+                var game = candidate
+                if includeCharacters, game.characters == nil || game.characters?.isEmpty == true {
+                    game.characters = try await fetchBangumiCharacters(for: candidate.sourceID)
+                }
+                return game
+            }
         }
         guard source == .steam else { return candidate }
         guard Int(candidate.sourceID) != nil else { throw URLError(.badURL) }
@@ -93,6 +111,19 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
             game.releaseDate = data.releaseDate?.date ?? ""
             game.fetchedAt = Date()
             return game
+        }
+    }
+
+    public func fetchCharacters(for candidate: GameMetadata) async throws -> [GameCharacter] {
+        try await networkAccess()
+        guard candidate.source == source else { return [] }
+        switch source {
+        case .vndb:
+            return try await fetchVNDBCharacters(for: candidate.sourceID)
+        case .bangumi:
+            return try await fetchBangumiCharacters(for: candidate.sourceID)
+        case .ymgal, .steam, .hikarinagi:
+            return []
         }
     }
 
@@ -227,6 +258,120 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
             )
         }
     }
+
+    private func fetchVNDBCharacters(for sourceID: String) async throws -> [GameCharacter] {
+        let cleanID = sourceID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let body = try JSONSerialization.data(withJSONObject: [
+            "filters": ["id", "=", cleanID],
+            "fields": "id, title, va{note, character{id, name, original, description, image.url}, staff{id, name, original}}"
+        ])
+        guard let vndbURL = URL(string: "https://api.vndb.org/kana/vn") else { throw URLError(.badURL) }
+        let result = try await request(vndbURL, body: body, as: VNDBNovelVAPage.self)
+
+        var characters: [GameCharacter] = []
+        var seenIDs = Set<String>()
+
+        if let novel = result.results.first, let vaList = novel.va, !vaList.isEmpty {
+            for item in vaList {
+                guard let char = item.character else { continue }
+                if seenIDs.contains(char.id) {
+                    continue
+                }
+                seenIDs.insert(char.id)
+
+                let primaryName = (char.original?.isEmpty == false) ? char.original! : char.name
+                let subName = (char.original?.isEmpty == false && char.name != char.original) ? char.name : nil
+                let cv = item.staff.flatMap { ($0.original?.isEmpty == false) ? $0.original : $0.name }
+
+                characters.append(GameCharacter(
+                    id: char.id,
+                    name: primaryName,
+                    originalName: subName,
+                    imageURL: char.image?.url,
+                    voiceActor: cv,
+                    summary: Self.cleanBBCode(char.description),
+                    role: item.note
+                ))
+            }
+        }
+
+        if characters.isEmpty {
+            let charBody = try JSONSerialization.data(withJSONObject: [
+                "filters": ["vn", "=", ["id", "=", cleanID]],
+                "fields": "id, name, original, description, image.url"
+            ])
+            guard let charURL = URL(string: "https://api.vndb.org/kana/character") else { return [] }
+            if let charResult = try? await request(charURL, body: charBody, as: VNDBCharacterResponse.self) {
+                for char in charResult.results {
+                    if seenIDs.contains(char.id) {
+                        continue
+                    }
+                    seenIDs.insert(char.id)
+                    let primaryName = (char.original?.isEmpty == false) ? char.original! : char.name
+                    let subName = (char.original?.isEmpty == false && char.name != char.original) ? char.name : nil
+                    characters.append(GameCharacter(
+                        id: char.id,
+                        name: primaryName,
+                        originalName: subName,
+                        imageURL: char.image?.url,
+                        voiceActor: nil,
+                        summary: Self.cleanBBCode(char.description),
+                        role: nil
+                    ))
+                }
+            }
+        }
+        return characters
+    }
+
+    private func fetchBangumiCharacters(for sourceID: String) async throws -> [GameCharacter] {
+        let cleanID = sourceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: "https://api.bgm.tv/v0/subjects/\(cleanID)/characters") else { return [] }
+        let list = try await request(url, as: [BangumiCharacter].self)
+        return list.map { char in
+            let cv = char.actors?.compactMap { actor -> String? in
+                let n = actor.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                return n.isEmpty ? nil : n
+            }.joined(separator: ", ")
+
+            return GameCharacter(
+                id: String(char.id),
+                name: char.name,
+                originalName: nil,
+                imageURL: char.images?.large ?? char.images?.medium ?? char.images?.common ?? char.images?.grid,
+                voiceActor: (cv?.isEmpty == false) ? cv : nil,
+                summary: char.summary?.trimmingCharacters(in: .whitespacesAndNewlines),
+                role: char.relation
+            )
+        }
+    }
+
+    public static func cleanBBCode(_ text: String?) -> String? {
+        guard let text, !text.isEmpty else { return nil }
+        var result = text
+        result = result.replacingOccurrences(
+            of: #"(?i)\[url=[^\]]*\](.*?)\[/url\]"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"(?i)\[url\](.*?)\[/url\]"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"(?i)\[spoiler\](.*?)\[/spoiler\]"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"\[/?[a-zA-Z0-9_-]+(=[^\]]*)?\]"#,
+            with: "",
+            options: .regularExpression
+        )
+        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }
 
 private enum ProviderError: LocalizedError {
@@ -296,6 +441,54 @@ private struct VNDBNovel: Decodable {
 
 private struct VNDBResponse: Decodable {
     let results: [VNDBNovel]
+}
+
+private struct VNDBVoiceActorItem: Decodable {
+    let note: String?
+    let character: VNDBCharacter?
+    let staff: VNDBStaff?
+}
+
+private struct VNDBCharacter: Decodable {
+    let id: String
+    let name: String
+    let original: String?
+    let description: String?
+    let image: VNDBImage?
+}
+
+private struct VNDBStaff: Decodable {
+    let id: String
+    let name: String
+    let original: String?
+}
+
+private struct VNDBNovelVA: Decodable {
+    let id: String
+    let title: String?
+    let va: [VNDBVoiceActorItem]?
+}
+
+private struct VNDBNovelVAPage: Decodable {
+    let results: [VNDBNovelVA]
+}
+
+private struct VNDBCharacterResponse: Decodable {
+    let results: [VNDBCharacter]
+}
+
+private struct BangumiCharacterActor: Decodable {
+    let id: Int?
+    let name: String
+}
+
+private struct BangumiCharacter: Decodable {
+    let id: Int
+    let name: String
+    let relation: String?
+    let images: BangumiImages?
+    let summary: String?
+    let actors: [BangumiCharacterActor]?
 }
 
 private struct SteamItem: Decodable {

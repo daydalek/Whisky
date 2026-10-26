@@ -32,7 +32,8 @@ public final class PreferencesService {
         "offlineMode": false, "killOnTerminate": true, "showMenuBarExtra": false,
         "checkWhiskyWineUpdates": true, "libraryRefreshAfterExit": true,
         "libraryDetailBlurredBackground": true, "librarySingleLineTitles": false,
-        "libraryCenterWideCoverText": false, "libraryMixedCoverLayout": true, "libraryBlurredCoverFill": true
+        "libraryCenterWideCoverText": false, "libraryMixedCoverLayout": true, "libraryBlurredCoverFill": true,
+        "libraryMetadataScrapeCharacters": true
     ]
     /// String-backed preferences. Values mirror the Swift enums (`LibraryDisplayMode`,
     /// `LibrarySort`, `LibraryDetailLayoutStyle`) and `TerminalApp` raw values.
@@ -134,7 +135,9 @@ public final class PreferencesService {
             }
             var values = Self.flags.mapValues(JSONValue.bool)
             for key in Self.flags.keys {
-                if let value = stored[key] as? Bool { values[key] = .bool(value) }
+                if let value = stored[key] as? Bool {
+                    values[key] = .bool(value)
+                }
             }
             for (key, fallback) in Self.texts {
                 values[key] = .string(stored[key] as? String ?? fallback)

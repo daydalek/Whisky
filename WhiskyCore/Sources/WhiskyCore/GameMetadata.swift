@@ -37,6 +37,35 @@ public enum GameMetadataSource: String, Codable, CaseIterable, Sendable, Identif
     }
 }
 
+/// A character appearing in a game.
+public struct GameCharacter: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var name: String
+    public var originalName: String?
+    public var imageURL: URL?
+    public var voiceActor: String?
+    public var summary: String?
+    public var role: String?
+
+    public init(
+        id: String = UUID().uuidString,
+        name: String,
+        originalName: String? = nil,
+        imageURL: URL? = nil,
+        voiceActor: String? = nil,
+        summary: String? = nil,
+        role: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.originalName = originalName
+        self.imageURL = imageURL
+        self.voiceActor = voiceActor
+        self.summary = summary
+        self.role = role
+    }
+}
+
 /// A complete source snapshot. We deliberately do not merge unconfirmed search
 /// results: similarly named releases from different sites may be different works.
 public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
@@ -53,6 +82,7 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
     /// Optional fields keep snapshots written by older app versions readable.
     public var alternateTitles: [String]?
     public var titleLanguage: String?
+    public var characters: [GameCharacter]?
     public var fetchedAt: Date
 
     public var id: String {
@@ -72,7 +102,8 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
         pageURL: URL? = nil,
         fetchedAt: Date = Date(),
         alternateTitles: [String]? = nil,
-        titleLanguage: String? = nil
+        titleLanguage: String? = nil,
+        characters: [GameCharacter]? = nil
     ) {
         self.source = source
         self.sourceID = sourceID
@@ -87,6 +118,7 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
         self.fetchedAt = fetchedAt
         self.alternateTitles = alternateTitles
         self.titleLanguage = titleLanguage
+        self.characters = characters
     }
 
     public var matchingTitles: [String] {
