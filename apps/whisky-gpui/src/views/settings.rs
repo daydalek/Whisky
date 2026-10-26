@@ -1,9 +1,10 @@
 //! Application settings surface.
 
-use gpui_kit::component::Disableable;
 use gpui_kit::component::button::Button;
 #[cfg(target_os = "linux")]
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
+use gpui_kit::component::spinner::Spinner;
+use gpui_kit::component::{Disableable, Sizable};
 use gpui_kit::{prelude::*, *};
 
 use crate::controls::{muted, row};
@@ -345,7 +346,83 @@ impl WhiskyApp {
                     ],
                     cx,
                 ),
+                #[cfg(not(target_os = "linux"))]
+                self.gptk_section(cx),
             ],
         )
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn gptk_section(&self, cx: &Context<Self>) -> AnyElement {
+        let status = self.gptk_status.as_ref();
+        let installed = status.is_some_and(|s| s.installed);
+        let capable = status.is_some_and(|s| s.capable);
+        let version = status
+            .and_then(|s| s.version.clone())
+            .unwrap_or_else(|| "未知".into());
+        let unverified = status.is_some_and(|s| s.unverified);
+        let error = status.and_then(|s| s.error.clone());
+
+        let mut rows = Vec::new();
+
+        if self.gptk_importing {
+            rows.push(
+                row()
+                    .gap(px(8.))
+                    .py(px(10.))
+                    .child(Spinner::new().with_size(px(14.)))
+                    .child(muted("正在处理 Game Porting Toolkit 负载…"))
+                    .into_any_element(),
+            );
+        } else if installed {
+            rows.push(self.info("D3DMetal 版本", version));
+            if unverified || error.is_some() {
+                rows.push(
+                    muted(error.unwrap_or_else(|| "此负载未通过 Apple 签名检查".into()))
+                        .text_size(px(12.))
+                        .into_any_element(),
+                );
+            }
+            rows.push(
+                row()
+                    .py(px(6.))
+                    .gap(px(12.))
+                    .child(
+                        Button::new("gptk-reimport")
+                            .label("从 Game Porting Toolkit 导入…")
+                            .disabled(self.gptk_importing)
+                            .on_click(cx.listener(|this, _, _, cx| this.choose_gptk_image(cx))),
+                    )
+                    .child(
+                        Button::new("gptk-remove")
+                            .label("移除已导入的负载")
+                            .disabled(self.gptk_importing)
+                            .on_click(cx.listener(|this, _, _, cx| this.remove_gptk(cx))),
+                    )
+                    .into_any_element(),
+            );
+        } else {
+            rows.push(self.info("状态", "尚未导入 D3DMetal 负载"));
+            rows.push(
+                row()
+                    .py(px(6.))
+                    .child(
+                        Button::new("gptk-import")
+                            .label("从 Game Porting Toolkit 导入…")
+                            .disabled(self.gptk_importing)
+                            .on_click(cx.listener(|this, _, _, cx| this.choose_gptk_image(cx))),
+                    )
+                    .into_any_element(),
+            );
+        }
+
+        let footer_text = if capable {
+            "已安装的引擎可以运行 D3DMetal。已导入的负载会自动部署。"
+        } else {
+            "已安装的引擎版本尚无法运行 D3DMetal。已导入的负载会保留，并在安装支持 GPTK 的引擎后自动部署。"
+        };
+        rows.push(muted(footer_text).text_size(px(11.)).into_any_element());
+
+        self.section("gptk", "Game Porting Toolkit", rows, cx)
     }
 }

@@ -69,6 +69,29 @@ struct GraphicsConfigSection: View {
                 runningProcessWarning
             }
 
+            Picker(selection: $bottle.settings.gdiUpscaler) {
+                ForEach(GDIUpscaler.allCases, id: \.self) { algorithm in
+                    Text(verbatim: algorithm.title).tag(algorithm)
+                }
+            } label: {
+                VStack(alignment: .leading) {
+                    Text(verbatim: "GDI 超分算法")
+                    Text(verbatim: "传统 GDI Galgame · Retina 超分；重启游戏后生效。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if bottle.settings.gdiUpscaler == .adaptive {
+                Text(verbatim: "变化时使用 MetalFX；画面稳定 250 毫秒后使用后台 Real-CUGAN 结果。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if bottle.settings.gdiUpscaler == .realcugan {
+                Text(verbatim: "Real-CUGAN 后台增强静止画面，自动选择可用的推理加速。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // MetalFX rides on D3DMetal's DLSS bridge and Metal 4 is D3DMetal's
             // own command-encoding backend, so both are meaningless under any
             // other backend rather than merely inactive.

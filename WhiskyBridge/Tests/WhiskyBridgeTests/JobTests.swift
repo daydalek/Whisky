@@ -34,11 +34,16 @@ import WhiskyBridgeProtocol
 
 @Test @MainActor func jobsRetainProgressResultAndStructuredFailure() async throws {
     let store = BridgeJobStore()
-    let started = try store.start(name: "fixture") { progress in
+    let started = try store.start(name: "fixture", extra: [
+        "backend": .string("DXMT"),
+        "jobID": .string("invalid")
+    ]) { progress in
         progress(.object(["stage": .string("loaded")]))
         return .string("result")
     }
     let id = try #require(started.object?["jobID"]?.string)
+    #expect(id != "invalid")
+    #expect(started.object?["backend"] == .string("DXMT"))
     let done = try await waitForJob(store, id, status: "completed")
     #expect(done.object?["result"] == .string("result"))
     #expect(done.object?["progress"]?.object?["stage"] == .string("loaded"))

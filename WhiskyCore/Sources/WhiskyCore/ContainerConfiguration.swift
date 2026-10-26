@@ -127,6 +127,17 @@ public enum ContainerConfiguration {
                 defaultValue: .text("recommended")
             ),
             toggle("metalFX", "MetalFX 超分辨率", "graphicsConfig.metalFX", true, platforms: [.macOS]),
+            ConfigurationField(
+                "gdiUpscaler", "GDI 超分算法", path: "graphicsConfig.gdiUpscaler",
+                input: .choice([
+                    .init("off", "关闭"),
+                    .init("metalfx", "MetalFX Spatial"),
+                    .init("anime4k", "Anime4K (CNN x2 S)"),
+                    .init("realcugan", "Real-CUGAN (models-se x2)"),
+                    .init("adaptive", "动态 MetalFX／静态 Real-CUGAN")
+                ]),
+                defaultValue: .text("off"), platforms: [.macOS]
+            ),
             toggle("frameGeneration", "帧生成", "graphicsConfig.frameGeneration", false, platforms: [.macOS]),
             toggle("metal4Enabled", "Metal 4", "metalConfig.metal4Enabled", true, platforms: [.macOS]),
             toggle("metalHud", "Metal 性能面板", "metalConfig.metalHud", false, platforms: [.macOS]),

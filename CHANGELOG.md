@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-10-26 (GPUI prerelease)
+
+### Added
+- GDI presentation upscaler selection: MetalFX Spatial, Anime4K, Real-CUGAN and adaptive mode, with migration from the legacy MetalFX Spatial setting. These options require a Wine runtime implementing the corresponding upscalers.
+- Game Porting Toolkit payload import, status and removal in macOS GPUI settings.
+- Launch notifications and active game badges display the graphics backend reported by the macOS bridge.
+
+### Fixed
+- Linux configuration filters macOS graphics, synchronization and audio options from legacy schemas and preview views.
+- GPTK operations allow time for disk image mounting, validation and deployment.
+
+### Distribution
+- macOS arm64: GPUI app version `0.4.3`.
+- Pin the bridge's Swift package dependencies for reproducible builds.
+
 ## [0.4.2] - 2026-10-25 (GPUI prerelease)
 
 ### Fixed

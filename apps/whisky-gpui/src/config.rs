@@ -124,6 +124,24 @@ fn decode_field(raw: &Value, platform: &str) -> Result<Option<ConfigField>, Stri
     if !platforms.is_empty() && !platforms.iter().any(|candidate| candidate == platform) {
         return Ok(None);
     }
+    let is_linux = platform == "linux";
+    if is_linux
+        && matches!(
+            id.as_str(),
+            "metalFX"
+                | "metalFXSpatial"
+                | "gdiUpscaler"
+                | "frameGeneration"
+                | "metal4Enabled"
+                | "metalHud"
+                | "metalTrace"
+                | "dxrEnabled"
+                | "metalValidation"
+                | "commandActsAsControl"
+        )
+    {
+        return Ok(None);
+    }
     let requires = strings(field.get("requires"));
     let default = field
         .get("default")
@@ -167,8 +185,17 @@ fn decode_field(raw: &Value, platform: &str) -> Result<Option<ConfigField>, Stri
                 {
                     continue;
                 }
+                let option_id = text(option.get("id"))?.to_owned();
+                if is_linux
+                    && matches!(
+                        option_id.as_str(),
+                        "d3dMetal" | "dxmt" | "msync" | "coreaudio"
+                    )
+                {
+                    continue;
+                }
                 options.push(ConfigOption {
-                    id: text(option.get("id"))?.to_owned(),
+                    id: option_id,
                     title: text(option.get("title"))?.to_owned(),
                 });
             }
@@ -362,7 +389,7 @@ pub(crate) fn section_for(field_id: &str) -> &'static SectionSpec {
         | "gpuSpoofing" | "gpuVendor" | "autoEnableDXVK" => "launcher",
         "controllerCompatibilityMode" | "disableHIDAPI" | "allowBackgroundEvents"
         | "disableControllerMapping" | "useButtonLabels" | "commandActsAsControl" => "input",
-        "graphicsBackend" | "metalFX" | "frameGeneration" | "metal4Enabled" | "metalHud"
+        "graphicsBackend" | "metalFX" | "metalFXSpatial" | "gdiUpscaler" | "frameGeneration" | "metal4Enabled" | "metalHud"
         | "metalTrace" | "dxrEnabled" | "metalValidation" | "dxvkAsync" | "dxvkHud" => "graphics",
         "audioDriver" | "audioLatencyPreset" | "outputDeviceMode" | "pinnedDeviceName" => "audio",
         "discordPresence" | "discordBridge" => "discord",
@@ -415,6 +442,30 @@ pub(crate) fn kind_histogram(fields: &[ConfigField]) -> BTreeMap<&'static str, u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gdi_upscaler_choice_is_grouped_and_macos_only() {
+        let schema = json!([{
+            "id": "gdiUpscaler", "title": "GDI 超分算法", "input": "choice", "default": "off",
+            "platforms": ["macos"],
+            "options": [
+                {"id": "off", "title": "关闭"},
+                {"id": "metalfx", "title": "MetalFX Spatial"},
+                {"id": "anime4k", "title": "Anime4K"},
+                {"id": "realcugan", "title": "Real-CUGAN"},
+                {"id": "adaptive", "title": "动态 MetalFX／静态 Real-CUGAN"}
+            ]
+        }]);
+        let mac = decode_schema(&schema, "macos").unwrap();
+        assert_eq!(mac.len(), 1);
+        assert_eq!(section_for(&mac[0].id).id, "graphics");
+        assert_eq!(mac[0].kind.options().len(), 5);
+        assert_eq!(mac[0].kind.options()[4].id, "adaptive");
+        assert!(decode_schema(&schema, "linux").unwrap().is_empty());
+        let mut legacy = schema;
+        legacy[0]["platforms"] = json!([]);
+        assert!(decode_schema(&legacy, "linux").unwrap().is_empty());
+    }
 
     /// Recorded from `WhiskyBridge/.build/release/whisky-bridge`, macOS, the
     /// `galgame` bottle. 42 fields: 23 toggles, 15 choices, 3 numbers, 1 text.
@@ -505,6 +556,12 @@ mod tests {
         let linux = decode_schema(&raw, "linux").unwrap();
         assert!(linux.iter().all(|field| field.id != "commandActsAsControl"));
         assert!(linux.iter().all(|field| field.id != "metalFX"));
+        assert!(linux.iter().all(|field| field.id != "frameGeneration"));
+        assert!(linux.iter().all(|field| field.id != "metal4Enabled"));
+        assert!(linux.iter().all(|field| field.id != "metalHud"));
+        assert!(linux.iter().all(|field| field.id != "metalTrace"));
+        assert!(linux.iter().all(|field| field.id != "dxrEnabled"));
+        assert!(linux.iter().all(|field| field.id != "metalValidation"));
         assert!(linux.len() < 42);
         // `d3dMetal` and `dxmt` are macOS-only options of a shared field.
         let backend = field(&linux, "graphicsBackend");
@@ -517,6 +574,9 @@ mod tests {
         assert!(!ids.contains(&"d3dMetal"));
         assert!(!ids.contains(&"dxmt"));
         assert!(ids.contains(&"dxvk"));
+        let sync = field(&linux, "enhancedSync");
+        let sync_ids: Vec<&str> = sync.kind.options().iter().map(|o| o.id.as_str()).collect();
+        assert!(!sync_ids.contains(&"msync"));
     }
 
     #[test]

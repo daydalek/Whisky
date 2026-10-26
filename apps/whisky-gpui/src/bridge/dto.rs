@@ -169,6 +169,8 @@ pub(crate) struct LaunchReplyDto {
     #[serde(default)]
     pub(crate) accepted: bool,
     #[serde(default)]
+    pub(crate) backend: Option<String>,
+    #[serde(default)]
     pub(crate) interaction: Option<ClipboardInteractionDto>,
 }
 
@@ -391,6 +393,8 @@ pub(crate) struct KillReplyDto {
 pub(crate) struct JobStartDto {
     #[serde(rename = "jobID")]
     pub(crate) job_id: String,
+    #[serde(default)]
+    pub(crate) backend: Option<String>,
 }
 
 /// `system.choosePath`: the caller's purpose echoed back plus the selection.
@@ -479,6 +483,25 @@ pub(crate) struct SetupStatusDto {
     pub(crate) rosetta_installed: bool,
     #[serde(default)]
     pub(crate) apple_silicon: bool,
+}
+
+/// `setup.gptk.status` and the completed `setup.gptk.import` / `setup.gptk.remove`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
+pub(crate) struct GptkStatusDto {
+    #[serde(default)]
+    pub(crate) installed: bool,
+    #[serde(default)]
+    pub(crate) version: Option<String>,
+    #[serde(default)]
+    pub(crate) deployed: bool,
+    #[serde(default)]
+    pub(crate) capable: bool,
+    #[serde(default)]
+    pub(crate) unverified: bool,
+    #[serde(default)]
+    pub(crate) error: Option<String>,
 }
 
 /// One provider's slice of a `metadata.search` job result. `games` stay as

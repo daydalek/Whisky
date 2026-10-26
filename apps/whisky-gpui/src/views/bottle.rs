@@ -327,6 +327,9 @@ impl WhiskyApp {
                             .min_w_0()
                             .gap(px(4.))
                             .child(field.title.clone())
+                            .when(field.id == "metalFXSpatial", |d| {
+                                d.child(muted("传统 GDI Galgame · Retina 超分；重启游戏后生效。"))
+                            })
                             .when(!enabled, |d| {
                                 d.child(muted("需要 Wine 主机适配器").line_height(relative(1.4)))
                             }),
@@ -357,7 +360,18 @@ impl WhiskyApp {
                 row()
                     .py(px(10.))
                     .gap(px(16.))
-                    .child(div().flex_1().min_w_0().child(field.title.clone()))
+                    .child(
+                        col().flex_1().min_w_0().gap(px(4.)).child(field.title.clone())
+                            .when(field.id == "gdiUpscaler", |d| {
+                                d.child(muted("传统 GDI Galgame · Retina 超分；重启游戏后生效。"))
+                                    .when(value.as_str() == Some("adaptive"), |d| {
+                                        d.child(muted("变化时使用 MetalFX；稳定 250 毫秒后切换后台 Real-CUGAN 结果。"))
+                                    })
+                                    .when(value.as_str() == Some("realcugan"), |d| {
+                                        d.child(muted("后台增强静止画面，自动选择可用的推理加速。"))
+                                    })
+                            }),
+                    )
                     .child(
                         Button::new(format!("config-choice:{}", field.id))
                             .label(format!("{title}  ⌄"))
@@ -542,6 +556,7 @@ impl WhiskyApp {
                 self.section(
                     "wine",
                     "Wine",
+                    #[cfg(not(target_os = "linux"))]
                     vec![
                         self.choice(
                             "windows",
@@ -552,6 +567,18 @@ impl WhiskyApp {
                         self.field("build", "内部版本号"),
                         self.choice("retina", "Retina 模式", &["关闭", "开启"], cx),
                         self.choice("sync", "增强同步", &["MSync", "ESync", "关闭"], cx),
+                        self.field("dpi", "屏幕分辨率（DPI）"),
+                    ],
+                    #[cfg(target_os = "linux")]
+                    vec![
+                        self.choice(
+                            "windows",
+                            "Windows 版本",
+                            &["Windows 11", "Windows 10", "Windows 7", "Windows XP"],
+                            cx,
+                        ),
+                        self.field("build", "内部版本号"),
+                        self.choice("sync", "增强同步", &["ESync", "关闭"], cx),
                         self.field("dpi", "屏幕分辨率（DPI）"),
                     ],
                     cx,
@@ -584,6 +611,7 @@ impl WhiskyApp {
                 self.section(
                     "graphics",
                     "图形",
+                    #[cfg(not(target_os = "linux"))]
                     vec![
                         self.choice("graphics-mode", "设置模式", &["简单", "高级"], cx),
                         self.choice(
@@ -593,8 +621,36 @@ impl WhiskyApp {
                             cx,
                         ),
                         self.toggle("metalfx", "MetalFX 超分辨率", "", cx),
+                        self.choice(
+                            "gdi-upscaler",
+                            "GDI 超分算法",
+                            &[
+                                "关闭",
+                                "MetalFX Spatial",
+                                "Anime4K",
+                                "Real-CUGAN",
+                                "动态 MetalFX／静态 Real-CUGAN",
+                            ],
+                            cx,
+                        ),
                         self.toggle("metal4", "Metal 4", "", cx),
                         self.toggle("framegen", "帧生成", "", cx),
+                        self.action(
+                            "graphics-detail",
+                            "高级图形设置…",
+                            Command::Sheet(PreviewSheet::Graphics),
+                            cx,
+                        ),
+                    ],
+                    #[cfg(target_os = "linux")]
+                    vec![
+                        self.choice("graphics-mode", "设置模式", &["简单", "高级"], cx),
+                        self.choice(
+                            "backend",
+                            "图形后端",
+                            &["推荐（自动）", "DXVK", "WineD3D"],
+                            cx,
+                        ),
                         self.action(
                             "graphics-detail",
                             "高级图形设置…",

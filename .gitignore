@@ -141,3 +141,6 @@ WhiskyKit/Sources/WhiskyKit/Discord/Local/client-id.txt
 
 # Packaged app bundle (build output; never committed).
 /dist/
+
+# Local Wine runtime probes and deployment notes; canonical patches live in the Wine repository.
+/scripts/fullscreen/

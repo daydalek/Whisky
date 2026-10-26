@@ -18,10 +18,10 @@ use crate::bridge::{
     BridgeSupervisor, DiagnosticKind, DiagnosticUpdate, EntryMutation, FolderEdit, MetadataUpdate,
     ProgramMutation, ScanUpdate, SetupUpdate,
 };
-#[cfg(feature = "visual-test")]
-use crate::library_layout::CardRect;
 use crate::config::{self, ConfigField};
 use crate::create_bottle::CreateBottleState;
+#[cfg(feature = "visual-test")]
+use crate::library_layout::CardRect;
 use crate::library_view::{self, Sort};
 use crate::model::{
     BottleVm, Game, demo_bottles, demo_data, demo_requested, empty_library_message,
@@ -455,6 +455,9 @@ pub(crate) struct WhiskyApp {
     pub(crate) audio_error: Option<String>,
     /// WhiskyWine runtime status and the first-run setup dialog.
     pub(crate) setup_status: Option<SetupStatusDto>,
+    pub(crate) gptk_status: Option<crate::bridge::dto::GptkStatusDto>,
+    pub(crate) gptk_importing: bool,
+    pub(crate) gptk_error: Option<String>,
     /// The one-shot WhiskyWine update check for this session.
     wine_update_checked: bool,
     pub(crate) setup_dialog: bool,
@@ -503,6 +506,8 @@ pub(crate) struct WhiskyApp {
     pub(crate) notice: Option<SharedString>,
     /// Per-entry launch state, keyed by bridge entry id.
     pub(crate) runtime: RuntimeTable,
+    /// Active graphics backend keyed by bridge entry id.
+    pub(crate) active_backends: HashMap<String, String>,
     /// The clipboard preflight awaiting a decision, if any.
     pub(crate) clipboard_prompt: Option<ClipboardPrompt>,
     pub(crate) bridge: BridgeSupervisor,
@@ -612,6 +617,9 @@ impl WhiskyApp {
             audio_pending: false,
             audio_error: None,
             setup_status: None,
+            gptk_status: None,
+            gptk_importing: false,
+            gptk_error: None,
             wine_update_checked: false,
             setup_dialog: false,
             setup_installing: false,
@@ -647,6 +655,7 @@ impl WhiskyApp {
             detail_open: false,
             notice: None,
             runtime: RuntimeTable::default(),
+            active_backends: HashMap::new(),
             clipboard_prompt: None,
             bridge,
             bridge_status: BridgeStatus::Locating,
@@ -764,6 +773,9 @@ impl WhiskyApp {
                 if !connected {
                     self.service_methods.clear();
                     self.setup_status = None;
+                    self.gptk_status = None;
+                    self.gptk_importing = false;
+                    self.gptk_error = None;
                 }
                 if connected && !self.demo {
                     // One read per connected session; the reply carries both
@@ -957,6 +969,11 @@ impl WhiskyApp {
                                     .is_some_and(|previous| previous.state.is_active())
                         });
                         let container = update.container.clone();
+                        for entry in &update.entries {
+                            if entry.state == "idle" {
+                                self.active_backends.remove(&entry.id);
+                            }
+                        }
                         self.runtime.apply(update);
                         if exited
                             && self
@@ -969,6 +986,30 @@ impl WhiskyApp {
                             self.bridge.load_entries(&container);
                         }
                     }
+                }
+            }
+            BridgeEvent::RuntimeLaunched {
+                container: _,
+                entry_id,
+                backend,
+            } => {
+                if !self.demo {
+                    let backend_label = backend.unwrap_or_else(|| "按启动配置".to_owned());
+                    self.active_backends
+                        .insert(entry_id.clone(), backend_label.clone());
+                    let title = self
+                        .entries
+                        .iter()
+                        .find(|e| e.id == entry_id)
+                        .map(|e| e.title.as_str())
+                        .unwrap_or("游戏");
+                    self.show_notice(format!("正在启动 {title} · 图形后端：{backend_label}"), cx);
+                }
+            }
+            BridgeEvent::ProgramRunStarted { name, backend } => {
+                if !self.demo {
+                    let backend_label = backend.unwrap_or_else(|| "按启动配置".to_owned());
+                    self.show_notice(format!("正在启动 {name} · 图形后端：{backend_label}"), cx);
                 }
             }
             BridgeEvent::ClipboardPrompt(prompt) => {
@@ -1785,7 +1826,17 @@ impl WhiskyApp {
             BridgeEvent::PathChosen { purpose, path } => {
                 if !self.demo {
                     if purpose == "discover-bottles" {
-                        if let Some(root) = path { self.begin_import_scan(Some(root), cx); }
+                        if let Some(root) = path { self.begin_import_scan(Some(root), cx);
+                        }
+                        cx.notify();
+                        return;
+                    }
+                    if purpose == "import-gptk" {
+                        if let Some(path) = path {
+                            self.gptk_importing = true;
+                            self.gptk_error = None;
+                            self.show_notice("正在导入 Game Porting Toolkit 负载…", cx);
+                            self.bridge.import_gptk(&path); }
                         cx.notify();
                         return;
                     }
@@ -2211,6 +2262,31 @@ impl WhiskyApp {
                         }
                     }
                 }
+            }
+            BridgeEvent::GptkStatus(status) => {
+                self.gptk_status = Some(status);
+                self.gptk_importing = false;
+            }
+            BridgeEvent::GptkImportSucceeded(status) => {
+                self.gptk_status = Some(status);
+                self.gptk_importing = false;
+                self.gptk_error = None;
+                self.show_notice("Game Porting Toolkit 负载导入成功", cx);
+            }
+            BridgeEvent::GptkImportFailed { reason } => {
+                self.gptk_importing = false;
+                self.gptk_error = Some(reason.clone());
+                self.show_notice(format!("导入失败：{reason}"), cx);
+            }
+            BridgeEvent::GptkRemoveSucceeded(status) => {
+                self.gptk_status = Some(status);
+                self.gptk_importing = false;
+                self.gptk_error = None;
+                self.show_notice("已移除 Game Porting Toolkit 负载", cx);
+            }
+            BridgeEvent::GptkRemoveFailed { reason } => {
+                self.gptk_importing = false;
+                self.show_notice(format!("移除失败：{reason}"), cx);
             }
         }
         self.loading = self.compute_loading();
@@ -2784,7 +2860,30 @@ impl WhiskyApp {
         self.preview.sheet_history.clear();
         if !self.demo && self.service_available("setup.status") {
             self.bridge.load_setup_status();
+            #[cfg(not(target_os = "linux"))]
+            self.bridge.load_gptk_status();
         }
+        cx.notify();
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(crate) fn choose_gptk_image(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        self.bridge
+            .choose_path("import-gptk", "open", None, None, &["dmg"]);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(crate) fn remove_gptk(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        self.gptk_importing = true;
+        self.bridge.remove_gptk();
         cx.notify();
     }
 
@@ -3976,8 +4075,8 @@ impl WhiskyApp {
             return;
         }
         let container = bottle.path.clone();
-        self.bridge.run_program(&container, path, name);
         self.show_notice(format!("正在启动 {name}"), cx);
+        self.bridge.run_program(&container, path, name);
     }
 
     fn program_target_matches(&self, container: &str, executable: &str) -> bool {
@@ -4976,6 +5075,18 @@ impl WhiskyApp {
         // before this program was added would otherwise reject the launch.
         let _ = self.configured.ensure(&container);
         self.bridge.configure_runtime(&container);
+        let program_name = self
+            .programs
+            .as_ref()
+            .and_then(|page| page.table.row(path))
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| {
+                std::path::Path::new(path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.to_owned())
+            });
+        self.show_notice(format!("正在启动 {program_name}"), cx);
         self.runtime.set_state(&entry_id, RuntimeState::Preparing);
         self.bridge.launch(&container, &entry_id, Some(path));
         cx.notify();
@@ -5047,6 +5158,18 @@ impl WhiskyApp {
             // do not rely on the session cache before the ordered launch.
             let _ = self.configured.ensure(&picker.container);
             self.bridge.configure_runtime(&picker.container);
+            let title = self
+                .entries
+                .iter()
+                .find(|e| e.id == picker.entry_id)
+                .map(|e| e.title.clone())
+                .unwrap_or_else(|| {
+                    std::path::Path::new(path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| path.to_owned())
+                });
+            self.show_notice(format!("正在启动 {title}"), cx);
             self.runtime
                 .set_state(&picker.entry_id, RuntimeState::Preparing);
             self.bridge
@@ -5094,6 +5217,17 @@ impl WhiskyApp {
         self.game(index)
             .and_then(|game| self.runtime.entry(&game.id))
             .map(|entry| entry.state)
+    }
+
+    /// Badge text showing the backend reported by the launch service.
+    pub(crate) fn runtime_badge_label(&self, index: usize, base: &str) -> String {
+        match self
+            .game(index)
+            .and_then(|g| self.active_backends.get(&g.id))
+        {
+            Some(backend) => format!("{base} · {backend}"),
+            None => base.to_owned(),
+        }
     }
 
     /// The card's primary action. Before a bottle is configured there is no
@@ -5144,6 +5278,11 @@ impl WhiskyApp {
                     self.open_executable_picker(index, true, cx);
                     return;
                 }
+                let title = self
+                    .game(index)
+                    .map(|g| g.title.clone())
+                    .unwrap_or_default();
+                self.show_notice(format!("正在启动 {title}"), cx);
                 self.runtime.set_state(&entry_id, RuntimeState::Preparing);
                 self.bridge.launch(&container, &entry_id, None);
             }

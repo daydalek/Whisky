@@ -132,7 +132,7 @@ struct RuntimeLaunchRegistrationTests {
         let fixture = try RegistrationFixture()
         defer { fixture.remove() }
         let driver = RegistrationDriver()
-        let runtime = RuntimeService(driver: driver)
+        let runtime = RuntimeService(driver: driver, backendResolver: { _, _ in "DXMT" })
         let service = ApplicationService(workspace: fixture.workspace, runtime: runtime)
         defer { runtime.stopTracking() }
         let container: [String: JSONValue] = ["container": .string(fixture.container.path)]
@@ -151,6 +151,7 @@ struct RuntimeLaunchRegistrationTests {
         ]))
         #expect(response.error == nil)
         try #require(response.result?.object?["accepted"] == .bool(true))
+        #expect(response.result?.object?["backend"] == .string("DXMT"))
         #expect(driver.configurations.last?.contains { $0.id == entry.id } == true)
         #expect(driver.configurations.count == (scenario == "newEntry" || scenario == "invalidated" ? 2 : 1))
         var iterator = driver.launches.stream.makeAsyncIterator()

@@ -44,6 +44,7 @@ public final class RuntimeService {
     private let clipboard: (@MainActor () -> (any ClipboardAccess)?)?
     private let policyLoader: (@MainActor (URL) throws -> ClipboardPolicySnapshot)?
     private let beforeLaunch: (@MainActor (LibraryEntry) -> Void)?
+    private let backendResolver: (@MainActor (LibraryEntry, URL?) -> String?)?
     private var configured: [String: LibraryEntry] = [:]
     public var containerURLs: Set<URL> {
         Set(configured.values.map(\.bottleURL))
@@ -58,12 +59,14 @@ public final class RuntimeService {
         launchTimeout: Duration = .seconds(120),
         clipboard: (@MainActor () -> (any ClipboardAccess)?)? = nil,
         policyLoader: (@MainActor (URL) throws -> ClipboardPolicySnapshot)? = nil,
-        beforeLaunch: (@MainActor (LibraryEntry) -> Void)? = nil
+        beforeLaunch: (@MainActor (LibraryEntry) -> Void)? = nil,
+        backendResolver: (@MainActor (LibraryEntry, URL?) -> String?)? = nil
     ) {
         runtime = LibraryRuntimeController(driver: driver, launchTimeout: launchTimeout)
         self.clipboard = clipboard
         self.policyLoader = policyLoader
         self.beforeLaunch = beforeLaunch
+        self.backendResolver = backendResolver
     }
 
     public func stopTracking() {
@@ -202,7 +205,14 @@ public final class RuntimeService {
             executableURL: executable,
             mode: mode == "terminal" ? .terminal : .standard
         ))
-        return .object(["accepted": .bool(true), "entryID": .string(entry.id)])
+        var reply: [String: JSONValue] = [
+            "accepted": .bool(true),
+            "entryID": .string(entry.id)
+        ]
+        if let backend = backendResolver?(entry, executable) {
+            reply["backend"] = .string(backend)
+        }
+        return .object(reply)
     }
 
     private func clipboardPreflight(

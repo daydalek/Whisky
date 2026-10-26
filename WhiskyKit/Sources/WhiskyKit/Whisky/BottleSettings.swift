@@ -371,6 +371,18 @@ public struct BottleSettings: Codable, Equatable {
         set { graphicsConfig.metalFX = newValue }
     }
 
+    /// Final-presentation upscaler for opaque GDI games on macOS.
+    public var gdiUpscaler: GDIUpscaler {
+        get { graphicsConfig.gdiUpscaler }
+        set { graphicsConfig.gdiUpscaler = newValue }
+    }
+
+    /// Compatibility access for the original MetalFX Spatial switch.
+    public var metalFXSpatial: Bool {
+        get { graphicsConfig.metalFXSpatial }
+        set { graphicsConfig.metalFXSpatial = newValue }
+    }
+
     /// Whether Whisky publishes the program this bottle launched to Discord.
     ///
     /// Announces every program, including the ones with no Discord support of
@@ -951,6 +963,11 @@ public struct BottleSettings: Codable, Equatable {
             // Disable D3DMetal, forcing Wine's OpenGL-based wined3d path
             builder.set("WINED3DMETAL", "0", layer: .bottleManaged)
         }
+
+        // GDI presentation belongs to the macOS window driver and applies
+        // independently of the bottle's Direct3D translation backend.
+        builder.set("WINE_GDI_UPSCALER", gdiUpscaler.rawValue, layer: .bottleManaged)
+        builder.set("WINE_METALFX", gdiUpscaler == .metalfx ? "spatial" : "off", layer: .bottleManaged)
 
         // Enhanced sync mode
         switch enhancedSync {

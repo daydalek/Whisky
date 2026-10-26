@@ -31,7 +31,7 @@ use super::{
         ChecksReplyDto, ConfigChangeDto, Container, ContainerList, DescribeResponse,
         DiagnosticsReportDto,
         EntryDto, EntryList, FoldersDto, GameConfigApplyReplyDto, GameConfigMatchReplyDto,
-        HiddenReplyDto, JobDto, JobStartDto, KillReplyDto, LaunchReplyDto, LibraryPageDto,
+        GptkStatusDto, HiddenReplyDto, JobDto, JobStartDto, KillReplyDto, LaunchReplyDto, LibraryPageDto,
         MetadataSearchGroupDto, MetadataSearchReplyDto, MetadataSyncReplyDto, PathReplyDto,
         PreferencesSchemaDto, SetupStatusDto,
         ProcessDto, ProgramDto, RUNTIME_METHODS, RUNTIME_SESSION_METHODS, RuntimeEntryDto,
@@ -360,6 +360,17 @@ pub(crate) enum BridgeEvent {
     },
     /// Per-entry runtime state for the configured container.
     Runtime(RuntimeUpdate),
+    /// The helper accepted a runtime launch request with the resolved graphics backend.
+    RuntimeLaunched {
+        container: String,
+        entry_id: String,
+        backend: Option<String>,
+    },
+    /// A Windows program run job started with the resolved graphics backend.
+    ProgramRunStarted {
+        name: String,
+        backend: Option<String>,
+    },
     /// The helper stopped before launching and needs a clipboard decision.
     ClipboardPrompt(ClipboardPrompt),
     /// Something the runtime refused. Shown on the existing error surface; a
@@ -604,6 +615,15 @@ pub(crate) enum BridgeEvent {
     Setup {
         update: SetupUpdate,
     },
+    GptkStatus(GptkStatusDto),
+    GptkImportSucceeded(GptkStatusDto),
+    GptkImportFailed {
+        reason: String,
+    },
+    GptkRemoveSucceeded(GptkStatusDto),
+    GptkRemoveFailed {
+        reason: String,
+    },
 }
 
 enum Command {
@@ -843,6 +863,11 @@ enum Command {
     },
     /// `setup.status` at connection time.
     LoadSetupStatus,
+    LoadGptkStatus,
+    ImportGptk {
+        path: String,
+    },
+    RemoveGptk,
     /// `setup.checkUpdate`: is a newer WhiskyWine published?
     CheckWineUpdate,
     /// `setup.install`: download and install the Wine runtime.
@@ -1422,6 +1447,20 @@ impl BridgeSupervisor {
         let _ = self.commands.send(Command::LoadSetupStatus);
     }
 
+    pub(crate) fn load_gptk_status(&self) {
+        let _ = self.commands.send(Command::LoadGptkStatus);
+    }
+
+    pub(crate) fn import_gptk(&self, path: &str) {
+        let _ = self.commands.send(Command::ImportGptk {
+            path: path.to_owned(),
+        });
+    }
+
+    pub(crate) fn remove_gptk(&self) {
+        let _ = self.commands.send(Command::RemoveGptk);
+    }
+
     /// `setup.install`: a job that downloads and installs the Wine runtime.
     pub(crate) fn install_setup(&self) {
         let _ = self.commands.send(Command::InstallSetup);
@@ -1580,6 +1619,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
             emit_event(&events, BridgeEvent::Setup { update: SetupUpdate::Installed { version } });
         }
         fetch_setup_status(&mut client, &events);
+        fetch_gptk_status(&mut client, &events);
         if describe.methods.iter().any(|method| method == "system.terminals") {
             fetch_terminals(&mut client, &events);
         }
@@ -3227,6 +3267,13 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                     {
                         Ok(reply) => match serde_json::from_value::<JobStartDto>(reply) {
                             Ok(start) => {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::ProgramRunStarted {
+                                        name: name.clone(),
+                                        backend: start.backend,
+                                    },
+                                );
                                 let now = Instant::now();
                                 program_run = Some(LiveProgramRun {
                                     job_id: start.job_id,
@@ -3558,6 +3605,50 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                 }
                 Some(Command::LoadSetupStatus) => {
                     fetch_setup_status(&mut client, &events);
+                    fetch_gptk_status(&mut client, &events);
+                }
+                Some(Command::LoadGptkStatus) => {
+                    fetch_gptk_status(&mut client, &events);
+                }
+                Some(Command::ImportGptk { path }) => {
+                    match client
+                        .call_with_timeout(
+                            "setup.gptk.import",
+                            json!({ "path": path }),
+                            PICKER_TIMEOUT,
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(reply) => {
+                            if let Ok(status) = serde_json::from_value::<GptkStatusDto>(reply) {
+                                emit_event(&events, BridgeEvent::GptkImportSucceeded(status));
+                            } else {
+                                fetch_gptk_status(&mut client, &events);
+                            }
+                        }
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::GptkImportFailed { reason });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::RemoveGptk) => {
+                    match client
+                        .call_with_timeout("setup.gptk.remove", json!({}), Duration::from_secs(60))
+                        .map_err(classify)
+                    {
+                        Ok(reply) => {
+                            if let Ok(status) = serde_json::from_value::<GptkStatusDto>(reply) {
+                                emit_event(&events, BridgeEvent::GptkRemoveSucceeded(status));
+                            } else {
+                                fetch_gptk_status(&mut client, &events);
+                            }
+                        }
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::GptkRemoveFailed { reason });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
                 }
                 Some(Command::CheckWineUpdate) => {
                     if update_check.is_none() {
@@ -4865,6 +4956,26 @@ fn fetch_setup_status(client: &mut Client, events: &smol::channel::Sender<Bridge
     );
 }
 
+fn fetch_gptk_status(client: &mut Client, events: &smol::channel::Sender<BridgeEvent>) {
+    if !client
+        .capabilities()
+        .methods
+        .iter()
+        .any(|method| method == "setup.gptk.status")
+    {
+        return;
+    }
+    let Ok(reply) =
+        client.call_with_timeout("setup.gptk.status", json!({}), Duration::from_secs(45))
+    else {
+        return;
+    };
+    let Ok(status) = serde_json::from_value::<GptkStatusDto>(reply) else {
+        return;
+    };
+    emit_event(events, BridgeEvent::GptkStatus(status));
+}
+
 fn poll_setup(
     client: &mut Client,
     setup: &mut LiveSetup,
@@ -5575,8 +5686,19 @@ fn runtime_launch(
     let value = client.call("runtime.launch", params).map_err(classify)?;
     let reply: LaunchReplyDto = serde_json::from_value(value)
         .map_err(|error| CallFailure::Remote(format!("invalid launch payload: {error}")))?;
+    let backend = reply.backend.clone();
     match interpret_launch_reply(container, entry_id, executable, reply) {
-        LaunchOutcome::Accepted => Ok(()),
+        LaunchOutcome::Accepted => {
+            emit_event(
+                events,
+                BridgeEvent::RuntimeLaunched {
+                    container: container.to_owned(),
+                    entry_id: entry_id.to_owned(),
+                    backend,
+                },
+            );
+            Ok(())
+        }
         LaunchOutcome::Prompt(prompt) => {
             emit_event(events, BridgeEvent::ClipboardPrompt(prompt));
             Ok(())
@@ -5719,7 +5841,7 @@ fn recover_workspace(client: &mut Client) -> Result<(), CallFailure> {
                 Some(JobStatus::Failed)
                     if job.error.as_ref().is_some_and(|error| error.code == "busy") =>
                 {
-                    break
+                    break;
                 }
                 Some(JobStatus::Failed | JobStatus::Cancelled) => {
                     return Err(CallFailure::Remote(
@@ -5736,7 +5858,7 @@ fn recover_workspace(client: &mut Client) -> Result<(), CallFailure> {
                     return Err(CallFailure::Remote(format!(
                         "unknown recovery status: {}",
                         job.status
-                    )))
+                    )));
                 }
             }
             std::thread::sleep(Duration::from_millis(100));

@@ -161,6 +161,19 @@ public struct BottleGraphicsConfig: Codable, Equatable {
     /// `DXGIAdapter::nvngxDLLLocation` to find, the variable is inert.
     var metalFX: Bool = true
 
+    /// Final-presentation upscaler for opaque GDI surfaces.
+    var gdiUpscaler: GDIUpscaler = .off
+
+    /// Compatibility access for callers using the original MetalFX switch.
+    var metalFXSpatial: Bool {
+        get { gdiUpscaler == .metalfx }
+        set { gdiUpscaler = newValue ? .metalfx : .off }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case backend, metalFX, metalFXSpatial, gdiUpscaler, frameGeneration
+    }
+
     /// Whether games in this bottle may turn on DLSS frame generation.
     ///
     /// Off, and it should stay off until a title is known to survive it. The
@@ -187,8 +200,42 @@ public struct BottleGraphicsConfig: Codable, Equatable {
         // Matches the property default, so a bottle written before this key
         // existed adopts the new default instead of decoding as off.
         self.metalFX = (try? container.decodeIfPresent(Bool.self, forKey: .metalFX)) ?? true
+        if container.contains(.gdiUpscaler) {
+            self.gdiUpscaler = container.decodeLenientIfPresent(GDIUpscaler.self, forKey: .gdiUpscaler) ?? .off
+        } else {
+            let legacy = (try? container.decodeIfPresent(Bool.self, forKey: .metalFXSpatial)) ?? false
+            self.gdiUpscaler = legacy ? .metalfx : .off
+        }
         // Off for a bottle written before the key existed, which is the same
         // answer the property default gives a new one.
         self.frameGeneration = (try? container.decodeIfPresent(Bool.self, forKey: .frameGeneration)) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(backend, forKey: .backend)
+        try container.encode(metalFX, forKey: .metalFX)
+        try container.encode(gdiUpscaler, forKey: .gdiUpscaler)
+        try container.encode(metalFXSpatial, forKey: .metalFXSpatial)
+        try container.encode(frameGeneration, forKey: .frameGeneration)
+    }
+}
+
+/// Presentation algorithms for the macOS Wine GDI driver.
+public enum GDIUpscaler: String, Codable, CaseIterable, Sendable {
+    case off
+    case metalfx
+    case anime4k
+    case realcugan
+    case adaptive
+
+    public var title: String {
+        switch self {
+        case .off: "关闭"
+        case .metalfx: "MetalFX Spatial"
+        case .anime4k: "Anime4K (CNN x2 S)"
+        case .realcugan: "Real-CUGAN (models-se x2)"
+        case .adaptive: "动态 MetalFX／静态 Real-CUGAN"
+        }
     }
 }

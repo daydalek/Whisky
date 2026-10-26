@@ -79,7 +79,7 @@ pub(crate) fn live_badge(text: impl Into<SharedString>) -> Div {
 }
 
 /// Pre-launch phase: the toolkit spinner plus the phase name, same capsule.
-pub(crate) fn phase_badge(label: &'static str) -> Div {
+pub(crate) fn phase_badge(label: impl Into<SharedString>) -> Div {
     row()
         .flex_shrink_0()
         .gap(px(5.))
@@ -92,6 +92,6 @@ pub(crate) fn phase_badge(label: &'static str) -> Div {
             div()
                 .text_size(px(10.))
                 .text_color(rgb(TEXT))
-                .child(label),
+                .child(label.into()),
         )
 }

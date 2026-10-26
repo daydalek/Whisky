@@ -34,6 +34,36 @@ extension MacOSApplicationServices {
         switch method {
         case "setup.status":
             return Self.setupStatus()
+        case "setup.gptk.status":
+            return Self.gptkStatus()
+        case "setup.gptk.import":
+            let url = try params.path("path")
+            return try await Task.detached(priority: .userInitiated) {
+                var mountsToDetach: [URL] = []
+                defer {
+                    for mount in mountsToDetach.reversed() {
+                        GPTKDiskImage.detach(mount)
+                    }
+                }
+                do {
+                    let resolved = try GPTKDiskImage.resolvePayload(at: url)
+                    mountsToDetach = resolved.mounts
+                    let payload = try GPTKImporter.validatePayload(at: resolved.libRoot)
+                    _ = try GPTKImporter.importPayload(payload)
+                    if GPTKImporter.isRuntimeGPTKCapable() {
+                        try GPTKImporter.deployStoredPayload()
+                    }
+                    return Self.gptkStatus()
+                } catch {
+                    throw BridgeFailure("import_failed", error.localizedDescription)
+                }
+            }.value
+        case "setup.gptk.remove":
+            return try await Task.detached(priority: .userInitiated) {
+                try GPTKImporter.removeDeployedPayload()
+                try GPTKImporter.removeStore()
+                return Self.gptkStatus()
+            }.value
         case "setup.checkUpdate":
             // `shouldUpdateWhiskyWine` reads the shared `checkWhiskyWineUpdates`
             // default, so the frontend's persisted toggle is honoured here.
@@ -63,7 +93,13 @@ extension MacOSApplicationServices {
                 let url = try DistributionConfig.librariesURL(for: manifest)
 
                 // Skip the download when the installed runtime is already current.
-                let force = params["force"].map { if case .bool(true) = $0 { true } else { false } } ?? false
+                let force = params["force"].map {
+                    if case .bool(true) = $0 {
+                        true
+                    } else {
+                        false
+                    }
+                } ?? false
                 if !force, WhiskyWineInstaller.isWhiskyWineInstalled(),
                    let local = WhiskyWineInstaller.whiskyWineVersion(), !(local < manifest.version) {
                     return Self.setupStatus()
@@ -163,6 +199,29 @@ extension MacOSApplicationServices {
             "path": .string(WhiskyWineInstaller.applicationFolder.path),
             "rosettaInstalled": .bool(Rosetta2.isRosettaInstalled),
             "appleSilicon": .bool(HostArchitecture.isAppleSilicon)
+        ])
+    }
+
+    private nonisolated static func gptkStatus() -> JSONValue {
+        let record = GPTKImporter.storedRecord()
+        let capable = GPTKImporter.isRuntimeGPTKCapable()
+        let deployed = GPTKImporter.isDeployed()
+        var unverified = false
+        var failureReason: String?
+        if record != nil {
+            let verdict = GPTKImporter.verifyStoredPayload()
+            if case let .failed(reason) = verdict {
+                unverified = true
+                failureReason = reason
+            }
+        }
+        return .object([
+            "installed": .bool(record != nil),
+            "version": record.map { JSONValue.string($0.gptkVersion) } ?? .null,
+            "deployed": .bool(deployed),
+            "capable": .bool(capable),
+            "unverified": .bool(unverified),
+            "error": failureReason.map(JSONValue.string) ?? .null
         ])
     }
 }

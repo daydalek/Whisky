@@ -4,16 +4,16 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::{Disableable, Sizable};
 use gpui_kit::component::switch::Switch;
+use gpui_kit::component::{Disableable, Sizable};
 use gpui_kit::{prelude::*, *};
 
 use super::Command;
 use crate::bridge::dto::FoldersDto;
 use crate::bridge::{BridgeStatus, FolderEdit};
 use crate::controls::*;
-use crate::runtime::ClipboardDecision;
 use crate::program_settings::{self, ProgramSettingsDto, RunEntryDto};
+use crate::runtime::ClipboardDecision;
 use crate::scan::{self, JobStatus};
 use crate::state::{BottleDialogKind, PreviewSheet, ScanState, WhiskyApp};
 use crate::theme::{MUTED, OVERLAY, RADIUS_LG, SURFACE, SURFACE_BORDER};
@@ -148,7 +148,10 @@ impl WhiskyApp {
                         self.choice(
                             "program-backend",
                             "图形后端",
+                            #[cfg(not(target_os = "linux"))]
                             &["继承容器", "D3DMetal", "DXVK", "WineD3D"],
+                            #[cfg(target_os = "linux")]
+                            &["继承容器", "DXVK", "WineD3D"],
                             cx,
                         ),
                         self.toggle("override-sync", "覆盖同步设置", "", cx),
@@ -2542,12 +2545,18 @@ impl WhiskyApp {
                 vec![self.section(
                     "advanced-graphics",
                     "图形调试",
+                    #[cfg(not(target_os = "linux"))]
                     vec![
                         self.toggle("metal-hud", "Metal HUD", "", cx),
                         self.toggle("metal-trace", "Metal 跟踪", "", cx),
                         self.toggle("dxvk-async", "DXVK Async", "", cx),
                         self.choice("dxvk-hud", "DXVK HUD", &["关闭", "FPS", "完整"], cx),
                         self.toggle("dxr", "光线追踪（DXR）", "", cx),
+                    ],
+                    #[cfg(target_os = "linux")]
+                    vec![
+                        self.toggle("dxvk-async", "DXVK Async", "", cx),
+                        self.choice("dxvk-hud", "DXVK HUD", &["关闭", "FPS", "完整"], cx),
                     ],
                     cx,
                 )],

@@ -50,6 +50,25 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         beforeLaunch: { [weak self] entry in
             // Re-read program settings after edits performed through the portable service.
             self?.bottles[entry.bottleURL] = nil
+        },
+        backendResolver: { [weak self] entry, executable in
+            guard let bottle = self?.bottle(entry.bottleURL) else { return nil }
+            let targetURL = executable ?? {
+                if case let .program(url) = entry.launch {
+                    return url
+                }
+                return nil
+            }()
+            let program = targetURL.flatMap { exe in bottle.programs.first { $0.url == exe } }
+            let overrideBackend = program?.settings.overrides?.graphicsBackend
+            let choice = overrideBackend ?? bottle.settings.graphicsBackend
+            let resolved = if choice == .recommended {
+                GraphicsBackendResolver
+                    .resolve(for: targetURL.flatMap { LauncherType.detect(from: $0) } ?? entry.launcher)
+            } else {
+                choice
+            }
+            return resolved.displayName
         }
     )
 
@@ -83,7 +102,8 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         [
             "system.reveal", "system.open", "system.resources", "system.chooseFolder", "system.choosePath",
             "system.chooseFolders",
-            "setup.status", "setup.install", "setup.installRosetta",
+            "setup.status", "setup.install", "setup.checkUpdate", "setup.installRosetta",
+            "setup.gptk.status", "setup.gptk.import", "setup.gptk.remove",
             "programs.settings.read", "programs.settings.set",
             "programs.history.read", "programs.history.delete",
             "programs.shortcut.create", "entry.move"

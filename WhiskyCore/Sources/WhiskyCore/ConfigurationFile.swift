@@ -177,6 +177,9 @@ public actor ConfigurationFile {
                 : field.taggedEnum ? [text: [String: String]()] as Any : text as Any
             }
             try Self.set(encoded, at: field.path[...], in: &document)
+            if field.id == "gdiUpscaler", case let .text(algorithm) = value {
+                try Self.set(algorithm == "metalfx", at: ["graphicsConfig", "metalFXSpatial"][...], in: &document)
+            }
             if field.id == "graphicsBackend" {
                 try Self.set(false, at: ["launcherConfig", "backendSwitchedByLauncher"][...], in: &document)
             }
@@ -245,10 +248,8 @@ public actor ConfigurationFile {
     }
 
     private static func value(_ field: ConfigurationField, in document: [String: Any]) -> ConfigurationValue {
-        // BottleSettings migrates legacy DXVK selection when graphicsConfig is absent.
-        if field.path == ["graphicsConfig", "backend"], document["graphicsConfig"] == nil,
-           (document["dxvkConfig"] as? [String: Any])?["dxvk"] as? Bool == true {
-            return .text("dxvk")
+        if let legacy = legacyValue(field, in: document) {
+            return legacy
         }
         var node: Any = document
         for key in field.path {
@@ -273,6 +274,23 @@ public actor ConfigurationFile {
         do { try field.validate(value)
             return value
         } catch { return field.defaultValue }
+    }
+
+    private static func legacyValue(
+        _ field: ConfigurationField, in document: [String: Any]
+    ) -> ConfigurationValue? {
+        // BottleSettings migrates legacy DXVK selection when graphicsConfig is absent.
+        if field.path == ["graphicsConfig", "backend"], document["graphicsConfig"] == nil,
+           (document["dxvkConfig"] as? [String: Any])?["dxvk"] as? Bool == true {
+            return .text("dxvk")
+        }
+        guard field.path == ["graphicsConfig", "gdiUpscaler"],
+              let graphics = document["graphicsConfig"] as? [String: Any],
+              graphics["gdiUpscaler"] == nil,
+              let legacy = graphics["metalFXSpatial"] as? NSNumber,
+              isBoolean(legacy), legacy.boolValue
+        else { return nil }
+        return .text("metalfx")
     }
 
     private static func set(_ value: Any?, at path: ArraySlice<String>, in document: inout [String: Any]) throws {

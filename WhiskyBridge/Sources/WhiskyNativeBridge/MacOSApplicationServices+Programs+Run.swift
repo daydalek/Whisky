@@ -38,7 +38,15 @@ extension MacOSApplicationServices {
         guard FileManager.default.fileExists(atPath: executable.path) else {
             throw BridgeFailure("file_missing", "Selected file is unavailable")
         }
-        return try jobs.start(name: "programs.run") { _ in
+        let program = bottle.programs.first { $0.url == executable }
+        let choice = program?.settings.overrides?.graphicsBackend ?? bottle.settings.graphicsBackend
+        let resolved = if choice == .recommended {
+            GraphicsBackendResolver.resolve(for: LauncherType.detect(from: executable))
+        } else {
+            choice
+        }
+        let backend = resolved.displayName
+        return try jobs.start(name: "programs.run", extra: ["backend": .string(backend)]) { _ in
             if executable.pathExtension.lowercased() == "bat" {
                 _ = try await Wine.runBatchFile(url: executable, bottle: bottle)
             } else {

@@ -124,6 +124,32 @@ struct ConfigurationFileTests {
         #expect(try Data(contentsOf: file) == valid)
     }
 
+    @Test func gdiUpscalerSchemaAndLegacyMigrationPersistEachChoice() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("Metadata.plist")
+        try write(["graphicsConfig": ["metalFXSpatial": true, "future": "retained"]], to: file)
+        let original = try Data(contentsOf: file)
+        let field = try #require(ContainerConfiguration.fields(for: .macOS).first { $0.id == "gdiUpscaler" })
+        #expect(!ContainerConfiguration.fields(for: .linux).contains { $0.id == "gdiUpscaler" })
+        #expect(field.defaultValue == .text("off"))
+        guard case let .choice(options) = field.input else { Issue.record("Expected choice field")
+            return
+        }
+        #expect(options.map(\.id) == ["off", "metalfx", "anime4k", "realcugan", "adaptive"])
+        let store = ConfigurationFile(url: file, locking: Lock())
+        #expect(try await store.values(for: [field])[field.id] == .text("metalfx"))
+        #expect(try Data(contentsOf: file) == original)
+        for option in ["off", "anime4k", "realcugan", "adaptive", "metalfx"] {
+            try await store.update(field, to: .text(option))
+            #expect(try await store.values(for: [field])[field.id] == .text(option))
+            let graphics = try #require(try document(file)["graphicsConfig"] as? [String: Any])
+            #expect(graphics["metalFXSpatial"] as? Bool == (option == "metalfx"))
+            #expect(graphics["future"] as? String == "retained")
+        }
+        await #expect(throws: (any Error).self) { try await store.update(field, to: .text("unknown")) }
+    }
+
     @Test func legacyDXVKSelectionCanBeReadAndExplicitlyChanged() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

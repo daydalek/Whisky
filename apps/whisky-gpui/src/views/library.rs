@@ -465,16 +465,20 @@ impl WhiskyApp {
             // Running and pending states are always visible; only the idle
             // affordance waits for hover, as it did before.
             .child(match self.runtime_state(index) {
-                Some(RuntimeState::Running) => live_badge("Running")
+                Some(RuntimeState::Running) => {
+                    live_badge(self.runtime_badge_label(index, "Running"))
                     .absolute()
                     .top(px(9.))
                     .right(px(9.))
-                    .into_any_element(),
-                Some(state) if state.is_active() => phase_badge(state.phase_label())
-                    .absolute()
-                    .top(px(9.))
-                    .right(px(9.))
-                    .into_any_element(),
+                    .into_any_element()
+                }
+                Some(state) if state.is_active() => {
+                    phase_badge(self.runtime_badge_label(index, state.phase_label()))
+                        .absolute()
+                        .top(px(9.))
+                        .right(px(9.))
+                        .into_any_element()
+                }
                 _ => self.cover_play_circle(index, amount, cx),
             })
             .context_menu(self.game_menu(index, cx))
@@ -731,9 +735,11 @@ impl WhiskyApp {
             }
             if let Some(state) = self.runtime_state(index) {
                 meta = if state == RuntimeState::Running {
-                    meta.child(live_badge("Running"))
+                    meta.child(live_badge(self.runtime_badge_label(index, "Running")))
                 } else if state.is_active() {
-                    meta.child(phase_badge(state.phase_label()))
+                    meta.child(phase_badge(
+                        self.runtime_badge_label(index, state.phase_label()),
+                    ))
                 } else {
                     meta
                 };
@@ -1055,9 +1061,11 @@ impl WhiskyApp {
         }
         if let Some(state) = self.runtime_state(index) {
             badges = if state == RuntimeState::Running {
-                badges.child(live_badge("Running"))
+                badges.child(live_badge(self.runtime_badge_label(index, "Running")))
             } else if state.is_active() {
-                badges.child(phase_badge(state.phase_label()))
+                badges.child(phase_badge(
+                    self.runtime_badge_label(index, state.phase_label()),
+                ))
             } else {
                 badges
             };

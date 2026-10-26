@@ -36,7 +36,10 @@ public final class BridgeJobStore {
     private var order: [String] = []
     private var tasks: [String: Task<Void, Never>] = [:]
     var workspace: ApplicationWorkspace?
-    var hasActiveOperations: Bool { !tasks.isEmpty }
+    var hasActiveOperations: Bool {
+        !tasks.isEmpty
+    }
+
     var hasLifecycleOperation: Bool {
         tasks.keys.contains {
             records[$0]?.name.hasPrefix("bottle.") == true || records[$0]?.name == "workspace.recover"
@@ -44,7 +47,11 @@ public final class BridgeJobStore {
     }
 
     public init() {}
-    public func start(name: String, operation: @escaping Operation) throws -> JSONValue {
+    public func start(
+        name: String,
+        extra: [String: JSONValue] = [:],
+        operation: @escaping Operation
+    ) throws -> JSONValue {
         while records.count >= 32, let index = order.firstIndex(where: { tasks[$0] == nil }) {
             records[order.remove(at: index)] = nil
         }
@@ -59,8 +66,14 @@ public final class BridgeJobStore {
                 let lease: Int32? = if let workspace,
                                        !name.hasPrefix("bottle."), name != "workspace.recover" {
                     try ContainerRegistry.acquireShared(workspace)
-                } else { nil }
-                defer { if let lease { ContainerRegistry.release(lease) } }
+                } else {
+                    nil
+                }
+                defer {
+                    if let lease {
+                        ContainerRegistry.release(lease)
+                    }
+                }
                 records[id]?.status = "running"
                 let result = try await operation { [weak self] progress in
                     guard let self, records[id]?.status == "running" else { return }
@@ -87,7 +100,9 @@ public final class BridgeJobStore {
             }
             tasks[id] = nil
         }
-        return .object(["jobID": .string(id)])
+        var payload = extra
+        payload["jobID"] = .string(id)
+        return .object(payload)
     }
 
     public func call(_ method: String, params: [String: JSONValue]) throws -> JSONValue {
