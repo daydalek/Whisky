@@ -155,20 +155,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		6EFDF6542AAE2DA800EF622F /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 6E40494A29CCA19C006E3F1B /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 6EFDF6492AAE2DA800EF622F;
-			remoteInfo = WhiskyThumbnail;
-		};
-		F102D9C9FCD3FECFDC6A52E7 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 6E40494A29CCA19C006E3F1B /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = D8DCC36B1A9651B209323538;
-			remoteInfo = WhiskyUITests;
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -516,10 +502,7 @@
 		6E40495329CCA19C006E3F1B /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				6E40495229CCA19C006E3F1B /* Whisky.app */,
 				6E70A4982A9A2197007799E9 /* WhiskyCmd */,
-				6EFDF64A2AAE2DA800EF622F /* WhiskyThumbnail.appex */,
-				1C3B8A506869998F3FE0FC74 /* WhiskyUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -765,35 +748,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		6E40495129CCA19C006E3F1B /* Whisky */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 6E40497729CCA19D006E3F1B /* Build configuration list for PBXNativeTarget "Whisky" */;
-			buildPhases = (
-				6E40494E29CCA19C006E3F1B /* Sources */,
-				6E40494F29CCA19C006E3F1B /* Frameworks */,
-				6E40495029CCA19C006E3F1B /* Resources */,
-				7A0510A22F5A0000000000F1 /* Fill Missing Translations */,
-				6E50D98129CD0EAF008C39F6 /* SwiftLint */,
-				6E95F66C2AB3EF2F00D585D1 /* Embed WhiskyCmd */,
-				6EFDF65A2AAE2DA800EF622F /* Embed Foundation Extensions */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				6EFDF6552AAE2DA800EF622F /* PBXTargetDependency */,
-				1920C7734DE02CDDB7408034 /* PBXTargetDependency */,
-			);
-			name = Whisky;
-			packageProductDependencies = (
-				6E064B1129DD32A200D9A2D2 /* Sparkle */,
-				7A0510A22F5A000000000002 /* PostHog */,
-				EB58FB542A499896002DC184 /* SemanticVersion */,
-				8C2AEFC72AED79B700CB568F /* WhiskyKit */,
-			);
-			productName = Whisky;
-			productReference = 6E40495229CCA19C006E3F1B /* Whisky.app */;
-			productType = "com.apple.product-type.application";
-		};
 		6E70A4972A9A2197007799E9 /* WhiskyCmd */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 6E70A49E2A9A2197007799E9 /* Build configuration list for PBXNativeTarget "WhiskyCmd" */;
@@ -815,43 +769,6 @@
 			productName = WhiskyCmd;
 			productReference = 6E70A4982A9A2197007799E9 /* WhiskyCmd */;
 			productType = "com.apple.product-type.tool";
-		};
-		6EFDF6492AAE2DA800EF622F /* WhiskyThumbnail */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 6EFDF6572AAE2DA800EF622F /* Build configuration list for PBXNativeTarget "WhiskyThumbnail" */;
-			buildPhases = (
-				6EFDF6462AAE2DA800EF622F /* Sources */,
-				6EFDF6472AAE2DA800EF622F /* Frameworks */,
-				6EFDF6482AAE2DA800EF622F /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = WhiskyThumbnail;
-			packageProductDependencies = (
-				8CB681E62AED7CD00018D319 /* WhiskyKit */,
-			);
-			productName = WhiskyThumbnail;
-			productReference = 6EFDF64A2AAE2DA800EF622F /* WhiskyThumbnail.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
-		D8DCC36B1A9651B209323538 /* WhiskyUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = D4DFB8BA3AC5AF4B9425DC4D /* Build configuration list for PBXNativeTarget "WhiskyUITests" */;
-			buildPhases = (
-				6D4C085C5FF0ACC12D17C11B /* Sources */,
-				066A6C008BD365E667C9F242 /* Frameworks */,
-				524B4B5B065198F1240C698F /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = WhiskyUITests;
-			productName = WhiskyUITests;
-			productReference = 1C3B8A506869998F3FE0FC74 /* WhiskyUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
 
@@ -916,10 +833,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				6E40495129CCA19C006E3F1B /* Whisky */,
 				6E70A4972A9A2197007799E9 /* WhiskyCmd */,
-				6EFDF6492AAE2DA800EF622F /* WhiskyThumbnail */,
-				D8DCC36B1A9651B209323538 /* WhiskyUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -1151,17 +1065,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		1920C7734DE02CDDB7408034 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			name = WhiskyUITests;
-			target = D8DCC36B1A9651B209323538 /* WhiskyUITests */;
-			targetProxy = F102D9C9FCD3FECFDC6A52E7 /* PBXContainerItemProxy */;
-		};
-		6EFDF6552AAE2DA800EF622F /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 6EFDF6492AAE2DA800EF622F /* WhiskyThumbnail */;
-			targetProxy = 6EFDF6542AAE2DA800EF622F /* PBXContainerItemProxy */;
-		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */

@@ -142,22 +142,13 @@ without launching the app:
 swift test --package-path WhiskyKit
 ```
 
-**WhiskyUITests** — XCUITest end-to-end coverage of the SwiftUI surface,
-runnable from Xcode or via `xcodebuild`:
+**WhiskyBridge and GPUI tests** — exercise the shared application service and macOS frontend:
 
 ```bash
-xcodebuild -project Whisky.xcodeproj \
-  -scheme Whisky \
-  -destination 'platform=macOS' \
-  -only-testing:WhiskyUITests test
+swift test --package-path WhiskyBridge
+cargo test --locked --manifest-path apps/whisky-gpui/Cargo.toml
+./build.sh run whisky-macos-gpui-arm64
 ```
-
-Tests that need bottle fixtures call `requireBottleFixture()`, which
-`XCTSkip`s them when the user container has no bottles (always true on a
-fresh CI runner). The fixture-free tests — the create-bottle sheet flow
-and toolbar checks — run for real on every CI run. To exercise the
-fixture-dependent tests locally, create at least one bottle in Whisky
-before running the suite.
 
 All tests must pass before your PR can be merged.
 
@@ -180,13 +171,10 @@ Before submitting a PR, verify no regressions:
 # Run full test suite
 swift test --package-path WhiskyKit
 
-# Build Whisky app
-xcodebuild -scheme Whisky -configuration Debug build
-
-# Run UI tests (skip-aware on fresh containers)
-xcodebuild -project Whisky.xcodeproj -scheme Whisky \
-  -destination 'platform=macOS' \
-  -only-testing:WhiskyUITests test
+# Test and package the GPUI application
+swift test --package-path WhiskyBridge
+cargo test --locked --manifest-path apps/whisky-gpui/Cargo.toml
+./build.sh run whisky-macos-gpui-arm64
 
 # Check formatting
 swiftformat --lint .
@@ -199,9 +187,9 @@ Once your pull request passes CI checks (SwiftLint, SwiftFormat, and builds), it
 ### Review Checklist
 
 - [ ] All tests pass (`swift test --package-path WhiskyKit`)
-- [ ] Build succeeds (`xcodebuild -scheme Whisky build`)
+- [ ] GPUI packaging succeeds (`./build.sh run whisky-macos-gpui-arm64`)
 - [ ] SwiftFormat clean (`swiftformat --lint .`)
-- [ ] SwiftLint clean (build shows no violations)
+- [ ] SwiftLint clean (`swiftlint lint --strict`)
 - [ ] Documentation updated (if adding features)
 - [ ] Changelog updated (if user-facing changes)
 

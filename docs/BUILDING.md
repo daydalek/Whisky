@@ -5,22 +5,22 @@
 ```bash
 ./build.sh                  # 交互菜单：选目标、执行环境，再预览/检查/构建
 ./build.sh list             # 列出目标
-./build.sh doctor whisky-macos-arm64
-./build.sh plan whisky-macos-arm64 --version 0.2.0 --json
-./build.sh run whisky-macos-arm64 --version 0.2.0 --build-number 12
+./build.sh doctor whisky-macos-gpui-arm64
+./build.sh plan whisky-macos-gpui-arm64 --version 0.2.0 --json
+./build.sh run whisky-macos-gpui-arm64 --version 0.2.0 --build-number 12
+./build.sh run whisky-macos-gpui-arm64 --install  # 构建后替换 /Applications/Whisky.app
 ```
 
 `plan` 输出完整命令、工作目录、环境变量和产物路径；`run` 执行同一份计划。
 每次任务使用全新目录，默认 `build/distribution/<target>/<时间-任务ID>/`。
 `build-report.json` 和 `01.log` 等文件记录执行结果；Ctrl-C 保留日志与已生成文件。
-菜单默认执行环境检查，选择“开始构建”后运行。
+菜单提供“构建并部署到 /Applications”。部署先验证新包，替换后校验签名与可执行文件；已运行的应用需重启。
 
 ## 目标
 
 | 名称 | 主机 / 产物 |
 | --- | --- |
-| `whisky-macos-arm64` | Apple Silicon + Xcode；SwiftUI ad-hoc ZIP 与源码包 |
-| `whisky-macos-gpui-arm64` | Apple Silicon + Swift/Rust；GPUI 开发 `.app` |
+| `whisky-macos-gpui-arm64` | Apple Silicon + Swift/Rust；GPUI 开发 `.app`，指定版本时附带 ad-hoc ZIP 与源码包 |
 | `whisky-linux-amd64` | Ubuntu 24.04 amd64 或 Docker；Release tar.gz / deb / rpm / AppImage、源码与许可材料 |
 | `wine-macos-arm64` | macOS 27+ Apple Silicon、Rosetta、CMake/pkg-config；x86_64 Libraries 与源码包 |
 | `wine-linux-amd64` | Ubuntu 24.04 amd64 或 Docker；new WoW64 runner 与源码包 |

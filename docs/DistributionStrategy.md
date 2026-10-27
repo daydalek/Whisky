@@ -21,8 +21,7 @@ Apple 的公证链路使用 Developer ID、Hardened Runtime 和安全时间戳�
 
 ## 当前仓库的实际边界
 
-- `scripts/build-app-release.sh` 构建 arm64 SwiftUI 应用，生成 ad-hoc ZIP、源码包、构建记录和校验和。
-  `AppRelease.yml` 使用这条链路。`scripts/release.sh` 保留 Developer ID / DMG / 公证流程；
+- `AppRelease.yml` 使用 `./build.sh run whisky-macos-gpui-arm64` 构建 GPUI 应用和 ad-hoc ZIP。
   其团队 ID、版本传递、证书和更新签名配置需要在接入公众稳定渠道时统一。
 - `apps/whisky-gpui/tools/package-app.sh` 是 GPUI 开发包入口。本次修正了 Retina 图标的目标文件名、
   固定离线构建行为和覆盖旧产物的问题，并接入独立输出目录。

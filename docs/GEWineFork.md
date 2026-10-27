@@ -127,10 +127,8 @@ git push origin v0.1.0
 Assets include `Whisky-0.1.0-arm64.zip` containing `Whisky.app`, `SHA256SUMS`,
 `build-info.json` and release notes. Wine Libraries are downloaded separately.
 Manual workflow runs accept an app version and retain the ZIP as an Actions
-artifact. Ad-hoc app releases require macOS first-launch approval; Developer ID
-signing and Apple notarization remain available through `scripts/release.sh`.
+artifact. Ad-hoc app releases require macOS first-launch approval.
 
-For a local packaging check, use `bash scripts/build-app-release.sh 0.1.0`.
-The output is `build/app-release/assets`; each packaging run requires a fresh
-assets directory. The existing Homebrew workflow is restricted to its upstream
+For a local packaging check, use `./build.sh run whisky-macos-gpui-arm64 --version 0.1.0`.
+Each run uses a fresh output directory. The existing Homebrew workflow is restricted to its upstream
 repository.

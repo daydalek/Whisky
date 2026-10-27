@@ -27,8 +27,7 @@ permissions:
 env:
   # macos-26 runners: their latest-stable Xcode is 27, which is what this
   # codebase is developed and released against. The Xcode 26.3 toolchain on
-  # macos-15 cannot type-check some SwiftUI here and its runtime allocator
-  # aborts inside the Steam library discovery tests.
+  # macos-15 has an allocator failure inside Steam library discovery tests.
   XCODE_VERSION: 'latest-stable'
 
 # Prevent duplicate runs on the same PR
@@ -88,87 +87,6 @@ jobs:
           }
       - name: Verify third-party notices and source inventory
         run: python3 scripts/check-third-party.py
-
-  # All three schemes build in one job: they share WhiskyKit and most compiled
-  # sources through a common DerivedData, so sequential scheme builds are mostly
-  # incremental — one checkout/Xcode/cache setup instead of three matrix jobs.
-  build:
-    name: Build all schemes
-    needs: [lint, format]
-    runs-on: macos-26
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: ${{ env.XCODE_VERSION }}
-
-      # Cache includes WhiskyKit/.build for consistency with test job cache paths
-      # (swift build creates artifacts there, xcodebuild uses DerivedData)
-      - name: Cache SPM Dependencies
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/Library/Developer/Xcode/DerivedData/*/SourcePackages
-            .build
-            WhiskyKit/.build
-          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
-          restore-keys: |
-            ${{ runner.os }}-spm-
-
-      # SwiftLint build phase automatically skips when CI=true (set by GitHub Actions)
-      - name: Build
-        run: |
-          for scheme in Whisky WhiskyCmd WhiskyThumbnail; do
-            echo "::group::Build $scheme"
-            xcodebuild -project Whisky.xcodeproj \
-              -scheme "$scheme" \
-              -configuration Debug \
-              build \
-              CODE_SIGN_IDENTITY="" \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGNING_ALLOWED=NO
-            echo "::endgroup::"
-          done
-
-      # Guards against the class of regression fixed in #134: a resource that the
-      # app expects at runtime silently not making it into the bundle. winetricks
-      # and its verb catalog are shipped in Contents/Resources (like cabextract);
-      # if the "Embed WhiskyCmd" copy phase drops them, dependency installs break
-      # at runtime but the build stays green — so assert on the built artifact.
-      - name: Verify bundled app resources
-        run: |
-          # Ask for the exact product path rather than globbing DerivedData:
-          # a loose glob can also catch WhiskyUITests-Runner.app.
-          app=$(xcodebuild -project Whisky.xcodeproj -scheme Whisky -configuration Debug \
-            -showBuildSettings 2>/dev/null \
-            | awk -F' = ' '
-                /^ *BUILT_PRODUCTS_DIR = /  { dir = $2 }
-                /^ *FULL_PRODUCT_NAME = /   { name = $2 }
-                END { if (dir != "" && name != "") print dir "/" name }')
-          if [ -z "$app" ] || [ ! -d "$app" ]; then
-            echo "::error::app bundle not found after build (resolved to '${app:-<empty>}')"
-            exit 1
-          fi
-          echo "Checking $app"
-          missing=0
-          for res in winetricks verbs.txt cabextract; do
-            if [ ! -f "$app/Contents/Resources/$res" ]; then
-              echo "::error::missing bundled resource: Contents/Resources/$res"
-              missing=1
-            fi
-          done
-          [ "$missing" -eq 0 ] || exit 1
-          echo "Bundled resources present: winetricks, verbs.txt, cabextract"
-
-          # Every compiled localization must carry every en key, or untranslated
-          # strings render as raw identifiers (#291). The "Fill Missing
-          # Translations" build phase does the filling; this asserts it ran.
-          python3 scripts/fill-missing-translations.py --check "$app/Contents/Resources"
-          python3 scripts/check-third-party.py --resources "$app/Contents/Resources"
 
   # Test job for WhiskyKit - always runs to ensure coverage is uploaded
   test:
@@ -331,4 +249,12 @@ jobs:
       - name: Run GPUI tests
         run: cargo test --locked --manifest-path apps/whisky-gpui/Cargo.toml
       - name: Verify GPUI app packaging
-        run: ./build.sh run whisky-macos-gpui-arm64
+        run: |
+          ./build.sh run whisky-macos-gpui-arm64 --output build/ci-gpui
+          app=build/ci-gpui/artifacts/Whisky.app
+          test -x "$app/Contents/MacOS/whisky-gpui"
+          for res in whisky-bridge winetricks verbs.txt cabextract WhiskyKit_WhiskyKit.bundle WhiskyCore_WhiskyCore.bundle; do
+            test -e "$app/Contents/Resources/$res" || { echo "Missing resource: $res"; exit 1; }
+          done
+          python3 scripts/check-third-party.py --resources "$app/Contents/Resources"
+          codesign --verify --deep --strict "$app"

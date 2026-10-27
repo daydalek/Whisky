@@ -47,18 +47,16 @@ To build for review through Actions, run **Build and release Whisky app** with `
 For a local package:
 
 ```sh
-BUILD_NUMBER=123 bash scripts/build-app-release.sh X.Y.Z
+./build.sh run whisky-macos-gpui-arm64 --version X.Y.Z --build-number 123
 ```
 
-Use a suitable numeric build number. Output goes to `build/app-release/assets/`; the script requires that directory to be absent at the start. Move an earlier output aside before running another package build. Local builds use the same ad-hoc signing and ZIP verification path.
+Use a suitable numeric build number. Output goes to a fresh directory under `build/distribution/whisky-macos-gpui-arm64/`. Local builds use the same ad-hoc signing and ZIP verification path.
 
 ### Signing and update behavior
 
 Current ZIP releases use ad-hoc signatures and require the user's Gatekeeper approval where applicable. Apple notarization is a separate distribution step.
 
-`WhiskyApp` creates the Sparkle controller with `startingUpdater: false`. The current app upgrade path is manual download from [app Releases](https://github.com/daydalek/Whisky/releases). `dist/pages/appcast.xml` is an empty feed for this fork.
-
-`scripts/release.sh` and `scripts/exportOptions.plist` remain as the inherited Developer ID / notarized DMG tooling. Their certificate, notarytool and Sparkle key setup belongs to a separately configured DMG distribution path. The active ZIP workflow is defined in `AppRelease.yml`.
+The current app upgrade path is manual download from [app Releases](https://github.com/daydalek/Whisky/releases). `dist/pages/appcast.xml` is an empty feed for this fork.
 
 `UpdateHomebrewTap.yml` is scoped to `github.repository == 'frankea/Whisky'` and updates the upstream maintainer's tap. This fork distributes its app through GitHub Releases.
 

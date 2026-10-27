@@ -47,7 +47,7 @@ class BuildTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build.plan(self.args('whisky-linux-amd64', '--compile-only'))
         with self.assertRaises(ValueError):
-            build.plan(self.args('whisky-macos-arm64', '--version', '1.2;touch /tmp/x'))
+            build.plan(self.args('whisky-macos-gpui-arm64', '--version', '1.2;touch /tmp/x'))
 
     def test_runtime_validation_follows_packaging_and_recipe_cache_changes(self):
         before = build.plan(self.args('wine-linux-amd64'))
@@ -89,10 +89,16 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(['deb'], command[command.index('--formats') + 1:])
 
     def test_macos_gpui_plan_adds_package_step_when_version_provided(self):
+        self.assertEqual([name for name in build.TARGETS if name.startswith("whisky-macos-")],
+                         ["whisky-macos-gpui-arm64"])
         dev = build.plan(self.args('whisky-macos-gpui-arm64'))
         self.assertEqual(1, len(dev['steps']))
         self.assertIn('package-app.sh', dev['steps'][0]['command'][1])
         self.assertNotIn('WHISKY_VERSION', dev['environment'])
+        install = build.plan(self.args('whisky-macos-gpui-arm64', '--install'))
+        self.assertEqual('install-macos.py', Path(install['steps'][-1]['command'][1]).name)
+        with self.assertRaises(ValueError):
+            build.plan(self.args('whisky-linux-amd64', '--install'))
 
         release = build.plan(self.args('whisky-macos-gpui-arm64', '--version', '0.4.0', '--build-number', '7'))
         self.assertEqual(2, len(release['steps']))

@@ -22,7 +22,6 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGETS = {
-    'whisky-macos-arm64': ('Darwin', 'arm64', 'SwiftUI · ad-hoc ZIP · 预发布', ('xcodebuild', 'codesign', 'ditto')),
     'whisky-macos-gpui-arm64': ('Darwin', 'arm64', 'GPUI · ad-hoc ZIP · 预发布', ('swift', 'cargo', 'iconutil', 'codesign', 'ditto')),
     'whisky-linux-amd64': ('Linux', 'x86_64', 'GPUI · Ubuntu 24.04 · tar.gz', ('swift', 'cargo', 'clang', 'patchelf', 'pkg-config')),
     'wine-macos-arm64': ('Darwin', 'arm64', 'Apple Silicon 主机 · x86_64 Wine/Rosetta · Libraries', ('cmake', 'pkg-config', 'xcrun')),
@@ -41,6 +40,7 @@ def parser():
     result = argparse.ArgumentParser(description=__doc__, epilog='运行 ./build.sh menu 打开交互菜单。')
     result.add_argument('action', choices=('menu', 'list', 'doctor', 'plan', 'run'), nargs='?', default='menu')
     result.add_argument('target', choices=TARGETS, nargs='?')
+    result.add_argument('--install', action='store_true', help='构建后替换 /Applications/Whisky.app（macOS GPUI）')
     result.add_argument('--version', help='应用或 Linux 安装包版本 X.Y.Z')
     result.add_argument('--formats', nargs='+', choices=('tar', 'deb', 'rpm', 'appimage'),
                         help='Linux 应用格式；默认 tar deb rpm appimage')
@@ -87,6 +87,8 @@ def mount(source, destination, readonly=False):
 def plan(args):
     if not args.target:
         raise ValueError('请选择构建目标，例如 ./build.sh plan whisky-linux-amd64')
+    if args.install and (args.target != 'whisky-macos-gpui-arm64' or args.executor != 'native'):
+        raise ValueError('--install 适用于原生 macOS GPUI 构建')
     if args.formats and args.target != 'whisky-linux-amd64':
         raise ValueError('--formats 适用于 whisky-linux-amd64')
     is_wine = args.target.startswith('wine-')
@@ -109,12 +111,7 @@ def plan(args):
         steps.append(dict(name=name, command=list(map(str, command)), cwd=str(repo)))
 
     work = None
-    if args.target == 'whisky-macos-arm64':
-        if not args.version or not re.fullmatch(r'\d+\.\d+\.\d+', args.version):
-            raise ValueError('请提供 --version X.Y.Z')
-        env.update(WHISKY_APP_RELEASE_OUTPUT=str(output / 'artifacts'), BUILD_NUMBER=str(args.build_number))
-        step('应用构建、签名和源码打包', ['bash', repo / 'scripts/build-app-release.sh', args.version])
-    elif args.target == 'whisky-macos-gpui-arm64':
+    if args.target == 'whisky-macos-gpui-arm64':
         app_dir = output / 'artifacts/Whisky.app'
         env['WHISKY_GPUI_APP_DIR'] = str(app_dir)
         if args.version:
@@ -128,6 +125,8 @@ def plan(args):
             step('macOS Release 资产打包与校验和', ['python3', ROOT / 'scripts/distribution/package-macos.py',
                  '--app', app_dir, '--version', args.version, '--build-number', str(args.build_number),
                  '--output', packages_dir])
+        if args.install:
+            step('部署到 /Applications/Whisky.app', ['python3', ROOT / 'scripts/distribution/install-macos.py', app_dir])
     elif args.target == 'whisky-linux-amd64':
         version = args.version or '0.1.0'
         if not re.fullmatch(r'\d+\.\d+\.\d+', version):
@@ -363,8 +362,6 @@ def menu(args):
     if selected not in [str(n) for n in range(1, len(names) + 1)]:
         raise ValueError('请输入菜单中的编号')
     args.target = names[int(selected) - 1]
-    if args.target == 'whisky-macos-arm64':
-        args.version = input('应用版本 X.Y.Z：').strip()
     if args.target.startswith('wine-'):
         args.wine_repo = Path(input(f'Wine 仓库 [{args.wine_repo}]：').strip() or args.wine_repo).expanduser().resolve()
     if TARGETS[args.target][0] == 'Linux':
@@ -387,15 +384,22 @@ def menu(args):
         args.compile_only = mode == '2'
     value = plan(args)
     show(value)
-    print('\n1. 环境检查  2. 开始构建  0. 返回终端')
+    actions = '\n1. 环境检查  2. 开始构建'
+    if args.target == 'whisky-macos-gpui-arm64':
+        actions += '  3. 构建并部署到 /Applications'
+    print(actions + '  0. 返回终端')
     action = input('选择 [1]：').strip() or '1'
+    if action == '3' and args.target == 'whisky-macos-gpui-arm64':
+        args.install = True
+        value = plan(args)
+        show(value)
     if action == '0':
         return
-    if action not in ('1', '2'):
-        raise ValueError('请选择 0、1 或 2')
+    if action not in ('1', '2') and not (action == '3' and args.install):
+        raise ValueError('请选择菜单中的操作')
     checks = doctor(args)
     show(checks)
-    if action == '2':
+    if action in ('2', '3'):
         if not checks['passed']:
             raise ValueError('请准备环境检查列出的工具与主机')
         execute(value)

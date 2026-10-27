@@ -21,7 +21,7 @@
 
 ## 项目定位与核心改动
 
-本项目是 [frankea/Whisky](https://github.com/frankea/Whisky)（衍生自 [whisky-app/whisky](https://github.com/whisky-app/whisky)）的 fork，在保留 Whisky 原生 SwiftUI 界面、Bottle 管理和程序启动能力的基础上，接入我们在 [ge-proton-macos-wine-poc](https://github.com/daydalek/ge-proton-macos-wine-poc) 中构建的定制 Wine 运行库，并新增了面向**视觉小说（Visual Novel / Galgame）**与本地游戏的**书架媒体库、游戏元数据刮削（Metadata Scraping）、Steam 启动就绪编排**以及**环境变量与区域（Locale / WineD3D）快捷配置**等功能。应用本体与 Wine 运行库分别构建、独立发布。
+本项目是 [frankea/Whisky](https://github.com/frankea/Whisky)（衍生自 [whisky-app/whisky](https://github.com/whisky-app/whisky)）的 fork，以 GPUI 界面提供 Bottle 管理和程序启动能力，接入我们在 [ge-proton-macos-wine-poc](https://github.com/daydalek/ge-proton-macos-wine-poc) 中构建的定制 Wine 运行库，并新增了面向**视觉小说（Visual Novel / Galgame）**与本地游戏的**书架媒体库、游戏元数据刮削（Metadata Scraping）、Steam 启动就绪编排**以及**环境变量与区域（Locale / WineD3D）快捷配置**等功能。应用本体与 Wine 运行库分别构建、独立发布。
 
 ### 本仓库核心功能概览
 

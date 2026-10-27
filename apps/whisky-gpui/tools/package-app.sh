@@ -60,13 +60,12 @@ if [[ -d "${REPO_ROOT}/ThirdParty" ]]; then
     cp -R "${REPO_ROOT}/ThirdParty/"* "${CONTENTS}/Resources/ThirdParty/"
 fi
 
-# Version mirrors the SwiftUI app (Whisky.xcodeproj) unless overridden.
-VERSION="${WHISKY_VERSION:-$(sed -n 's/^[[:space:]]*MARKETING_VERSION = \(.*\);$/\1/p' \
-    "${REPO_ROOT}/Whisky.xcodeproj/project.pbxproj" | head -n 1)}"
-BUILD="${BUILD_NUMBER:-$(sed -n 's/^[[:space:]]*CURRENT_PROJECT_VERSION = \(.*\);$/\1/p' \
-    "${REPO_ROOT}/Whisky.xcodeproj/project.pbxproj" | head -n 1)}"
-: "${VERSION:?MARKETING_VERSION not found in Whisky.xcodeproj}"
-: "${BUILD:=1}"
+# Defaults for local builds; release workflows supply their own version and build number.
+source "${REPO_ROOT}/apps/whisky-gpui/version.env"
+VERSION="${WHISKY_VERSION:-${WHISKY_DEFAULT_VERSION}}"
+BUILD="${BUILD_NUMBER:-${WHISKY_DEFAULT_BUILD}}"
+: "${VERSION:?Missing default Whisky version}"
+: "${BUILD:?Missing default Whisky build number}"
 BUNDLE_ID="${WHISKY_BUNDLE_ID:-com.franke.Whisky}"
 
 cat > "${CONTENTS}/Info.plist" <<PLIST
