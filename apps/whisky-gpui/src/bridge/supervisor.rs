@@ -860,6 +860,7 @@ enum Command {
         container: String,
         sources: Vec<String>,
         automatic: bool,
+        include_characters: bool,
     },
     /// `setup.status` at connection time.
     LoadSetupStatus,
@@ -1478,11 +1479,12 @@ impl BridgeSupervisor {
     }
 
     /// `metadata.sync`: automatic matching for folder entries.
-    pub(crate) fn sync_metadata(&self, container: &str, sources: Vec<String>, automatic: bool) {
+    pub(crate) fn sync_metadata(&self, container: &str, sources: Vec<String>, automatic: bool, include_characters: bool) {
         let _ = self.commands.send(Command::SyncMetadata {
             container: container.to_owned(),
             sources,
             automatic,
+            include_characters,
         });
     }
 
@@ -1648,6 +1650,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
         let mut diagnostic: Option<LiveDiagnostic> = None;
         // At most one metadata search job.
         let mut metadata_search: Option<LiveMetadataSearch> = None;
+        let mut metadata_apply: Option<LiveMetadataSearch> = None;
         // At most one automatic metadata sync job.
         let mut metadata_sync: Option<LiveMetadataSync> = None;
         // At most one Wine runtime installation job.
@@ -1660,7 +1663,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
             #[cfg(target_os = "linux")]
             if wine_restart_pending && scan.is_none() && create.is_none() && tricks.is_none()
                 && update_check.is_none() && bottle_op.is_none() && diagnostic.is_none()
-                && metadata_search.is_none() && metadata_sync.is_none() && program_run.is_none()
+                && metadata_search.is_none() && metadata_apply.is_none() && metadata_sync.is_none() && program_run.is_none()
             {
                 client.close();
                 continue 'session;
@@ -1691,6 +1694,9 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                 wait_for = wait_for.min(job.due.saturating_duration_since(now));
             }
             if let Some(job) = &metadata_search {
+                wait_for = wait_for.min(job.due.saturating_duration_since(now));
+            }
+            if let Some(job) = &metadata_apply {
                 wait_for = wait_for.min(job.due.saturating_duration_since(now));
             }
             if let Some(job) = &metadata_sync {
@@ -2162,6 +2168,29 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                     },
                                 );
                                 metadata_sync = None;
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        }
+                    }
+                    if let Some(active) = metadata_apply.as_mut() {
+                        match poll_metadata_apply(&mut client, active) {
+                            Ok(None) => {}
+                            Ok(Some(Ok(()))) => {
+                                // Other commands can repopulate the entry cache while the job runs.
+                                cache = None;
+                                emit_event(&events, BridgeEvent::Metadata {
+                                    update: MetadataUpdate::Applied {
+                                        container: active.container.clone(),
+                                        entry_id: active.entry_id.clone(),
+                                    },
+                                });
+                                metadata_apply = None;
+                            }
+                            Ok(Some(Err(reason))) | Err(CallFailure::Remote(reason)) => {
+                                emit_event(&events, BridgeEvent::Metadata {
+                                    update: MetadataUpdate::Failed { reason },
+                                });
+                                metadata_apply = None;
                             }
                             Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                         }
@@ -3789,6 +3818,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                     container,
                     sources,
                     automatic,
+                    include_characters,
                 }) => {
                     if metadata_sync.is_some() {
                         // A manual request says so; an automatic pass just
@@ -3811,6 +3841,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                     "container": container,
                                     "sources": sources,
                                     "automatic": automatic,
+                                    "includeCharacters": include_characters,
                                 }),
                             )
                             .map_err(classify)
@@ -3879,6 +3910,12 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                     entry_id,
                     metadata,
                 }) => {
+                    if metadata_apply.is_some() {
+                        emit_event(&events, BridgeEvent::Metadata {
+                            update: MetadataUpdate::Failed { reason: "正在更新游戏资料，请稍后再试".into() },
+                        });
+                        continue;
+                    }
                     // The entry list changed on disk; never serve the stale cache.
                     cache = None;
                     match client
@@ -3888,19 +3925,19 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                 "container": container,
                                 "entryID": entry_id,
                                 "metadata": metadata,
+                                "background": true,
                             }),
                         )
                         .map_err(classify)
                     {
-                        Ok(_) => emit_event(
-                            &events,
-                            BridgeEvent::Metadata {
-                                update: MetadataUpdate::Applied {
-                                    container,
-                                    entry_id,
-                                },
-                            },
-                        ),
+                        Ok(reply) => match serde_json::from_value::<JobStartDto>(reply) {
+                            Ok(start) => metadata_apply = Some(LiveMetadataSearch {
+                                container, entry_id, job_id: start.job_id, due: Instant::now() + SCAN_POLL,
+                            }),
+                            Err(error) => emit_event(&events, BridgeEvent::Metadata {
+                                update: MetadataUpdate::Failed { reason: format!("invalid apply reply: {error}") },
+                            }),
+                        },
                         Err(CallFailure::Remote(reason)) => emit_event(
                             &events,
                             BridgeEvent::Metadata {
@@ -4266,6 +4303,13 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                             },
                         },
                     );
+                }
+                if metadata_apply.take().is_some() {
+                    emit_event(&events, BridgeEvent::Metadata {
+                        update: MetadataUpdate::Failed {
+                            reason: "The bridge session ended; the update outcome is unknown".into(),
+                        },
+                    });
                 }
                 if metadata_sync.take().is_some() {
                     emit_event(
@@ -5115,6 +5159,28 @@ fn poll_metadata_sync(
 enum MetadataSearchTerminal {
     Completed(Vec<MetadataSearchGroupDto>),
     Failed(String),
+}
+
+fn poll_metadata_apply(
+    client: &mut Client,
+    apply: &mut LiveMetadataSearch,
+) -> Result<Option<Result<(), String>>, CallFailure> {
+    let reply = client.call("jobs.get", json!({ "jobID": apply.job_id })).map_err(classify)?;
+    let job: JobDto = serde_json::from_value(reply)
+        .map_err(|error| CallFailure::Remote(format!("invalid job payload: {error}")))?;
+    apply.due = Instant::now() + SCAN_POLL;
+    metadata_apply_result(&job)
+}
+
+fn metadata_apply_result(job: &JobDto) -> Result<Option<Result<(), String>>, CallFailure> {
+    let status = JobStatus::from_wire(&job.status)
+        .ok_or_else(|| CallFailure::Remote(format!("unknown job status: {}", job.status)))?;
+    match status {
+        JobStatus::Completed => Ok(Some(Ok(()))),
+        JobStatus::Failed | JobStatus::Cancelled => Ok(Some(Err(job.error.as_ref()
+            .map(BridgeFailureDto::reason).unwrap_or_else(|| "游戏资料更新失败或已取消".to_owned())))),
+        JobStatus::Queued | JobStatus::Running | JobStatus::Cancelling => Ok(None),
+    }
 }
 
 fn poll_metadata_search(
@@ -7162,6 +7228,20 @@ pub(crate) fn diagnose_launch(bottle: Option<&str>, entry: Option<&str>) -> i32 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metadata_apply_job_reports_pending_completion_and_failure() {
+        for status in ["queued", "running", "cancelling"] {
+            let job: JobDto = serde_json::from_value(json!({"status": status})).unwrap();
+            assert!(matches!(metadata_apply_result(&job), Ok(None)));
+        }
+        let job: JobDto = serde_json::from_value(json!({"status": "completed"})).unwrap();
+        assert!(matches!(metadata_apply_result(&job), Ok(Some(Ok(())))));
+        let job: JobDto = serde_json::from_value(json!({"status": "failed"})).unwrap();
+        assert!(matches!(metadata_apply_result(&job), Ok(Some(Err(_)))));
+        let job: JobDto = serde_json::from_value(json!({"status": "unexpected"})).unwrap();
+        assert!(matches!(metadata_apply_result(&job), Err(CallFailure::Remote(_))));
+    }
 
     #[test]
     fn backoff_grows_and_stays_bounded() {

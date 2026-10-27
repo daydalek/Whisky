@@ -19,6 +19,7 @@
 import Foundation
 import WhiskyBridgeProtocol
 import WhiskyCore
+import WhiskyMetadata
 #if os(macOS)
 import Darwin
 #elseif os(Linux)
@@ -167,6 +168,8 @@ public struct EntryRecord: Codable, Sendable {
     /// these below the games they launch (`LibraryEntry.isLauncher`).
     public let isLauncher: Bool
     public let metadata: GameMetadata?
+    /// Cached portraits, keyed by provider character ID. Remote URLs stay in metadata.
+    public let characterImages: [String: String]?
     public let activity: GameActivity
     public let cover: String?
     public let coverAspectRatio: Double?
@@ -199,6 +202,15 @@ public struct EntryRecord: Codable, Sendable {
         hidden = !visibility.includes(entry)
         isLauncher = entry.launcher != nil
         metadata = presentation.metadata
+        let store = GameMetadataStore(directory: entry.metadataDirectory, networkAccess: {})
+        characterImages = Dictionary(
+            (metadata?.characters ?? []).compactMap { character in
+                guard let url = character.imageURL,
+                      let cached = store.cachedCoverURL(for: url) else { return nil }
+                return (character.id, cached.path)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         activity = presentation.activity
         cover = presentation.coverURL?.path
         coverAspectRatio = presentation.coverAspectRatio

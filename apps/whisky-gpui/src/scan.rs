@@ -173,6 +173,7 @@ mod tests {
             hidden: false,
             is_launcher: false,
             metadata: None,
+            character_images: Default::default(),
             activity: Default::default(),
             cover: None,
             cover_aspect_ratio: None,

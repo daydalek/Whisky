@@ -111,7 +111,9 @@ private let pngPixel = Data(base64Encoded:
     )
 
     var params = fixture.params
-    params["metadata"] = try .encoded(metadata)
+    var snapshot = try #require(try JSONValue.encoded(metadata).object)
+    snapshot["includeCharacters"] = .bool(false)
+    params["metadata"] = .object(snapshot)
     _ = try await service.metadataCall(
         "metadata.apply",
         params: params,

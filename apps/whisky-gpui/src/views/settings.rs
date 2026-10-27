@@ -267,6 +267,7 @@ impl WhiskyApp {
                             cx,
                         ),
                         self.toggle("single-title", "单行显示标题", "", cx),
+                        self.toggle("scrape-characters", "默认获取人物资料", "从支持的数据源获取人物、声优与头像。", cx),
                         self.toggle(
                             "center-cover-text",
                             "宽封面文字居中",

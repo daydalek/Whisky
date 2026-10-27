@@ -23,6 +23,7 @@ import WhiskyCore
 import FoundationNetworking
 #endif
 
+// swiftlint:disable type_body_length
 /// Direct public APIs, including the documented YMGal public OAuth client.
 public struct PublicGameMetadataProvider: GameMetadataProvider {
     public let source: GameMetadataSource
@@ -65,29 +66,18 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
 
     /// Steam's search endpoint only returns identity and thumbnails. Fetch the
     /// selected item's details, rather than issuing ten extra requests per search.
-    public func details(for candidate: GameMetadata, includeCharacters: Bool = true) async throws -> GameMetadata {
+    public func details(for candidate: GameMetadata, includeCharacters: Bool = false) async throws -> GameMetadata {
         try await networkAccess()
         guard candidate.source == source else { throw URLError(.badURL) }
         if source == .ymgal {
             return try await ymgalClient.details(candidate, networkAccess: networkAccess)
         }
-        if source == .vndb {
-            return try await gatekeeper.details("vndb-details:\(candidate.sourceID):\(includeCharacters)") {
-                var game = candidate
-                if includeCharacters, game.characters == nil || game.characters?.isEmpty == true {
-                    game.characters = try await fetchVNDBCharacters(for: candidate.sourceID)
-                }
-                return game
+        if source == .vndb || source == .bangumi {
+            var game = candidate
+            if includeCharacters, game.characters == nil {
+                game.characters = try await fetchCharacters(for: candidate)
             }
-        }
-        if source == .bangumi {
-            return try await gatekeeper.details("bgm-details:\(candidate.sourceID):\(includeCharacters)") {
-                var game = candidate
-                if includeCharacters, game.characters == nil || game.characters?.isEmpty == true {
-                    game.characters = try await fetchBangumiCharacters(for: candidate.sourceID)
-                }
-                return game
-            }
+            return game
         }
         guard source == .steam else { return candidate }
         guard Int(candidate.sourceID) != nil else { throw URLError(.badURL) }
@@ -117,13 +107,28 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
     public func fetchCharacters(for candidate: GameMetadata) async throws -> [GameCharacter] {
         try await networkAccess()
         guard candidate.source == source else { return [] }
-        switch source {
-        case .vndb:
-            return try await fetchVNDBCharacters(for: candidate.sourceID)
-        case .bangumi:
-            return try await fetchBangumiCharacters(for: candidate.sourceID)
-        case .ymgal, .steam, .hikarinagi:
-            return []
+        guard source == .vndb || source == .bangumi else { return [] }
+        let sourceID = candidate.sourceID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return try await gatekeeper.characters(sourceID) {
+            try await fetchCharactersWithRetry {
+                switch source {
+                case .vndb: return try await fetchVNDBCharacters(for: sourceID)
+                case .bangumi: return try await fetchBangumiCharacters(for: sourceID)
+                case .ymgal, .steam, .hikarinagi: return []
+                }
+            }
+        }
+    }
+
+    private func fetchCharactersWithRetry(
+        _ operation: () async throws -> [GameCharacter]
+    ) async throws -> [GameCharacter] {
+        do {
+            return try await operation()
+        } catch let error as URLError where error.code == .timedOut {
+            try Task.checkCancellation()
+            try await Task.sleep(for: .seconds(1))
+            return try await operation()
         }
     }
 
@@ -133,9 +138,9 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
     }
 
     private func request<T: Decodable>(
-        _ url: URL, body: Data? = nil, as type: T.Type
+        _ url: URL, body: Data? = nil, timeout: TimeInterval = 20, as type: T.Type
     ) async throws -> T {
-        var request = URLRequest(url: url, timeoutInterval: 20)
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.setValue("Whisky/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
@@ -259,19 +264,21 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
         }
     }
 
+    // swiftlint:disable:next function_body_length
     private func fetchVNDBCharacters(for sourceID: String) async throws -> [GameCharacter] {
         let cleanID = sourceID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let body = try JSONSerialization.data(withJSONObject: [
             "filters": ["id", "=", cleanID],
-            "fields": "id, title, va{note, character{id, name, original, description, image.url}, staff{id, name, original}}"
+            "fields": "id, title, va{note, character{id, name, original, description, image.url}, "
+                + "staff{id, name, original}}"
         ])
         guard let vndbURL = URL(string: "https://api.vndb.org/kana/vn") else { throw URLError(.badURL) }
-        let result = try await request(vndbURL, body: body, as: VNDBNovelVAPage.self)
+        let result = try await request(vndbURL, body: body, timeout: 45, as: VNDBNovelVAPage.self)
 
         var characters: [GameCharacter] = []
         var seenIDs = Set<String>()
 
-        if let novel = result.results.first, let vaList = novel.va, !vaList.isEmpty {
+        if let novel = result.results.first, let vaList = novel.voiceActors, !vaList.isEmpty {
             for item in vaList {
                 guard let char = item.character else { continue }
                 if seenIDs.contains(char.id) {
@@ -279,16 +286,16 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
                 }
                 seenIDs.insert(char.id)
 
-                let primaryName = (char.original?.isEmpty == false) ? char.original! : char.name
+                let primaryName = char.original.flatMap { $0.isEmpty ? nil : $0 } ?? char.name
                 let subName = (char.original?.isEmpty == false && char.name != char.original) ? char.name : nil
-                let cv = item.staff.flatMap { ($0.original?.isEmpty == false) ? $0.original : $0.name }
+                let voiceActor = item.staff.flatMap { ($0.original?.isEmpty == false) ? $0.original : $0.name }
 
                 characters.append(GameCharacter(
                     id: char.id,
                     name: primaryName,
                     originalName: subName,
                     imageURL: char.image?.url,
-                    voiceActor: cv,
+                    voiceActor: voiceActor,
                     summary: Self.cleanBBCode(char.description),
                     role: item.note
                 ))
@@ -301,24 +308,23 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
                 "fields": "id, name, original, description, image.url"
             ])
             guard let charURL = URL(string: "https://api.vndb.org/kana/character") else { return [] }
-            if let charResult = try? await request(charURL, body: charBody, as: VNDBCharacterResponse.self) {
-                for char in charResult.results {
-                    if seenIDs.contains(char.id) {
-                        continue
-                    }
-                    seenIDs.insert(char.id)
-                    let primaryName = (char.original?.isEmpty == false) ? char.original! : char.name
-                    let subName = (char.original?.isEmpty == false && char.name != char.original) ? char.name : nil
-                    characters.append(GameCharacter(
-                        id: char.id,
-                        name: primaryName,
-                        originalName: subName,
-                        imageURL: char.image?.url,
-                        voiceActor: nil,
-                        summary: Self.cleanBBCode(char.description),
-                        role: nil
-                    ))
+            let charResult = try await request(charURL, body: charBody, timeout: 45, as: VNDBCharacterResponse.self)
+            for char in charResult.results {
+                if seenIDs.contains(char.id) {
+                    continue
                 }
+                seenIDs.insert(char.id)
+                let primaryName = char.original.flatMap { $0.isEmpty ? nil : $0 } ?? char.name
+                let subName = (char.original?.isEmpty == false && char.name != char.original) ? char.name : nil
+                characters.append(GameCharacter(
+                    id: char.id,
+                    name: primaryName,
+                    originalName: subName,
+                    imageURL: char.image?.url,
+                    voiceActor: nil,
+                    summary: Self.cleanBBCode(char.description),
+                    role: nil
+                ))
             }
         }
         return characters
@@ -327,11 +333,11 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
     private func fetchBangumiCharacters(for sourceID: String) async throws -> [GameCharacter] {
         let cleanID = sourceID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: "https://api.bgm.tv/v0/subjects/\(cleanID)/characters") else { return [] }
-        let list = try await request(url, as: [BangumiCharacter].self)
+        let list = try await request(url, timeout: 45, as: [BangumiCharacter].self)
         return list.map { char in
-            let cv = char.actors?.compactMap { actor -> String? in
-                let n = actor.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                return n.isEmpty ? nil : n
+            let voiceActor = char.actors?.compactMap { actor -> String? in
+                let name = actor.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                return name.isEmpty ? nil : name
             }.joined(separator: ", ")
 
             return GameCharacter(
@@ -339,7 +345,7 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
                 name: char.name,
                 originalName: nil,
                 imageURL: char.images?.large ?? char.images?.medium ?? char.images?.common ?? char.images?.grid,
-                voiceActor: (cv?.isEmpty == false) ? cv : nil,
+                voiceActor: (voiceActor?.isEmpty == false) ? voiceActor : nil,
                 summary: char.summary?.trimmingCharacters(in: .whitespacesAndNewlines),
                 role: char.relation
             )
@@ -374,7 +380,8 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
     }
 }
 
-private enum ProviderError: LocalizedError {
+// swiftlint:enable type_body_length
+enum ProviderError: LocalizedError {
     case http(Int)
     case rateLimited(Int, retryAfter: TimeInterval?)
     case directAPIUnavailable
@@ -466,7 +473,12 @@ private struct VNDBStaff: Decodable {
 private struct VNDBNovelVA: Decodable {
     let id: String
     let title: String?
-    let va: [VNDBVoiceActorItem]?
+    let voiceActors: [VNDBVoiceActorItem]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title
+        case voiceActors = "va"
+    }
 }
 
 private struct VNDBNovelVAPage: Decodable {
@@ -548,6 +560,8 @@ public actor SourceGatekeeper {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var searches: [String: (Date, [GameMetadata])] = [:]
     private var gameDetails: [String: (Date, GameMetadata)] = [:]
+    private var characterResults: [String: (Date, [GameCharacter])] = [:]
+    private var characterFailures: [String: (Date, any Error)] = [:]
     private var lastRequestAt: Date?
     private var cooldownUntil: (date: Date, code: Int)?
 
@@ -637,6 +651,51 @@ public actor SourceGatekeeper {
         } catch let ProviderError.rateLimited(code, retryAfter) {
             recordRateLimit(code, retryAfter: retryAfter)
             throw ProviderError.http(code)
+        }
+    }
+
+    /// A serialized, paced operation whose result belongs to the caller's local store.
+    public func paced(operation: @Sendable () async throws -> Void) async throws {
+        try await acquire()
+        defer { release() }
+        try await paceAndCheckCooldown()
+        defer { lastRequestAt = Date() }
+        do {
+            try await operation()
+        } catch let ProviderError.rateLimited(code, retryAfter) {
+            recordRateLimit(code, retryAfter: retryAfter)
+            throw ProviderError.http(code)
+        }
+    }
+
+    /// Coalesce concurrent requests, including empty casts, and damp repeated failed refreshes.
+    public func characters(
+        _ id: String,
+        operation: @Sendable () async throws -> [GameCharacter]
+    ) async throws -> [GameCharacter] {
+        try await acquire()
+        defer { release() }
+        if let cached = characterResults[id], Date().timeIntervalSince(cached.0) < 600 {
+            return cached.1
+        }
+        if let failed = characterFailures[id], Date().timeIntervalSince(failed.0) < 30 {
+            throw failed.1
+        }
+        try await paceAndCheckCooldown()
+        defer { lastRequestAt = Date() }
+        do {
+            let result = try await operation()
+            Self.insertCache(result, forKey: id, into: &characterResults, ttl: 600, limit: 100)
+            characterFailures[id] = nil
+            return result
+        } catch let ProviderError.rateLimited(code, retryAfter) {
+            recordRateLimit(code, retryAfter: retryAfter)
+            throw ProviderError.http(code)
+        } catch {
+            if !Task.isCancelled {
+                Self.insertCache(error, forKey: id, into: &characterFailures, ttl: 30, limit: 100)
+            }
+            throw error
         }
     }
 

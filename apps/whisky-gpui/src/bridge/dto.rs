@@ -730,6 +730,8 @@ pub(crate) struct EntryDto {
     #[serde(default)]
     pub(crate) metadata: Option<MetadataDto>,
     #[serde(default)]
+    pub(crate) character_images: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
     pub(crate) activity: ActivityDto,
     /// Resolved on-disk artwork (custom cover or cached remote cover).
     #[serde(default)]
@@ -742,7 +744,7 @@ pub(crate) struct EntryDto {
 pub(crate) type EntryList = Vec<EntryDto>;
 
 /// The subset of `GameMetadata` the library surfaces read.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MetadataDto {
     #[serde(default)]
@@ -754,6 +756,55 @@ pub(crate) struct MetadataDto {
     /// `YYYY-MM-DD`; the Swift type keeps it as a string.
     #[serde(default)]
     pub(crate) release_date: Option<String>,
+    #[serde(default)]
+    pub(crate) characters: Option<Vec<CharacterDto>>,
+    #[serde(flatten)]
+    pub(crate) extra: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CharacterDto {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) original_name: Option<String>,
+    #[serde(rename = "imageURL")]
+    pub(crate) image_url: Option<String>,
+    pub(crate) voice_actor: Option<String>,
+    pub(crate) summary: Option<String>,
+    pub(crate) role: Option<String>,
+}
+
+#[cfg(test)]
+mod character_tests {
+    use super::*;
+
+    #[test]
+    fn metadata_round_trip_preserves_identity_and_remote_portraits() {
+        let raw = serde_json::json!({
+            "source": "vndb", "sourceID": "v17", "title": "作品", "fetchedAt": 1000,
+            "alternateTitles": ["Other title"],
+            "characters": [{
+                "id": "c1", "name": "人物", "imageURL": "https://example.com/c1.jpg",
+                "voiceActor": "声优", "summary": "简介"
+            }]
+        });
+        let metadata: MetadataDto = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(metadata.characters.as_ref().unwrap()[0].voice_actor.as_deref(), Some("声优"));
+        let encoded = serde_json::to_value(metadata).unwrap();
+        for key in ["source", "sourceID", "fetchedAt", "alternateTitles"] {
+            assert_eq!(encoded[key], raw[key]);
+        }
+        assert_eq!(encoded["characters"][0]["imageURL"], raw["characters"][0]["imageURL"]);
+    }
+
+    #[test]
+    fn empty_characters_are_distinct_from_not_fetched() {
+        let unfetched: MetadataDto = serde_json::from_str("{}").unwrap();
+        let empty: MetadataDto = serde_json::from_str(r#"{"characters":[]}"#).unwrap();
+        assert!(unfetched.characters.is_none());
+        assert!(empty.characters.unwrap().is_empty());
+    }
 }
 
 /// `GameActivity`; dates arrive as Unix seconds (`dateEncodingStrategy`).
@@ -841,6 +892,8 @@ impl EntryDto {
             None
         };
         Game {
+            metadata: Some(metadata.clone()),
+            character_images: self.character_images,
             id: self.id,
             art,
             title,
@@ -1278,6 +1331,7 @@ mod tests {
             hidden: false,
             is_launcher: false,
             metadata: None,
+            character_images: Default::default(),
             activity: ActivityDto::default(),
             cover: Some(cover.into()),
             cover_aspect_ratio: None,

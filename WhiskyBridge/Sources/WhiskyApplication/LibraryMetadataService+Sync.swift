@@ -83,7 +83,8 @@ extension LibraryMetadataService {
                     candidateEntry,
                     providers: providers,
                     store: candidateStore,
-                    visibility: visibility
+                    visibility: visibility,
+                    includeCharacters: params["includeCharacters"]?.bool ?? true
                 )
                 matched += outcome.matched
                 failed += outcome.failed
@@ -127,7 +128,7 @@ extension LibraryMetadataService {
 
     private func match(
         _ entry: LibraryEntry, providers: [PublicGameMetadataProvider], store: GameMetadataStore,
-        visibility: LibraryVisibility?
+        visibility: LibraryVisibility?, includeCharacters: Bool
     ) async -> MatchResult {
         let outcome = await GameMetadataSearch.automaticMatch(
             FolderGameMatching.query(entry.name),
@@ -142,8 +143,9 @@ extension LibraryMetadataService {
         do {
             let details = try await PublicGameMetadataProvider(
                 source: candidate.source, session: session, networkAccess: networkAccess
-            ).details(for: candidate).usingLibraryTitle(entry.name)
+            ).details(for: candidate, includeCharacters: includeCharacters).usingLibraryTitle(entry.name)
             try await store.saveAutomatic(details, for: entry.metadataIdentity)
+            await cacheCharacterImages(details, store: store)
             if let cover = details.coverURL {
                 try? await store.cacheCover(from: cover, session: session)
             }

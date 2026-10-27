@@ -94,6 +94,8 @@ struct LibraryGameSheet: View {
     @AppStorage("libraryMetadataScrapeCharacters") var scrapeCharacters = true
     @State var selectedCharacter: GameCharacter?
     @State var fetchingCharacters = false
+    @State var characterFetchRevision = 0
+    @State var characterError: String?
     @State var searching = false
     @State var saving = false
     @State var searchTask: Task<Void, Never>?
@@ -134,6 +136,15 @@ struct LibraryGameSheet: View {
             }
             .padding(20)
 
+            if let characterError {
+                Text(characterError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 8)
+            }
+
             if let error {
                 Text(error)
                     .font(.caption)
@@ -159,11 +170,15 @@ struct LibraryGameSheet: View {
                 coverSettings = try await store.loadCoverSettings(for: item.metadataIdentity)
                 activity = try await GameActivityStore.shared.perform { [item] in try $0.load(for: item) }
                 if scrapeCharacters, let current = metadata, current.characters == nil {
-                    Task { await fetchCharactersForCurrentGame() }
+                    characterFetchRevision += 1
                 }
             } catch {
                 self.error = error.localizedDescription
             }
+        }
+        .task(id: "characters:\(item.id):\(characterFetchRevision)") {
+            guard characterFetchRevision > 0 else { return }
+            await fetchCharactersForCurrentGame()
         }
         .task(id: "activity:\(item.id)") {
             while !Task.isCancelled {
@@ -862,19 +877,27 @@ extension LibraryGameSheet {
     func fetchCharactersForCurrentGame() async {
         guard let current = metadata, !fetchingCharacters else { return }
         fetchingCharacters = true
+        characterError = nil
         defer { fetchingCharacters = false }
         do {
             let provider = PublicGameMetadataProvider(source: current.source)
             let chars = try await provider.fetchCharacters(for: current)
-            if !chars.isEmpty {
-                var updated = current
-                updated.characters = chars
-                metadata = updated
-                try await store.save(updated, for: item.metadataIdentity)
-                didSave()
+            try Task.checkCancellation()
+            guard var updated = metadata,
+                  updated.source == current.source, updated.sourceID == current.sourceID else { return }
+            updated.characters = chars
+            try await store.save(updated, for: item.metadataIdentity)
+            metadata = updated
+            if let selected = selectedCharacter,
+               let refreshed = chars.first(where: { $0.id == selected.id }) {
+                selectedCharacter = refreshed
             }
+            didSave()
+        } catch is CancellationError {
+            return
         } catch {
-            self.error = error.localizedDescription
+            guard !Task.isCancelled else { return }
+            characterError = error.localizedDescription
         }
     }
 
@@ -2063,7 +2086,7 @@ extension LibraryTimelineRow {
 extension LibraryGameSheet {
     @ViewBuilder
     var charactersSection: some View {
-        if let characters = metadata?.characters, !characters.isEmpty {
+        if let characters = metadata?.charactersInDisplayOrder, !characters.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .center, spacing: 8) {
                     Label("library.detail.characters", systemImage: "person.2.fill")
@@ -2083,7 +2106,7 @@ extension LibraryGameSheet {
                             .controlSize(.small)
                     } else {
                         Button {
-                            Task { await fetchCharactersForCurrentGame() }
+                            characterFetchRevision += 1
                         } label: {
                             Image(systemName: "arrow.clockwise")
                                 .font(.caption)
@@ -2120,7 +2143,7 @@ extension LibraryGameSheet {
                             .controlSize(.small)
                     } else {
                         Button("library.detail.fetchCharacters") {
-                            Task { await fetchCharactersForCurrentGame() }
+                            characterFetchRevision += 1
                         }
                         .controlSize(.small)
                     }
@@ -2130,6 +2153,7 @@ extension LibraryGameSheet {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     func characterExpandedLayout(_ character: GameCharacter) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -2147,7 +2171,7 @@ extension LibraryGameSheet {
                                     case let .success(image):
                                         image
                                             .resizable()
-                                            .aspectRatio(contentMode: .fit)
+                                            .scaledToFit()
                                     case .failure:
                                         Rectangle()
                                             .fill(.quaternary)
@@ -2178,12 +2202,12 @@ extension LibraryGameSheet {
                         )
                         .shadow(color: .black.opacity(0.35), radius: 10, x: 0, y: 5)
 
-                        if let cv = character.voiceActor, !cv.isEmpty {
+                        if let voiceActor = character.voiceActor, !voiceActor.isEmpty {
                             VStack(alignment: .leading, spacing: 4) {
                                 Label("library.detail.voiceActor", systemImage: "mic.fill")
                                     .font(.caption.bold())
                                     .foregroundStyle(.secondary)
-                                Text(cv)
+                                Text(voiceActor)
                                     .font(.subheadline.bold())
                                     .foregroundStyle(.primary)
                                     .textSelection(.enabled)
@@ -2255,7 +2279,7 @@ extension LibraryGameSheet {
                 .modifier(LibraryDetailReadingPanel(enabled: usesDetailBackground))
 
                 // Bottom strip of other characters in the game
-                if let allCharacters = metadata?.characters, allCharacters.count > 1 {
+                if let allCharacters = metadata?.charactersInDisplayOrder, allCharacters.count > 1 {
                     VStack(alignment: .leading, spacing: 10) {
                         Label("library.detail.otherCharacters", systemImage: "person.2")
                             .font(.subheadline.bold())
@@ -2272,8 +2296,8 @@ extension LibraryGameSheet {
                                         HStack(spacing: 8) {
                                             if let img = other.imageURL {
                                                 AsyncImage(url: img) { phase in
-                                                    if let im = phase.image {
-                                                        im.resizable().aspectRatio(contentMode: .fill)
+                                                    if let image = phase.image {
+                                                        image.resizable().scaledToFill()
                                                     } else {
                                                         Rectangle().fill(.quaternary)
                                                     }
@@ -2333,7 +2357,7 @@ private struct CharacterCardView: View {
                             case let .success(image):
                                 image
                                     .resizable()
-                                    .aspectRatio(contentMode: .fill)
+                                    .scaledToFill()
                             case .failure:
                                 Rectangle()
                                     .fill(.quaternary)
@@ -2384,11 +2408,11 @@ private struct CharacterCardView: View {
                         }
                     }
 
-                    if let cv = character.voiceActor, !cv.isEmpty {
+                    if let voiceActor = character.voiceActor, !voiceActor.isEmpty {
                         HStack(spacing: 4) {
                             Image(systemName: "mic.fill")
                                 .font(.system(size: 8))
-                            Text(cv)
+                            Text(voiceActor)
                                 .font(.system(size: 10, weight: .medium))
                                 .lineLimit(1)
                         }

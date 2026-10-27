@@ -31,6 +31,7 @@ public final class LibraryMetadataService {
         "metadata.cover.import", "metadata.cover.reset"
     ]
     private static let searchThumbnailLimit = 8
+    private let portraitGate = SourceGatekeeper(minInterval: 0.25)
     let jobs: BridgeJobStore
     let session: URLSession
     let networkAccess: MetadataNetworkAccess
@@ -43,7 +44,7 @@ public final class LibraryMetadataService {
 
     /// Metadata operations are addressed by library entry, so the bridge reads
     /// the entry first and then uses its bottle-relative identity for storage.
-    /// Network searches run as jobs; local writes answer immediately.
+    /// Network searches and opted-in metadata applications run as jobs.
     public func call(
         _ method: String,
         params: [String: JSONValue],
@@ -57,7 +58,15 @@ public final class LibraryMetadataService {
         switch method {
         case "metadata.search":
             return try search(params: params, store: store)
-        case "metadata.apply": return try await apply(params: params, entry: entry, store: store)
+        case "metadata.apply":
+            if params["background"]?.bool == true {
+                return try jobs.start(name: "metadata.apply") { [self] progress in
+                    progress(.object(["stage": .string("applying")]))
+                    _ = try await apply(params: params, entry: entry, store: store)
+                    return .object(["applied": .bool(true)])
+                }
+            }
+            return try await apply(params: params, entry: entry, store: store)
         case "metadata.clear":
             try await store.remove(for: entry.metadataIdentity)
             return .object(["cleared": .bool(true)])
@@ -80,24 +89,62 @@ public final class LibraryMetadataService {
             throw BridgeFailure("invalid_params", "Missing metadata snapshot")
         }
         var metadata = try value.decoded(GameMetadata.self)
-        if metadata.source == .steam {
-            // Search only returns identity and thumbnails for Steam.
+        let refreshCharacters = value.object?["refreshCharacters"] == .bool(true)
+        if refreshCharacters {
+            guard let current = try await store.load(for: entry.metadataIdentity),
+                  current.id == metadata.id else {
+                throw BridgeFailure("operation_failed", "The linked game has changed")
+            }
+            metadata = current
+            metadata.characters = nil
+        }
+        let includeCharacters = refreshCharacters || value.object?["includeCharacters"] != .bool(false)
+        if refreshCharacters {
+            metadata.characters = try await PublicGameMetadataProvider(
+                source: metadata.source, session: session, networkAccess: networkAccess
+            ).fetchCharacters(for: metadata)
+        } else if metadata.source == .steam || includeCharacters {
             metadata = try await PublicGameMetadataProvider(
-                source: .steam,
+                source: metadata.source,
                 session: session,
                 networkAccess: networkAccess
-            ).details(for: metadata)
+            ).details(for: metadata, includeCharacters: includeCharacters)
+        }
+        if refreshCharacters {
+            guard var current = try await store.load(for: entry.metadataIdentity),
+                  current.id == metadata.id else {
+                throw BridgeFailure("operation_failed", "The linked game has changed")
+            }
+            current.characters = metadata.characters
+            metadata = current
         }
         try await store.save(metadata, for: entry.metadataIdentity)
         if let cover = metadata.coverURL {
             try? await store.cacheCover(from: cover, session: session)
         }
+        await cacheCharacterImages(metadata, store: store)
         return try .object([
             "metadata": .encoded(metadata),
             "cover": .string(
                 metadata.coverURL.flatMap { store.cachedCoverURL(for: $0)?.path } ?? ""
             )
         ])
+    }
+
+    /// Serialize portrait downloads across apply/sync jobs and space cache misses.
+    func cacheCharacterImages(_ metadata: GameMetadata, store: GameMetadataStore) async {
+        let urls = Array(Set((metadata.characters ?? []).compactMap(\.imageURL)))
+        for url in urls {
+            guard !Task.isCancelled else { return }
+            guard store.cachedCoverURL(for: url) == nil else { continue }
+            do {
+                try await portraitGate.paced { [session] in
+                    try await store.cacheCover(from: url, session: session)
+                }
+            } catch {
+                if Task.isCancelled { return }
+            }
+        }
     }
 
     private func importCover(

@@ -143,7 +143,7 @@ struct LibraryView: View {
             .alert(
                 Text(model.launchError == nil ? "library.metadata.error" : "library.launch.failed"),
                 isPresented: Binding(
-                    get: { model.launchError != nil || metadataError != nil },
+                    get: { detailRow == nil && (model.launchError != nil || metadataError != nil) },
                     set: {
                         if !$0 {
                             model.launchError = nil
@@ -647,7 +647,12 @@ struct LibraryView: View {
                         }
                         if let candidate = outcome.candidate {
                             let details = try await PublicGameMetadataProvider(source: candidate.source)
-                                .details(for: candidate).usingLibraryTitle(row.item.name)
+                                .details(
+                                    for: candidate,
+                                    includeCharacters: UserDefaults.standard.object(
+                                        forKey: "libraryMetadataScrapeCharacters"
+                                    ) as? Bool ?? true
+                                ).usingLibraryTitle(row.item.name)
                             try Task.checkCancellation()
                             try await store.saveAutomatic(details, for: row.item.metadataIdentity)
                             loaded[row.id] = try await store.load(for: row.item.metadataIdentity)

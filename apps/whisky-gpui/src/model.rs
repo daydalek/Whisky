@@ -8,6 +8,8 @@ use std::sync::OnceLock;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Game {
+    pub(crate) metadata: Option<crate::bridge::dto::MetadataDto>,
+    pub(crate) character_images: std::collections::BTreeMap<String, String>,
     /// Bridge entry identity (`steam:…` or `pinned:…`); `demo:N` for the demo.
     pub(crate) id: String,
     /// Existing artwork file, or `None` to use the placeholder treatment.
@@ -52,6 +54,8 @@ pub(crate) struct Game {
 impl Game {
     fn from_demo(index: usize, demo: &DemoGame) -> Self {
         Self {
+            metadata: None,
+            character_images: Default::default(),
             id: format!("demo:{index}"),
             art: Some(art(index)),
             title: demo.title.to_owned(),

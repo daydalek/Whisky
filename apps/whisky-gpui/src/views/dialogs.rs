@@ -2127,6 +2127,49 @@ impl WhiskyApp {
         let groups = page.groups.clone();
         let matches = page.matches.clone();
         let config_message = page.config_message.clone();
+        let metadata = self.entries.iter()
+            .find(|game| game.container == page.container && game.id == page.entry_id)
+            .and_then(|game| game.metadata.clone());
+        let character_images = self.entries.iter()
+            .find(|game| game.container == page.container && game.id == page.entry_id)
+            .map(|game| game.character_images.clone()).unwrap_or_default();
+        let selected_character = page.selected_character.clone();
+        let mut character_rows = vec![];
+        if let Some(metadata) = metadata.filter(|metadata| metadata.characters.is_some()
+            || matches!(metadata.extra.get("source").and_then(|value| value.as_str()), Some("vndb" | "bangumi"))) {
+            let fetched = metadata.characters.is_some();
+            let characters = metadata.characters.unwrap_or_default();
+            character_rows.push(
+                row().gap(px(8.))
+                    .child(muted(format!("{} 位人物", characters.len())))
+                    .child(Button::new("characters-refresh")
+                        .label(if applying { "获取中…" } else { "获取 / 刷新人物" })
+                        .disabled(applying || self.offline())
+                        .on_click(cx.listener(|this, _, _, cx| this.refresh_game_characters(cx))))
+                    .into_any_element()
+            );
+            if characters.is_empty() && !applying {
+                character_rows.push(muted(if fetched { "该数据源暂无人物资料，可手动刷新。" } else { "尚未获取人物资料。" }).into_any_element());
+            }
+            if let Some(character) = characters.iter().find(|character| Some(&character.id) == selected_character.as_ref()) {
+                let mut details = col().gap(px(12.))
+                    .child(Button::new("character-back").label("返回游戏")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(page) = this.game_info.as_mut() { page.selected_character = None; }
+                            cx.notify();
+                        })))
+                    .child(div().text_size(px(22.)).font_weight(FontWeight::BOLD).child(character.name.clone()));
+                if let Some(path) = character_images.get(&character.id) {
+                    details = details.child(img(std::path::PathBuf::from(path)).w(px(200.)).h(px(270.)).object_fit(ObjectFit::Contain));
+                }
+                for text in [&character.original_name, &character.role, &character.voice_actor].into_iter().flatten() {
+                    details = details.child(muted(text.clone()));
+                }
+                details = details.child(div().child(character.summary.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "暂无该角色的详细简介。".into())));
+                character_rows.push(details.into_any_element());
+            }
+            character_rows.push(self.character_cards(&characters, &character_images, None, cx));
+        }
         let input = self.game_info_input(window, cx);
 
         let search_row = row()
@@ -2400,6 +2443,7 @@ impl WhiskyApp {
             "game-info-scroll",
             vec![
                 self.section("game-metadata", "在线元数据", metadata_rows, cx),
+                self.section("game-characters", "登场人物", character_rows, cx),
                 self.section("game-cover", "封面", cover_rows, cx),
                 self.section("game-gamedb", if self.service_available("gameConfig.apply") { "GameDB 推荐配置" } else { "GameDB 配置参考" }, config_rows, cx),
             ],

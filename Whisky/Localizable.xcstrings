@@ -10,6 +10,12 @@
           "value": "Scrape character data by default"
         }
       },
+      "en-GB": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Scrape character data by default"
+        }
+      },
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
@@ -28,6 +34,12 @@
     "extractionState": "manual",
     "localizations": {
       "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Fetch character profiles, voice actors, and artwork from supported sources."
+        }
+      },
+      "en-GB": {
         "stringUnit": {
           "state": "translated",
           "value": "Fetch character profiles, voice actors, and artwork from supported sources."
@@ -56,6 +68,12 @@
           "value": "Characters"
         }
       },
+      "en-GB": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Characters"
+        }
+      },
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
@@ -74,6 +92,12 @@
     "extractionState": "manual",
     "localizations": {
       "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Fetch Characters"
+        }
+      },
+      "en-GB": {
         "stringUnit": {
           "state": "translated",
           "value": "Fetch Characters"
@@ -102,6 +126,12 @@
           "value": "Refresh Characters"
         }
       },
+      "en-GB": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Refresh Characters"
+        }
+      },
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
@@ -120,6 +150,12 @@
     "extractionState": "manual",
     "localizations": {
       "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Voice Actor"
+        }
+      },
+      "en-GB": {
         "stringUnit": {
           "state": "translated",
           "value": "Voice Actor"
@@ -148,6 +184,12 @@
           "value": "Back to Game Details"
         }
       },
+      "en-GB": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Back to Game Details"
+        }
+      },
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
@@ -166,6 +208,12 @@
     "extractionState": "manual",
     "localizations": {
       "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Character Profile"
+        }
+      },
+      "en-GB": {
         "stringUnit": {
           "state": "translated",
           "value": "Character Profile"
@@ -194,6 +242,12 @@
           "value": "No profile available for this character."
         }
       },
+      "en-GB": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "No profile available for this character."
+        }
+      },
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
@@ -212,6 +266,12 @@
     "extractionState": "manual",
     "localizations": {
       "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Other Characters"
+        }
+      },
+      "en-GB": {
         "stringUnit": {
           "state": "translated",
           "value": "Other Characters"

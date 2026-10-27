@@ -125,6 +125,12 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
         ([title, originalTitle] + (alternateTitles ?? [])).filter { !$0.isEmpty }
     }
 
+    /// Keep source order within each group while showing characters with artwork first.
+    public var charactersInDisplayOrder: [GameCharacter] {
+        let characters = characters ?? []
+        return characters.filter { $0.imageURL != nil } + characters.filter { $0.imageURL == nil }
+    }
+
     /// Keep a useful local Chinese display name when VNDB only supplies another
     /// language. All remote names remain available for matching and provenance.
     public func usingLibraryTitle(_ localName: String) -> GameMetadata {

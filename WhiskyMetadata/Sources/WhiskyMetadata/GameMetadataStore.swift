@@ -135,6 +135,12 @@ public actor GameMetadataStore {
         var request = URLRequest(url: url, timeoutInterval: 20)
         request.setValue("Whisky/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode == 429 || http.statusCode == 503 {
+            throw ProviderError.rateLimited(
+                http.statusCode,
+                retryAfter: PublicGameMetadataProvider.parseRetryAfter(http.value(forHTTPHeaderField: "Retry-After"))
+            )
+        }
         guard let http = response as? HTTPURLResponse,
               (200 ..< 300).contains(http.statusCode),
               response.mimeType?.hasPrefix("image/") == true,

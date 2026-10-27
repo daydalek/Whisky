@@ -19,6 +19,41 @@ use crate::runtime::{RuntimeAction, RuntimeState};
 use crate::state::{DEMO_NOTICE, PreviewPage, WhiskyApp};
 use crate::theme::*;
 
+fn characters_in_display_order<'a>(
+    characters: &'a [crate::bridge::dto::CharacterDto],
+    images: &std::collections::BTreeMap<String, String>,
+) -> Vec<&'a crate::bridge::dto::CharacterDto> {
+    let mut ordered: Vec<_> = characters.iter().collect();
+    ordered.sort_by_key(|character| !images.contains_key(&character.id));
+    ordered
+}
+
+#[cfg(test)]
+mod character_order_tests {
+    use super::characters_in_display_order;
+    use crate::bridge::dto::CharacterDto;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn cached_portraits_come_first_and_each_group_keeps_its_order() {
+        let characters: Vec<CharacterDto> = ["missing", "first", "failed", "second"]
+            .into_iter()
+            .map(|id| CharacterDto {
+                id: id.into(),
+                image_url: Some("https://example.com/portrait.png".into()),
+                ..Default::default()
+            })
+            .collect();
+        let images = BTreeMap::from([
+            ("first".into(), "/cache/first.png".into()),
+            ("second".into(), "/cache/second.png".into()),
+        ]);
+        let ordered = characters_in_display_order(&characters, &images);
+        assert_eq!(ordered.iter().map(|character| character.id.as_str()).collect::<Vec<_>>(),
+            ["first", "second", "missing", "failed"]);
+    }
+}
+
 /// One sidebar row. Kept next to the sidebar so the Library and bottle entries
 /// cannot drift apart visually.
 fn sidebar_row(
@@ -1257,11 +1292,86 @@ impl WhiskyApp {
                                                         .child(description),
                                                 ),
                                         )
-                                    }),
+                                    })
+                                    .child(self.detail_character_cards(index, cx)),
                             ),
                         ),
                     ),
             )
             .into_any_element()
+    }
+
+    fn detail_character_cards(&self, index: usize, cx: &Context<Self>) -> AnyElement {
+        let Some(game) = self.game(index) else { return div().into_any_element() };
+        let Some(characters) = game.metadata.as_ref().and_then(|metadata| metadata.characters.as_ref())
+            .filter(|characters| !characters.is_empty()) else { return div().into_any_element() };
+        col().gap(px(12.)).p(px(20.)).rounded(px(12.)).bg(rgba(0xffffff09))
+            .child(div().font_weight(FontWeight::SEMIBOLD).child(format!("登场人物 · {}", characters.len())))
+            .child(self.character_cards(characters, &game.character_images, Some(index), cx))
+            .into_any_element()
+    }
+
+    pub(crate) fn character_cards(
+        &self,
+        characters: &[crate::bridge::dto::CharacterDto],
+        images: &std::collections::BTreeMap<String, String>,
+        open_game: Option<usize>,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let mut cards = row()
+            .id("detail-character-cards")
+            .items_start()
+            .gap(px(14.))
+            .overflow_x_scroll();
+        // Match the portrait lookup below and retain provider order within each group.
+        for character in characters_in_display_order(characters, images) {
+            let id = character.id.clone();
+            let mut card = col().id(format!("detail-character:{}", character.id))
+                .w(px(170.)).h(px(310.)).flex_shrink_0().gap(px(6.)).p(px(10.))
+                .overflow_hidden()
+                .rounded(px(12.)).bg(rgba(0xffffff08)).cursor_pointer()
+                .hover(|style| style.bg(rgba(0xffffff18)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(index) = open_game { this.open_game_info(index, cx); }
+                    if let Some(page) = this.game_info.as_mut() { page.selected_character = Some(id.clone()); }
+                    cx.notify();
+                }));
+            if let Some(path) = images.get(&character.id) {
+                // Size portraits by width and clip below the viewport, rather
+                // than center-cropping tall artwork through the character's face.
+                card = card.child(
+                    col().w_full().h(px(135.)).flex_shrink_0().overflow_hidden()
+                        .child(img(std::path::PathBuf::from(path))
+                            .w(px(150.)).min_h(px(135.)).flex_shrink_0()
+                            .object_fit(ObjectFit::Cover)),
+                );
+            } else {
+                card = card.child(
+                    col().w_full().h(px(135.)).flex_shrink_0()
+                        .items_center().justify_center()
+                        .rounded(px(6.)).bg(rgba(0xffffff08))
+                        .child(muted("暂无头像")),
+                );
+            }
+            card = card
+                .child(div().h(px(20.)).flex_shrink_0()
+                    .font_weight(FontWeight::SEMIBOLD).truncate().child(character.name.clone()))
+                .child(muted(character.original_name.clone().unwrap_or_default())
+                    .h(px(18.)).flex_shrink_0().truncate())
+                .child(muted(character.role.clone().unwrap_or_default())
+                    .h(px(18.)).flex_shrink_0().truncate())
+                .child(muted(character.voice_actor.as_ref()
+                    .map(|actor| format!("CV：{actor}")).unwrap_or_default())
+                    .h(px(18.)).flex_shrink_0().truncate());
+            if let Some(summary) = &character.summary {
+                card = card.child(
+                    muted(summary.split_whitespace().collect::<Vec<_>>().join(" "))
+                        .text_size(px(11.)).line_height(px(16.))
+                        .h(px(48.)).flex_shrink_0().overflow_hidden().line_clamp(3),
+                );
+            }
+            cards = cards.child(card);
+        }
+        cards.into_any_element()
     }
 }

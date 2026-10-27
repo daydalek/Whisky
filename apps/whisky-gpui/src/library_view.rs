@@ -241,6 +241,8 @@ mod tests {
         container: &str,
     ) -> Game {
         Game {
+            metadata: None,
+            character_images: Default::default(),
             id: id.into(),
             art: Some(std::path::PathBuf::from(format!("/covers/{title}.jpg"))),
             title: title.into(),

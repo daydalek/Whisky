@@ -204,6 +204,7 @@ pub(crate) const METADATA_SOURCES: [(&str, &str, &str); 4] = [
 /// The Game Info sheet: metadata search, cover choice and GameDB matches for
 /// one library card.
 pub(crate) struct GameInfoPage {
+    pub(crate) selected_character: Option<String>,
     pub(crate) container: String,
     pub(crate) entry_id: String,
     pub(crate) title: String,
@@ -283,6 +284,7 @@ impl PreviewState {
                 ("single-title", preferences::DEFAULT_SINGLE_LINE_TITLES),
                 ("center-cover-text", preferences::DEFAULT_CENTER_WIDE_COVER_TEXT),
                 ("blurred-fill", preferences::DEFAULT_BLURRED_COVER_FILL),
+                ("scrape-characters", preferences::DEFAULT_SCRAPE_CHARACTERS),
                 ("shader", true),
                 ("appnap", true),
                 ("kill", preferences::DEFAULT_KILL_ON_TERMINATE),
@@ -2373,7 +2375,8 @@ impl WhiskyApp {
             return;
         }
         self.auto_synced.insert(container.to_owned());
-        self.bridge.sync_metadata(container, sources, true);
+        self.bridge.sync_metadata(container, sources, true,
+            self.preview.toggles.get("scrape-characters").copied().unwrap_or(true));
     }
 
     /// Retry the visible scope: re-read while connected, reconnect otherwise.
@@ -2789,7 +2792,8 @@ impl WhiskyApp {
                     if sources.is_empty() {
                         self.show_notice("请至少启用一个刮削源", cx);
                     } else {
-                        self.bridge.sync_metadata(&container, sources, false);
+                        self.bridge.sync_metadata(&container, sources, false,
+                            self.preview.toggles.get("scrape-characters").copied().unwrap_or(true));
                     }
                 } else {
                     self.show_notice("请先在侧边栏选择一个容器", cx);
@@ -3010,6 +3014,7 @@ impl WhiskyApp {
             "single-title" => Some(preferences::SINGLE_LINE_TITLES),
             "center-cover-text" => Some(preferences::CENTER_WIDE_COVER_TEXT),
             "blurred-fill" => Some(preferences::BLURRED_COVER_FILL),
+            "scrape-characters" => Some(preferences::SCRAPE_CHARACTERS),
             "kill" => Some(preferences::KILL_ON_TERMINATE),
             "menubar" => Some(preferences::SHOW_MENU_BAR_EXTRA),
             "offline" => Some(preferences::OFFLINE_MODE),
@@ -3114,6 +3119,7 @@ impl WhiskyApp {
             (preferences::SINGLE_LINE_TITLES, "single-title"),
             (preferences::CENTER_WIDE_COVER_TEXT, "center-cover-text"),
             (preferences::BLURRED_COVER_FILL, "blurred-fill"),
+            (preferences::SCRAPE_CHARACTERS, "scrape-characters"),
             (preferences::REFRESH_AFTER_EXIT, "refresh"),
             (preferences::DETAIL_BLURRED_BACKGROUND, "blur"),
             (preferences::KILL_ON_TERMINATE, "kill"),
@@ -3501,7 +3507,7 @@ impl WhiskyApp {
     /// The shared `offlineMode` default (`NetworkSettings.isOffline`). The
     /// bridge reads it too, but the original app warns before the network
     /// operation starts instead of surfacing a raw failure afterwards.
-    fn offline(&self) -> bool {
+    pub(crate) fn offline(&self) -> bool {
         self.preview
             .toggles
             .get("offline")
@@ -3572,6 +3578,7 @@ impl WhiskyApp {
             return;
         }
         self.game_info = Some(GameInfoPage {
+            selected_character: None,
             container: container.clone(),
             entry_id: entry_id.clone(),
             title,
@@ -3586,6 +3593,14 @@ impl WhiskyApp {
         });
         self.bridge.match_game_config(&container, &entry_id);
         self.open_preview_sheet(PreviewSheet::GameInfo(index), cx);
+        let needs_characters = self.entries.iter()
+            .find(|game| game.container == container && game.id == entry_id)
+            .and_then(|game| game.metadata.as_ref())
+            .is_some_and(|metadata| metadata.characters.is_none()
+                && matches!(metadata.extra.get("source").and_then(|value| value.as_str()), Some("vndb" | "bangumi")));
+        if needs_characters && self.preview.toggles.get("scrape-characters").copied().unwrap_or(true) && !self.offline() {
+            self.refresh_game_characters(cx);
+        }
     }
 
     pub(crate) fn game_info_input(
@@ -3666,7 +3681,9 @@ impl WhiskyApp {
         else {
             return;
         };
-        let raw = candidate.raw.clone();
+        let mut raw = candidate.raw.clone();
+        let include_characters = self.preview.toggles.get("scrape-characters").copied().unwrap_or(true);
+        raw["includeCharacters"] = serde_json::Value::Bool(include_characters);
         page.applying = true;
         page.error = None;
         let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
@@ -3682,6 +3699,24 @@ impl WhiskyApp {
         page.error = None;
         let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
         self.bridge.clear_metadata(&container, &entry_id);
+        cx.notify();
+    }
+
+    pub(crate) fn refresh_game_characters(&mut self, cx: &mut Context<Self>) {
+        if self.offline() {
+            self.show_notice("离线模式已开启，无法获取人物资料", cx);
+            return;
+        }
+        let Some(page) = self.game_info.as_ref().filter(|page| !page.applying) else { return };
+        let Some(metadata) = self.entries.iter()
+            .find(|game| game.container == page.container && game.id == page.entry_id)
+            .and_then(|game| game.metadata.as_ref()) else { return };
+        let Ok(mut raw) = serde_json::to_value(metadata) else { return };
+        raw["refreshCharacters"] = serde_json::Value::Bool(true);
+        self.bridge.apply_metadata(&page.container, &page.entry_id, raw);
+        let page = self.game_info.as_mut().unwrap();
+        page.applying = true;
+        page.error = None;
         cx.notify();
     }
 
