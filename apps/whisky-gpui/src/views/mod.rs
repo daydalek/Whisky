@@ -6,6 +6,7 @@ pub(crate) mod import_bottles;
 pub(crate) mod library;
 pub(crate) mod settings;
 pub(crate) mod walkthrough;
+pub(crate) mod walkthrough_routes;
 pub(crate) mod walkthrough_tree;
 
 use gpui_kit::base::{ScrollBounce, ScrollBounceMotion};

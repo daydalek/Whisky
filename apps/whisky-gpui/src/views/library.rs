@@ -19,6 +19,64 @@ use crate::runtime::{RuntimeAction, RuntimeState};
 use crate::state::{DEMO_NOTICE, PreviewPage, WhiskyApp};
 use crate::theme::*;
 
+const CHARACTER_CARD_WIDTH: f32 = 164.;
+const CHARACTER_CARD_PADDING: f32 = 10.;
+const CHARACTER_PORTRAIT_HEIGHT: f32 = 144.;
+
+/// Cover only when at least 80% of the artwork remains visible. Both the card
+/// and portrait have a one-pixel border, which is excluded from the viewport.
+fn character_portrait_fit(width: i32, height: i32) -> ObjectFit {
+    if width <= 0 || height <= 0 {
+        return ObjectFit::Contain;
+    }
+    let viewport_width = CHARACTER_CARD_WIDTH - 2. * (CHARACTER_CARD_PADDING + 2.);
+    let viewport_height = CHARACTER_PORTRAIT_HEIGHT - 2.;
+    let relative_width = f64::from(width) * f64::from(viewport_height);
+    let relative_height = f64::from(height) * f64::from(viewport_width);
+    // Cross-multiply the 4/5 threshold so exactly 20% cropping is stable.
+    if 5. * relative_width.min(relative_height) >= 4. * relative_width.max(relative_height) {
+        ObjectFit::Cover
+    } else {
+        ObjectFit::Contain
+    }
+}
+
+fn character_portrait_placeholder(label: &'static str) -> AnyElement {
+    col()
+        .size_full()
+        .items_center()
+        .justify_center()
+        .gap(px(6.))
+        .child(icon("user", 22.).text_color(rgb(muted_color())))
+        .child(muted(label).text_size(px(11.)))
+        .into_any_element()
+}
+
+#[derive(IntoElement)]
+struct CharacterPortrait {
+    path: std::path::PathBuf,
+}
+
+impl RenderOnce for CharacterPortrait {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Reuse GPUI's asynchronous image cache: no file reads or second image
+        // decode on the render thread just to discover the artwork's dimensions.
+        match window.use_asset::<ImgResourceLoader>(&self.path.into(), cx) {
+            Some(Ok(image)) => {
+                let dimensions = image.size(0);
+                let fit = character_portrait_fit(dimensions.width.0, dimensions.height.0);
+                div()
+                    .size_full()
+                    .when(matches!(fit, ObjectFit::Contain), |d| d.p(px(4.)))
+                    .child(img(image).size_full().object_fit(fit))
+                    .into_any_element()
+            }
+            Some(Err(_)) => character_portrait_placeholder("头像加载失败"),
+            None => character_portrait_placeholder("加载中…"),
+        }
+    }
+}
+
 fn characters_in_display_order<'a>(
     characters: &'a [crate::bridge::dto::CharacterDto],
     images: &std::collections::BTreeMap<String, String>,
@@ -29,10 +87,50 @@ fn characters_in_display_order<'a>(
 }
 
 #[cfg(test)]
-mod character_order_tests {
-    use super::characters_in_display_order;
+mod character_presentation_tests {
+    use super::{character_portrait_fit, characters_in_display_order};
     use crate::bridge::dto::CharacterDto;
+    use gpui_kit::ObjectFit;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn ordinary_portraits_fill_the_fixed_viewport() {
+        for (width, height) in [(400, 400), (450, 500), (500, 450)] {
+            assert!(matches!(character_portrait_fit(width, height), ObjectFit::Cover));
+        }
+    }
+
+    #[test]
+    fn full_body_and_extremely_tall_artwork_remains_complete() {
+        for (width, height) in [(400, 650), (300, 1200), (1, 10000)] {
+            assert!(matches!(character_portrait_fit(width, height), ObjectFit::Contain));
+        }
+    }
+
+    #[test]
+    fn wide_artwork_remains_complete() {
+        for (width, height) in [(800, 400), (10000, 1)] {
+            assert!(matches!(character_portrait_fit(width, height), ObjectFit::Contain));
+        }
+    }
+
+    #[test]
+    fn crop_limit_applies_in_both_directions() {
+        // The drawable viewport is 140 × 142. These retain exactly 80%.
+        for (width, height) in [(112, 142), (175, 142)] {
+            assert!(matches!(character_portrait_fit(width, height), ObjectFit::Cover));
+        }
+        for (width, height) in [(111, 142), (176, 142)] {
+            assert!(matches!(character_portrait_fit(width, height), ObjectFit::Contain));
+        }
+    }
+
+    #[test]
+    fn missing_dimensions_never_trigger_cropping() {
+        for (width, height) in [(0, 0), (0, 400), (400, 0), (-1, 400), (400, -1)] {
+            assert!(matches!(character_portrait_fit(width, height), ObjectFit::Contain));
+        }
+    }
 
     #[test]
     fn cached_portraits_come_first_and_each_group_keeps_its_order() {
@@ -1701,7 +1799,7 @@ impl WhiskyApp {
             let portrait_frame = div()
                 .relative()
                 .w_full()
-                .h(px(144.))
+                .h(px(CHARACTER_PORTRAIT_HEIGHT))
                 .flex_shrink_0()
                 .rounded(px(8.))
                 .overflow_hidden()
@@ -1709,29 +1807,8 @@ impl WhiskyApp {
                 .border_1()
                 .border_color(rgba(card_border()))
                 .child(match images.get(&character.id) {
-                    // Size portraits by width and clip below the viewport, rather
-                    // than center-cropping tall artwork through the character's face.
-                    Some(path) => col()
-                        .w_full()
-                        .h(px(144.))
-                        .flex_shrink_0()
-                        .overflow_hidden()
-                        .child(
-                            img(std::path::PathBuf::from(path))
-                                .w_full()
-                                .min_h(px(144.))
-                                .flex_shrink_0()
-                                .object_fit(ObjectFit::Cover),
-                        )
-                        .into_any_element(),
-                    None => col()
-                        .size_full()
-                        .items_center()
-                        .justify_center()
-                        .gap(px(6.))
-                        .child(icon("user", 22.).text_color(rgb(muted_color())))
-                        .child(muted("暂无头像").text_size(px(11.)))
-                        .into_any_element(),
+                    Some(path) => CharacterPortrait { path: path.into() }.into_any_element(),
+                    None => character_portrait_placeholder("暂无头像"),
                 })
                 .when_some(role, |d, r| {
                     d.child(
@@ -1791,11 +1868,11 @@ impl WhiskyApp {
 
             let card = col()
                 .id(format!("detail-character:{}", character.id))
-                .w(px(164.))
+                .w(px(CHARACTER_CARD_WIDTH))
                 .h(px(272.))
                 .flex_shrink_0()
                 .gap(px(8.))
-                .p(px(10.))
+                .p(px(CHARACTER_CARD_PADDING))
                 .overflow_hidden()
                 .rounded(px(12.))
                 .border_1()

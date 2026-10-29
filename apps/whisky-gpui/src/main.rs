@@ -34,6 +34,7 @@ mod views;
 mod winetricks;
 mod walkthrough;
 mod walkthrough_tree;
+mod walkthrough_routes;
 #[cfg(feature = "visual-test")]
 mod walkthrough_capture;
 

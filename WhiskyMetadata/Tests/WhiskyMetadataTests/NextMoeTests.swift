@@ -70,6 +70,16 @@ struct NextMoeTests {
         #expect(try await store.load(for: "game") == game)
     }
 
+    @Test func walkthroughIndexCanBeFetchedWithoutWorkDetails() async throws {
+        let session = session()
+        defer { session.invalidateAndCancel() }
+        let provider = NextMoeProvider(session: session, networkAccess: {})
+        let guides = try await provider.walkthroughs(workID: "4")
+        #expect(guides.map(\.id) == ["1", "2"])
+        #expect(guides.allSatisfy { $0.chart == nil && $0.workID == "4" })
+        await #expect(throws: URLError.self) { try await provider.walkthroughs(workID: "../4") }
+    }
+
     @Test func chartChecksWorkIdentityIDsAndNetworkPolicy() async throws {
         let session = session()
         defer { session.invalidateAndCancel() }

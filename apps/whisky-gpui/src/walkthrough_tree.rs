@@ -22,7 +22,10 @@ pub(crate) struct Node {
     pub(crate) label: String,
     pub(crate) detail: String,
     pub(crate) kind: Kind,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) expandable: bool,
+    /// Segment key for route nodes, used to open the route in the reader.
+    pub(crate) route: Option<String>,
     pub(crate) x: f32,
     pub(crate) y: f32,
     lane: usize,
@@ -55,6 +58,7 @@ impl Tree {
             kind,
             lane,
             expandable,
+            route: None,
             x: 0.,
             y: 0.,
         });
@@ -136,16 +140,18 @@ impl Tree {
                         String::new()
                     };
                     let detail = if condition.is_empty() {
-                        format!(
-                            "{} 个步骤 · 点击{}",
-                            end - first,
-                            if open { "折叠" } else { "展开" }
-                        )
+                        format!("{} 个步骤", end - first)
                     } else {
                         format!("{} · {} 步", condition, end - first)
                     };
                     let branch =
                         tree.node(key.clone(), title.clone(), detail, Kind::Branch, lane, true);
+                    let segment_key = field_text(segment, "key");
+                    tree.nodes[branch].route = Some(if segment_key.is_empty() {
+                        format!("#{lane}")
+                    } else {
+                        segment_key.into()
+                    });
                     tree.edge(previous, branch);
                     previous = branch;
                     if open {

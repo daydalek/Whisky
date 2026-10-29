@@ -31,6 +31,9 @@ available locally. Independent application processes have independent gates.
 
 The GPUI **游戏资料与封面…** search includes **NextMoe**. Applying a NextMoe
 work attaches its title, cover, developer, introduction and walkthrough index.
+Alternatively, **攻略路线 → 查找 NextMoe 游戏资料…** searches only NextMoe;
+select **获取路线** to attach its walkthrough index without replacing existing
+metadata or artwork. The selected work can be changed from the route card.
 The **攻略路线** card lists guide authors, languages, versions and ending/save
 counts. **打开路线图** opens an opaque, dedicated graph canvas. Entries, saves,
 choice groups and endings have distinct colors and connecting curves. Shared
@@ -54,7 +57,8 @@ quota failures remain visible and allow a later retry.
 
 Charts download only when a guide is selected. Downloads run as retained
 `metadata.apply` jobs with a `walkthroughID` field inside the metadata snapshot.
-The bridge checks the stored NextMoe work, guide membership and response work ID,
+The bridge checks the independently selected NextMoe work (or the source work for
+older snapshots), guide membership and response work ID,
 then merges the chart into the latest matching snapshot. Full graph JSON survives
 storage and Rust DTO round trips, including future step kinds. Cached guides remain
 available in offline mode; online fetches use the existing network policy.

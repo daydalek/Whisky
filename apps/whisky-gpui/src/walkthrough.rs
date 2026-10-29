@@ -35,6 +35,11 @@ pub(crate) struct WalkthroughView {
     pub(crate) drag: Option<[f32; 2]>,
     pub(crate) fullscreen: bool,
     pub(crate) original: bool,
+    /// Segment key of the route open in the reader.
+    pub(crate) route: Option<String>,
+    /// Show the node graph instead of the route reader.
+    pub(crate) graph: bool,
+    pub(crate) route_scroll: gpui_kit::ScrollHandle,
     pub(crate) pending: Option<(String, String)>,
     pub(crate) error: Option<String>,
 }

@@ -28,6 +28,7 @@ fn label(kind: Kind) -> &'static str {
 }
 
 impl WhiskyApp {
+    /// Header, mode switch and body shared by the inline card and the large canvas.
     pub(crate) fn walkthrough_chart(
         &self,
         chart: &serde_json::Value,
@@ -35,6 +36,103 @@ impl WhiskyApp {
         fullscreen: bool,
         cx: &Context<Self>,
     ) -> AnyElement {
+        let dark = is_dark();
+        let chrome = if dark { 0x181e29 } else { 0xffffff };
+        let border = if dark { 0x303949 } else { 0xe0e6ef };
+        let graph = self.walkthrough_view.graph;
+        let original = self.walkthrough_view.original;
+        let segment = |id: &'static str, label: &'static str, active: bool| {
+            div()
+                .id(id)
+                .px(px(12.))
+                .py(px(4.))
+                .rounded(px(6.))
+                .text_size(px(12.))
+                .cursor_pointer()
+                .when(active, |d| {
+                    d.bg(rgb(if dark { 0x2c3647 } else { 0xffffff }))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .shadow_sm()
+                })
+                .when(!active, |d| d.text_color(rgb(muted_color())))
+                .child(label)
+        };
+        let switch = row()
+            .p(px(2.))
+            .gap(px(2.))
+            .rounded(px(8.))
+            .bg(rgb(if dark { 0x111720 } else { 0xeef1f6 }))
+            .child(segment("tree-mode-routes", "路线", !graph).on_click(cx.listener(
+                |this, _, _, cx| {
+                    this.walkthrough_view.graph = false;
+                    cx.notify();
+                },
+            )))
+            .child(segment("tree-mode-graph", "关系图", graph).on_click(cx.listener(
+                |this, _, _, cx| {
+                    this.walkthrough_view.graph = true;
+                    this.walkthrough_view.camera.needs_fit = true;
+                    cx.notify();
+                },
+            )));
+        let (body, graph_tools) = if graph {
+            let (body, tools) = self.walkthrough_graph(chart, scope, fullscreen, cx);
+            (body, Some(tools))
+        } else {
+            (self.walkthrough_reader(chart, fullscreen, cx), None)
+        };
+        col()
+            .w_full()
+            .when(fullscreen, |d| d.flex_1().min_h_0())
+            .rounded(px(12.))
+            .overflow_hidden()
+            .border_1()
+            .border_color(rgb(border))
+            .child(
+                row()
+                    .flex_wrap()
+                    .gap(px(10.))
+                    .px(px(14.))
+                    .py(px(8.))
+                    .bg(rgb(chrome))
+                    .border_b_1()
+                    .border_color(rgb(border))
+                    .child(switch)
+                    .children(graph_tools)
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("tree-lang")
+                            .small()
+                            .ghost()
+                            .label(if original { "显示：原文" } else { "显示：中文" })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.walkthrough_view.original = !this.walkthrough_view.original;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("tree-fullscreen")
+                            .small()
+                            .ghost()
+                            .label(if fullscreen { "收起" } else { "大画布 ↗" })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.walkthrough_view.fullscreen = !this.walkthrough_view.fullscreen;
+                                this.walkthrough_view.camera.needs_fit = true;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(body)
+            .into_any_element()
+    }
+
+    fn walkthrough_graph(
+        &self,
+        chart: &serde_json::Value,
+        scope: &str,
+        fullscreen: bool,
+        cx: &Context<Self>,
+    ) -> (AnyElement, Div) {
         let tree = Tree::build(
             chart,
             scope,
@@ -48,8 +146,6 @@ impl WhiskyApp {
         let bg = if dark { 0x11151d } else { 0xf6f8fc };
         let foreground = if dark { 0xe5eaf3 } else { 0x243148 };
         let secondary = if dark { 0x94a3b8 } else { 0x718096 };
-        let chrome = if dark { 0x181e29 } else { 0xffffff };
-        let border = if dark { 0x303949 } else { 0xe0e6ef };
         let measure = self.walkthrough_view.viewport.clone();
         let entity = cx.entity().downgrade();
         let positions: Vec<_> = tree
@@ -206,9 +302,8 @@ impl WhiskyApp {
                 .size_full(),
             );
         for node in &tree.nodes {
-            let key = node.key.clone();
-            let expandable = node.expandable;
-            let open = self.walkthrough_view.expanded.contains(&key);
+            let route = node.route.clone();
+            let expandable = route.is_some();
             let color = tint(node.kind);
             viewport = viewport.child(
                 col()
@@ -233,13 +328,10 @@ impl WhiskyApp {
                     })
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        if expandable {
-                            if !this.walkthrough_view.expanded.remove(&key) {
-                                this.walkthrough_view.expanded.insert(key.clone());
-                            }
+                        if let Some(route) = route.clone() {
+                            this.select_route(route, cx);
                         }
                         cx.stop_propagation();
-                        cx.notify();
                     }))
                     .child(
                         row()
@@ -249,7 +341,7 @@ impl WhiskyApp {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(div().text_color(rgb(color)).child(label(node.kind)))
                             .child(div().text_color(rgb(secondary)).child(if expandable {
-                                if open { "− 折叠" } else { "＋ 展开" }
+                                "阅读 ›"
                             } else {
                                 ""
                             })),
@@ -271,51 +363,9 @@ impl WhiskyApp {
                     ),
             );
         }
-        let all: Vec<_> = tree
-            .nodes
-            .iter()
-            .filter(|n| n.expandable)
-            .map(|n| n.key.clone())
-            .collect();
-        let original = self.walkthrough_view.original;
-        let expanded_count = all.iter().filter(|key| self.walkthrough_view.expanded.contains(*key)).count();
-        let mode = if expanded_count == 0 { "紧缩概览" } else if expanded_count == all.len() { "完整步骤" } else { "自定义展开" };
         let tools = row()
             .items_center()
-            .flex_wrap()
-            .gap(px(4.))
-            .child(
-                Button::new("tree-lang")
-                    .small()
-                    .ghost()
-                    .label(if original { "原文" } else { "中文" })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.walkthrough_view.original = !this.walkthrough_view.original;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                Button::new("tree-fold")
-                    .small()
-                    .ghost()
-                    .label("紧缩概览")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.walkthrough_view.expanded.clear();
-                        this.walkthrough_view.camera = Default::default();
-                        cx.notify();
-                    })),
-            )
-            .child(
-                Button::new("tree-expand")
-                    .small()
-                    .ghost()
-                    .label("完整步骤")
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.walkthrough_view.expanded.extend(all.clone());
-                        this.walkthrough_view.camera.readable();
-                        cx.notify();
-                    })),
-            )
+            .gap(px(2.))
             .child(
                 Button::new("tree-fit")
                     .small()
@@ -329,7 +379,9 @@ impl WhiskyApp {
             )
             .child(
                 Button::new("tree-actual-size")
-                    .small().ghost().label("原始大小")
+                    .small()
+                    .ghost()
+                    .label("100%")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.walkthrough_view.camera.readable();
                         cx.notify();
@@ -361,61 +413,22 @@ impl WhiskyApp {
                             .zoom_at(1.2, [b[2] / 2., b[3] / 2.]);
                         cx.notify();
                     })),
-            )
-            .child(
-                Button::new("tree-fullscreen")
-                    .small()
-                    .ghost()
-                    .label(if fullscreen {
-                        "收起"
-                    } else {
-                        "大画布 ↗"
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.walkthrough_view.fullscreen = !this.walkthrough_view.fullscreen;
-                        this.walkthrough_view.camera.needs_fit = true;
-                        cx.notify();
-                    })),
             );
-        col()
+        let chrome = if dark { 0x181e29 } else { 0xffffff };
+        let body = col()
             .w_full()
             .when(fullscreen, |d| d.flex_1().min_h_0())
-            .rounded(px(12.))
-            .overflow_hidden()
-            .border_1()
-            .border_color(rgb(border))
-            .child(
-                col()
-                    .items_start()
-                    .gap(px(8.))
-                    .px(px(14.))
-                    .py(px(10.))
-                    .bg(rgb(chrome))
-                    .border_b_1()
-                    .border_color(rgb(border))
-                    .child(
-                        row()
-                            .items_center()
-                            .gap(px(8.))
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child("路线图"))
-                            .child(muted(format!("{mode} · {} 个节点", tree.nodes.len())).text_size(px(11.))),
-                    )
-                    .child(tools),
-            )
             .child(viewport)
             .child(
-                col()
-                    .items_start()
-                    .gap(px(5.))
+                row()
+                    .flex_wrap()
+                    .gap(px(12.))
                     .px(px(14.))
                     .py(px(8.))
                     .bg(rgb(chrome))
                     .child(
-                        muted("滚动 / 双指平移 · Shift + 滚轮横移 · 捏合或 ⌘ / Ctrl + 滚轮缩放 · 拖动空白处平移").text_size(px(10.)),
-                    )
-                    .child(
                         row().gap(px(10.)).children(
-                            [Kind::Entry, Kind::Save, Kind::Branch, Kind::Choice, Kind::Note, Kind::Ending]
+                            [Kind::Entry, Kind::Branch, Kind::Save, Kind::Ending]
                                 .into_iter()
                                 .map(|k| {
                                     div()
@@ -424,9 +437,14 @@ impl WhiskyApp {
                                         .child(format!("● {}", label(k)))
                                 }),
                         ),
+                    )
+                    .child(
+                        muted("点击路线节点阅读步骤 · 拖动或滚动平移 · 捏合或 ⌘ + 滚轮缩放")
+                            .text_size(px(10.)),
                     ),
             )
-            .into_any_element()
+            .into_any_element();
+        (body, tools)
     }
 
     pub(crate) fn walkthrough_tree_overlay(&self, cx: &Context<Self>) -> AnyElement {
@@ -438,7 +456,7 @@ impl WhiskyApp {
         };
         let work = metadata
             .extra
-            .get("sourceID")
+            .get("walkthroughWorkID").or_else(|| metadata.extra.get("sourceID"))
             .and_then(|v| v.as_str())
             .unwrap_or_default();
         let prefix = format!("{}:{}:{}", game.container, game.id, work);
@@ -456,11 +474,11 @@ impl WhiskyApp {
         col()
             .absolute()
             .inset_0()
+            .occlude()
             .p(px(24.))
             .gap(px(16.))
             .bg(rgb(crate::theme::bg()))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
             .child(
                 row()
                     .items_center()
@@ -479,7 +497,6 @@ impl WhiskyApp {
                                 guide.source_author.as_deref().unwrap_or(&guide.source)
                             ))),
                     )
-                    .child(muted("按箭头从左向右阅读；点击路线节点可单独展开或折叠步骤。").text_size(px(10.)))
                     .child(
                         Button::new("tree-close")
                             .label("完成")

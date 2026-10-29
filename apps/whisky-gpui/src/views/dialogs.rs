@@ -2148,6 +2148,7 @@ impl WhiskyApp {
             return div().into_any_element();
         };
         let title = page.title.clone();
+        let walkthrough_only = page.walkthrough_only;
         let searching = page.searching;
         let searching_sources = page.searching_sources.clone();
         let applying = page.applying;
@@ -2247,8 +2248,12 @@ impl WhiskyApp {
         let mut metadata_rows = vec![
             self.info("当前标题", title.clone()),
             search_row,
-            self.metadata_source_row(cx),
         ];
+        if walkthrough_only {
+            metadata_rows.push(muted("仅从 NextMoe 获取攻略路线，不替换已有游戏资料和封面。请选择对应作品。").into_any_element());
+        } else {
+            metadata_rows.push(self.metadata_source_row(cx));
+        }
         if searching {
             metadata_rows.push(
                 row()
@@ -2273,6 +2278,8 @@ impl WhiskyApp {
             if let Some(provider_error) = &group.error {
                 metadata_rows
                     .push(muted(format!("查询失败：{provider_error}")).text_size(px(11.)).into_any_element());
+            } else if group.games.is_empty() {
+                metadata_rows.push(muted("没有找到匹配作品，请尝试其他名称。").text_size(px(11.)).into_any_element());
             }
             for (game_index, candidate) in group.games.iter().enumerate() {
                 let mut details = candidate.developer.clone();
@@ -2337,7 +2344,7 @@ impl WhiskyApp {
                         )
                         .child(
                             Button::new(format!("metadata-apply:{group_index}:{game_index}"))
-                                .label("应用")
+                                .label(if walkthrough_only { "获取路线" } else { "应用" })
                                 .disabled(applying)
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.command(
@@ -2357,7 +2364,7 @@ impl WhiskyApp {
                     .into_any_element(),
             );
         }
-        metadata_rows.push(
+        if !walkthrough_only { metadata_rows.push(
             row()
                 .justify_end()
                 .py(px(6.))
@@ -2368,7 +2375,7 @@ impl WhiskyApp {
                     cx,
                 ))
                 .into_any_element(),
-        );
+        ); }
 
         let cover_rows = vec![
             muted("自定义封面优先于在线元数据封面；导入后图片会复制到容器内，原文件可以移动或删除。")
@@ -2497,6 +2504,10 @@ impl WhiskyApp {
             config_rows.push(muted(message).into_any_element());
         }
 
+        if walkthrough_only {
+            let section = self.section("game-metadata", "查找 NextMoe 攻略", metadata_rows, cx);
+            return self.form("game-info-scroll", vec![section]);
+        }
         self.form(
             "game-info-scroll",
             vec![
@@ -2533,7 +2544,7 @@ impl WhiskyApp {
             PreviewSheet::Audio => "音频故障排查",
             PreviewSheet::Dll => "DLL 覆盖",
             PreviewSheet::Graphics => "高级图形设置",
-            PreviewSheet::GameInfo(_) => "游戏资料",
+            PreviewSheet::GameInfo(_) => if self.game_info.as_ref().is_some_and(|page| page.walkthrough_only) { "查找攻略路线" } else { "游戏资料" },
         };
         let content = match sheet {
             PreviewSheet::RunSettings(i) => self.run_settings(i, window, cx),

@@ -10,7 +10,7 @@ impl WhiskyApp {
         };
         let metadata = game.metadata.as_ref();
         let guides = metadata.and_then(|m| m.walkthroughs.as_deref());
-        let is_nextmoe = metadata
+        let is_nextmoe = metadata.and_then(|m| m.extra.get("walkthroughWorkID")).and_then(|v| v.as_str()).is_some() || metadata
             .and_then(|m| m.extra.get("source"))
             .and_then(|v| v.as_str())
             == Some("nextmoe");
@@ -33,12 +33,12 @@ impl WhiskyApp {
             let message = if is_nextmoe {
                 "该作品当前暂无收录的攻略。"
             } else {
-                "关联 NextMoe 游戏资料后，可在这里阅读选项、存档与结局路线。"
+                "查找 NextMoe 攻略后，可在这里阅读选项、存档与结局路线。"
             };
             content = content.child(muted(message)).child(
                 Button::new("walkthrough-link")
                     .label("查找 NextMoe 游戏资料…")
-                    .on_click(cx.listener(move |this, _, _, cx| this.open_game_info(index, cx))),
+                    .on_click(cx.listener(move |this, _, _, cx| this.open_walkthrough_search(index, cx))),
             );
             return content.into_any_element();
         };
@@ -47,11 +47,14 @@ impl WhiskyApp {
             game.container,
             game.id,
             metadata
-                .and_then(|m| m.extra.get("sourceID"))
+                .and_then(|m| m.extra.get("walkthroughWorkID").or_else(|| m.extra.get("sourceID")))
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
         );
         let pending = self.walkthrough_view.pending.is_some();
+        content = content.child(Button::new("walkthrough-relink")
+            .label("查找 / 更换 NextMoe 攻略…")
+            .on_click(cx.listener(move |this, _, _, cx| this.open_walkthrough_search(index, cx))));
         content = content.child(muted(
             "选项和结局包含剧透，选择攻略后再展开路线。译文标有机译时，可切换原文核对。",
         ));

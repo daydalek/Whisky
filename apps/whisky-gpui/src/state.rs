@@ -205,6 +205,7 @@ pub(crate) const METADATA_SOURCES: [(&str, &str, &str); 5] = [
 /// The Game Info sheet: metadata search, cover choice and GameDB matches for
 /// one library card.
 pub(crate) struct GameInfoPage {
+    pub(crate) walkthrough_only: bool,
     pub(crate) selected_character: Option<String>,
     pub(crate) container: String,
     pub(crate) entry_id: String,
@@ -3619,6 +3620,15 @@ impl WhiskyApp {
 
     /// Open the metadata/cover/GameDB sheet for one library card.
     pub(crate) fn open_game_info(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.open_game_info_mode(index, false, cx);
+    }
+
+    pub(crate) fn open_walkthrough_search(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.open_game_info_mode(index, true, cx);
+        self.search_game_info(cx);
+    }
+
+    fn open_game_info_mode(&mut self, index: usize, walkthrough_only: bool, cx: &mut Context<Self>) {
         if self.demo {
             self.show_notice(DEMO_NOTICE, cx);
             return;
@@ -3633,6 +3643,7 @@ impl WhiskyApp {
             return;
         }
         self.game_info = Some(GameInfoPage {
+            walkthrough_only,
             selected_character: None,
             container: container.clone(),
             entry_id: entry_id.clone(),
@@ -3648,14 +3659,14 @@ impl WhiskyApp {
             config_message: None,
             config_error: None,
         });
-        self.bridge.match_game_config(&container, &entry_id);
+        if !walkthrough_only { self.bridge.match_game_config(&container, &entry_id); }
         self.open_preview_sheet(PreviewSheet::GameInfo(index), cx);
         let needs_characters = self.entries.iter()
             .find(|game| game.container == container && game.id == entry_id)
             .and_then(|game| game.metadata.as_ref())
             .is_some_and(|metadata| metadata.characters.is_none()
                 && matches!(metadata.extra.get("source").and_then(|value| value.as_str()), Some("vndb" | "bangumi")));
-        if needs_characters && self.preview.toggles.get("scrape-characters").copied().unwrap_or(true) && !self.offline() {
+        if !walkthrough_only && needs_characters && self.preview.toggles.get("scrape-characters").copied().unwrap_or(true) && !self.offline() {
             self.refresh_game_characters(cx);
         }
     }
@@ -3709,7 +3720,9 @@ impl WhiskyApp {
         page.error = None;
         page.groups.clear();
         let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
-        let sources = self.metadata_sources();
+        let sources = if self.game_info.as_ref().is_some_and(|page| page.walkthrough_only) {
+            vec!["nextmoe".to_owned()]
+        } else { self.metadata_sources() };
         if sources.is_empty() {
             if let Some(page) = self.game_info.as_mut() {
                 page.searching = false;
@@ -3742,6 +3755,10 @@ impl WhiskyApp {
             return;
         };
         let mut raw = candidate.raw.clone();
+        if page.walkthrough_only {
+            raw["walkthroughOnly"] = serde_json::Value::Bool(true);
+            raw["localTitle"] = serde_json::Value::String(page.title.clone());
+        }
         let include_characters = self.preview.toggles.get("scrape-characters").copied().unwrap_or(true);
         raw["includeCharacters"] = serde_json::Value::Bool(include_characters);
         page.applying = true;
