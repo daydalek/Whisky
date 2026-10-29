@@ -272,6 +272,33 @@ private final class SlowCharacterProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
+@Test @MainActor func metadataApplyJobSurvivesSlowCharacterFetch() async throws {
+    let fixture = try MetadataFixture()
+    defer { fixture.remove() }
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [SlowCharacterProtocol.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let jobs = BridgeJobStore()
+    let service = LibraryMetadataService(jobs: jobs, session: session, networkAccess: {})
+    let entry = try await fixture.workspace.entry(fixture.params)
+    let store = GameMetadataStore(directory: entry.metadataDirectory, networkAccess: {})
+    let metadata = GameMetadata(source: .bangumi, sourceID: "42", title: "Test")
+    try await store.save(metadata, for: entry.metadataIdentity)
+    var snapshot = try #require(try JSONValue.encoded(metadata).object)
+    snapshot["refreshCharacters"] = .bool(true)
+    var params = fixture.params
+    params["metadata"] = .object(snapshot)
+    params["background"] = .bool(true)
+    let started = try await service.call("metadata.apply", params: params, workspace: fixture.workspace)
+    let id = try #require(started.object?["jobID"]?.string)
+    try await Task.sleep(for: .milliseconds(5200))
+    let pending = try jobs.call("jobs.get", params: ["jobID": .string(id)])
+    #expect(pending.object?["status"] == .string("running"))
+    _ = try await waitForMetadataJob(started, jobs: jobs)
+    #expect(try await store.load(for: entry.metadataIdentity)?.characters == [])
+}
+
 @Test @MainActor func metadataApplyJobReportsStaleGameFailure() async throws {
     let fixture = try MetadataFixture()
     defer { fixture.remove() }

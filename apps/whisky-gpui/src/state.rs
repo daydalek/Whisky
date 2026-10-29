@@ -220,6 +220,8 @@ pub(crate) struct GameInfoPage {
     pub(crate) config_message: Option<String>,
     pub(crate) config_error: Option<String>,
     pub(crate) selected_character: Option<String>,
+    /// Search only NextMoe and import walkthrough routes without touching linked metadata.
+    pub(crate) walkthrough_only: bool,
 }
 
 impl GameInfoPage {
@@ -257,6 +259,7 @@ mod metadata_search_tests {
             config_message: None,
             config_error: None,
             selected_character: None,
+            walkthrough_only: false,
         }
     }
 
@@ -2152,7 +2155,7 @@ impl WhiskyApp {
                         } => {
                             if self.game_info.as_ref().is_some_and(|page| {
                                 page.accepts_search(&container, &entry_id, generation, request)
-                                    && results.iter().all(|group| group.source == page.editor.search_source)
+                                    && results.iter().all(|group| group.source == if page.walkthrough_only { "nextmoe" } else { page.editor.search_source.as_str() })
                             }) {
                                 let page = self.game_info.as_mut().unwrap();
                                 page.searching = false;
@@ -3791,9 +3794,12 @@ impl WhiskyApp {
             config_message: None,
             config_error: None,
             selected_character: None,
+            walkthrough_only,
         });
-        self.bridge.match_game_config(&container, &entry_id);
-        self.load_metadata_editor(cx);
+        if !walkthrough_only {
+            self.bridge.match_game_config(&container, &entry_id);
+            self.load_metadata_editor(cx);
+        }
         self.open_preview_sheet(PreviewSheet::GameInfo(index), cx);
         let needs_characters = self.entries.iter()
             .find(|game| game.container == container && game.id == entry_id)
@@ -3833,11 +3839,12 @@ impl WhiskyApp {
         if self.game_info.as_ref().is_none_or(|page| page.searching) {
             return;
         }
-        if !self.service_available("metadata.search") || self.metadata_sources().is_empty() {
+        let walkthrough_only = self.game_info.as_ref().is_some_and(|page| page.walkthrough_only);
+        if !self.service_available("metadata.search") || (!walkthrough_only && self.metadata_sources().is_empty()) {
             self.show_notice("搜索不可用；请在设置中启用资料来源并确认桥接服务支持搜索", cx);
             return;
         }
-        if !self.game_info.as_ref().is_some_and(|page| self.metadata_sources().contains(&page.editor.search_source)) {
+        if !walkthrough_only && !self.game_info.as_ref().is_some_and(|page| self.metadata_sources().contains(&page.editor.search_source)) {
             self.show_notice("此平台未获准搜索；请在设置中启用，或选择其他平台", cx);
             return;
         }
@@ -3848,7 +3855,7 @@ impl WhiskyApp {
         let Some(page) = self.game_info.as_mut() else {
             return;
         };
-        if !page.editor.loaded || page.editor.busy {
+        if !walkthrough_only && (!page.editor.loaded || page.editor.busy) {
             return;
         }
         let query = page
@@ -3866,7 +3873,11 @@ impl WhiskyApp {
         page.error = None;
         page.groups.clear();
         let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
-        let sources = vec![page.editor.search_source.clone()];
+        let sources = if walkthrough_only {
+            vec!["nextmoe".to_owned()]
+        } else {
+            vec![page.editor.search_source.clone()]
+        };
         self.bridge.search_metadata(
             &container,
             &entry_id,
@@ -3894,6 +3905,18 @@ impl WhiskyApp {
         else {
             return;
         };
+        if page.walkthrough_only {
+            if page.applying { return; }
+            let mut raw = candidate.raw.clone();
+            raw["walkthroughOnly"] = serde_json::Value::Bool(true);
+            raw["localTitle"] = serde_json::Value::String(page.title.clone());
+            page.applying = true;
+            page.error = None;
+            let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
+            self.bridge.apply_metadata(&container, &entry_id, raw);
+            cx.notify();
+            return;
+        }
         if !page.editor.loaded || page.editor.busy { return; }
         let raw = candidate.raw.clone();
         let provider = page.groups[source].source.clone();

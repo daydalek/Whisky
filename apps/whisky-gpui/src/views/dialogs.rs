@@ -2127,7 +2127,8 @@ impl WhiskyApp {
         let groups = page.groups.clone();
         let matches = page.matches.clone();
         let config_message = page.config_message.clone();
-        let editable = page.editor.loaded && !page.editor.busy;
+        let walkthrough_only = page.walkthrough_only;
+        let editable = if walkthrough_only { !applying } else { page.editor.loaded && !page.editor.busy };
         let message = page.editor.message.clone();
         let input = self.metadata_search_input(window, cx);
 
@@ -2136,26 +2137,35 @@ impl WhiskyApp {
             .gap(px(8.))
             .py(px(8.))
             .child(div().flex_1().min_w_0().child(Input::new(&input)))
-            .child(Button::new("metadata-bind-id")
+            .when(!walkthrough_only, |d| d.child(Button::new("metadata-bind-id")
                 .label("按 ID / 网址关联")
                 .disabled(!editable || searching)
-                .on_click(cx.listener(|this, _, _, cx| this.bind_metadata_id(cx))))
+                .on_click(cx.listener(|this, _, _, cx| this.bind_metadata_id(cx)))))
             .child(
                 Button::new("metadata-search")
                     .label(if searching { "搜索中…" } else { "搜索" })
                     .primary()
-                    .disabled(searching || !editable || !self.service_available("metadata.search") || self.flag("offline") || self.metadata_sources().is_empty())
+                    .disabled(searching || !editable || !self.service_available("metadata.search") || self.flag("offline") || (!walkthrough_only && self.metadata_sources().is_empty()))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.command(Command::MetadataSearch, cx);
                     })),
             )
             .into_any_element();
 
-        let mut metadata_rows = self.metadata_editor_rows(window, cx);
-        metadata_rows.insert(0, self.info("当前标题", title));
-        metadata_rows.push(self.info("资料关联", "名称可不同。输入名称搜索，或粘贴平台 ID / 作品网址关联；只更新草稿。"));
-        metadata_rows.push(self.metadata_source_row(cx));
-        metadata_rows.push(search_row);
+        let mut metadata_rows = if walkthrough_only {
+            vec![
+                self.info("当前标题", title),
+                muted("仅从 NextMoe 获取攻略路线，不替换已有游戏资料和封面。请选择对应作品。").into_any_element(),
+                search_row,
+            ]
+        } else {
+            let mut rows = self.metadata_editor_rows(window, cx);
+            rows.insert(0, self.info("当前标题", title));
+            rows.push(self.info("资料关联", "名称可不同。输入名称搜索，或粘贴平台 ID / 作品网址关联；只更新草稿。"));
+            rows.push(self.metadata_source_row(cx));
+            rows.push(search_row);
+            rows
+        };
         if searching {
             metadata_rows.push(
                 row()
@@ -2249,7 +2259,7 @@ impl WhiskyApp {
                         )
                         .child(
                             Button::new(format!("metadata-apply:{group_index}:{game_index}"))
-                                .label("关联到草稿")
+                                .label(if walkthrough_only { "获取路线" } else { "关联到草稿" })
                                 .disabled(!editable)
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.command(
@@ -2396,6 +2406,10 @@ impl WhiskyApp {
             config_rows.push(muted(message).into_any_element());
         }
 
+        if walkthrough_only {
+            let section = self.section("game-metadata", "查找 NextMoe 攻略", metadata_rows, cx);
+            return self.form("game-info-scroll", vec![section]);
+        }
         self.form(
             "game-info-scroll",
             vec![
@@ -2417,6 +2431,7 @@ impl WhiskyApp {
         if !matches!(sheet, PreviewSheet::GameInfo(_)) {
             self.game_info = None;
         }
+        let walkthrough_sheet = self.game_info.as_ref().is_some_and(|page| page.walkthrough_only);
         let title = match sheet {
             PreviewSheet::RunSettings(_) => "运行设置",
             PreviewSheet::Scan => "管理扫描文件夹",
@@ -2431,7 +2446,7 @@ impl WhiskyApp {
             PreviewSheet::Audio => "音频故障排查",
             PreviewSheet::Dll => "DLL 覆盖",
             PreviewSheet::Graphics => "高级图形设置",
-            PreviewSheet::GameInfo(_) => "游戏资料",
+            PreviewSheet::GameInfo(_) => if walkthrough_sheet { "查找攻略路线" } else { "游戏资料" },
         };
         let content = match sheet {
             PreviewSheet::RunSettings(i) => self.run_settings(i, window, cx),
@@ -2839,7 +2854,7 @@ impl WhiskyApp {
                             .py(px(13.))
                             .border_t_1()
                             .border_color(rgba(0xffffff0c))
-                            .when(matches!(sheet, PreviewSheet::GameInfo(_)), |d| {
+                            .when(matches!(sheet, PreviewSheet::GameInfo(_)) && !walkthrough_sheet, |d| {
                                 let busy = self.game_info.as_ref().is_some_and(|page| page.editor.busy);
                                 let allowed = self.metadata_sources();
                                 let can_refresh = self.game_info.as_ref().is_some_and(|page|
@@ -2891,7 +2906,7 @@ impl WhiskyApp {
                             .child(
                                 Button::new("sheet-done")
                                     .label(if matches!(sheet, PreviewSheet::GameInfo(_)) {
-                                        if self.game_info.as_ref().is_some_and(|page| page.editor.busy) {
+                                        if walkthrough_sheet { "完成" } else if self.game_info.as_ref().is_some_and(|page| page.editor.busy) {
                                             "处理中…"
                                         } else { "保存资料" }
                                     } else if !self.demo
@@ -2933,7 +2948,7 @@ impl WhiskyApp {
                                     })
                                     .primary()
                                     .disabled(
-                                        (matches!(sheet, PreviewSheet::GameInfo(_))
+                                        (matches!(sheet, PreviewSheet::GameInfo(_)) && !walkthrough_sheet
                                             && (!self.game_info.as_ref().is_some_and(|page| page.editor.loaded && !page.editor.busy)
                                                 || !self.service_available("metadata.configuration.save")))
                                             || (matches!(sheet, PreviewSheet::CreateBottle)
@@ -2956,7 +2971,14 @@ impl WhiskyApp {
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.focus_handle.focus(window, cx);
                                         if matches!(this.preview.sheet, Some(PreviewSheet::GameInfo(_))) {
-                                            this.save_metadata_editor(cx);
+                                            if this.game_info.as_ref().is_some_and(|page| page.walkthrough_only) {
+                                                this.preview.sheet = None;
+                                                this.preview.sheet_history.clear();
+                                                this.game_info = None;
+                                                cx.notify();
+                                            } else {
+                                                this.save_metadata_editor(cx);
+                                            }
                                             return;
                                         }
                                         if matches!(this.preview.sheet, Some(PreviewSheet::CreateBottle)) {

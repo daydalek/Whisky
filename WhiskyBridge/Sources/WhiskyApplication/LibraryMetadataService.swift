@@ -149,23 +149,16 @@ public final class LibraryMetadataService {
             metadata.characters = nil
         }
         let includeCharacters = refreshCharacters || value.object?["includeCharacters"] != .bool(false)
-        let provider = PublicGameMetadataProvider(
-            source: metadata.source, session: session, networkAccess: networkAccess
-        )
-        let hasCharacterSource = metadata.source == .vndb || metadata.source == .bangumi
         if refreshCharacters {
-            if hasCharacterSource {
-                metadata.characters = try await provider.refresh(sourceID: metadata.sourceID).characters ?? []
-            } else {
-                metadata.characters = []
-            }
-        } else {
-            if metadata.source == .steam || metadata.source == .nextmoe {
-                metadata = try await provider.details(for: metadata)
-            }
-            if includeCharacters, hasCharacterSource, metadata.characters == nil {
-                metadata.characters = try await provider.refresh(sourceID: metadata.sourceID).characters
-            }
+            metadata.characters = try await PublicGameMetadataProvider(
+                source: metadata.source, session: session, networkAccess: networkAccess
+            ).fetchCharacters(for: metadata)
+        } else if metadata.source == .steam || metadata.source == .nextmoe || includeCharacters {
+            metadata = try await PublicGameMetadataProvider(
+                source: metadata.source,
+                session: session,
+                networkAccess: networkAccess
+            ).details(for: metadata, includeCharacters: includeCharacters)
         }
         if refreshCharacters {
             guard var current = try await store.load(for: entry.metadataIdentity),

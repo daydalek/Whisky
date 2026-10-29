@@ -69,7 +69,7 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
 
     /// Steam's search endpoint only returns identity and thumbnails. Fetch the
     /// selected item's details, rather than issuing ten extra requests per search.
-    public func details(for candidate: GameMetadata) async throws -> GameMetadata {
+    public func details(for candidate: GameMetadata, includeCharacters: Bool = false) async throws -> GameMetadata {
         try await networkAccess()
         guard candidate.source == source else { throw URLError(.badURL) }
         if source == .nextmoe {
@@ -79,6 +79,13 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
         }
         if source == .ymgal {
             return try await ymgalClient.details(candidate, networkAccess: networkAccess)
+        }
+        if source == .vndb || source == .bangumi {
+            var game = candidate
+            if includeCharacters, game.characters == nil {
+                game.characters = try await fetchCharacters(for: candidate)
+            }
+            return game
         }
         guard source == .steam else { return candidate }
         guard Int(candidate.sourceID) != nil else { throw URLError(.badURL) }
@@ -124,13 +131,7 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
                     thumbnailURL: subject.images?.common,
                     pageURL: URL(string: "https://bgm.tv/subject/\(subject.id)")
                 )
-                let characters = try await request(url.appendingPathComponent("characters"),
-                                                   as: [BangumiCharacter].self)
-                game.characters = characters.map {
-                    GameCharacter(id: String($0.id), name: $0.name, role: $0.relation,
-                                  imageURL: $0.images?.medium,
-                                  pageURL: URL(string: "https://bgm.tv/character/\($0.id)"))
-                }
+                game.characters = try await fetchCharactersWithRetry { try await fetchBangumiCharacters(for: String(subject.id)) }
                 return game
             }
         case .vndb:
@@ -141,28 +142,7 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
                 guard var game = try await vndb(sourceID).first(where: { $0.sourceID == sourceID }) else {
                     throw URLError(.resourceUnavailable)
                 }
-                var characters: [GameCharacter] = []
-                var page = 1
-                while true {
-                    let body = try JSONSerialization.data(withJSONObject: [
-                        "filters": ["vn", "=", ["id", "=", sourceID]],
-                        "fields": "name,original,image.url,vns.id,vns.role",
-                        "results": 100, "page": page
-                    ])
-                    guard let url = URL(string: "https://api.vndb.org/kana/character") else {
-                        throw URLError(.badURL)
-                    }
-                    let response = try await request(url, body: body, as: VNDBCharacters.self)
-                    characters += response.results.map {
-                        GameCharacter(id: $0.id, name: $0.name, originalName: $0.original,
-                                      role: $0.vns?.first(where: { $0.id == sourceID })?.role,
-                                      imageURL: $0.image?.url,
-                                      pageURL: URL(string: "https://vndb.org/\($0.id)"))
-                    }
-                    if !response.more { break }
-                    page += 1
-                }
-                game.characters = characters
+                game.characters = try await fetchCharactersWithRetry { try await fetchVNDBCharacters(for: sourceID) }
                 return game
             }
         case .steam:
@@ -180,15 +160,43 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
         }
     }
 
+    public func fetchCharacters(for candidate: GameMetadata) async throws -> [GameCharacter] {
+        try await networkAccess()
+        guard candidate.source == source else { return [] }
+        guard source == .vndb || source == .bangumi else { return [] }
+        let sourceID = candidate.sourceID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return try await gatekeeper.characters(sourceID) {
+            try await fetchCharactersWithRetry {
+                switch source {
+                case .vndb: return try await fetchVNDBCharacters(for: sourceID)
+                case .bangumi: return try await fetchBangumiCharacters(for: sourceID)
+                case .ymgal, .steam, .hikarinagi, .nextmoe: return []
+                }
+            }
+        }
+    }
+
+    private func fetchCharactersWithRetry(
+        _ operation: () async throws -> [GameCharacter]
+    ) async throws -> [GameCharacter] {
+        do {
+            return try await operation()
+        } catch let error as URLError where error.code == .timedOut {
+            try Task.checkCancellation()
+            try await Task.sleep(for: .seconds(1))
+            return try await operation()
+        }
+    }
+
     public static func cacheKey(for query: String) -> String {
         query.folding(options: [.caseInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func request<T: Decodable>(
-        _ url: URL, body: Data? = nil, as type: T.Type
+        _ url: URL, body: Data? = nil, timeout: TimeInterval = 20, as type: T.Type
     ) async throws -> T {
-        var request = URLRequest(url: url, timeoutInterval: 20)
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.setValue("Whisky/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
@@ -210,6 +218,124 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
         }
         try Task.checkCancellation()
         return try JSONDecoder().decode(type, from: data)
+    }
+
+    // swiftlint:disable:next function_body_length
+    private func fetchVNDBCharacters(for sourceID: String) async throws -> [GameCharacter] {
+        let cleanID = sourceID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let body = try JSONSerialization.data(withJSONObject: [
+            "filters": ["id", "=", cleanID],
+            "fields": "id, title, va{note, character{id, name, original, description, image.url}, "
+                + "staff{id, name, original}}"
+        ])
+        guard let vndbURL = URL(string: "https://api.vndb.org/kana/vn") else { throw URLError(.badURL) }
+        let result = try await request(vndbURL, body: body, timeout: 45, as: VNDBNovelVAPage.self)
+
+        var characters: [GameCharacter] = []
+        var seenIDs = Set<String>()
+
+        if let novel = result.results.first, let vaList = novel.voiceActors, !vaList.isEmpty {
+            for item in vaList {
+                guard let char = item.character else { continue }
+                if seenIDs.contains(char.id) {
+                    continue
+                }
+                seenIDs.insert(char.id)
+
+                let primaryName = char.original.flatMap { $0.isEmpty ? nil : $0 } ?? char.name
+                let subName = (char.original?.isEmpty == false && char.name != char.original) ? char.name : nil
+                let voiceActor = item.staff.flatMap { ($0.original?.isEmpty == false) ? $0.original : $0.name }
+
+                characters.append(GameCharacter(
+                    id: char.id,
+                    name: primaryName,
+                    originalName: subName,
+                    role: item.note,
+                    imageURL: char.image?.url,
+                    pageURL: URL(string: "https://vndb.org/\(char.id)"),
+                    voiceActor: voiceActor,
+                    summary: Self.cleanBBCode(char.description)
+                ))
+            }
+        }
+
+        if characters.isEmpty {
+            let charBody = try JSONSerialization.data(withJSONObject: [
+                "filters": ["vn", "=", ["id", "=", cleanID]],
+                "fields": "id, name, original, description, image.url, vns.id, vns.role"
+            ])
+            guard let charURL = URL(string: "https://api.vndb.org/kana/character") else { return [] }
+            let charResult = try await request(charURL, body: charBody, timeout: 45, as: VNDBCharInfoPage.self)
+            for char in charResult.results {
+                if seenIDs.contains(char.id) {
+                    continue
+                }
+                seenIDs.insert(char.id)
+                let primaryName = char.original.flatMap { $0.isEmpty ? nil : $0 } ?? char.name
+                let subName = (char.original?.isEmpty == false && char.name != char.original) ? char.name : nil
+                characters.append(GameCharacter(
+                    id: char.id,
+                    name: primaryName,
+                    originalName: subName,
+                    role: char.vns?.first(where: { $0.id == cleanID })?.role,
+                    imageURL: char.image?.url,
+                    pageURL: URL(string: "https://vndb.org/\(char.id)"),
+                    voiceActor: nil,
+                    summary: Self.cleanBBCode(char.description)
+                ))
+            }
+        }
+        return characters
+    }
+
+    private func fetchBangumiCharacters(for sourceID: String) async throws -> [GameCharacter] {
+        let cleanID = sourceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: "https://api.bgm.tv/v0/subjects/\(cleanID)/characters") else { return [] }
+        let list = try await request(url, timeout: 45, as: [BangumiCharacterFull].self)
+        return list.map { char in
+            let voiceActor = char.actors?.compactMap { actor -> String? in
+                let name = actor.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                return name.isEmpty ? nil : name
+            }.joined(separator: ", ")
+
+            return GameCharacter(
+                id: String(char.id),
+                name: char.name,
+                originalName: nil,
+                role: char.relation,
+                imageURL: char.images?.large ?? char.images?.medium ?? char.images?.common ?? char.images?.grid,
+                pageURL: URL(string: "https://bgm.tv/character/\(char.id)"),
+                voiceActor: (voiceActor?.isEmpty == false) ? voiceActor : nil,
+                summary: char.summary?.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+    }
+
+    public static func cleanBBCode(_ text: String?) -> String? {
+        guard let text, !text.isEmpty else { return nil }
+        var result = text
+        result = result.replacingOccurrences(
+            of: #"(?i)\[url=[^\]]*\](.*?)\[/url\]"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"(?i)\[url\](.*?)\[/url\]"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"(?i)\[spoiler\](.*?)\[/spoiler\]"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"\[/?[a-zA-Z0-9_-]+(=[^\]]*)?\]"#,
+            with: "",
+            options: .regularExpression
+        )
+        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     public static func parseRetryAfter(_ header: String?) -> TimeInterval? {
@@ -376,6 +502,64 @@ private struct VNDBCharacter: Decodable {
     let vns: [Appearance]?
 }
 
+private struct VNDBVAItem: Decodable {
+    let note: String?
+    let character: VNDBCharInfo?
+    let staff: VNDBStaffInfo?
+}
+
+private struct VNDBCharInfo: Decodable {
+    struct Appearance: Decodable {
+        let id: String
+        let role: String?
+    }
+    let vns: [Appearance]?
+    let id: String
+    let name: String
+    let original: String?
+    let description: String?
+    let image: VNDBImage?
+}
+
+private struct VNDBStaffInfo: Decodable {
+    let id: String
+    let name: String
+    let original: String?
+}
+
+private struct VNDBNovelVA: Decodable {
+    let id: String
+    let title: String?
+    let voiceActors: [VNDBVAItem]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title
+        case voiceActors = "va"
+    }
+}
+
+private struct VNDBNovelVAPage: Decodable {
+    let results: [VNDBNovelVA]
+}
+
+private struct VNDBCharInfoPage: Decodable {
+    let results: [VNDBCharInfo]
+}
+
+private struct BangumiActor: Decodable {
+    let id: Int?
+    let name: String
+}
+
+private struct BangumiCharacterFull: Decodable {
+    let id: Int
+    let name: String
+    let relation: String?
+    let images: BangumiImages?
+    let summary: String?
+    let actors: [BangumiActor]?
+}
+
 private struct VNDBTitle: Decodable {
     let title: String
     let lang: String
@@ -463,6 +647,8 @@ public actor SourceGatekeeper {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var searches: [String: (Date, [GameMetadata])] = [:]
     private var gameDetails: [String: (Date, GameMetadata)] = [:]
+    private var characterResults: [String: (Date, [GameCharacter])] = [:]
+    private var characterFailures: [String: (Date, Error)] = [:]
     private var lastRequestAt: Date?
     private var cooldownUntil: (date: Date, code: Int)?
 
@@ -566,6 +752,36 @@ public actor SourceGatekeeper {
         } catch let ProviderError.rateLimited(code, retryAfter) {
             recordRateLimit(code, retryAfter: retryAfter)
             throw ProviderError.http(code)
+        }
+    }
+
+    public func characters(
+        _ id: String,
+        operation: @Sendable () async throws -> [GameCharacter]
+    ) async throws -> [GameCharacter] {
+        try await acquire()
+        defer { release() }
+        if let cached = characterResults[id], Date().timeIntervalSince(cached.0) < 600 {
+            return cached.1
+        }
+        if let failed = characterFailures[id], Date().timeIntervalSince(failed.0) < 30 {
+            throw failed.1
+        }
+        try await paceAndCheckCooldown()
+        defer { lastRequestAt = Date() }
+        do {
+            let result = try await operation()
+            Self.insertCache(result, forKey: id, into: &characterResults, ttl: 600, limit: 100)
+            characterFailures[id] = nil
+            return result
+        } catch let ProviderError.rateLimited(code, retryAfter) {
+            recordRateLimit(code, retryAfter: retryAfter)
+            throw ProviderError.http(code)
+        } catch {
+            if !Task.isCancelled {
+                Self.insertCache(error, forKey: id, into: &characterFailures, ttl: 30, limit: 100)
+            }
+            throw error
         }
     }
 
