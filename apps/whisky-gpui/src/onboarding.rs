@@ -6,11 +6,12 @@ use serde_json::{Value, json};
 pub(crate) const COMPLETED: &str = "libraryOnboardingCompleted";
 pub(crate) const ENABLED: &str = "libraryMetadataEnabledSources";
 pub(crate) const DEFAULT_SOURCE: &str = "libraryMetadataDefaultSource";
-pub(crate) const SOURCES: [(&str, &str); 4] = [
+pub(crate) const SOURCES: [(&str, &str); 5] = [
     ("bangumi", "Bangumi"),
     ("vndb", "VNDB"),
     ("steam", "Steam"),
     ("ymgal", "月幕"),
+    ("nextmoe", "NextMoe"),
 ];
 pub(crate) const CATEGORIES: [(&str, &str, &str); 4] = [
     ("basic", "名称与基本信息", "libraryMetadataBasicSource"),
@@ -134,5 +135,19 @@ mod tests {
         assert_eq!(policy.default_source, "bangumi");
         assert_eq!(policy.enabled_sources, ["vndb"]);
         assert!(policy.category_sources.is_empty());
+    }
+
+    #[test]
+    fn nextmoe_preferences_round_trip_and_respect_existing_choices() {
+        assert!(MetadataPreferences::default().enabled_sources.contains(&"nextmoe".into()));
+        let policy = MetadataPreferences::read(&json!({
+            DEFAULT_SOURCE: "nextmoe",
+            ENABLED: "vndb,nextmoe",
+            "libraryMetadataCharactersSource": "nextmoe"
+        }));
+        assert_eq!(MetadataPreferences::read(&policy.values()), policy);
+        assert_eq!(policy.default_source, "nextmoe");
+        assert_eq!(policy.enabled_sources, ["vndb", "nextmoe"]);
+        assert_eq!(MetadataPreferences::read(&json!({ENABLED: "vndb"})).enabled_sources, ["vndb"]);
     }
 }

@@ -42,7 +42,7 @@ public final class PreferencesService {
         "preferredTerminal": "terminal", "preferredLinuxTerminal": "auto", "libraryCoverFillStyle": "blurred",
         "libraryDisplayMode": "covers", "librarySort": "recent",
         "libraryDetailLayoutStyle": "hero",
-        "libraryMetadataEnabledSources": "bangumi,vndb,steam,ymgal",
+        "libraryMetadataEnabledSources": "bangumi,vndb,steam,ymgal,nextmoe",
         "libraryMetadataDefaultSource": "bangumi",
         "libraryMetadataBasicSource": "inherit",
         "libraryMetadataSummarySource": "inherit",
@@ -150,7 +150,7 @@ public final class PreferencesService {
         } else {
             values = [try params.text("key"): params["value"] ?? .null]
         }
-        let sources: Set<String> = ["bangumi", "vndb", "steam", "ymgal"]
+        let sources: Set<String> = ["bangumi", "vndb", "steam", "ymgal", "nextmoe"]
         var result: [String: Any] = [:]
         for (key, value) in values {
             if Self.flags[key] != nil {

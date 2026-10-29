@@ -280,7 +280,7 @@ public final class LibraryMetadataService {
         if params["sources"] != nil { return Self.requestedSources(params) }
         guard let text = try preferences?.call("preferences.read", params: [:])
             .object?["libraryMetadataEnabledSources"]?.string else {
-            return [.bangumi, .vndb, .steam, .ymgal]
+            return [.bangumi, .vndb, .steam, .ymgal, .nextmoe]
         }
         return text.split(separator: ",").compactMap { GameMetadataSource(rawValue: String($0)) }
     }

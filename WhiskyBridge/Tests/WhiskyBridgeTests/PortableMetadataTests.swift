@@ -199,6 +199,24 @@ private final class MetadataHydrationProtocol: URLProtocol, @unchecked Sendable 
     #expect(absent.object?["hasRecord"] == .bool(false))
 }
 
+@Test @MainActor func nextMoeMetadataPreferencesAreAcceptedAndPersisted() throws {
+    let fixture = try MetadataFixture()
+    defer { fixture.remove() }
+    let preferences = PreferencesService(fileURL: fixture.root.appendingPathComponent("preferences.plist"),
+                                         defaultBottleDirectory: fixture.root)
+    let defaults = try preferences.call("preferences.read", params: [:])
+    #expect(defaults.object?["libraryMetadataEnabledSources"]?.string?.contains("nextmoe") == true)
+    _ = try preferences.call("preferences.setMany", params: ["values": .object([
+        "libraryMetadataDefaultSource": .string("nextmoe"),
+        "libraryMetadataSummarySource": .string("nextmoe"),
+        "libraryMetadataEnabledSources": .string("vndb,nextmoe")
+    ])])
+    let saved = try preferences.call("preferences.read", params: [:])
+    #expect(saved.object?["libraryMetadataDefaultSource"] == .string("nextmoe"))
+    #expect(saved.object?["libraryMetadataSummarySource"] == .string("nextmoe"))
+    #expect(saved.object?["libraryMetadataEnabledSources"] == .string("vndb,nextmoe"))
+}
+
 @Test @MainActor func metadataConfigurationDraftRefreshFailureAndPresentation() async throws {
     let fixture = try MetadataFixture()
     defer { fixture.remove() }

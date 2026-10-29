@@ -118,7 +118,7 @@ Defaults:
 - `libraryMetadataDefaultSource`: `"bangumi"`
 - `libraryMetadataBasicSource`, `libraryMetadataSummarySource`,
   `libraryMetadataCoverSource`, `libraryMetadataCharactersSource`: `"inherit"`
-- `libraryMetadataEnabledSources`: `"bangumi,vndb,steam,ymgal"` (empty is valid)
+- `libraryMetadataEnabledSources`: `"bangumi,vndb,steam,ymgal,nextmoe"` (empty is valid)
 - `libraryOnboardingCompleted`: `false`
 
 Strategy preferences accept the four active providers; only category preferences

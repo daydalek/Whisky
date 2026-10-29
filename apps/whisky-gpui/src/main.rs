@@ -171,6 +171,8 @@ impl Render for WhiskyApp {
                     this.about = false;
                 } else if this.preview.sheet.is_some() {
                     this.preview_dismiss(cx);
+                } else if this.walkthrough_view.fullscreen {
+                    this.walkthrough_view.fullscreen = false;
                 } else {
                     this.detail_open = false;
                 }
@@ -200,6 +202,9 @@ impl Render for WhiskyApp {
             if let Some(index) = self.detail {
                 root = root.child(self.detail_panel(index, presence.progress, ww, wh, cx));
             }
+        }
+        if self.walkthrough_view.fullscreen {
+            root = root.child(self.walkthrough_tree_overlay(cx));
         }
         if let Some(sheet) = self.preview.sheet {
             root = root.child(self.preview_sheet(sheet, ww, wh, window, cx));

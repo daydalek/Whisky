@@ -151,7 +151,7 @@ impl WhiskyApp {
                 .child(div().text_size(px(24.)).font_weight(FontWeight::SEMIBOLD).child("选择资料来源"))
                 .child(muted("先选一个默认平台，需要时再单独调整。只影响新资料，不会重写已确认的作品。").line_height(relative(1.5)))
                 .child(row().justify_between().child("默认来源").child(self.onboarding_source_menu(None, cx)))
-                .child(muted("Bangumi：中文作品资料 · VNDB：视觉小说 · Steam：商店资料 · 月幕：中文 Galgame 资料").text_size(px(11.)))
+                .child(muted("Bangumi：中文作品资料 · VNDB：视觉小说 · Steam：商店资料 · 月幕 / NextMoe：Galgame 资料").text_size(px(11.)))
                 .child(Button::new("onboarding-expand")
                     .label(if state.expanded { "收起分类设置 −" } else { "按资料类型调整 ＋" })
                     .ghost().disabled(state.saving)
