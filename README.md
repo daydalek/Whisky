@@ -57,6 +57,7 @@
 | **[VNDB](https://vndb.org/)** | 通过 VNDB Kana API（`api.vndb.org/kana/vn`）支持关键词或 `v<id>` 直接检索多语言标题、罗马音、别名、开发商、发售日、简介与封面 | 默认启用；支持多语言标题归一化与中文优先展示 |
 | **[Steam](https://store.steampowered.com/)** | 通过 Steam Store Search 与 `appdetails` 接口检索简中商店名称、简介、开发商、发行日及 `library_600x900` 纵向封面 | 默认启用；列表检索使用轻量缩略图，仅在选中条目时拉取详情 |
 | **[月幕 Galgame (YMGal)](https://www.ymgal.games/)** | 通过[月幕官方开放 API](https://www.ymgal.games/developer)（公开 OAuth 客户端凭证）提供游戏搜索、中文名/原名、发售日、封面与档案简介；开发商名称取自搜索结果提供的 `orgName`（若有） | 默认启用，可在源选择器中关闭；月幕 API 仅适用于非商业用途 |
+| **[NextMoe 鲲 Galgame 论坛](https://developer.nextmoe.dev/)** | 通过 NextMoe 公开目录 API（`api.nextmoe.dev/v2/catalog`，匿名只读）检索多语言标题、封面、简介、开发商、发售日、人物与声优，并提供攻略路线索引与按需加载的路线图 | 默认启用；可在资料搜索中使用，也可通过「攻略路线」仅获取攻略而不替换已有资料；攻略版权归原作者所有，详见 [docs/MetadataScraping.md](docs/MetadataScraping.md) |
 
 ---
 
@@ -146,6 +147,7 @@ rm -f  ~/Library/Preferences/com.franke.Whisky.plist
     - **[VNDB (The Visual Novel Database)](https://vndb.org/)**（[VNDB Kana API](https://api.vndb.org/kana)）
     - **[Steam](https://store.steampowered.com/)**（Steam Store Web API）
     - **[月幕 Galgame](https://www.ymgal.games/)**（通过其[官方开放 API](https://www.ymgal.games/developer)提供搜索、封面与游戏简介）
+    - **[NextMoe · 鲲 Galgame 论坛](https://developer.nextmoe.dev/)**（[NextMoe API v2](https://developer.nextmoe.dev/docs/v2)；提供游戏资料、人物与攻略路线索引，攻略内容版权归各攻略原作者所有）
 
 ### Credits & Acknowledgments
 
