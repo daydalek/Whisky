@@ -28,6 +28,7 @@ import FoundationNetworking
 public final class LibraryMetadataService {
     public static let methods = [
         "metadata.search", "metadata.sync", "metadata.apply", "metadata.clear",
+        "metadata.configuration.get", "metadata.configuration.save", "metadata.refresh",
         "metadata.cover.import", "metadata.cover.reset"
     ]
     private static let searchThumbnailLimit = 8
@@ -35,11 +36,14 @@ public final class LibraryMetadataService {
     let jobs: BridgeJobStore
     let session: URLSession
     let networkAccess: MetadataNetworkAccess
+    let preferences: PreferencesService?
 
-    public init(jobs: BridgeJobStore, session: URLSession = .shared, networkAccess: @escaping MetadataNetworkAccess) {
+    public init(jobs: BridgeJobStore, session: URLSession = .shared,
+                preferences: PreferencesService? = nil, networkAccess: @escaping MetadataNetworkAccess) {
         self.jobs = jobs
         self.session = session
         self.networkAccess = networkAccess
+        self.preferences = preferences
     }
 
     /// Metadata operations are addressed by library entry, so the bridge reads
@@ -55,7 +59,16 @@ public final class LibraryMetadataService {
         }
         let entry = try await workspace.entry(params)
         let store = GameMetadataStore(directory: entry.metadataDirectory, networkAccess: networkAccess)
+        if params["background"]?.bool == true,
+           method == "metadata.refresh" || method == "metadata.configuration.save" {
+            return try jobs.start(name: method) { [self] progress in
+                progress(.object(["stage": .string("fetching")]))
+                return try await configuration(method, params: params, entry: entry, store: store)
+            }
+        }
         switch method {
+        case "metadata.configuration.get", "metadata.configuration.save", "metadata.refresh":
+            return try await configuration(method, params: params, entry: entry, store: store)
         case "metadata.search":
             return try search(params: params, store: store)
         case "metadata.apply":
@@ -160,13 +173,24 @@ public final class LibraryMetadataService {
             metadata.walkthroughWorkID = workID
             metadata.walkthroughs = current.walkthroughs
         }
-        try await store.save(metadata, for: entry.metadataIdentity)
+        var record = try await store.loadRecord(for: entry.metadataIdentity) ?? defaultRecord()
+        record.bindings[metadata.source.rawValue] = metadata.sourceID
+        record.snapshots[metadata.source.rawValue] = metadata
+        if let category = params["category"]?.string {
+            guard ["basic", "summary", "cover", "characters"].contains(category) else {
+                throw BridgeFailure("invalid_params", "Unknown metadata category")
+            }
+            record.categorySources[category] = metadata.source
+        } else {
+            record.defaultSource = metadata.source
+        }
+        try await store.saveRecord(record, for: entry.metadataIdentity)
         if let cover = metadata.coverURL {
             try? await store.cacheCover(from: cover, session: session)
         }
         await cacheCharacterImages(metadata, store: store)
         return try .object([
-            "metadata": .encoded(metadata),
+            "metadata": .encoded(record.resolved().metadata),
             "cover": .string(
                 metadata.coverURL.flatMap { store.cachedCoverURL(for: $0)?.path } ?? ""
             )
@@ -209,7 +233,7 @@ public final class LibraryMetadataService {
         let session = self.session
         let query = try params.text("query").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { throw BridgeFailure("invalid_params", "Search text is required") }
-        let sources = Self.requestedSources(params)
+        let sources = try enabledSources(params)
         let providers = sources.filter { $0 != .hikarinagi }
             .map { PublicGameMetadataProvider(source: $0, session: session, networkAccess: networkAccess) }
         return try jobs.start(name: "metadata.search") { progress in
@@ -247,11 +271,18 @@ public final class LibraryMetadataService {
     static func requestedSources(_ params: [String: JSONValue]) -> [GameMetadataSource] {
         if case let .array(items)? = params["sources"] {
             let chosen = items.compactMap { $0.string.flatMap(GameMetadataSource.init(rawValue:)) }
-            if !chosen.isEmpty {
-                return chosen
-            }
+            return chosen
         }
         return GameMetadataSource.allCases
+    }
+
+    func enabledSources(_ params: [String: JSONValue]) throws -> [GameMetadataSource] {
+        if params["sources"] != nil { return Self.requestedSources(params) }
+        guard let text = try preferences?.call("preferences.read", params: [:])
+            .object?["libraryMetadataEnabledSources"]?.string else {
+            return [.bangumi, .vndb, .steam, .ymgal]
+        }
+        return text.split(separator: ",").compactMap { GameMetadataSource(rawValue: String($0)) }
     }
 }
 

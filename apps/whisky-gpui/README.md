@@ -128,6 +128,25 @@ installed set plus any failed verbs. The helper needs `verbs.txt`, `winetricks`
 and `cabextract` beside its executable; `tools/package-app.sh` copies them from
 `Libraries/` into the app bundle.
 
+## Metadata setup and source selection
+
+On first use of the new setup flow, Whisky explains containers and the library,
+then offers a default metadata provider. Category overrides are collapsed by
+default. “暂不刮削” stores an empty allowed-search list; it does not silently opt
+the user into the recommended providers. Automatic matching waits for saved
+setup preferences. Setup completion and the strategy are submitted together,
+and a failed save leaves the draft open for retry.
+
+Settings → 资料来源 reopens the same editor; 使用指南 reopens the introduction.
+New defaults affect new records only. Existing games retain their confirmed
+platform identities, category selections, and manual overrides. Runtime
+installation is a separate, deferrable step.
+
+The provider switches in search/sync are persisted through the bridge, not
+session-only preview state. An empty selection stays empty after restart.
+The shared record and bridge contracts are documented in
+[`../../WhiskyBridge/MetadataConfiguration.md`](../../WhiskyBridge/MetadataConfiguration.md).
+
 ## Visual baseline capture
 
 Build with the `visual-test` feature and set `WHISKY_DEMO_CAPTURE`. PNGs are

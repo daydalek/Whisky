@@ -101,7 +101,7 @@ public final class ApplicationService {
         self.jobs = jobStore
         diagnosticsService = FileDiagnosticsService(jobs: jobStore)
         lifecycleService = ContainerLifecycleService(jobs: jobStore)
-        metadataService = LibraryMetadataService(jobs: jobStore, networkAccess: { [weak preferences] in
+        metadataService = LibraryMetadataService(jobs: jobStore, preferences: preferences, networkAccess: { [weak preferences] in
             let values = try await preferences?.call("preferences.read", params: [:])
             if values?.object?["offlineMode"] == .bool(true) { throw URLError(.notConnectedToInternet) }
         })
@@ -247,7 +247,7 @@ extension ApplicationService {
 
     private func preferencesCall(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {
         switch method {
-        case "preferences.read", "preferences.set", "preferences.schema":
+        case "preferences.read", "preferences.set", "preferences.setMany", "preferences.schema":
             guard let preferences else { throw BridgeFailure("method_unavailable", "Preferences store is unavailable") }
             return try preferences.call(method, params: params)
         default:

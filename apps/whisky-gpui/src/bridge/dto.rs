@@ -757,56 +757,16 @@ pub(crate) struct MetadataDto {
     #[serde(default)]
     pub(crate) release_date: Option<String>,
     #[serde(default)]
-    pub(crate) characters: Option<Vec<CharacterDto>>,
+    pub(crate) characters: Option<Vec<crate::model::Character>>,
     #[serde(default)]
-    pub(crate) walkthroughs: Option<Vec<crate::walkthrough::Walkthrough>>,
-    #[serde(flatten)]
-    pub(crate) extra: std::collections::BTreeMap<String, serde_json::Value>,
+    pub(crate) provenance: std::collections::BTreeMap<String, MetadataProvenanceDto>,
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CharacterDto {
-    pub(crate) id: String,
-    pub(crate) name: String,
-    pub(crate) original_name: Option<String>,
-    #[serde(rename = "imageURL")]
-    pub(crate) image_url: Option<String>,
-    pub(crate) voice_actor: Option<String>,
-    pub(crate) summary: Option<String>,
-    pub(crate) role: Option<String>,
-}
-
-#[cfg(test)]
-mod character_tests {
-    use super::*;
-
-    #[test]
-    fn metadata_round_trip_preserves_identity_and_remote_portraits() {
-        let raw = serde_json::json!({
-            "source": "vndb", "sourceID": "v17", "title": "作品", "fetchedAt": 1000,
-            "alternateTitles": ["Other title"],
-            "characters": [{
-                "id": "c1", "name": "人物", "imageURL": "https://example.com/c1.jpg",
-                "voiceActor": "声优", "summary": "简介"
-            }]
-        });
-        let metadata: MetadataDto = serde_json::from_value(raw.clone()).unwrap();
-        assert_eq!(metadata.characters.as_ref().unwrap()[0].voice_actor.as_deref(), Some("声优"));
-        let encoded = serde_json::to_value(metadata).unwrap();
-        for key in ["source", "sourceID", "fetchedAt", "alternateTitles"] {
-            assert_eq!(encoded[key], raw[key]);
-        }
-        assert_eq!(encoded["characters"][0]["imageURL"], raw["characters"][0]["imageURL"]);
-    }
-
-    #[test]
-    fn empty_characters_are_distinct_from_not_fetched() {
-        let unfetched: MetadataDto = serde_json::from_str("{}").unwrap();
-        let empty: MetadataDto = serde_json::from_str(r#"{"characters":[]}"#).unwrap();
-        assert!(unfetched.characters.is_none());
-        assert!(empty.characters.unwrap().is_empty());
-    }
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct MetadataProvenanceDto {
+    pub(crate) source: Option<String>,
+    #[serde(default)]
+    pub(crate) manual: bool,
 }
 
 /// `GameActivity`; dates arrive as Unix seconds (`dateEncodingStrategy`).
@@ -901,6 +861,17 @@ impl EntryDto {
             title,
             studio: non_empty(metadata.developer),
             description: non_empty(metadata.summary),
+            characters: metadata.characters.unwrap_or_default(),
+            metadata_sources: metadata.provenance.into_iter().filter_map(|(category, origin)| {
+                let label = if origin.manual {
+                    Some("本地编辑".to_owned())
+                } else {
+                    origin.source.map(|source| crate::onboarding::SOURCES.iter()
+                        .find(|(id, _)| *id == source)
+                        .map(|(_, label)| (*label).to_owned()).unwrap_or(source))
+                };
+                label.map(|label| (category, label))
+            }).collect(),
             release: non_empty(metadata.release_date),
             landscape: self.cover_aspect_ratio.is_some_and(|ratio| ratio > 1.0),
             bottle,
@@ -952,6 +923,26 @@ pub(crate) fn existing_file(raw: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolved_characters_and_category_provenance_reach_game_details() {
+        let entry: EntryDto = serde_json::from_value(serde_json::json!({
+            "id": "folder:test", "name": "local",
+            "metadata": {
+                "title": "作品", "summary": "本地简介",
+                "characters": [{"id":"c1","name":"人物","originalName":"Character","role":"main"}],
+                "provenance": {
+                    "summary": {"manual":true},
+                    "characters": {"source":"vndb","sourceID":"v17"}
+                }
+            }
+        })).unwrap();
+        let game = entry.into_game(1);
+        assert_eq!(game.characters[0].name, "人物");
+        assert_eq!(game.characters[0].original_name.as_deref(), Some("Character"));
+        assert_eq!(game.metadata_sources["summary"], "本地编辑");
+        assert_eq!(game.metadata_sources["characters"], "VNDB");
+    }
 
     /// Recorded from a release build of `WhiskyBridge/.build/release/whisky-bridge`.
     const DESCRIBE_FIXTURE: &str = r#"{

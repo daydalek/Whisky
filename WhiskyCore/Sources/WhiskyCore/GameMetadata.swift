@@ -84,9 +84,7 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
     public var alternateTitles: [String]?
     public var titleLanguage: String?
     public var characters: [GameCharacter]?
-    public var walkthroughs: [GameWalkthrough]?
-    /// NextMoe work explicitly selected for routes, independent of the metadata source.
-    public var walkthroughWorkID: String?
+    public var provenance: [String: MetadataProvenance]?
     public var fetchedAt: Date
 
     public var id: String {

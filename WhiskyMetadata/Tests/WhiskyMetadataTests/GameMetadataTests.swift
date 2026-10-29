@@ -78,7 +78,7 @@ struct GameMetadataTests {
         let game = GameMetadata(source: .vndb, sourceID: "v17", title: "作品", summary: "简介")
         #expect(try await store.load(for: "A") == nil)
         try await store.save(game, for: "A")
-        #expect(try await store.load(for: "A") == game)
+        #expect(try await store.load(for: "A") == GameMetadataRecord(legacy: game).resolved().metadata)
         #expect(try await store.load(for: "B") == nil)
         try await store.remove(for: "A")
         #expect(try await store.load(for: "A") == nil)

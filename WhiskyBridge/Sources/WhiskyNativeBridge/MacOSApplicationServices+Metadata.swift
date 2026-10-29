@@ -31,7 +31,9 @@ extension MacOSApplicationServices {
         if method == "gameConfig.match" || method == "gameConfig.apply" {
             return try await gameConfigCall(method, params: params, workspace: workspace)
         }
-        return try await LibraryMetadataService(jobs: jobs, networkAccess: {
+        return try await LibraryMetadataService(jobs: jobs, preferences: PreferencesService(
+            defaults: .standard, defaultBottleDirectory: FileManager.default.homeDirectoryForCurrentUser
+        ), networkAccess: {
             try NetworkSettings.requireNetwork()
         }).call(method, params: params, workspace: workspace)
     }
