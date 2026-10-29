@@ -6,6 +6,14 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Character {
+    pub(crate) name: String,
+    pub(crate) original_name: Option<String>,
+    pub(crate) role: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Game {
     /// Bridge entry identity (`steam:…` or `pinned:…`); `demo:N` for the demo.
@@ -16,6 +24,8 @@ pub(crate) struct Game {
     /// Developer from `GameMetadata.developer`; the bridge exposes no publisher.
     pub(crate) studio: Option<String>,
     pub(crate) description: Option<String>,
+    pub(crate) characters: Vec<Character>,
+    pub(crate) metadata_sources: std::collections::BTreeMap<String, String>,
     /// Release date as the bridge reports it (`YYYY-MM-DD`).
     pub(crate) release: Option<String>,
     pub(crate) landscape: bool,
@@ -57,6 +67,8 @@ impl Game {
             title: demo.title.to_owned(),
             studio: (!demo.studio.is_empty()).then(|| demo.studio.to_owned()),
             description: (!demo.description.is_empty()).then(|| demo.description.to_owned()),
+            characters: Vec::new(),
+            metadata_sources: Default::default(),
             release: (!demo.release.is_empty()).then(|| demo.release.to_owned()),
             landscape: demo.landscape,
             bottle: demo.bottle,

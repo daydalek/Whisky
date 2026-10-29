@@ -123,7 +123,15 @@ public struct LibraryPresentation: Sendable {
 
     /// Reads the same atomic JSON snapshots as the native app, without creating files.
     public static func load(for entry: LibraryEntry) throws -> LibraryPresentation {
-        let metadata: GameMetadata? = try read(LibraryStorageLayout.metadata(for: entry))
+        let metadataURL = LibraryStorageLayout.metadata(for: entry)
+        let metadata: GameMetadata?
+        if FileManager.default.fileExists(atPath: metadataURL.path) {
+            let size = try metadataURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size <= 16 * 1_024 * 1_024 else { throw CocoaError(.fileReadTooLarge) }
+            metadata = try GameMetadataRecord.decode(Data(contentsOf: metadataURL)).resolved().metadata
+        } else {
+            metadata = nil
+        }
         let activity: GameActivity = try read(LibraryStorageLayout.activity(for: entry)) ?? GameActivity()
         let settings: CoverSelection? = try read(
             LibraryStorageLayout.metadata(for: entry).appendingPathExtension("cover-settings")

@@ -1245,9 +1245,11 @@ impl WhiskyApp {
                                                 .rounded(px(12.))
                                                 .bg(rgba(0xffffff09))
                                                 .child(
-                                                    div()
-                                                        .font_weight(FontWeight::SEMIBOLD)
-                                                        .child("简介"),
+                                                    row().justify_between()
+                                                        .child(div().font_weight(FontWeight::SEMIBOLD).child("简介"))
+                                                        .when_some(g.metadata_sources.get("summary").cloned(), |row, source| {
+                                                            row.child(muted(source).text_size(px(11.)))
+                                                        }),
                                                 )
                                                 .child(
                                                     div()
@@ -1257,6 +1259,33 @@ impl WhiskyApp {
                                                         .child(description),
                                                 ),
                                         )
+                                    })
+                                    .when(!g.characters.is_empty(), |d| {
+                                        let mut characters = col().flex_shrink_0().gap(px(12.))
+                                            .p(px(20.)).rounded(px(12.)).bg(rgba(0xffffff09))
+                                            .child(row().justify_between()
+                                                .child(div().font_weight(FontWeight::SEMIBOLD).child("人物"))
+                                                .when_some(g.metadata_sources.get("characters").cloned(), |row, source| {
+                                                    row.child(muted(source).text_size(px(11.)))
+                                                }));
+                                        for character in &g.characters {
+                                            let role = match character.role.as_deref() {
+                                                Some("main") => "主要角色",
+                                                Some("primary") => "主角",
+                                                Some("side") => "配角",
+                                                Some("appears") => "登场角色",
+                                                Some(role) => role,
+                                                None => "",
+                                            };
+                                            characters = characters.child(row().gap(px(12.))
+                                                .child(col().flex_1().gap(px(3.))
+                                                    .child(character.name.clone())
+                                                    .when_some(character.original_name.clone().filter(|name| name != &character.name), |col, name| {
+                                                        col.child(muted(name).text_size(px(11.)))
+                                                    }))
+                                                .child(muted(role.to_owned()).text_size(px(11.))));
+                                        }
+                                        d.child(characters)
                                     }),
                             ),
                         ),

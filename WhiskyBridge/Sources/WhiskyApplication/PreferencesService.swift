@@ -21,7 +21,7 @@ import WhiskyBridgeProtocol
 
 @MainActor
 public final class PreferencesService {
-    public static let methods = ["preferences.read", "preferences.set", "preferences.schema"]
+    public static let methods = ["preferences.read", "preferences.set", "preferences.setMany", "preferences.schema"]
     private let defaults: UserDefaults?
     private let fileURL: URL?
     private let defaultBottleDirectory: URL
@@ -30,6 +30,7 @@ public final class PreferencesService {
     /// with when the key is absent; the settings form must show the same state.
     private static let flags: [String: Bool] = [
         "offlineMode": false, "killOnTerminate": true, "showMenuBarExtra": false,
+        "libraryOnboardingCompleted": false,
         "checkWhiskyWineUpdates": true, "libraryRefreshAfterExit": true,
         "libraryDetailBlurredBackground": true, "librarySingleLineTitles": false,
         "libraryCenterWideCoverText": false, "libraryMixedCoverLayout": true, "libraryBlurredCoverFill": true
@@ -41,6 +42,11 @@ public final class PreferencesService {
         "libraryDisplayMode": "covers", "librarySort": "recent",
         "libraryDetailLayoutStyle": "hero",
         "libraryMetadataEnabledSources": "bangumi,vndb,steam,ymgal",
+        "libraryMetadataDefaultSource": "bangumi",
+        "libraryMetadataBasicSource": "inherit",
+        "libraryMetadataSummarySource": "inherit",
+        "libraryMetadataCoverSource": "inherit",
+        "libraryMetadataCharactersSource": "inherit",
         "telemetryConsent": "undecided"
     ]
     private static let pathKeys = ["defaultBottleLocation"]
@@ -65,7 +71,7 @@ public final class PreferencesService {
                 "paths": .array(Self.pathKeys.map(JSONValue.string))
             ])
         }
-        guard method == "preferences.read" || method == "preferences.set" else {
+        guard method == "preferences.read" || method == "preferences.set" || method == "preferences.setMany" else {
             throw BridgeFailure("method_unavailable", "Unknown preference method")
         }
         if let fileURL {
@@ -78,17 +84,8 @@ public final class PreferencesService {
     private func defaultsCall(
         _ method: String, params: [String: JSONValue], defaults: UserDefaults
     ) throws -> JSONValue {
-        if method == "preferences.set" {
-            let key = try params.text("key")
-            if Self.flags[key] != nil {
-                try defaults.set(params.flag("value"), forKey: key)
-            } else if Self.texts[key] != nil {
-                try defaults.set(params.text("value"), forKey: key)
-            } else if key == "defaultBottleLocation" {
-                try defaults.set(params.path("value"), forKey: key)
-            } else {
-                throw BridgeFailure("invalid_params", "Unknown application preference: \(key)")
-            }
+        for (key, value) in try updates(method, params: params) {
+            defaults.set(value, forKey: key)
         }
         defaults.synchronize()
         var values = Self.flags.mapValues(JSONValue.bool)
@@ -118,17 +115,9 @@ public final class PreferencesService {
                 }
                 stored = dictionary
             }
-            if method == "preferences.set" {
-                let key = try params.text("key")
-                if Self.flags[key] != nil {
-                    stored[key] = try params.flag("value")
-                } else if Self.texts[key] != nil {
-                    stored[key] = try params.text("value")
-                } else if key == "defaultBottleLocation" {
-                    stored[key] = try params.path("value").path
-                } else {
-                    throw BridgeFailure("invalid_params", "Unknown application preference: \(key)")
-                }
+            let changes = try updates(method, params: params)
+            if !changes.isEmpty {
+                stored.merge(changes) { _, new in new }
                 let data = try PropertyListSerialization.data(fromPropertyList: stored, format: .binary, options: 0)
                 try data.write(to: url, options: .atomic)
             }
@@ -144,5 +133,45 @@ public final class PreferencesService {
             )
             return .object(values)
         }
+    }
+
+    /// Validate the entire transaction before touching either persistence backend.
+    private func updates(_ method: String, params: [String: JSONValue]) throws -> [String: Any] {
+        if method == "preferences.read" { return [:] }
+        let values: [String: JSONValue]
+        if method == "preferences.setMany" {
+            guard let object = params["values"]?.object else {
+                throw BridgeFailure("invalid_params", "Missing preference values")
+            }
+            values = object
+        } else {
+            values = [try params.text("key"): params["value"] ?? .null]
+        }
+        let sources: Set<String> = ["bangumi", "vndb", "steam", "ymgal"]
+        var result: [String: Any] = [:]
+        for (key, value) in values {
+            if Self.flags[key] != nil {
+                guard let flag = value.bool else { throw BridgeFailure("invalid_params", "Expected boolean: \(key)") }
+                result[key] = flag
+            } else if Self.texts[key] != nil {
+                guard let text = value.string else { throw BridgeFailure("invalid_params", "Expected string: \(key)") }
+                if key == "libraryMetadataEnabledSources" {
+                    let chosen = text.isEmpty ? [] : text.components(separatedBy: ",")
+                    guard chosen.allSatisfy({ sources.contains($0) }) else {
+                        throw BridgeFailure("invalid_params", "Unsupported enabled source")
+                    }
+                } else if key.hasPrefix("libraryMetadata") && key.hasSuffix("Source") {
+                    guard sources.contains(text) || (key != "libraryMetadataDefaultSource" && text == "inherit") else {
+                        throw BridgeFailure("invalid_params", "Unsupported metadata source")
+                    }
+                }
+                result[key] = text
+            } else if key == "defaultBottleLocation" {
+                result[key] = try ["value": value].path("value").path
+            } else {
+                throw BridgeFailure("invalid_params", "Unknown application preference: \(key)")
+            }
+        }
+        return result
     }
 }

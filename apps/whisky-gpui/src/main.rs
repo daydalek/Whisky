@@ -19,10 +19,12 @@ mod container_import;
 mod library_layout;
 mod library_view;
 mod model;
+mod metadata_editor;
 mod platform;
 #[cfg(feature = "visual-test")]
 mod motion_capture;
 mod preferences;
+mod onboarding;
 mod processes;
 mod program_settings;
 mod programs;
@@ -98,6 +100,7 @@ impl Render for WhiskyApp {
             .text_color(rgb(TEXT))
             .text_size(px(13.))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                if this.onboarding.is_some() { return; }
                 if let Some(path) = paths.0.first() {
                     this.open_external_file(path.clone(), cx);
                 }
@@ -107,6 +110,7 @@ impl Render for WhiskyApp {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &RefreshLibrary, _, cx| {
+                if this.onboarding.is_some() { return; }
                 if this.demo {
                     this.show_notice(crate::state::DEMO_NOTICE, cx);
                 } else {
@@ -132,7 +136,13 @@ impl Render for WhiskyApp {
                 window.toggle_fullscreen();
             }))
             .on_action(cx.listener(|this, _: &DismissPreview, window, cx| {
-                if this.import_bottles.is_some() {
+                if this.bridge_dialog {
+                    this.bridge_dialog = false;
+                } else if let Some(state) = &this.onboarding {
+                    if !state.saving {
+                        this.onboarding = None;
+                    }
+                } else if this.import_bottles.is_some() {
                     if !this.import_bottles.as_ref().is_some_and(|state| state.importing) {
                         this.import_bottles = None;
                     }
@@ -177,9 +187,6 @@ impl Render for WhiskyApp {
         if let Some(sheet) = self.preview.sheet {
             root = root.child(self.preview_sheet(sheet, ww, wh, window, cx));
         }
-        if self.bridge_dialog {
-            root = root.child(self.bridge_status_dialog(ww, wh, cx));
-        }
         if self.clipboard_prompt.is_some() {
             root = root.child(self.clipboard_dialog(ww, wh, cx));
         }
@@ -194,6 +201,13 @@ impl Render for WhiskyApp {
         }
         if self.about {
             root = root.child(self.about_dialog(ww, wh, cx));
+        }
+        if self.onboarding.is_some() {
+            root = root.child(self.onboarding_view(ww, wh, cx));
+        }
+        // Recovery and quit errors must stay actionable even during setup saves.
+        if self.bridge_dialog {
+            root = root.child(self.bridge_status_dialog(ww, wh, cx));
         }
         if notification.should_render() {
             let message = self.notice.clone().unwrap_or_default();
@@ -240,6 +254,9 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
             "scan-settings",
             "winetricks",
             "compact-bottle",
+            "welcome",
+            "source-preferences",
+            "metadata-editor",
         ];
         for (stage, name) in names.into_iter().enumerate() {
             handle
@@ -248,6 +265,7 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
                         this.settings = false;
                         this.detail_open = false;
                         this.preview.sheet = None;
+                        this.onboarding = None;
                         this.preview.page = PreviewPage::Library;
                         this.mode = 0;
                         this.selected_bottle = None;
@@ -283,6 +301,45 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
                             9 => this.open_preview_sheet(PreviewSheet::RunSettings(0), cx),
                             10 => this.open_preview_sheet(PreviewSheet::Scan, cx),
                             11 => this.open_preview_sheet(PreviewSheet::Winetricks, cx),
+                            13 => {
+                                window.resize(size(px(900.), px(650.)));
+                                this.open_onboarding(true, cx);
+                            }
+                            14 => {
+                                window.resize(size(px(920.), px(680.)));
+                                this.open_onboarding(false, cx);
+                                if let Some(state) = &mut this.onboarding {
+                                    state.expanded = true;
+                                }
+                            }
+                            15 => {
+                                window.resize(size(px(1000.), px(780.)));
+                                let mut editor = metadata_editor::MetadataEditor::default();
+                                editor.accept_reply(&serde_json::json!({
+                                    "record": {
+                                        "version":1, "defaultSource":"bangumi",
+                                        "categorySources":{"characters":"vndb"},
+                                        "bindings":{"bangumi":"123","vndb":"v17"},
+                                        "snapshots":{
+                                            "bangumi":{"source":"bangumi","sourceID":"123","title":"作品的中文名称","summary":"来自所选平台的简介。"},
+                                            "vndb":{"source":"vndb","sourceID":"v17","title":"Original title","characters":[{"id":"c1","name":"Character","originalName":"人物","role":"main"}]}
+                                        }
+                                    },
+                                    "capabilities":{
+                                        "bangumi":{"refresh":true,"characters":true},
+                                        "vndb":{"refresh":true,"characters":true},
+                                        "steam":{"refresh":true,"characters":false},
+                                        "ymgal":{"refresh":true,"characters":false}
+                                    }
+                                })).unwrap();
+                                this.game_info = Some(state::GameInfoPage {
+                                    editor, container: "visual-fixture".into(), entry_id: "demo:0".into(),
+                                    title: "作品的中文名称".into(), input: None, searching: false,
+                                    applying: false, error: None, groups: Vec::new(), matches: None,
+                                    config_message: None, config_error: None,
+                                });
+                                this.preview.sheet = Some(PreviewSheet::GameInfo(0));
+                            }
                             _ => {
                                 window.resize(size(px(800.), px(580.)));
                                 this.selected_bottle = Some(0);

@@ -1,6 +1,6 @@
 //! Application settings surface.
 
-use gpui_kit::component::button::Button;
+use gpui_kit::component::button::{Button, ButtonVariants};
 #[cfg(target_os = "linux")]
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::spinner::Spinner;
@@ -286,6 +286,29 @@ impl WhiskyApp {
                             "滚动回弹、卡片弹簧重排、悬停与详情页过渡。",
                             cx,
                         ),
+                    ],
+                    cx,
+                ),
+                self.section(
+                    "metadata-preferences",
+                    "资料来源",
+                    vec![
+                        self.info(
+                            "默认来源",
+                            crate::onboarding::SOURCES.iter()
+                                .find(|(id, _)| *id == self.metadata_preferences.default_source)
+                                .map(|(_, label)| *label).unwrap_or("Bangumi"),
+                        ),
+                        muted("按资料类型选择平台。更改默认偏好不会覆盖已有作品或手动编辑。")
+                            .into_any_element(),
+                        row().gap(px(8.))
+                            .child(Button::new("metadata-preferences-open").label("调整来源…")
+                                .disabled(!self.service_available("preferences.setMany"))
+                                .on_click(cx.listener(|this, _, _, cx| this.open_onboarding(false, cx))))
+                            .child(Button::new("welcome-reopen").label("使用指南…").ghost()
+                                .disabled(!self.service_available("preferences.setMany"))
+                                .on_click(cx.listener(|this, _, _, cx| this.open_onboarding(true, cx))))
+                            .into_any_element(),
                     ],
                     cx,
                 ),

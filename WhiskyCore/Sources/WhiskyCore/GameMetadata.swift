@@ -53,6 +53,8 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
     /// Optional fields keep snapshots written by older app versions readable.
     public var alternateTitles: [String]?
     public var titleLanguage: String?
+    public var characters: [GameCharacter]?
+    public var provenance: [String: MetadataProvenance]?
     public var fetchedAt: Date
 
     public var id: String {

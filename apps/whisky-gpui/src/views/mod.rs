@@ -5,6 +5,7 @@ pub(crate) mod dialogs;
 pub(crate) mod import_bottles;
 pub(crate) mod library;
 pub(crate) mod settings;
+pub(crate) mod onboarding;
 
 use gpui_kit::base::{ScrollBounce, ScrollBounceMotion};
 use gpui_kit::component::{

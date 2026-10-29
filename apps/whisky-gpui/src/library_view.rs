@@ -246,6 +246,8 @@ mod tests {
             title: title.into(),
             studio: (!studio.is_empty()).then(|| studio.into()),
             description: None,
+            characters: Vec::new(),
+            metadata_sources: Default::default(),
             release: (!release.is_empty()).then(|| release.into()),
             landscape: false,
             bottle: slot,

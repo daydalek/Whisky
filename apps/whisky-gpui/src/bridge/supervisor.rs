@@ -185,14 +185,32 @@ pub(crate) enum SetupUpdate {
 /// `metadata.*` and `gameConfig.*` answers for the Game Info sheet.
 #[derive(Debug)]
 pub(crate) enum MetadataUpdate {
+    Record {
+        container: String,
+        entry_id: String,
+        generation: u64,
+        operation: String,
+        result: Result<serde_json::Value, String>,
+    },
     SearchStarted {
         container: String,
         entry_id: String,
+        generation: u64,
+        request: u64,
     },
     Results {
         container: String,
         entry_id: String,
+        generation: u64,
+        request: u64,
         results: Vec<MetadataSearchGroupDto>,
+    },
+    SearchFailed {
+        container: String,
+        entry_id: String,
+        generation: u64,
+        request: u64,
+        reason: String,
     },
     /// A metadata write or cover change; the entry needs a library re-read.
     Applied {
@@ -398,6 +416,10 @@ pub(crate) enum BridgeEvent {
     Preferences {
         values: serde_json::Value,
         schema: PreferencesSchemaDto,
+    },
+    MetadataPreferencesSaved {
+        result: Result<serde_json::Value, String>,
+        onboarding: bool,
     },
     HostTerminals { result: Result<crate::host::TerminalsDto, String> },
     HostDesktop { install: bool, result: Result<crate::host::DesktopDto, String> },
@@ -669,6 +691,7 @@ enum Command {
         hidden: bool,
     },
     LoadPreferences,
+    SaveMetadataPreferences { values: serde_json::Value, onboarding: bool },
     ResolveDesktopOpen { request: u64, id: String, path: String },
     #[cfg(target_os = "linux")]
     LoadTerminals,
@@ -831,8 +854,18 @@ enum Command {
     SearchMetadata {
         container: String,
         entry_id: String,
+        generation: u64,
+        request: u64,
         query: String,
         sources: Vec<String>,
+    },
+    MetadataRecord {
+        container: String,
+        entry_id: String,
+        generation: u64,
+        operation: String,
+        record: Option<serde_json::Value>,
+        sources: Option<Vec<String>>,
     },
     ApplyMetadata {
         container: String,
@@ -1022,6 +1055,10 @@ impl BridgeSupervisor {
 
     pub(crate) fn load_preferences(&self) {
         let _ = self.commands.send(Command::LoadPreferences);
+    }
+
+    pub(crate) fn save_metadata_preferences(&self, values: serde_json::Value, onboarding: bool) {
+        let _ = self.commands.send(Command::SaveMetadataPreferences { values, onboarding });
     }
 
     /// Write one preference. The UI debounces this; the worker just executes.
@@ -1396,13 +1433,38 @@ impl BridgeSupervisor {
         &self,
         container: &str,
         entry_id: &str,
+        generation: u64,
+        request: u64,
         query: &str,
         sources: Vec<String>,
     ) {
         let _ = self.commands.send(Command::SearchMetadata {
             container: container.to_owned(),
             entry_id: entry_id.to_owned(),
+            generation,
+            request,
             query: query.to_owned(),
+            sources,
+        });
+    }
+
+    /// Read/save the per-game draft, or refresh its persisted platform IDs.
+    /// The generation prevents a late reply from replacing a reopened editor.
+    pub(crate) fn metadata_record(
+        &self,
+        container: &str,
+        entry_id: &str,
+        generation: u64,
+        operation: &str,
+        record: Option<serde_json::Value>,
+        sources: Option<Vec<String>>,
+    ) {
+        let _ = self.commands.send(Command::MetadataRecord {
+            container: container.into(),
+            entry_id: entry_id.into(),
+            generation,
+            operation: operation.into(),
+            record,
             sources,
         });
     }
@@ -1650,6 +1712,8 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
         let mut metadata_search: Option<LiveMetadataSearch> = None;
         // At most one automatic metadata sync job.
         let mut metadata_sync: Option<LiveMetadataSync> = None;
+        // Network-bound metadata writes must not block runtime polling.
+        let mut metadata_records: Vec<LiveMetadataRecord> = Vec::new();
         // At most one Wine runtime installation job.
         let mut setup: Option<LiveSetup> = None;
         #[cfg(target_os = "linux")]
@@ -1660,7 +1724,8 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
             #[cfg(target_os = "linux")]
             if wine_restart_pending && scan.is_none() && create.is_none() && tricks.is_none()
                 && update_check.is_none() && bottle_op.is_none() && diagnostic.is_none()
-                && metadata_search.is_none() && metadata_sync.is_none() && program_run.is_none()
+                && metadata_search.is_none() && metadata_sync.is_none() && metadata_records.is_empty()
+                && program_run.is_none()
             {
                 client.close();
                 continue 'session;
@@ -1696,6 +1761,9 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
             if let Some(job) = &metadata_sync {
                 wait_for = wait_for.min(job.due.saturating_duration_since(now));
             }
+            for job in &metadata_records {
+                wait_for = wait_for.min(job.due.saturating_duration_since(now));
+            }
             if let Some(job) = &setup {
                 wait_for = wait_for.min(job.due.saturating_duration_since(now));
             }
@@ -1711,6 +1779,34 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
             match command {
                 // The poll timer fired.
                 None => {
+                    let mut pending_records = Vec::new();
+                    for mut active in metadata_records.drain(..) {
+                        if active.due > Instant::now() {
+                            pending_records.push(active);
+                            continue;
+                        }
+                        active.due = Instant::now() + SCAN_POLL;
+                        let reply = client.call("jobs.get", json!({"jobID": active.job_id}))
+                            .map_err(classify);
+                        let result = match reply {
+                            Ok(value) => match serde_json::from_value::<JobDto>(value) {
+                                Ok(job) => metadata_record_terminal(job),
+                                Err(error) => Some(Err(format!("Invalid metadata job: {error}"))),
+                            },
+                            Err(CallFailure::Remote(reason)) => Some(Err(reason)),
+                            Err(CallFailure::Session(reason)) => {
+                                reconnect = Some(reason.clone());
+                                Some(Err(reason))
+                            }
+                        };
+                        if let Some(result) = result {
+                            cache = None;
+                            emit_event(&events, active.event(result));
+                        } else {
+                            pending_records.push(active);
+                        }
+                    }
+                    metadata_records = pending_records;
                     if let Some(session) = live.as_mut() {
                         match poll_runtime(&mut client, session, &events) {
                             Ok(()) => {}
@@ -2176,6 +2272,8 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                         update: MetadataUpdate::Results {
                                             container: active.container.clone(),
                                             entry_id: active.entry_id.clone(),
+                                            generation: active.generation,
+                                            request: active.request,
                                             results,
                                         },
                                     },
@@ -2186,7 +2284,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                 emit_event(
                                     &events,
                                     BridgeEvent::Metadata {
-                                        update: MetadataUpdate::Failed { reason },
+                                        update: active.failed(reason),
                                     },
                                 );
                                 metadata_search = None;
@@ -2195,7 +2293,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                 emit_event(
                                     &events,
                                     BridgeEvent::Metadata {
-                                        update: MetadataUpdate::Failed { reason },
+                                        update: active.failed(reason),
                                     },
                                 );
                                 metadata_search = None;
@@ -2511,6 +2609,16 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         }
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
+                }
+                Some(Command::SaveMetadataPreferences { values, onboarding }) => {
+                    let reply = client.call("preferences.setMany", json!({ "values": values })).map_err(classify);
+                    if let Err(CallFailure::Session(reason)) = &reply {
+                        reconnect = Some(reason.clone());
+                    }
+                    emit_event(&events, BridgeEvent::MetadataPreferencesSaved {
+                        result: reply.map_err(CallFailure::into_message),
+                        onboarding,
+                    });
                 }
                 Some(Command::SetPreference { key, value }) => {
                     let params = json!({ "key": key, "value": value });
@@ -3847,31 +3955,130 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                 Some(Command::SearchMetadata {
                     container,
                     entry_id,
+                    generation,
+                    request,
                     query,
                     sources,
                 }) => {
-                    if metadata_search.is_some() {
-                        emit_event(
-                            &events,
-                            BridgeEvent::Metadata {
-                                update: MetadataUpdate::Failed {
-                                    reason: "另一次元数据搜索正在进行，请稍后再试".into(),
-                                },
-                            },
-                        );
-                    } else {
+                    // Drop the old poll target even if cancellation races with
+                    // completion. Its queued UI events carry the old identity.
+                    if let Some(previous) = metadata_search.take() {
+                        if let Err(CallFailure::Session(reason)) = client
+                            .call("jobs.cancel", json!({"jobID": previous.job_id}))
+                            .map_err(classify)
+                        {
+                            reconnect = Some(reason);
+                        }
+                    }
+                    if reconnect.is_none() {
                         match start_metadata_search(
                             &mut client,
                             &container,
                             &entry_id,
+                            generation,
+                            request,
                             &query,
                             &sources,
                             &events,
                         ) {
                             Ok(job) => metadata_search = Some(job),
-                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
-                            Err(CallFailure::Remote(_)) => {}
+                            Err(error) => {
+                                let reason = match error {
+                                    CallFailure::Session(reason) => {
+                                        reconnect = Some(reason.clone());
+                                        reason
+                                    }
+                                    CallFailure::Remote(reason) => reason,
+                                };
+                                emit_event(&events, BridgeEvent::Metadata {
+                                    update: MetadataUpdate::SearchFailed {
+                                        container, entry_id, generation, request, reason,
+                                    },
+                                });
+                            }
                         }
+                    } else {
+                        emit_event(&events, BridgeEvent::Metadata {
+                            update: MetadataUpdate::SearchFailed {
+                                container, entry_id, generation, request,
+                                reason: "The bridge session ended; the search was abandoned".into(),
+                            },
+                        });
+                    }
+                }
+                Some(Command::MetadataRecord {
+                    container,
+                    entry_id,
+                    generation,
+                    operation,
+                    record,
+                    sources,
+                }) => {
+                    let mut params = json!({"container": container, "entryID": entry_id});
+                    if let Some(record) = record {
+                        params["record"] = record;
+                    }
+                    if let Some(sources) = sources {
+                        params["sources"] = json!(sources);
+                    }
+                    if operation == "save" {
+                        params["hydrate"] = json!(true);
+                    }
+                    let background = operation != "get";
+                    if background {
+                        params["background"] = json!(true);
+                    }
+                    if operation != "get" {
+                        cache = None;
+                    }
+                    let method = if operation == "refresh" {
+                        "metadata.refresh".to_owned()
+                    } else {
+                        format!("metadata.configuration.{operation}")
+                    };
+                    let result = client
+                        .call(&method, params)
+                        .map_err(classify);
+                    if background {
+                        match result {
+                            Ok(reply) => match serde_json::from_value::<JobStartDto>(reply) {
+                                Ok(start) => metadata_records.push(LiveMetadataRecord {
+                                    container, entry_id, generation, operation,
+                                    job_id: start.job_id, due: Instant::now() + SCAN_POLL,
+                                }),
+                                Err(error) => emit_event(&events, BridgeEvent::Metadata {
+                                    update: MetadataUpdate::Record {
+                                        container, entry_id, generation, operation,
+                                        result: Err(format!("Invalid metadata job reply: {error}")),
+                                    },
+                                }),
+                            },
+                            Err(error) => {
+                                if let CallFailure::Session(reason) = &error {
+                                    reconnect = Some(reason.clone());
+                                }
+                                emit_event(&events, BridgeEvent::Metadata {
+                                    update: MetadataUpdate::Record {
+                                        container, entry_id, generation, operation,
+                                        result: Err(error.into_message()),
+                                    },
+                                });
+                            }
+                        }
+                    } else {
+                    let result = match result {
+                        Ok(value) => Ok(value),
+                        Err(CallFailure::Remote(reason)) => Err(reason),
+                        Err(CallFailure::Session(reason)) => {
+                            reconnect = Some(reason.clone());
+                            Err(reason)
+                        }
+                    };
+                    emit_event(&events, BridgeEvent::Metadata {
+                        update: MetadataUpdate::Record {
+                            container, entry_id, generation, operation, result,
+                        },
+                    });
                     }
                 }
                 Some(Command::ApplyMetadata {
@@ -4257,13 +4464,13 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         },
                     );
                 }
-                if metadata_search.take().is_some() {
+                if let Some(active) = metadata_search.take() {
                     emit_event(
                         &events,
                         BridgeEvent::Metadata {
-                            update: MetadataUpdate::Failed {
-                                reason: "The bridge session ended; the search was abandoned".into(),
-                            },
+                            update: active.failed(
+                                "The bridge session ended; the search was abandoned".into(),
+                            ),
                         },
                     );
                 }
@@ -4276,6 +4483,11 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                             },
                         },
                     );
+                }
+                for active in metadata_records.drain(..) {
+                    emit_event(&events, active.event(Err(
+                        "桥接连接中断；请重新打开资料检查保存结果后再重试。".into()
+                    )));
                 }
                 if setup.take().is_some() {
                     emit_event(
@@ -4639,6 +4851,8 @@ fn start_metadata_search(
     client: &mut Client,
     container: &str,
     entry_id: &str,
+    generation: u64,
+    request: u64,
     query: &str,
     sources: &[String],
     events: &smol::channel::Sender<BridgeEvent>,
@@ -4663,40 +4877,26 @@ fn start_metadata_search(
                         update: MetadataUpdate::SearchStarted {
                             container: container.to_owned(),
                             entry_id: entry_id.to_owned(),
+                            generation,
+                            request,
                         },
                     },
                 );
                 Ok(LiveMetadataSearch {
                     container: container.to_owned(),
                     entry_id: entry_id.to_owned(),
+                    generation,
+                    request,
                     job_id: start.job_id,
                     due: Instant::now() + SCAN_POLL,
                 })
             }
             Err(error) => {
                 let reason = format!("invalid search reply: {error}");
-                emit_event(
-                    events,
-                    BridgeEvent::Metadata {
-                        update: MetadataUpdate::Failed {
-                            reason: reason.clone(),
-                        },
-                    },
-                );
                 Err(CallFailure::Remote(reason))
             }
         },
-        Err(CallFailure::Remote(reason)) => {
-            emit_event(
-                events,
-                BridgeEvent::Metadata {
-                    update: MetadataUpdate::Failed {
-                        reason: reason.clone(),
-                    },
-                },
-            );
-            Err(CallFailure::Remote(reason))
-        }
+        Err(CallFailure::Remote(reason)) => Err(CallFailure::Remote(reason)),
         Err(CallFailure::Session(reason)) => Err(CallFailure::Session(reason)),
     }
 }
@@ -4734,6 +4934,36 @@ struct LiveProgramRun {
     name: String,
     due: Instant,
     deadline: Instant,
+}
+
+struct LiveMetadataRecord {
+    container: String,
+    entry_id: String,
+    generation: u64,
+    operation: String,
+    job_id: String,
+    due: Instant,
+}
+
+impl LiveMetadataRecord {
+    fn event(self, result: Result<serde_json::Value, String>) -> BridgeEvent {
+        BridgeEvent::Metadata {
+            update: MetadataUpdate::Record {
+                container: self.container, entry_id: self.entry_id,
+                generation: self.generation, operation: self.operation, result,
+            },
+        }
+    }
+}
+
+fn metadata_record_terminal(job: JobDto) -> Option<Result<serde_json::Value, String>> {
+    match JobStatus::from_wire(&job.status) {
+        Some(JobStatus::Queued | JobStatus::Running | JobStatus::Cancelling) => None,
+        Some(JobStatus::Completed) => Some(job.result.ok_or_else(|| "Metadata job returned no result".into())),
+        Some(JobStatus::Failed | JobStatus::Cancelled) => Some(Err(job.error.map(|error| error.reason())
+            .unwrap_or_else(|| "Metadata job did not complete".into()))),
+        None => Some(Err(format!("Unknown metadata job status: {}", job.status))),
+    }
 }
 
 struct LiveScan {
@@ -4838,8 +5068,22 @@ fn poll_update_check(
 struct LiveMetadataSearch {
     container: String,
     entry_id: String,
+    generation: u64,
+    request: u64,
     job_id: String,
     due: Instant,
+}
+
+impl LiveMetadataSearch {
+    fn failed(&self, reason: String) -> MetadataUpdate {
+        MetadataUpdate::SearchFailed {
+            container: self.container.clone(),
+            entry_id: self.entry_id.clone(),
+            generation: self.generation,
+            request: self.request,
+            reason,
+        }
+    }
 }
 
 struct LiveMetadataSync {
@@ -7162,6 +7406,24 @@ pub(crate) fn diagnose_launch(bottle: Option<&str>, entry: Option<&str>) -> i32 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metadata_jobs_wait_without_blocking_and_keep_terminal_failures() {
+        for status in ["queued", "running", "cancelling"] {
+            let job = serde_json::from_value(json!({"status": status})).unwrap();
+            assert!(metadata_record_terminal(job).is_none());
+        }
+        let completed = serde_json::from_value(json!({
+            "status":"completed", "result":{"record":{"version":1}}
+        })).unwrap();
+        assert_eq!(metadata_record_terminal(completed).unwrap().unwrap()["record"]["version"], 1);
+        let failed = serde_json::from_value(json!({
+            "status":"failed", "error":{"code":"offline","message":"Network disabled"}
+        })).unwrap();
+        assert!(metadata_record_terminal(failed).unwrap().unwrap_err().contains("offline"));
+        let missing = serde_json::from_value(json!({"status":"completed"})).unwrap();
+        assert!(metadata_record_terminal(missing).unwrap().is_err());
+    }
 
     #[test]
     fn backoff_grows_and_stays_bounded() {

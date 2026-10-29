@@ -754,6 +754,17 @@ pub(crate) struct MetadataDto {
     /// `YYYY-MM-DD`; the Swift type keeps it as a string.
     #[serde(default)]
     pub(crate) release_date: Option<String>,
+    #[serde(default)]
+    pub(crate) characters: Option<Vec<crate::model::Character>>,
+    #[serde(default)]
+    pub(crate) provenance: std::collections::BTreeMap<String, MetadataProvenanceDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct MetadataProvenanceDto {
+    pub(crate) source: Option<String>,
+    #[serde(default)]
+    pub(crate) manual: bool,
 }
 
 /// `GameActivity`; dates arrive as Unix seconds (`dateEncodingStrategy`).
@@ -846,6 +857,17 @@ impl EntryDto {
             title,
             studio: non_empty(metadata.developer),
             description: non_empty(metadata.summary),
+            characters: metadata.characters.unwrap_or_default(),
+            metadata_sources: metadata.provenance.into_iter().filter_map(|(category, origin)| {
+                let label = if origin.manual {
+                    Some("本地编辑".to_owned())
+                } else {
+                    origin.source.map(|source| crate::onboarding::SOURCES.iter()
+                        .find(|(id, _)| *id == source)
+                        .map(|(_, label)| (*label).to_owned()).unwrap_or(source))
+                };
+                label.map(|label| (category, label))
+            }).collect(),
             release: non_empty(metadata.release_date),
             landscape: self.cover_aspect_ratio.is_some_and(|ratio| ratio > 1.0),
             bottle,
@@ -897,6 +919,26 @@ pub(crate) fn existing_file(raw: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolved_characters_and_category_provenance_reach_game_details() {
+        let entry: EntryDto = serde_json::from_value(serde_json::json!({
+            "id": "folder:test", "name": "local",
+            "metadata": {
+                "title": "作品", "summary": "本地简介",
+                "characters": [{"id":"c1","name":"人物","originalName":"Character","role":"main"}],
+                "provenance": {
+                    "summary": {"manual":true},
+                    "characters": {"source":"vndb","sourceID":"v17"}
+                }
+            }
+        })).unwrap();
+        let game = entry.into_game(1);
+        assert_eq!(game.characters[0].name, "人物");
+        assert_eq!(game.characters[0].original_name.as_deref(), Some("Character"));
+        assert_eq!(game.metadata_sources["summary"], "本地编辑");
+        assert_eq!(game.metadata_sources["characters"], "VNDB");
+    }
 
     /// Recorded from a release build of `WhiskyBridge/.build/release/whisky-bridge`.
     const DESCRIBE_FIXTURE: &str = r#"{

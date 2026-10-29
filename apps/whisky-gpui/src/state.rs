@@ -204,6 +204,7 @@ pub(crate) const METADATA_SOURCES: [(&str, &str, &str); 4] = [
 /// The Game Info sheet: metadata search, cover choice and GameDB matches for
 /// one library card.
 pub(crate) struct GameInfoPage {
+    pub(crate) editor: crate::metadata_editor::MetadataEditor,
     pub(crate) container: String,
     pub(crate) entry_id: String,
     pub(crate) title: String,
@@ -216,6 +217,70 @@ pub(crate) struct GameInfoPage {
     pub(crate) config_message: Option<String>,
     pub(crate) config_error: Option<String>,
 }
+
+impl GameInfoPage {
+    fn accepts_search(&self, container: &str, entry_id: &str, generation: u64, request: u64) -> bool {
+        self.searching
+            && self.container == container
+            && self.entry_id == entry_id
+            && self.editor.generation == generation
+            && self.editor.search_request == request
+    }
+}
+
+#[cfg(test)]
+mod metadata_search_tests {
+    use super::GameInfoPage;
+    use crate::metadata_editor::MetadataEditor;
+
+    fn searching_page() -> GameInfoPage {
+        GameInfoPage {
+            editor: MetadataEditor {
+                search_request: 1,
+                ..MetadataEditor::default()
+            },
+            container: "bottle".into(),
+            entry_id: "entry".into(),
+            title: "Game".into(),
+            input: None,
+            searching: true,
+            applying: false,
+            error: None,
+            groups: Vec::new(),
+            matches: None,
+            config_message: None,
+            config_error: None,
+        }
+    }
+
+    #[test]
+    fn search_events_require_current_editor_request_and_entry() {
+        let mut page = searching_page();
+        let generation = page.editor.generation;
+        assert!(page.accepts_search("bottle", "entry", generation, 1));
+        assert!(!page.accepts_search("other", "entry", generation, 1));
+        assert!(!page.accepts_search("bottle", "other", generation, 1));
+        page.editor.search_request += 1;
+        assert!(!page.accepts_search("bottle", "entry", generation, 1));
+        assert!(page.accepts_search("bottle", "entry", generation, 2));
+        page.searching = false;
+        assert!(!page.accepts_search("bottle", "entry", generation, 2));
+    }
+
+    #[test]
+    fn reopened_editor_rejects_old_search_even_for_same_entry_and_request() {
+        let old = searching_page();
+        let reopened = searching_page();
+        assert_ne!(old.editor.generation, reopened.editor.generation);
+        // Started, results and failures all use this same acceptance rule.
+        assert!(!reopened.accepts_search("bottle", "entry", old.editor.generation, 1));
+        let closed: Option<GameInfoPage> = None;
+        assert!(!closed.as_ref().is_some_and(|page| {
+            page.accepts_search("bottle", "entry", old.editor.generation, 1)
+        }));
+    }
+}
+
 pub(crate) struct PreviewState {
     pub(crate) page: PreviewPage,
     pub(crate) history: Vec<PreviewPage>,
@@ -375,6 +440,10 @@ pub(crate) struct WhiskyApp {
     prefs_supported: BTreeSet<String>,
     prefs_pending: BTreeMap<String, serde_json::Value>,
     prefs_generation: u64,
+    pub(crate) metadata_preferences: crate::onboarding::MetadataPreferences,
+    pub(crate) onboarding: Option<crate::onboarding::Onboarding>,
+    onboarding_checked: bool,
+    onboarding_completed: bool,
     /// Bottle configuration for the selected bottle; `None` until the page is
     /// opened or after a bottle switch.
     pub(crate) config: Option<ConfigPage>,
@@ -570,6 +639,10 @@ impl WhiskyApp {
             prefs_supported: BTreeSet::new(),
             prefs_pending: BTreeMap::new(),
             prefs_generation: 0,
+            metadata_preferences: crate::onboarding::MetadataPreferences::default(),
+            onboarding: None,
+            onboarding_checked: false,
+            onboarding_completed: false,
             config: None,
             config_writes: PendingEdits::default(),
             config_text_pending: BTreeMap::new(),
@@ -1077,6 +1150,31 @@ impl WhiskyApp {
                 if !self.demo {
                     self.prefs_supported = schema.keys().map(str::to_owned).collect();
                     self.apply_preferences(&values);
+                    if !self.onboarding_checked {
+                        self.onboarding_checked = true;
+                        if values.get(crate::onboarding::COMPLETED).and_then(serde_json::Value::as_bool) == Some(false)
+                            && self.service_available("preferences.setMany")
+                        {
+                            self.open_onboarding(true, cx);
+                        }
+                    }
+                }
+            }
+            BridgeEvent::MetadataPreferencesSaved { result, onboarding } => {
+                match result {
+                    Ok(values) => {
+                        self.apply_preferences(&values);
+                        if onboarding { self.onboarding = None; }
+                    }
+                    Err(error) => {
+                        if onboarding && let Some(state) = &mut self.onboarding {
+                            state.saving = false;
+                            state.error = Some(error);
+                        } else {
+                            self.show_notice(&format!("资料来源未保存：{error}"), cx);
+                            self.bridge.load_preferences();
+                        }
+                    }
                 }
             }
             BridgeEvent::SystemInfo { info } => {
@@ -1999,12 +2097,17 @@ impl WhiskyApp {
             BridgeEvent::Metadata { update } => {
                 if !self.demo {
                     match update {
+                        MetadataUpdate::Record { container, entry_id, generation, operation, result } => {
+                            self.metadata_record_result(container, entry_id, generation, operation, result, cx);
+                        }
                         MetadataUpdate::SearchStarted {
                             container,
                             entry_id,
+                            generation,
+                            request,
                         } => {
                             if self.game_info.as_ref().is_some_and(|page| {
-                                page.container == container && page.entry_id == entry_id
+                                page.accepts_search(&container, &entry_id, generation, request)
                             }) {
                                 let page = self.game_info.as_mut().unwrap();
                                 page.searching = true;
@@ -2015,10 +2118,13 @@ impl WhiskyApp {
                         MetadataUpdate::Results {
                             container,
                             entry_id,
+                            generation,
+                            request,
                             results,
                         } => {
                             if self.game_info.as_ref().is_some_and(|page| {
-                                page.container == container && page.entry_id == entry_id
+                                page.accepts_search(&container, &entry_id, generation, request)
+                                    && results.iter().all(|group| group.source == page.editor.search_source)
                             }) {
                                 let page = self.game_info.as_mut().unwrap();
                                 page.searching = false;
@@ -2036,6 +2142,16 @@ impl WhiskyApp {
                                         }
                                     })
                                     .collect();
+                            }
+                        }
+                        MetadataUpdate::SearchFailed {
+                            container, entry_id, generation, request, reason,
+                        } => {
+                            if let Some(page) = self.game_info.as_mut().filter(|page| {
+                                page.accepts_search(&container, &entry_id, generation, request)
+                            }) {
+                                page.searching = false;
+                                page.error = Some(reason);
                             }
                         }
                         MetadataUpdate::Applied {
@@ -2149,7 +2265,6 @@ impl WhiskyApp {
                         }
                         MetadataUpdate::Failed { reason } => {
                             if let Some(page) = self.game_info.as_mut() {
-                                page.searching = false;
                                 page.applying = false;
                                 page.error = Some(reason.clone());
                             }
@@ -2354,7 +2469,8 @@ impl WhiskyApp {
     /// library's own switch and pending set, so this only schedules the
     /// job; `auto_synced` keeps repeated loads from spawning no-op jobs.
     fn maybe_auto_sync_metadata(&mut self, container: &str) {
-        if self.demo || self.auto_synced.contains(container) || self.offline() {
+        if self.demo || !self.onboarding_completed || self.onboarding.is_some()
+            || self.auto_synced.contains(container) || self.offline() {
             return;
         }
         let needs_metadata = self.bottle_entries.get(container).is_some_and(|games| {
@@ -3000,6 +3116,14 @@ impl WhiskyApp {
         if let Some(preference) = Self::toggle_preference(key) {
             self.persist(preference, json!(value), cx);
         }
+        if METADATA_SOURCES.iter().any(|(toggle, _, _)| *toggle == key) {
+            self.metadata_preferences.enabled_sources = METADATA_SOURCES.iter()
+                .filter(|(toggle, _, _)| self.flag(toggle))
+                .map(|(_, source, _)| (*source).to_owned()).collect();
+            self.bridge.save_metadata_preferences(json!({
+                crate::onboarding::ENABLED: self.metadata_preferences.enabled_sources.join(",")
+            }), false);
+        }
         cx.notify();
     }
 
@@ -3084,6 +3208,13 @@ impl WhiskyApp {
     /// defaults already in the state; keys absent from the schema are never
     /// written, so they also keep their default for the session.
     fn apply_preferences(&mut self, values: &serde_json::Value) {
+        self.onboarding_completed = values.get(crate::onboarding::COMPLETED)
+            .and_then(serde_json::Value::as_bool).unwrap_or(false);
+        self.metadata_preferences = crate::onboarding::MetadataPreferences::read(values);
+        for (toggle, source, _) in METADATA_SOURCES {
+            self.preview.toggles.insert(toggle,
+                self.metadata_preferences.enabled_sources.iter().any(|id| id == source));
+        }
         if let Some(raw) = values
             .get(preferences::DISPLAY_MODE)
             .and_then(serde_json::Value::as_str)
@@ -3572,6 +3703,7 @@ impl WhiskyApp {
             return;
         }
         self.game_info = Some(GameInfoPage {
+            editor: crate::metadata_editor::MetadataEditor::default(),
             container: container.clone(),
             entry_id: entry_id.clone(),
             title,
@@ -3585,6 +3717,7 @@ impl WhiskyApp {
             config_error: None,
         });
         self.bridge.match_game_config(&container, &entry_id);
+        self.load_metadata_editor(cx);
         self.open_preview_sheet(PreviewSheet::GameInfo(index), cx);
     }
 
@@ -3616,6 +3749,14 @@ impl WhiskyApp {
         if self.game_info.is_none() {
             return;
         }
+        if !self.service_available("metadata.search") || self.metadata_sources().is_empty() {
+            self.show_notice("搜索不可用；请在设置中启用资料来源并确认桥接服务支持搜索", cx);
+            return;
+        }
+        if !self.game_info.as_ref().is_some_and(|page| self.metadata_sources().contains(&page.editor.search_source)) {
+            self.show_notice("此平台未获准搜索；请在设置中启用，或选择其他平台", cx);
+            return;
+        }
         if self.offline() {
             self.show_notice("离线模式已开启，无法搜索游戏信息", cx);
             return;
@@ -3623,6 +3764,9 @@ impl WhiskyApp {
         let Some(page) = self.game_info.as_mut() else {
             return;
         };
+        if !page.editor.loaded || page.editor.busy {
+            return;
+        }
         let query = page
             .input
             .as_ref()
@@ -3633,20 +3777,20 @@ impl WhiskyApp {
             self.show_notice("请输入要搜索的游戏名称", cx);
             return;
         }
+        page.editor.search_request += 1;
         page.searching = true;
         page.error = None;
         page.groups.clear();
         let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
-        let sources = self.metadata_sources();
-        if sources.is_empty() {
-            if let Some(page) = self.game_info.as_mut() {
-                page.searching = false;
-            }
-            self.show_notice("请至少启用一个刮削源", cx);
-            return;
-        }
-        self.bridge
-            .search_metadata(&container, &entry_id, &query, sources);
+        let sources = vec![page.editor.search_source.clone()];
+        self.bridge.search_metadata(
+            &container,
+            &entry_id,
+            page.editor.generation,
+            page.editor.search_request,
+            &query,
+            sources,
+        );
         cx.notify();
     }
 
@@ -3666,11 +3810,13 @@ impl WhiskyApp {
         else {
             return;
         };
+        if !page.editor.loaded || page.editor.busy { return; }
         let raw = candidate.raw.clone();
-        page.applying = true;
-        page.error = None;
-        let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
-        self.bridge.apply_metadata(&container, &entry_id, raw);
+        let provider = page.groups[source].source.clone();
+        page.error = page.editor.bind(&provider, raw).err();
+        if page.error.is_none() {
+            page.editor.message = Some("已加入草稿；保存后生效".into());
+        }
         cx.notify();
     }
 
@@ -5436,11 +5582,13 @@ impl WhiskyApp {
     }
     /// Enabled scraper sources, in provider order. Defaults to all of them.
     pub(crate) fn metadata_sources(&self) -> Vec<String> {
-        METADATA_SOURCES
+        let mut sources: Vec<String> = METADATA_SOURCES
             .iter()
             .filter(|(key, _, _)| self.flag(key))
             .map(|(_, source, _)| (*source).to_owned())
-            .collect()
+            .collect();
+        sources.sort_by_key(|source| source != &self.metadata_preferences.default_source);
+        sources
     }
     pub(crate) fn flag(&self, key: &'static str) -> bool {
         self.preview.toggles.get(key).copied().unwrap_or(false)

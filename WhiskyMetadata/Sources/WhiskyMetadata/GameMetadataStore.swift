@@ -90,14 +90,35 @@ public actor GameMetadataStore {
     }
 
     public func load(for identity: String) throws -> GameMetadata? {
+        try loadRecord(for: identity)?.resolved().metadata
+    }
+
+    public func loadRecord(for identity: String) throws -> GameMetadataRecord? {
         let url = location(for: identity)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return try JSONDecoder().decode(GameMetadata.self, from: Data(contentsOf: url))
+        let data = try Data(contentsOf: url)
+        return try GameMetadataRecord.decode(data)
     }
 
     public func save(_ metadata: GameMetadata, for identity: String) throws {
+        var record = try loadRecord(for: identity) ?? GameMetadataRecord(legacy: metadata)
+        record.bindings[metadata.source.rawValue] = metadata.sourceID
+        record.snapshots[metadata.source.rawValue] = metadata
+        try saveRecord(record, for: identity)
+    }
+
+    public func saveRecord(_ record: GameMetadataRecord, for identity: String) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try JSONEncoder().encode(metadata).write(to: location(for: identity), options: .atomic)
+        try JSONEncoder().encode(record).write(to: location(for: identity), options: .atomic)
+    }
+
+    /// No actor suspension between validating the current binding and publishing.
+    public func updateSnapshot(_ snapshot: GameMetadata, for identity: String) throws -> Bool {
+        guard var current = try loadRecord(for: identity),
+              current.bindings[snapshot.source.rawValue] == snapshot.sourceID else { return false }
+        current.snapshots[snapshot.source.rawValue] = snapshot
+        try saveRecord(current, for: identity)
+        return true
     }
 
     public func remove(for identity: String) throws {
@@ -110,15 +131,20 @@ public actor GameMetadataStore {
     }
 
     public func allowsAutomaticMatch(for identity: String) throws -> Bool {
-        try load(for: identity) == nil
+        try loadRecord(for: identity) == nil
             && !FileManager.default.fileExists(atPath: manualLocation(for: identity).path)
     }
 
     /// Exclusive creation also protects a manual save through another store actor.
     public func saveAutomatic(_ metadata: GameMetadata, for identity: String) throws {
+        try saveAutomaticRecord(GameMetadataRecord(legacy: metadata), for: identity)
+    }
+
+    public func saveAutomaticRecord(_ record: GameMetadataRecord, for identity: String) throws {
         guard try allowsAutomaticMatch(for: identity) else { return }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try JSONEncoder().encode(metadata).write(to: location(for: identity), options: .withoutOverwriting)
+        try JSONEncoder().encode(record)
+            .write(to: location(for: identity), options: .withoutOverwriting)
     }
 
     /// Artwork is keyed by its URL, not by title, so two works cannot overwrite
@@ -183,18 +209,20 @@ public actor GameMetadataStore {
             try await targetStore.saveCoverSettings(settings, for: targetIdentity)
         }
 
-        if let metadata = try load(for: sourceIdentity) {
-            if try await targetStore.load(for: targetIdentity) == nil {
-                try await targetStore.save(metadata, for: targetIdentity)
+        if let record = try loadRecord(for: sourceIdentity) {
+            if try await targetStore.loadRecord(for: targetIdentity) == nil {
+                try await targetStore.saveRecord(record, for: targetIdentity)
             }
-            if let coverURL = metadata.coverURL,
-               let sourceCover = cachedCoverURL(for: coverURL),
-               targetStore.cachedCoverURL(for: coverURL) == nil {
-                let targetCover = targetStore.coverLocation(for: coverURL)
-                try fileManager.createDirectory(
-                    at: targetCover.deletingLastPathComponent(), withIntermediateDirectories: true
-                )
-                try? fileManager.copyItem(at: sourceCover, to: targetCover)
+            for metadata in record.snapshots.values {
+                if let coverURL = metadata.coverURL,
+                   let sourceCover = cachedCoverURL(for: coverURL),
+                   targetStore.cachedCoverURL(for: coverURL) == nil {
+                    let targetCover = targetStore.coverLocation(for: coverURL)
+                    try fileManager.createDirectory(
+                        at: targetCover.deletingLastPathComponent(), withIntermediateDirectories: true
+                    )
+                    try? fileManager.copyItem(at: sourceCover, to: targetCover)
+                }
             }
         }
     }

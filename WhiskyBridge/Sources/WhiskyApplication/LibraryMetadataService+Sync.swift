@@ -34,7 +34,9 @@ extension LibraryMetadataService {
         workspace: ApplicationWorkspace
     ) throws -> JSONValue {
         let container = try workspace.resolve(params)
-        let sources = Self.requestedSources(params).filter { $0 != .hikarinagi }
+        let preferred = try defaultRecord().defaultSource
+        let enabled = try enabledSources(params).filter { $0 != .hikarinagi }
+        let sources = enabled.filter { $0 == preferred } + enabled.filter { $0 != preferred }
         let providers = sources.map { PublicGameMetadataProvider(
             source: $0,
             session: session,
@@ -42,6 +44,9 @@ extension LibraryMetadataService {
         ) }
         let automatic = params["automatic"]?.bool ?? false
         return try jobs.start(name: "metadata.sync") { [self] progress in
+            guard !providers.isEmpty else {
+                return .object(["matched": .integer(0), "failed": .integer(0), "scanned": .integer(0)])
+            }
             let entries = try await workspace.entries(in: container)
             let visibility = try? LibraryVisibility.load(bottleURL: container)
             let library = automatic ? try? FolderGameLibrary.load(bottleURL: container) : nil
@@ -142,8 +147,16 @@ extension LibraryMetadataService {
         do {
             let details = try await PublicGameMetadataProvider(
                 source: candidate.source, session: session, networkAccess: networkAccess
-            ).details(for: candidate).usingLibraryTitle(entry.name)
-            try await store.saveAutomatic(details, for: entry.metadataIdentity)
+            ).details(for: candidate)
+            var metadataRecord = try defaultRecord()
+            metadataRecord.defaultSource = details.source
+            metadataRecord.bindings[details.source.rawValue] = details.sourceID
+            metadataRecord.snapshots[details.source.rawValue] = details
+            let display = details.usingLibraryTitle(entry.name)
+            if display.title != details.title {
+                metadataRecord.manualTitle = display.title
+            }
+            try await store.saveAutomaticRecord(metadataRecord, for: entry.metadataIdentity)
             if let cover = details.coverURL {
                 try? await store.cacheCover(from: cover, session: session)
             }

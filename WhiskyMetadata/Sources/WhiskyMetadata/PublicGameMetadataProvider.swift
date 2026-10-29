@@ -96,6 +96,79 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
         }
     }
 
+    /// Refresh only an explicitly confirmed identity, never a title search.
+    public func refresh(sourceID: String) async throws -> GameMetadata {
+        try await networkAccess()
+        switch source {
+        case .bangumi:
+            guard UInt64(sourceID) != nil,
+                  let url = URL(string: "https://api.bgm.tv/v0/subjects/\(sourceID)") else {
+                throw URLError(.badURL)
+            }
+            return try await gatekeeper.details(sourceID) {
+                let subject = try await request(url, as: BangumiSubject.self)
+                var game = GameMetadata(
+                    source: .bangumi, sourceID: String(subject.id),
+                    title: subject.nameCN.flatMap { $0.isEmpty ? nil : $0 } ?? subject.name,
+                    originalTitle: subject.name, summary: subject.summary ?? "",
+                    releaseDate: subject.date ?? "", coverURL: subject.images?.large,
+                    thumbnailURL: subject.images?.common,
+                    pageURL: URL(string: "https://bgm.tv/subject/\(subject.id)")
+                )
+                let characters = try await request(url.appendingPathComponent("characters"),
+                                                   as: [BangumiCharacter].self)
+                game.characters = characters.map {
+                    GameCharacter(id: String($0.id), name: $0.name, role: $0.relation,
+                                  imageURL: $0.images?.medium,
+                                  pageURL: URL(string: "https://bgm.tv/character/\($0.id)"))
+                }
+                return game
+            }
+        case .vndb:
+            guard sourceID.range(of: #"^v[0-9]+$"#, options: .regularExpression) != nil else {
+                throw URLError(.badURL)
+            }
+            return try await gatekeeper.details(sourceID) {
+                guard var game = try await vndb(sourceID).first(where: { $0.sourceID == sourceID }) else {
+                    throw URLError(.resourceUnavailable)
+                }
+                var characters: [GameCharacter] = []
+                var page = 1
+                while true {
+                    let body = try JSONSerialization.data(withJSONObject: [
+                        "filters": ["vn", "=", ["id", "=", sourceID]],
+                        "fields": "name,original,image.url,vns.id,vns.role",
+                        "results": 100, "page": page
+                    ])
+                    guard let url = URL(string: "https://api.vndb.org/kana/character") else {
+                        throw URLError(.badURL)
+                    }
+                    let response = try await request(url, body: body, as: VNDBCharacters.self)
+                    characters += response.results.map {
+                        GameCharacter(id: $0.id, name: $0.name, originalName: $0.original,
+                                      role: $0.vns?.first(where: { $0.id == sourceID })?.role,
+                                      imageURL: $0.image?.url,
+                                      pageURL: URL(string: "https://vndb.org/\($0.id)"))
+                    }
+                    if !response.more { break }
+                    page += 1
+                }
+                game.characters = characters
+                return game
+            }
+        case .steam:
+            return try await details(for: GameMetadata(
+                source: source, sourceID: sourceID, title: "",
+                coverURL: URL(string: "https://cdn.akamai.steamstatic.com/steam/apps/\(sourceID)/library_600x900.jpg"),
+                pageURL: URL(string: "https://store.steampowered.com/app/\(sourceID)")
+            ))
+        case .ymgal:
+            return try await details(for: GameMetadata(source: source, sourceID: sourceID, title: ""))
+        case .hikarinagi:
+            throw ProviderError.directAPIUnavailable
+        }
+    }
+
     public static func cacheKey(for query: String) -> String {
         query.folding(options: [.caseInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -266,6 +339,30 @@ private struct BangumiSubject: Decodable {
 
 private struct BangumiResponse: Decodable {
     let data: [BangumiSubject]
+}
+
+private struct BangumiCharacter: Decodable {
+    let id: Int
+    let name: String
+    let relation: String?
+    let images: BangumiImages?
+}
+
+private struct VNDBCharacters: Decodable {
+    let more: Bool
+    let results: [VNDBCharacter]
+}
+
+private struct VNDBCharacter: Decodable {
+    struct Appearance: Decodable {
+        let id: String
+        let role: String?
+    }
+    let id: String
+    let name: String
+    let original: String?
+    let image: VNDBImage?
+    let vns: [Appearance]?
 }
 
 private struct VNDBTitle: Decodable {
