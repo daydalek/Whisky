@@ -221,6 +221,13 @@ impl WhiskyApp {
                         // GPUI toolkit has no menu-bar/status-item API, so
                         // the toggle would write a shared default nothing
                         // reads here. It stays in the schema for SwiftUI.
+                        #[cfg(not(target_os = "linux"))]
+                        self.choice_pairs(
+                            "appearance",
+                            "主题外观",
+                            &crate::theme::APPEARANCE_OPTIONS,
+                            cx,
+                        ),
                         terminal,
                         row()
                             .py(px(10.))

@@ -373,3 +373,70 @@ private final class MetadataJobProtocol: URLProtocol, @unchecked Sendable {
     )
     #expect(try await store.load(for: entry.metadataIdentity) == nil)
 }
+
+private let nextMoeGuideFixture = """
+{"id":"1","work_id":"4","source":"example","source_url":"https://fixture.example/guide",
+ "source_author":"Author","lang":"ja","release":null,"characters":[],"ending_count":1,
+ "save_count":1,"segment_count":1,"work_route_hints":true,"work_content_limit":"sfw",
+ "updated_at":"2026-01-01T00:00:00Z"}
+"""
+
+private final class WalkthroughFixtureProtocol: URLProtocol, @unchecked Sendable {
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+    override func startLoading() {
+        do {
+            let url = try #require(request.url)
+            #expect(url.path == "/v2/catalog/walkthroughs/1")
+            var value = try #require(JSONSerialization.jsonObject(with: Data(nextMoeGuideFixture.utf8)) as? [String: Any])
+            value["chart"] = ["sections": [], "entries": [], "saves": [], "endings": [], "segments": []]
+            let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: try JSONSerialization.data(withJSONObject: value))
+            client?.urlProtocolDidFinishLoading(self)
+        } catch { client?.urlProtocol(self, didFailWithError: error) }
+    }
+}
+
+@Test @MainActor func walkthroughJobMergesIntoLiveMetadataAndValidatesMembership() async throws {
+    let fixture = try MetadataFixture()
+    defer { fixture.remove() }
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [WalkthroughFixtureProtocol.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let jobs = BridgeJobStore()
+    let service = LibraryMetadataService(jobs: jobs, session: session, networkAccess: {})
+    let entry = try await fixture.workspace.entry(fixture.params)
+    let store = GameMetadataStore(directory: entry.metadataDirectory, networkAccess: {})
+    let guide = try JSONDecoder().decode(GameWalkthrough.self, from: Data(nextMoeGuideFixture.utf8))
+    let metadata = GameMetadata(source: .nextmoe, sourceID: "4", title: "Live title", walkthroughs: [guide])
+    try await store.save(metadata, for: entry.metadataIdentity)
+    var snapshot = try #require(try JSONValue.encoded(metadata).object)
+    snapshot["title"] = .string("Stale title")
+    snapshot["walkthroughID"] = .string("1")
+    var params = fixture.params
+    params["metadata"] = .object(snapshot)
+    params["background"] = .bool(true)
+    let started = try await service.call("metadata.apply", params: params, workspace: fixture.workspace)
+    _ = try await waitForMetadataJob(started, jobs: jobs)
+    let saved = try #require(try await store.load(for: entry.metadataIdentity))
+    #expect(saved.title == "Live title")
+    #expect(saved.walkthroughs?.first?.chart != nil)
+    #expect(saved.walkthroughs?.first?.sourceAuthor == "Author")
+
+    params["background"] = .bool(false)
+    snapshot["walkthroughID"] = .string("2")
+    params["metadata"] = .object(snapshot)
+    await #expect(throws: BridgeFailure.self) {
+        try await service.call("metadata.apply", params: params, workspace: fixture.workspace)
+    }
+    try await store.remove(for: entry.metadataIdentity)
+    snapshot["walkthroughID"] = .string("1")
+    params["metadata"] = .object(snapshot)
+    await #expect(throws: BridgeFailure.self) {
+        try await service.call("metadata.apply", params: params, workspace: fixture.workspace)
+    }
+    #expect(try await store.load(for: entry.metadataIdentity) == nil)
+}

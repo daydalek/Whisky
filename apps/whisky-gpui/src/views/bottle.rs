@@ -15,7 +15,7 @@ use super::Command;
 use crate::config::{self, ConfigField};
 use crate::controls::*;
 use crate::state::{PreviewPage, PreviewSheet, WhiskyApp};
-use crate::theme::MUTED;
+use crate::theme;
 
 impl WhiskyApp {
     pub(crate) fn bottle_bar(&self, cx: &Context<Self>) -> AnyElement {
@@ -33,7 +33,7 @@ impl WhiskyApp {
             .gap(px(9.))
             .p(px(14.))
             .border_t_1()
-            .border_color(rgba(0xffffff0d))
+            .border_color(rgba(theme::card_border()))
             .child(self.action("bottle-c-drive", "打开 C: 盘", Command::OpenDrive, cx))
             .child(
                 Button::new("bottle-terminal")
@@ -101,7 +101,7 @@ impl WhiskyApp {
                     .gap(px(8.))
                     .p(px(14.))
                     .border_t_1()
-                    .border_color(rgba(0xffffff0d))
+                    .border_color(rgba(theme::card_border()))
                     .child(self.action(
                         "control",
                         "控制面板",
@@ -151,16 +151,19 @@ impl WhiskyApp {
                                     .rounded(px(9.))
                                     .object_fit(ObjectFit::Cover)
                                     .into_any_element(),
-                                None => div()
-                                    .w(px(76.))
-                                    .h(px(90.))
-                                    .rounded(px(9.))
-                                    .bg(gradient(0xffffff12, 0xffffff04))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .child(icon("package", 22.).text_color(rgb(MUTED)))
-                                    .into_any_element(),
+                                None => {
+                                    let (top, bottom) = theme::placeholder_gradient();
+                                    div()
+                                        .w(px(76.))
+                                        .h(px(90.))
+                                        .rounded(px(9.))
+                                        .bg(gradient(top, bottom))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .child(icon("package", 22.).text_color(rgb(theme::muted_color())))
+                                        .into_any_element()
+                                }
                             })
                             .context_menu(self.game_menu(i, cx)),
                     )
@@ -176,7 +179,11 @@ impl WhiskyApp {
             })
             .collect();
         let pins_empty = pins.is_empty();
-        let mut links = col().rounded(px(10.)).bg(rgba(0xffffff08));
+        let mut links = col()
+            .rounded(px(10.))
+            .bg(rgba(theme::section_bg()))
+            .border_1()
+            .border_color(rgba(theme::section_border()));
         for (i, (label, page)) in [
             ("已安装的程序", PreviewPage::Programs),
             ("Configure Bottle", PreviewPage::ConfigureBottle),
@@ -193,7 +200,7 @@ impl WhiskyApp {
                     .h(px(51.))
                     .gap(px(12.))
                     .cursor_pointer()
-                    .hover(|d| d.bg(rgba(0xffffff0b)))
+                    .hover(|d| d.bg(rgba(theme::hover())))
                     .on_click(cx.listener(move |this, _, _, cx| this.navigate(page, cx)))
                     .child(div().flex_1().child(label))
                     .child(muted("›")),
@@ -852,23 +859,24 @@ impl WhiskyApp {
             let pinned = program.pinned;
             let blocked = program.blocked;
             let launchable = self.program_entry_id(&container, program).is_some();
+            let (top, bottom) = theme::placeholder_gradient();
             rows.push(
                 row()
                     .id(path.clone())
                     .gap(px(15.))
                     .p(px(13.))
                     .border_b_1()
-                    .border_color(rgba(0xffffff0a))
+                    .border_color(rgba(theme::divider()))
                     .child(
                         div()
                             .w(px(32.))
                             .h(px(40.))
                             .rounded(px(4.))
-                            .bg(gradient(0xffffff12, 0xffffff04))
+                            .bg(gradient(top, bottom))
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(icon("package", 14.).text_color(rgb(MUTED))),
+                            .child(icon("package", 14.).text_color(rgb(theme::muted_color()))),
                     )
                     .child(
                         col()
@@ -942,12 +950,13 @@ impl WhiskyApp {
             .filter(|(_, game)| game.bottle == slot)
             .map(|(i, game)| {
                 let path = format!("C:\\Games\\{}\\game.exe", i + 1);
+                let (top, bottom) = theme::placeholder_gradient();
                 row()
                     .id(game.id.clone())
                     .gap(px(15.))
                     .p(px(13.))
                     .border_b_1()
-                    .border_color(rgba(0xffffff0a))
+                    .border_color(rgba(theme::divider()))
                     .child(match self.artwork(i) {
                         Some(artwork) => img(artwork)
                             .w(px(32.))
@@ -959,11 +968,11 @@ impl WhiskyApp {
                             .w(px(32.))
                             .h(px(40.))
                             .rounded(px(4.))
-                            .bg(gradient(0xffffff12, 0xffffff04))
+                            .bg(gradient(top, bottom))
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(icon("package", 14.).text_color(rgb(MUTED)))
+                            .child(icon("package", 14.).text_color(rgb(theme::muted_color())))
                             .into_any_element(),
                     })
                     .child(
@@ -1106,7 +1115,7 @@ impl WhiskyApp {
                     .gap(px(14.))
                     .p(px(11.))
                     .border_b_1()
-                    .border_color(rgba(0xffffff0a))
+                    .border_color(rgba(theme::divider()))
                     .child(
                         col()
                             .flex_1()

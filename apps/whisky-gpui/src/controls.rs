@@ -5,7 +5,9 @@ use gpui_kit::component::Sizable;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::{prelude::*, *};
 
-use crate::theme::{MUTED, SUCCESS, TEXT};
+use crate::theme::{
+    self, SUCCESS, TEXT,
+};
 
 pub(crate) fn row() -> Div {
     div().flex().items_center()
@@ -22,7 +24,7 @@ pub(crate) fn icon(name: &str, size: f32) -> Icon {
 pub(crate) fn muted(text: impl Into<SharedString>) -> Div {
     div()
         .text_size(px(12.))
-        .text_color(rgb(MUTED))
+        .text_color(rgb(theme::muted_color()))
         .child(text.into())
 }
 pub(crate) fn gradient(top: u32, bottom: u32) -> Background {
@@ -38,9 +40,9 @@ pub(crate) fn badge(name: &str, text: impl Into<SharedString>) -> Div {
         .px(px(9.))
         .py(px(3.))
         .rounded_full()
-        .bg(rgba(0xffffff0b))
+        .bg(rgba(theme::badge_bg()))
         .text_size(px(11.))
-        .text_color(rgb(0xb8b8bc))
+        .text_color(rgb(theme::badge_text()))
         .child(icon(name, 12.))
         .child(text.into())
 }
@@ -50,11 +52,11 @@ pub(crate) fn round_button(id: &'static str, name: &str) -> Stateful<Div> {
         .justify_center()
         .size(px(34.))
         .rounded_full()
-        .bg(rgba(0xffffff09))
+        .bg(rgba(theme::round_btn_bg()))
         .border_1()
-        .border_color(rgba(0xffffff0d))
+        .border_color(rgba(theme::round_btn_border()))
         .cursor_pointer()
-        .hover(|s| s.bg(rgba(0xffffff20)))
+        .hover(|s| s.bg(rgba(theme::round_btn_hover())))
         .child(icon(name, 17.))
 }
 

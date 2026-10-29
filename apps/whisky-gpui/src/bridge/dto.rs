@@ -758,6 +758,8 @@ pub(crate) struct MetadataDto {
     pub(crate) release_date: Option<String>,
     #[serde(default)]
     pub(crate) characters: Option<Vec<CharacterDto>>,
+    #[serde(default)]
+    pub(crate) walkthroughs: Option<Vec<crate::walkthrough::Walkthrough>>,
     #[serde(flatten)]
     pub(crate) extra: std::collections::BTreeMap<String, serde_json::Value>,
 }

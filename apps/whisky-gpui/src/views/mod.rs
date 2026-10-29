@@ -5,6 +5,8 @@ pub(crate) mod dialogs;
 pub(crate) mod import_bottles;
 pub(crate) mod library;
 pub(crate) mod settings;
+pub(crate) mod walkthrough;
+pub(crate) mod walkthrough_tree;
 
 use gpui_kit::base::{ScrollBounce, ScrollBounceMotion};
 use gpui_kit::component::{
@@ -184,6 +186,17 @@ impl WhiskyApp {
                     .checked(self.flag("show-hidden")),
             );
             items.push(MenuEntry::separator(cx.entity().downgrade()));
+            for (label, value) in crate::theme::APPEARANCE_OPTIONS {
+                items.push(
+                    self.menu_item(
+                        format!("外观：{label}"),
+                        Command::Choose("appearance", value),
+                        cx,
+                    )
+                    .checked(self.appearance.wire() == value),
+                );
+            }
+            items.push(MenuEntry::separator(cx.entity().downgrade()));
             items.push(self.menu_item("刷新", Command::RefreshLibrary, cx));
         } else {
             items.push(self.menu_item(
@@ -196,6 +209,17 @@ impl WhiskyApp {
             items.push(MenuEntry::separator(cx.entity().downgrade()));
             items.push(self.menu_item("Winetricks…", Command::Sheet(PreviewSheet::Winetricks), cx));
             items.push(self.menu_item("复制容器…", Command::Sheet(PreviewSheet::CreateBottle), cx));
+            items.push(MenuEntry::separator(cx.entity().downgrade()));
+            for (label, value) in crate::theme::APPEARANCE_OPTIONS {
+                items.push(
+                    self.menu_item(
+                        format!("外观：{label}"),
+                        Command::Choose("appearance", value),
+                        cx,
+                    )
+                    .checked(self.appearance.wire() == value),
+                );
+            }
         }
         Button::new("options-menu")
             .label("•••")
@@ -387,7 +411,6 @@ impl WhiskyApp {
     }
     /// A dropdown backed by raw values, showing the matching label. Used by
     /// settings controls whose stored value is a Swift enum raw value.
-    #[cfg(not(target_os = "linux"))]
     pub(crate) fn choice_pairs(
         &self,
         key: &'static str,
@@ -482,9 +505,9 @@ impl WhiskyApp {
                         .px(px(17.))
                         .py(px(5.))
                         .rounded(px(10.))
-                        .bg(rgba(0xffffff08))
+                        .bg(rgba(crate::theme::section_bg()))
                         .border_1()
-                        .border_color(rgba(0xffffff0a))
+                        .border_color(rgba(crate::theme::section_border()))
                         .children(children),
                 )
             })

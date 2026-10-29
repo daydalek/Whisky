@@ -59,6 +59,10 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
             return try await gatekeeper.search(cacheKey) { try await steam(query) }
         case .ymgal:
             return try await ymgalClient.search(query, networkAccess: networkAccess)
+        case .nextmoe:
+            return try await gatekeeper.search(cacheKey) {
+                try await NextMoeProvider(session: session, networkAccess: networkAccess).search(query)
+            }
         case .hikarinagi:
             throw ProviderError.directAPIUnavailable
         }
@@ -69,6 +73,11 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
     public func details(for candidate: GameMetadata, includeCharacters: Bool = false) async throws -> GameMetadata {
         try await networkAccess()
         guard candidate.source == source else { throw URLError(.badURL) }
+        if source == .nextmoe {
+            return try await gatekeeper.details(candidate.sourceID) {
+                try await NextMoeProvider(session: session, networkAccess: networkAccess).details(candidate)
+            }
+        }
         if source == .ymgal {
             return try await ymgalClient.details(candidate, networkAccess: networkAccess)
         }
@@ -114,7 +123,7 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
                 switch source {
                 case .vndb: return try await fetchVNDBCharacters(for: sourceID)
                 case .bangumi: return try await fetchBangumiCharacters(for: sourceID)
-                case .ymgal, .steam, .hikarinagi: return []
+                case .ymgal, .steam, .hikarinagi, .nextmoe: return []
                 }
             }
         }
@@ -544,6 +553,7 @@ public actor SourceGatekeeper {
     private static let bangumi = SourceGatekeeper(minInterval: 0.25)
     private static let vndb = SourceGatekeeper(minInterval: 0.25)
     private static let steam = SourceGatekeeper(minInterval: 0.25)
+    private static let nextmoe = SourceGatekeeper(minInterval: 0)
     private static let fallback = SourceGatekeeper(minInterval: 0)
 
     static func shared(for source: GameMetadataSource) -> SourceGatekeeper {
@@ -551,6 +561,7 @@ public actor SourceGatekeeper {
         case .bangumi: bangumi
         case .vndb: vndb
         case .steam: steam
+        case .nextmoe: nextmoe
         case .ymgal, .hikarinagi: fallback
         }
     }
@@ -655,13 +666,13 @@ public actor SourceGatekeeper {
     }
 
     /// A serialized, paced operation whose result belongs to the caller's local store.
-    public func paced(operation: @Sendable () async throws -> Void) async throws {
+    public func paced<T: Sendable>(operation: @Sendable () async throws -> T) async throws -> T {
         try await acquire()
         defer { release() }
         try await paceAndCheckCooldown()
         defer { lastRequestAt = Date() }
         do {
-            try await operation()
+            return try await operation()
         } catch let ProviderError.rateLimited(code, retryAfter) {
             recordRateLimit(code, retryAfter: retryAfter)
             throw ProviderError.http(code)

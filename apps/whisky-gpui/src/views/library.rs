@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use gpui_kit::base::{Spring, spring, transition};
 use gpui_kit::component::{
-    Sizable,
+    Disableable, Sizable,
     button::{Button, ButtonVariants},
     menu::ContextMenuExt,
     spinner::Spinner,
@@ -70,12 +70,12 @@ fn sidebar_row(
         .gap(px(10.))
         .rounded(px(6.))
         .bg(if selected {
-            rgba(0xffffff1a)
+            rgba(selected_bg())
         } else {
             rgba(0x00000000)
         })
         .cursor_pointer()
-        .hover(|s| s.bg(rgba(0xffffff10)))
+        .hover(|s| s.bg(rgba(hover())))
         .child(icon(symbol, 18.).text_color(rgb(ACCENT)))
         .child(
             div()
@@ -142,9 +142,9 @@ impl WhiskyApp {
                     .gap(px(14.))
                     .p(px(20.))
                     .rounded(px(RADIUS_LG))
-                    .bg(rgb(SURFACE))
+                    .bg(rgb(crate::theme::surface()))
                     .border_1()
-                    .border_color(rgba(SURFACE_BORDER))
+                    .border_color(rgba(surface_border()))
                     .child(div().font_weight(FontWeight::SEMIBOLD).child("Library unavailable"))
                     .child(
                         muted(reason)
@@ -200,11 +200,12 @@ impl WhiskyApp {
                 .context_menu(self.bottle_menu(index, cx)),
             );
         }
+        let (grad_start, grad_end) = sidebar_gradient();
         col()
             .size_full()
-            .bg(gradient(0x272930ff, 0x242529ff))
+            .bg(gradient(grad_start, grad_end))
             .border_r_1()
-            .border_color(rgba(0xffffff0b))
+            .border_color(rgba(divider()))
             .child(
                 row()
                     .h(px(52.))
@@ -235,12 +236,26 @@ impl WhiskyApp {
                             .py(px(4.))
                             .child(muted("Whisky").text_size(px(11.)))
                             .child(
-                                round_button("settings", "settings-2")
-                                    .size(px(28.))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.settings = !this.settings;
-                                        cx.notify();
-                                    })),
+                                row()
+                                    .gap(px(6.))
+                                    .child(
+                                        round_button(
+                                            "appearance-toggle",
+                                            self.appearance.icon_name(),
+                                        )
+                                        .size(px(28.))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.cycle_appearance(cx);
+                                        })),
+                                    )
+                                    .child(
+                                        round_button("settings", "settings-2")
+                                            .size(px(28.))
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.settings = !this.settings;
+                                                cx.notify();
+                                            })),
+                                    ),
                             ),
                     ),
             )
@@ -251,7 +266,7 @@ impl WhiskyApp {
             BridgeStatus::Connected { .. } => (SUCCESS, false),
             BridgeStatus::Failed { .. } => (DANGER, true),
             BridgeStatus::Stopped => (DANGER, false),
-            BridgeStatus::Locating | BridgeStatus::Starting => (MUTED, false),
+            BridgeStatus::Locating | BridgeStatus::Starting => (muted_color(), false),
         };
         row()
             .id("bridge-status")
@@ -261,7 +276,7 @@ impl WhiskyApp {
             .rounded(px(RADIUS_SM))
             .when(failed, |d| {
                 d.cursor_pointer()
-                    .hover(|s| s.bg(rgba(HOVER)))
+                    .hover(|s| s.bg(rgba(hover())))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.bridge_dialog = true;
                         cx.notify();
@@ -271,7 +286,7 @@ impl WhiskyApp {
             .child(
                 div()
                     .text_size(px(11.))
-                    .text_color(rgb(MUTED))
+                    .text_color(rgb(muted_color()))
                     .child(self.bridge_status.label()),
             )
             .into_any_element()
@@ -281,10 +296,10 @@ impl WhiskyApp {
             .gap(px(1.))
             .p(px(3.))
             .rounded_full()
-            .bg(rgba(0xffffff0b))
+            .bg(rgba(round_btn_bg()))
             .border_1()
-            .border_color(rgba(0xffffff09));
-        for (index, name) in ["library-big", "rows-3", "layout-grid"]
+            .border_color(rgba(round_btn_border()));
+        for (index, name) in ["library-big", "rows-3"]
             .into_iter()
             .enumerate()
         {
@@ -296,12 +311,12 @@ impl WhiskyApp {
                     .justify_center()
                     .rounded_full()
                     .bg(if self.mode == index {
-                        rgba(0xffffff1a)
+                        rgba(selected_bg())
                     } else {
                         rgba(0x00000000)
                     })
                     .cursor_pointer()
-                    .hover(|s| s.bg(rgba(0xffffff15)))
+                    .hover(|s| s.bg(rgba(hover_strong())))
                     .child(icon(name, 19.))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.set_mode(index, cx);
@@ -313,9 +328,9 @@ impl WhiskyApp {
             .flex_shrink_0()
             .px(px(18.))
             .gap(px(9.))
-            .bg(rgba(0x272729f5))
+            .bg(rgba(toolbar_bg()))
             .border_b_1()
-            .border_color(rgba(0xffffff08))
+            .border_color(rgba(divider()))
             .when(!self.sidebar, |d| {
                 d.child(
                     round_button("sidebar-show", "panel-left").on_click(cx.listener(
@@ -375,7 +390,7 @@ impl WhiskyApp {
     }
     pub(crate) fn backdrop(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         // Per-image channels preserve continuous blending even during rapid A → B → C hovers.
-        let mut layers = div().absolute().size_full().overflow_hidden().bg(rgb(BG));
+        let mut layers = div().absolute().size_full().overflow_hidden().bg(rgb(bg()));
         for i in 0..self.games().len() {
             let target = if self.hovered.is_some() && self.ambient_index == i {
                 0.24_f32
@@ -427,6 +442,7 @@ impl WhiskyApp {
             .game(index)
             .map(|game| game.title.clone())
             .unwrap_or_default();
+        let (ph_start, ph_end) = placeholder_gradient();
         div()
             .id(("cover", index))
             .relative()
@@ -436,7 +452,11 @@ impl WhiskyApp {
             .rounded(px(8.))
             .overflow_hidden()
             .border_1()
-            .border_color(rgba(if hovering { 0xffffff65 } else { 0xffffff14 }))
+            .border_color(rgba(if hovering {
+                if is_dark() { 0xffffff65 } else { 0x00000045 }
+            } else {
+                surface_border()
+            }))
             .cursor_pointer()
             .on_hover(cx.listener(move |this, active, _, cx| {
                 if *active {
@@ -461,11 +481,11 @@ impl WhiskyApp {
                 None => div()
                     .absolute()
                     .size_full()
-                    .bg(gradient(0xffffff12, 0xffffff04))
+                    .bg(gradient(ph_start, ph_end))
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(icon("package", 26.).text_color(rgb(MUTED)))
+                    .child(icon("package", 26.).text_color(rgb(muted_color())))
                     .into_any_element(),
             })
             .child(
@@ -483,6 +503,7 @@ impl WhiskyApp {
                     .left(px(10.))
                     .right(px(9.))
                     .text_size(px(12.))
+                    .text_color(rgb(0xf4f4f6))
                     .font_weight(FontWeight::BOLD)
                     .when(self.preview_single_line(), |d| d.truncate())
                     .when(!self.preview_single_line(), |d| d.line_clamp(2))
@@ -673,8 +694,8 @@ impl WhiskyApp {
             .font_weight(FontWeight::BOLD);
         if busy {
             button = button
-                .bg(rgba(0xffffff14))
-                .text_color(rgb(MUTED))
+                .bg(rgba(hover_strong()))
+                .text_color(rgb(muted_color()))
                 .child(Spinner::new().with_size(px(12.)))
                 .child(label);
         } else if enabled {
@@ -703,8 +724,8 @@ impl WhiskyApp {
                 _ => icon("play", 13.),
             };
             button = button
-                .bg(rgba(0xffffff12))
-                .text_color(rgb(MUTED))
+                .bg(rgba(hover_strong()))
+                .text_color(rgb(muted_color()))
                 .child(leading.into_any_element())
                 .child(label);
         }
@@ -745,7 +766,7 @@ impl WhiskyApp {
             let mut meta = row().flex_shrink_0().flex_wrap().gap(px(7.)).mt(px(3.));
             if self.demo {
                 meta = meta
-                    .child(icon("clock-3", 12.).text_color(rgb(MUTED)))
+                    .child(icon("clock-3", 12.).text_color(rgb(muted_color())))
                     .child(muted(if position == 0 {
                         "晚上7:39"
                     } else if position == 1 {
@@ -758,7 +779,7 @@ impl WhiskyApp {
             } else {
                 if let Some(label) = crate::model::format_last_played(g.last_played) {
                     meta = meta
-                        .child(icon("clock-3", 12.).text_color(rgb(MUTED)))
+                        .child(icon("clock-3", 12.).text_color(rgb(muted_color())))
                         .child(muted(label));
                 }
                 if g.bottle > 0 {
@@ -811,7 +832,7 @@ impl WhiskyApp {
                                         .top(px(-12.))
                                         .bottom(px(-12.))
                                         .w(px(1.))
-                                        .bg(rgba(0xffffff12)),
+                                        .bg(rgba(surface_border())),
                                 )
                                 .child(
                                     muted(if position == 0 {
@@ -836,7 +857,7 @@ impl WhiskyApp {
                                         .bg(rgb(if position == 0 || self.hovered == Some(index) {
                                             ACCENT
                                         } else {
-                                            0x565658
+                                            timeline_dot_idle()
                                         })),
                                 ),
                         )
@@ -849,9 +870,9 @@ impl WhiskyApp {
                                 .gap(px(19.))
                                 .p(px(13.))
                                 .rounded(px(16.))
-                                .bg(rgba(if hover > 0.1 { 0xffffff0e } else { 0xffffff07 }))
+                                .bg(rgba(if hover > 0.1 { hover_strong() } else { card_bg() }))
                                 .border_1()
-                                .border_color(rgba(0xffffff0d))
+                                .border_color(rgba(card_border()))
                                 .on_hover(cx.listener(move |this, active, _, cx| {
                                     this.hovered = if *active { Some(index) } else { None };
                                     this.ambient_index = index;
@@ -874,17 +895,20 @@ impl WhiskyApp {
                                                 .size_full()
                                                 .object_fit(ObjectFit::Cover)
                                                 .into_any_element(),
-                                            None => div()
-                                                .size_full()
-                                                .bg(gradient(0xffffff12, 0xffffff04))
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .child(
-                                                    icon("package", 26.)
-                                                        .text_color(rgb(MUTED)),
-                                                )
-                                                .into_any_element(),
+                                            None => {
+                                                let (ph_start, ph_end) = placeholder_gradient();
+                                                div()
+                                                    .size_full()
+                                                    .bg(gradient(ph_start, ph_end))
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .child(
+                                                        icon("package", 26.)
+                                                            .text_color(rgb(muted_color())),
+                                                    )
+                                                    .into_any_element()
+                                            }
                                         })
                                         .context_menu(self.game_menu(index, cx)),
                                 )
@@ -916,7 +940,7 @@ impl WhiskyApp {
                                                 div()
                                                     .mt(px(5.))
                                                     .text_size(px(13.))
-                                                    .text_color(rgb(0xaaaaae))
+                                                    .text_color(rgb(subtext()))
                                                     .line_height(relative(1.55))
                                                     .flex_1()
                                                     .min_h_0()
@@ -980,9 +1004,9 @@ impl WhiskyApp {
                 .pb(px(13.))
                 .rounded(px(12.))
                 .overflow_hidden()
-                .bg(rgba(0xffffff08))
+                .bg(rgba(card_bg()))
                 .border_1()
-                .border_color(rgba(0xffffff0d))
+                .border_color(rgba(card_border()))
                 .child(self.cover(i, rect.width, (rect.height - 55.).max(1.), window, cx))
                 .child(
                     row()
@@ -1032,7 +1056,7 @@ impl WhiskyApp {
                     .relative()
                     .w(px(STAR))
                     .h(px(STAR))
-                    .child(icon("star", STAR).text_color(rgba(0xffffff26)))
+                    .child(icon("star", STAR).text_color(rgba(star_empty())))
                     .child(
                         div()
                             .absolute()
@@ -1107,13 +1131,14 @@ impl WhiskyApp {
         }
         let pw = (width - 100.).clamp(600., 910.).min(width - 36.);
         let ph = (height - 90.).clamp(480., 690.).min(height - 36.);
+        let (ph_start, ph_end) = placeholder_gradient();
         div()
             .absolute()
             .inset_0()
             // Modal hitboxes must also block wheel events, including at scroll boundaries.
             .occlude()
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-            .bg(rgba(0x00000080))
+            .bg(rgba(overlay()))
             .opacity(progress)
             .child(
                 div()
@@ -1138,8 +1163,8 @@ impl WhiskyApp {
                     .overflow_hidden()
                     .shadow_xl()
                     .border_1()
-                    .border_color(rgba(0xffffff25))
-                    .bg(rgb(0x29292c))
+                    .border_color(rgba(surface_border()))
+                    .bg(rgb(crate::theme::surface()))
                     .child(
                         div()
                             .absolute()
@@ -1149,7 +1174,7 @@ impl WhiskyApp {
                                     img(path)
                                         .size_full()
                                         .object_fit(ObjectFit::Cover)
-                                        .opacity(0.22),
+                                        .opacity(if is_dark() { 0.22 } else { 0.12 }),
                                 )
                             }),
                     )
@@ -1160,7 +1185,7 @@ impl WhiskyApp {
                             .px(px(16.))
                             .flex_shrink_0()
                             .justify_between()
-                            .child(muted("游戏详情").text_color(rgb(0xc4c4c9)))
+                            .child(muted("游戏详情").text_color(rgb(subtext())))
                             .child(row().gap(px(8.)).child(self.game_options(index, cx)).child(
                                 round_button("detail-close", "x").size(px(27.)).on_click(
                                     cx.listener(|this, _, _, cx| {
@@ -1199,13 +1224,13 @@ impl WhiskyApp {
                                                     .h(px(278.))
                                                     .flex_shrink_0()
                                                     .rounded(px(9.))
-                                                    .bg(gradient(0xffffff12, 0xffffff04))
+                                                    .bg(gradient(ph_start, ph_end))
                                                     .flex()
                                                     .items_center()
                                                     .justify_center()
                                                     .child(
                                                         icon("package", 34.)
-                                                            .text_color(rgb(MUTED)),
+                                                            .text_color(rgb(muted_color())),
                                                     )
                                                     .into_any_element(),
                                             })
@@ -1278,7 +1303,9 @@ impl WhiskyApp {
                                                 .gap(px(12.))
                                                 .p(px(20.))
                                                 .rounded(px(12.))
-                                                .bg(rgba(0xffffff09))
+                                                .bg(rgba(card_bg()))
+                                                .border_1()
+                                                .border_color(rgba(card_border()))
                                                 .child(
                                                     div()
                                                         .font_weight(FontWeight::SEMIBOLD)
@@ -1287,13 +1314,14 @@ impl WhiskyApp {
                                                 .child(
                                                     div()
                                                         .text_size(px(13.))
-                                                        .text_color(rgb(0xc3c3ca))
+                                                        .text_color(rgb(subtext()))
                                                         .line_height(relative(1.65))
                                                         .child(description),
                                                 ),
                                         )
                                     })
-                                    .child(self.detail_character_cards(index, cx)),
+                                    .child(self.detail_character_cards(index, cx))
+                                    .child(self.detail_walkthroughs(index, cx)),
                             ),
                         ),
                     ),
@@ -1302,12 +1330,327 @@ impl WhiskyApp {
     }
 
     fn detail_character_cards(&self, index: usize, cx: &Context<Self>) -> AnyElement {
-        let Some(game) = self.game(index) else { return div().into_any_element() };
-        let Some(characters) = game.metadata.as_ref().and_then(|metadata| metadata.characters.as_ref())
-            .filter(|characters| !characters.is_empty()) else { return div().into_any_element() };
-        col().gap(px(12.)).p(px(20.)).rounded(px(12.)).bg(rgba(0xffffff09))
-            .child(div().font_weight(FontWeight::SEMIBOLD).child(format!("登场人物 · {}", characters.len())))
+        let Some(game) = self.game(index) else {
+            return div().into_any_element();
+        };
+        let Some(characters) = game
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.characters.as_ref())
+            .filter(|characters| !characters.is_empty())
+        else {
+            return div().into_any_element();
+        };
+        let selected_character = self
+            .detail_character
+            .as_deref()
+            .and_then(|id| characters.iter().find(|c| c.id == id));
+        col()
+            .gap(px(14.))
+            .p(px(20.))
+            .rounded(px(12.))
+            .bg(rgba(card_bg()))
+            .border_1()
+            .border_color(rgba(card_border()))
+            .child(
+                row()
+                    .justify_between()
+                    .items_center()
+                    .child(
+                        row()
+                            .gap(px(8.))
+                            .items_center()
+                            .child(icon("users", 16.).text_color(rgb(ACCENT)))
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child("登场人物"))
+                            .child(
+                                div()
+                                    .px(px(8.))
+                                    .py(px(2.))
+                                    .rounded_full()
+                                    .bg(rgba(badge_bg()))
+                                    .text_size(px(11.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(rgb(muted_color()))
+                                    .child(characters.len().to_string()),
+                            ),
+                    )
+                    .child(muted("点击卡片查看角色详情").text_size(px(11.))),
+            )
+            .when_some(selected_character, |d, character| {
+                d.child(self.character_showcase_card(
+                    character,
+                    characters,
+                    &game.character_images,
+                    false,
+                    cx,
+                ))
+            })
             .child(self.character_cards(characters, &game.character_images, Some(index), cx))
+            .into_any_element()
+    }
+
+    /// Rich character showcase card shared by the Game Detail panel and the Game Info modal.
+    pub(crate) fn character_showcase_card(
+        &self,
+        character: &crate::bridge::dto::CharacterDto,
+        characters: &[crate::bridge::dto::CharacterDto],
+        images: &std::collections::BTreeMap<String, String>,
+        in_game_info: bool,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let ordered = characters_in_display_order(characters, images);
+        let total = ordered.len();
+        let pos = ordered
+            .iter()
+            .position(|c| c.id == character.id)
+            .unwrap_or(0);
+        let prev_id = pos.checked_sub(1).and_then(|i| ordered.get(i)).map(|c| c.id.clone());
+        let next_id = ordered.get(pos + 1).map(|c| c.id.clone());
+
+        let original_name = character
+            .original_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && *s != character.name);
+        let role = character
+            .role
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let voice_actor = character
+            .voice_actor
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let summary = character
+            .summary
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("暂无该角色的详细简介。");
+
+        let portrait = match images.get(&character.id) {
+            Some(path) => img(std::path::PathBuf::from(path))
+                .w_full()
+                .h_full()
+                .object_fit(ObjectFit::Contain)
+                .into_any_element(),
+            None => col()
+                .size_full()
+                .items_center()
+                .justify_center()
+                .gap(px(8.))
+                .child(icon("user", 32.).text_color(rgb(muted_color())))
+                .child(muted("暂无立绘").text_size(px(12.)))
+                .into_any_element(),
+        };
+
+        let nav_bar = row()
+            .justify_between()
+            .items_center()
+            .pb(px(10.))
+            .border_b_1()
+            .border_color(rgba(divider()))
+            .child(
+                Button::new("character-back")
+                    .label("‹ 返回人物列表")
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if in_game_info {
+                            if let Some(page) = this.game_info.as_mut() {
+                                page.selected_character = None;
+                            }
+                        } else {
+                            this.detail_character = None;
+                        }
+                        cx.notify();
+                    })),
+            )
+            .when(total > 1, |d| {
+                d.child(
+                    row()
+                        .gap(px(8.))
+                        .items_center()
+                        .child(
+                            muted(format!("{} / {}", pos + 1, total))
+                                .text_size(px(12.))
+                                .font_weight(FontWeight::MEDIUM),
+                        )
+                        .child(
+                            Button::new("character-prev")
+                                .label("‹ 上一位")
+                                .disabled(prev_id.is_none())
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if let Some(id) = prev_id.clone() {
+                                        if in_game_info {
+                                            if let Some(page) = this.game_info.as_mut() {
+                                                page.selected_character = Some(id);
+                                            }
+                                        } else {
+                                            this.detail_character = Some(id);
+                                        }
+                                        cx.notify();
+                                    }
+                                })),
+                        )
+                        .child(
+                            Button::new("character-next")
+                                .label("下一位 ›")
+                                .disabled(next_id.is_none())
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if let Some(id) = next_id.clone() {
+                                        if in_game_info {
+                                            if let Some(page) = this.game_info.as_mut() {
+                                                page.selected_character = Some(id);
+                                            }
+                                        } else {
+                                            this.detail_character = Some(id);
+                                        }
+                                        cx.notify();
+                                    }
+                                })),
+                        ),
+                )
+            });
+
+        col()
+            .id("character-showcase")
+            .gap(px(16.))
+            .p(px(18.))
+            .rounded(px(14.))
+            .bg(rgba(section_bg()))
+            .border_1()
+            .border_color(rgba(surface_border()))
+            .child(nav_bar)
+            .child(
+                row()
+                    .items_start()
+                    .gap(px(22.))
+                    .child(
+                        col()
+                            .w(px(180.))
+                            .flex_shrink_0()
+                            .gap(px(10.))
+                            .child(
+                                div()
+                                    .w(px(180.))
+                                    .h(px(246.))
+                                    .rounded(px(12.))
+                                    .overflow_hidden()
+                                    .bg(rgba(portrait_bg()))
+                                    .border_1()
+                                    .border_color(rgba(surface_border()))
+                                    .p(px(6.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(portrait),
+                            )
+                            .when_some(voice_actor, |d, actor| {
+                                d.child(
+                                    row()
+                                        .w_full()
+                                        .gap(px(7.))
+                                        .px(px(10.))
+                                        .py(px(7.))
+                                        .rounded(px(8.))
+                                        .bg(rgba(badge_bg()))
+                                        .border_1()
+                                        .border_color(rgba(card_border()))
+                                        .child(icon("mic", 13.).text_color(rgb(ACCENT)))
+                                        .child(
+                                            div()
+                                                .text_size(px(11.))
+                                                .font_weight(FontWeight::SEMIBOLD)
+                                                .text_color(rgb(ACCENT))
+                                                .child("CV"),
+                                        )
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .truncate()
+                                                .text_size(px(12.))
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .text_color(rgb(text()))
+                                                .child(actor.to_owned()),
+                                        ),
+                                )
+                            }),
+                    )
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(12.))
+                            .child(
+                                col()
+                                    .gap(px(6.))
+                                    .child(
+                                        row()
+                                            .flex_wrap()
+                                            .gap(px(10.))
+                                            .items_center()
+                                            .child(
+                                                div()
+                                                    .text_size(px(22.))
+                                                    .font_weight(FontWeight::BOLD)
+                                                    .line_height(relative(1.25))
+                                                    .text_color(rgb(text()))
+                                                    .child(character.name.clone()),
+                                            )
+                                            .when_some(role, |d, r| {
+                                                d.child(
+                                                    div()
+                                                        .px(px(10.))
+                                                        .py(px(3.))
+                                                        .rounded_full()
+                                                        .bg(rgba(0xff891b22))
+                                                        .border_1()
+                                                        .border_color(rgba(0xff891b55))
+                                                        .text_size(px(11.))
+                                                        .font_weight(FontWeight::SEMIBOLD)
+                                                        .text_color(rgb(ACCENT))
+                                                        .child(r.to_owned()),
+                                                )
+                                            }),
+                                    )
+                                    .when_some(original_name, |d, orig| {
+                                        d.child(muted(orig).text_size(px(13.)))
+                                    }),
+                            )
+                            .child(div().w_full().h(px(1.)).bg(rgba(divider())))
+                            .child(
+                                col()
+                                    .gap(px(8.))
+                                    .child(
+                                        row()
+                                            .gap(px(6.))
+                                            .items_center()
+                                            .child(
+                                                div()
+                                                    .w(px(3.))
+                                                    .h(px(13.))
+                                                    .rounded_full()
+                                                    .bg(rgb(ACCENT)),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_size(px(12.))
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .text_color(rgb(muted_color()))
+                                                    .child("人物简介"),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_size(px(13.))
+                                            .text_color(rgb(subtext()))
+                                            .line_height(relative(1.75))
+                                            .child(summary.to_owned()),
+                                    ),
+                            ),
+                    ),
+            )
             .into_any_element()
     }
 
@@ -1318,6 +1661,13 @@ impl WhiskyApp {
         open_game: Option<usize>,
         cx: &Context<Self>,
     ) -> AnyElement {
+        let selected_id = if open_game.is_some() {
+            self.detail_character.as_deref()
+        } else {
+            self.game_info
+                .as_ref()
+                .and_then(|page| page.selected_character.as_deref())
+        };
         let mut cards = row()
             .id("detail-character-cards")
             .items_start()
@@ -1326,50 +1676,158 @@ impl WhiskyApp {
         // Match the portrait lookup below and retain provider order within each group.
         for character in characters_in_display_order(characters, images) {
             let id = character.id.clone();
-            let mut card = col().id(format!("detail-character:{}", character.id))
-                .w(px(170.)).h(px(310.)).flex_shrink_0().gap(px(6.)).p(px(10.))
+            let is_selected = selected_id == Some(character.id.as_str());
+            let role = character
+                .role
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let original_name = character
+                .original_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && *s != character.name);
+            let voice_actor = character
+                .voice_actor
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let summary = character
+                .summary
+                .as_deref()
+                .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
+                .filter(|s| !s.is_empty());
+
+            let portrait_frame = div()
+                .relative()
+                .w_full()
+                .h(px(144.))
+                .flex_shrink_0()
+                .rounded(px(8.))
                 .overflow_hidden()
-                .rounded(px(12.)).bg(rgba(0xffffff08)).cursor_pointer()
-                .hover(|style| style.bg(rgba(0xffffff18)))
+                .bg(rgba(portrait_bg()))
+                .border_1()
+                .border_color(rgba(card_border()))
+                .child(match images.get(&character.id) {
+                    // Size portraits by width and clip below the viewport, rather
+                    // than center-cropping tall artwork through the character's face.
+                    Some(path) => col()
+                        .w_full()
+                        .h(px(144.))
+                        .flex_shrink_0()
+                        .overflow_hidden()
+                        .child(
+                            img(std::path::PathBuf::from(path))
+                                .w_full()
+                                .min_h(px(144.))
+                                .flex_shrink_0()
+                                .object_fit(ObjectFit::Cover),
+                        )
+                        .into_any_element(),
+                    None => col()
+                        .size_full()
+                        .items_center()
+                        .justify_center()
+                        .gap(px(6.))
+                        .child(icon("user", 22.).text_color(rgb(muted_color())))
+                        .child(muted("暂无头像").text_size(px(11.)))
+                        .into_any_element(),
+                })
+                .when_some(role, |d, r| {
+                    d.child(
+                        div()
+                            .absolute()
+                            .top(px(6.))
+                            .left(px(6.))
+                            .px(px(7.))
+                            .py(px(2.))
+                            .rounded_full()
+                            .bg(rgba(0x141416cc))
+                            .text_size(px(10.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(rgb(0xffa347))
+                            .child(r.to_owned()),
+                    )
+                });
+
+            let mut info = col().flex_1().min_h_0().w_full().gap(px(3.));
+            info = info.child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_size(px(13.))
+                    .truncate()
+                    .child(character.name.clone()),
+            );
+            if let Some(orig) = original_name {
+                info = info.child(muted(orig).text_size(px(11.)).truncate());
+            }
+            if let Some(actor) = voice_actor {
+                info = info.child(
+                    row()
+                        .gap(px(4.))
+                        .items_center()
+                        .child(icon("mic", 11.).text_color(rgb(ACCENT)))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_size(px(11.))
+                                .text_color(rgb(ACCENT))
+                                .child(actor.to_owned()),
+                        ),
+                );
+            }
+            if let Some(summary) = summary {
+                info = info.child(
+                    muted(summary)
+                        .mt(px(2.))
+                        .text_size(px(11.))
+                        .line_height(px(15.))
+                        .overflow_hidden()
+                        .line_clamp(2),
+                );
+            }
+
+            let card = col()
+                .id(format!("detail-character:{}", character.id))
+                .w(px(164.))
+                .h(px(272.))
+                .flex_shrink_0()
+                .gap(px(8.))
+                .p(px(10.))
+                .overflow_hidden()
+                .rounded(px(12.))
+                .border_1()
+                .border_color(rgba(if is_selected {
+                    if is_dark() { 0xff891baa } else { 0x00000038 }
+                } else {
+                    card_border()
+                }))
+                .bg(rgba(if is_selected { selected_bg() } else { card_bg() }))
+                .cursor_pointer()
+                .hover(|style| {
+                    style.bg(rgba(if is_selected {
+                        selected_bg()
+                    } else {
+                        hover_strong()
+                    }))
+                })
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(index) = open_game { this.open_game_info(index, cx); }
-                    if let Some(page) = this.game_info.as_mut() { page.selected_character = Some(id.clone()); }
+                    if open_game.is_some() {
+                        if this.detail_character.as_deref() == Some(id.as_str()) {
+                            this.detail_character = None;
+                        } else {
+                            this.detail_character = Some(id.clone());
+                        }
+                    }
+                    if let Some(page) = this.game_info.as_mut() {
+                        page.selected_character = Some(id.clone());
+                    }
                     cx.notify();
-                }));
-            if let Some(path) = images.get(&character.id) {
-                // Size portraits by width and clip below the viewport, rather
-                // than center-cropping tall artwork through the character's face.
-                card = card.child(
-                    col().w_full().h(px(135.)).flex_shrink_0().overflow_hidden()
-                        .child(img(std::path::PathBuf::from(path))
-                            .w(px(150.)).min_h(px(135.)).flex_shrink_0()
-                            .object_fit(ObjectFit::Cover)),
-                );
-            } else {
-                card = card.child(
-                    col().w_full().h(px(135.)).flex_shrink_0()
-                        .items_center().justify_center()
-                        .rounded(px(6.)).bg(rgba(0xffffff08))
-                        .child(muted("暂无头像")),
-                );
-            }
-            card = card
-                .child(div().h(px(20.)).flex_shrink_0()
-                    .font_weight(FontWeight::SEMIBOLD).truncate().child(character.name.clone()))
-                .child(muted(character.original_name.clone().unwrap_or_default())
-                    .h(px(18.)).flex_shrink_0().truncate())
-                .child(muted(character.role.clone().unwrap_or_default())
-                    .h(px(18.)).flex_shrink_0().truncate())
-                .child(muted(character.voice_actor.as_ref()
-                    .map(|actor| format!("CV：{actor}")).unwrap_or_default())
-                    .h(px(18.)).flex_shrink_0().truncate());
-            if let Some(summary) = &character.summary {
-                card = card.child(
-                    muted(summary.split_whitespace().collect::<Vec<_>>().join(" "))
-                        .text_size(px(11.)).line_height(px(16.))
-                        .h(px(48.)).flex_shrink_0().overflow_hidden().line_clamp(3),
-                );
-            }
+                }))
+                .child(portrait_frame)
+                .child(info);
             cards = cards.child(card);
         }
         cards.into_any_element()

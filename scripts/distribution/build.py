@@ -126,7 +126,8 @@ def plan(args):
                  '--app', app_dir, '--version', args.version, '--build-number', str(args.build_number),
                  '--output', packages_dir])
         if args.install:
-            step('部署到 /Applications/Whisky.app', ['python3', ROOT / 'scripts/distribution/install-macos.py', app_dir])
+            step('部署到 /Applications/Whisky.app', ['python3', ROOT / 'scripts/distribution/install-macos.py',
+                 '--remove-source', app_dir])
     elif args.target == 'whisky-linux-amd64':
         version = args.version or '0.1.0'
         if not re.fullmatch(r'\d+\.\d+\.\d+', version):

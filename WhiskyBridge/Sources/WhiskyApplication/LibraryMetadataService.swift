@@ -89,6 +89,22 @@ public final class LibraryMetadataService {
             throw BridgeFailure("invalid_params", "Missing metadata snapshot")
         }
         var metadata = try value.decoded(GameMetadata.self)
+        if let walkthroughID = value.object?["walkthroughID"]?.string {
+            guard metadata.source == .nextmoe,
+                  let current = try await store.load(for: entry.metadataIdentity), current.id == metadata.id,
+                  current.walkthroughs?.contains(where: { $0.id == walkthroughID }) == true else {
+                throw BridgeFailure("invalid_params", "Choose a walkthrough from the linked NextMoe work")
+            }
+            let guide = try await NextMoeProvider(session: session, networkAccess: networkAccess)
+                .walkthrough(id: walkthroughID, workID: current.sourceID)
+            guard var latest = try await store.load(for: entry.metadataIdentity), latest.id == current.id,
+                  let index = latest.walkthroughs?.firstIndex(where: { $0.id == walkthroughID }) else {
+                throw BridgeFailure("operation_failed", "The linked game has changed")
+            }
+            latest.walkthroughs?[index] = guide
+            try await store.save(latest, for: entry.metadataIdentity)
+            return .object(["applied": .bool(true)])
+        }
         let refreshCharacters = value.object?["refreshCharacters"] == .bool(true)
         if refreshCharacters {
             guard let current = try await store.load(for: entry.metadataIdentity),
@@ -103,7 +119,7 @@ public final class LibraryMetadataService {
             metadata.characters = try await PublicGameMetadataProvider(
                 source: metadata.source, session: session, networkAccess: networkAccess
             ).fetchCharacters(for: metadata)
-        } else if metadata.source == .steam || includeCharacters {
+        } else if metadata.source == .steam || metadata.source == .nextmoe || includeCharacters {
             metadata = try await PublicGameMetadataProvider(
                 source: metadata.source,
                 session: session,

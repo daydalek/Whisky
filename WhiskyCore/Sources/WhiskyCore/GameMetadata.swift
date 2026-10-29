@@ -20,7 +20,7 @@ import Foundation
 
 /// These identifiers describe remote works, never executables or Wine settings.
 public enum GameMetadataSource: String, Codable, CaseIterable, Sendable, Identifiable {
-    case bangumi, vndb, steam, ymgal, hikarinagi
+    case bangumi, vndb, steam, ymgal, hikarinagi, nextmoe
 
     public var id: String {
         rawValue
@@ -32,6 +32,7 @@ public enum GameMetadataSource: String, Codable, CaseIterable, Sendable, Identif
         case .vndb: "VNDB"
         case .steam: "Steam"
         case .ymgal: "月幕"
+        case .nextmoe: "NextMoe · 鲲 Galgame 论坛"
         case .hikarinagi: "Hikarinagi"
         }
     }
@@ -83,6 +84,7 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
     public var alternateTitles: [String]?
     public var titleLanguage: String?
     public var characters: [GameCharacter]?
+    public var walkthroughs: [GameWalkthrough]?
     public var fetchedAt: Date
 
     public var id: String {
@@ -103,7 +105,8 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
         fetchedAt: Date = Date(),
         alternateTitles: [String]? = nil,
         titleLanguage: String? = nil,
-        characters: [GameCharacter]? = nil
+        characters: [GameCharacter]? = nil,
+        walkthroughs: [GameWalkthrough]? = nil
     ) {
         self.source = source
         self.sourceID = sourceID
@@ -119,6 +122,7 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
         self.alternateTitles = alternateTitles
         self.titleLanguage = titleLanguage
         self.characters = characters
+        self.walkthroughs = walkthroughs
     }
 
     public var matchingTitles: [String] {

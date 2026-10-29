@@ -79,6 +79,11 @@ pub(crate) fn mode_index(raw: &str) -> Option<usize> {
     MODE_VALUES.iter().position(|value| *value == raw)
 }
 
+/// Classic remains a shared SwiftUI preference, but is hidden in GPUI.
+pub(crate) fn visible_mode_index(raw: &str) -> Option<usize> {
+    mode_index(raw).map(|index| if index == 2 { 0 } else { index })
+}
+
 /// Index of a `LibrarySort` raw value.
 pub(crate) fn sort_index(raw: &str) -> Option<usize> {
     SORT_VALUES.iter().position(|value| *value == raw)
@@ -160,6 +165,10 @@ mod tests {
         assert_eq!(COVER_FILL_VALUES, ["blurred", "theme"]);
         assert_eq!(DETAIL_LAYOUT_VALUES, ["hero", "split"]);
         assert_eq!(mode_index("timeline"), Some(1));
+        assert_eq!(visible_mode_index("covers"), Some(0));
+        assert_eq!(visible_mode_index("timeline"), Some(1));
+        assert_eq!(visible_mode_index("classic"), Some(0));
+        assert_eq!(visible_mode_index("unknown"), None);
         assert_eq!(sort_index("bottle"), Some(2));
         assert_eq!(mode_index("grid"), None);
         assert_eq!(mode_value(9), DEFAULT_MODE);

@@ -6,7 +6,6 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::base::{Presence, Spring, spring};
-use gpui_kit::component::theme::{Theme, ThemeMode};
 use gpui_kit::{prelude::*, *};
 
 mod bridge;
@@ -33,6 +32,10 @@ mod theme;
 mod ui_state;
 mod views;
 mod winetricks;
+mod walkthrough;
+mod walkthrough_tree;
+#[cfg(feature = "visual-test")]
+mod walkthrough_capture;
 
 use crate::controls::{col, icon, row};
 #[cfg(feature = "visual-test")]
@@ -40,7 +43,7 @@ use crate::model::demo_data;
 use crate::state::{PreviewPage, WhiskyApp};
 #[cfg(feature = "visual-test")]
 use crate::state::PreviewSheet;
-use crate::theme::{ACCENT, BG, DETAIL_MS, NOTICE_MS, SIDEBAR_MS, TEXT};
+use crate::theme::{ACCENT, AppearanceMode, DETAIL_MS, NOTICE_MS, SIDEBAR_MS};
 
 gpui_kit::actions!(
     whisky_preview,
@@ -52,6 +55,9 @@ gpui_kit::actions!(
         ShowAbout,
         ShowSettings,
         ToggleSidebar,
+        AppearanceSystem,
+        AppearanceLight,
+        AppearanceDark,
         MinimizeWindow,
         ZoomWindow,
         ToggleFullScreen
@@ -60,6 +66,7 @@ gpui_kit::actions!(
 
 impl Render for WhiskyApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::theme::sync_theme(self.appearance, Some(window), cx);
         self.scroll_needs_measurement.set(false);
         let ww = f32::from(window.viewport_size().width);
         let wh = f32::from(window.viewport_size().height);
@@ -93,9 +100,9 @@ impl Render for WhiskyApp {
             .size_full()
             .items_start()
             .overflow_hidden()
-            .bg(rgb(BG))
+            .bg(rgb(crate::theme::bg()))
             .font_family(platform::UI_FONT)
-            .text_color(rgb(TEXT))
+            .text_color(rgb(crate::theme::text()))
             .text_size(px(13.))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
                 if let Some(path) = paths.0.first() {
@@ -105,6 +112,15 @@ impl Render for WhiskyApp {
             .on_action(cx.listener(|this, _: &ToggleMotion, _, cx| {
                 this.motion = !this.motion;
                 cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &AppearanceSystem, _, cx| {
+                this.set_appearance(AppearanceMode::System, cx);
+            }))
+            .on_action(cx.listener(|this, _: &AppearanceLight, _, cx| {
+                this.set_appearance(AppearanceMode::Light, cx);
+            }))
+            .on_action(cx.listener(|this, _: &AppearanceDark, _, cx| {
+                this.set_appearance(AppearanceMode::Dark, cx);
             }))
             .on_action(cx.listener(|this, _: &RefreshLibrary, _, cx| {
                 if this.demo {
@@ -132,7 +148,9 @@ impl Render for WhiskyApp {
                 window.toggle_fullscreen();
             }))
             .on_action(cx.listener(|this, _: &DismissPreview, window, cx| {
-                if this.import_bottles.is_some() {
+                if this.walkthrough_view.fullscreen {
+                    this.walkthrough_view.fullscreen = false;
+                } else if this.import_bottles.is_some() {
                     if !this.import_bottles.as_ref().is_some_and(|state| state.importing) {
                         this.import_bottles = None;
                     }
@@ -195,6 +213,9 @@ impl Render for WhiskyApp {
         if self.about {
             root = root.child(self.about_dialog(ww, wh, cx));
         }
+        if self.walkthrough_view.fullscreen {
+            root = root.child(self.walkthrough_tree_overlay(cx));
+        }
         if notification.should_render() {
             let message = self.notice.clone().unwrap_or_default();
             root = root.child(
@@ -206,9 +227,9 @@ impl Render for WhiskyApp {
                     .px(px(16.))
                     .py(px(12.))
                     .rounded(px(12.))
-                    .bg(rgb(0x3b3b40))
+                    .bg(rgb(crate::theme::toast_bg()))
                     .border_1()
-                    .border_color(rgba(0xffffff20))
+                    .border_color(rgba(crate::theme::toast_border()))
                     .shadow_lg()
                     .opacity(notification.progress)
                     .child(icon("info", 16.).text_color(rgb(ACCENT)))
@@ -348,6 +369,10 @@ fn install_menus(cx: &mut App) {
             MenuItem::action("刷新游戏库", RefreshLibrary),
             MenuItem::separator(),
             MenuItem::action("显示/隐藏侧边栏", ToggleSidebar),
+            MenuItem::separator(),
+            MenuItem::action("外观：跟随系统", AppearanceSystem),
+            MenuItem::action("外观：浅色", AppearanceLight),
+            MenuItem::action("外观：深色", AppearanceDark),
             MenuItem::separator(),
             MenuItem::action("设置…", ShowSettings),
         ]),
@@ -524,7 +549,9 @@ fn main() {
                 KeyBinding::new(platform::SHORTCUTS[5], MinimizeWindow, None),
             ]);
             install_menus(cx);
-            Theme::change(ThemeMode::Dark, None, cx);
+            let appearance = ui_state::load_appearance();
+            cx.set_window_appearance(appearance.window_override());
+            theme::sync_theme(appearance, None, cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();
@@ -569,6 +596,10 @@ fn main() {
                 });
             }));
             cx.activate(true);
+            #[cfg(feature = "visual-test")]
+            if std::env::var_os("WHISKY_WALKTHROUGH_CAPTURE").is_some() {
+                walkthrough_capture::run(_handle, _view.clone(), cx);
+            }
             #[cfg(feature = "visual-test")]
             if std::env::var_os("WHISKY_MOTION_CAPTURE").is_some() {
                 motion_capture::run(_handle, _view.clone(), cx);

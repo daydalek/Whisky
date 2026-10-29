@@ -1,0 +1,31 @@
+{
+  "id": "1", "work_id": "4", "source": "example", "lang": "ja",
+  "source_url": "https://example.com/walkthrough", "source_author": "路线示例作者",
+  "source_updated_on": "2026-01-01", "ending_count": 2, "save_count": 1, "segment_count": 2,
+  "work_route_hints": true, "work_content_limit": "sfw", "updated_at": "2026-01-01T00:00:00Z",
+  "chart": {
+    "sections": [
+      {"key": "common", "title": "共通路线", "localized": {}},
+      {"key": "heroine", "title": "角色路线", "localized": {}}
+    ],
+    "entries": [{"key": "start", "label": "从标题画面开始", "unlocked_by_ending_key": null}],
+    "saves": [{"key": "save1", "label": "SAVE 1 · 路线分歧前"}],
+    "endings": [{"key": "end1", "name": "共通结局"}, {"key": "end2", "name": "角色结局"}],
+    "segments": [
+      {"key": "g1", "section_key": "common", "from_node": {"node_type": "entry", "key": "start"},
+       "condition": null,
+       "steps": [
+         {"step_type": "choice", "text": "海辺へ向かう", "localized": {"zh-Hans": {"value": "前往海边", "is_machine": true}}, "alternatives": [], "achievement": false},
+         {"step_type": "save", "save_key": "save1", "text": null},
+         {"step_type": "choice", "text": "自分の気持ちを伝える", "localized": {"zh-Hans": {"value": "表达自己的心意", "is_machine": true}}, "alternatives": ["もう少し考える"], "achievement": true}
+       ], "to_node": {"node_type": "ending", "key": "end1"}},
+      {"key": "g2", "section_key": "heroine", "from_node": {"node_type": "save", "key": "save1"},
+       "condition": "共通结局达成后",
+       "steps": [
+         {"step_type": "choice", "text": "一緒に帰る", "localized": {"zh-Hans": {"value": "一起回去", "is_machine": true}}, "alternatives": [], "achievement": false},
+         {"step_type": "note", "text": "下一次选择前可以使用快速存档。"},
+         {"step_type": "choice", "text": "約束する", "localized": {"zh-Hans": {"value": "许下约定", "is_machine": true}}, "alternatives": [], "achievement": true}
+       ], "to_node": {"node_type": "ending", "key": "end2"}}
+    ]
+  }
+}

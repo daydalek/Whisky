@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use gpui_kit::{App, Bounds, Pixels, WindowBounds, point, px, size};
 use serde::{Deserialize, Serialize};
 
+use crate::theme::AppearanceMode;
+
 const MIN_WIDTH: f32 = 800.;
 const MIN_HEIGHT: f32 = 580.;
 
@@ -128,6 +130,48 @@ pub(crate) fn save_window(window_bounds: WindowBounds) {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+struct StoredAppearance {
+    mode: AppearanceMode,
+}
+
+fn appearance_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("WHISKY_GPUI_APPEARANCE_STATE") {
+        return Some(PathBuf::from(path));
+    }
+    Some(state_path()?.with_file_name("gpui-appearance.json"))
+}
+
+/// Load the saved appearance preference, defaulting to `AppearanceMode::System`
+/// so Whisky automatically follows the OS light/dark appearance out of the box.
+pub(crate) fn load_appearance() -> AppearanceMode {
+    if std::env::var_os("WHISKY_DEMO_CAPTURE").is_some()
+        || std::env::var_os("WHISKY_MOTION_CAPTURE").is_some()
+    {
+        return AppearanceMode::Dark;
+    }
+    let Some(path) = appearance_path() else {
+        return AppearanceMode::System;
+    };
+    let Ok(data) = std::fs::read(path) else {
+        return AppearanceMode::System;
+    };
+    serde_json::from_slice::<StoredAppearance>(&data)
+        .map(|stored| stored.mode)
+        .unwrap_or(AppearanceMode::System)
+}
+
+pub(crate) fn save_appearance(mode: AppearanceMode) {
+    let Some(path) = appearance_path() else { return };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let stored = StoredAppearance { mode };
+    if let Ok(data) = serde_json::to_vec(&stored) {
+        let _ = std::fs::write(path, data);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,6 +202,19 @@ mod tests {
             serde_json::from_slice::<WindowFrame>(&data).unwrap(),
             frame
         );
+    }
+
+    #[test]
+    fn stored_appearance_round_trips_through_json() {
+        for mode in [
+            AppearanceMode::System,
+            AppearanceMode::Light,
+            AppearanceMode::Dark,
+        ] {
+            let data = serde_json::to_vec(&StoredAppearance { mode }).unwrap();
+            let decoded: StoredAppearance = serde_json::from_slice(&data).unwrap();
+            assert_eq!(decoded.mode, mode);
+        }
     }
 
     #[test]

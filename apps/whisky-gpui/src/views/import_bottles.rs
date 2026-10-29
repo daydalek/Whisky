@@ -61,7 +61,7 @@ impl WhiskyApp {
                     .gap(px(12.))
                     .py(px(12.))
                     .border_b_1()
-                    .border_color(rgba(SURFACE_BORDER))
+                    .border_color(rgba(surface_border()))
                     .child(
                         col()
                             .flex_1()
@@ -106,7 +106,7 @@ impl WhiskyApp {
             .absolute()
             .inset_0()
             .occlude()
-            .bg(rgba(OVERLAY))
+            .bg(rgba(overlay()))
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
             .child(
                 col()
@@ -117,16 +117,16 @@ impl WhiskyApp {
                     .h(px(ph))
                     .rounded(px(RADIUS_LG))
                     .overflow_hidden()
-                    .bg(rgb(SURFACE))
+                    .bg(rgb(crate::theme::surface()))
                     .border_1()
-                    .border_color(rgba(SURFACE_BORDER))
+                    .border_color(rgba(surface_border()))
                     .shadow_xl()
                     .child(
                         row()
                             .h(px(48.))
                             .px(px(18.))
                             .border_b_1()
-                            .border_color(rgba(SURFACE_BORDER))
+                            .border_color(rgba(surface_border()))
                             .child(
                                 div()
                                     .font_weight(FontWeight::SEMIBOLD)
@@ -225,7 +225,7 @@ impl WhiskyApp {
                             .px(px(18.))
                             .py(px(13.))
                             .border_t_1()
-                            .border_color(rgba(SURFACE_BORDER))
+                            .border_color(rgba(surface_border()))
                             .child(
                                 Button::new("close-candidates")
                                     .label("关闭")

@@ -31,10 +31,15 @@ def verify(app):
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
 
 
-def install(source, destination):
+def install(source, destination, remove_source=False):
     source, destination = Path(source), Path(destination)
     if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
         raise ValueError('目标必须是普通应用目录')
+    if remove_source:
+        source_path, destination_path = source.resolve(), destination.resolve()
+        if (source.is_symlink() or source_path == destination_path
+                or source_path in destination_path.parents or destination_path in source_path.parents):
+            raise ValueError('构建副本与安装目标必须是独立的普通应用目录')
     verify(source)
     scratch = Path(tempfile.mkdtemp(prefix='.whisky-install-', dir=destination.parent))
     staged, previous = scratch / 'new.app', scratch / 'previous.app'
@@ -65,14 +70,18 @@ def install(source, destination):
         else:
             print('保留原应用：' + str(previous), flush=True)
     print('已安装：' + str(destination), flush=True)
+    if remove_source:
+        shutil.rmtree(source)
+        print('已清理构建副本：' + str(source), flush=True)
     print('已运行的 Whisky 需重新启动后使用新版本。', flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--remove-source', action='store_true', help='部署并校验成功后删除构建副本')
     parser.add_argument('app', type=Path)
     args = parser.parse_args()
-    install(args.app, Path('/Applications/Whisky.app'))
+    install(args.app, Path('/Applications/Whisky.app'), remove_source=args.remove_source)
 
 
 if __name__ == '__main__':

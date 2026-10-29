@@ -26,3 +26,40 @@ Initial synchronization may fetch one cast and its uncached portraits for each
 new match. Its total transfer scales with cast sizes and image sizes. Disabling
 character scraping skips that initial work; saved metadata and artwork remain
 available locally. Independent application processes have independent gates.
+
+## NextMoe routes in GPUI
+
+The GPUI **游戏资料与封面…** search includes **NextMoe**. Applying a NextMoe
+work attaches its title, cover, developer, introduction and walkthrough index.
+The **攻略路线** card lists guide authors, languages, versions and ending/save
+counts. **打开路线图** opens an opaque, dedicated graph canvas. Entries, saves,
+choice groups and endings have distinct colors and connecting curves. Shared
+save nodes connect the routes that resume from them. Continuous choice runs
+start collapsed; clicking their route node reveals individual steps. Toolbar
+controls switch between a compact overview and all steps, switch original/translated
+text, fit the graph, restore readable size, and zoom. Wheel or two-finger scrolling
+pans; Shift-wheel pans horizontally. Pinch or Command/Control-wheel zooms around
+the pointer, and dragging empty canvas pans. The large canvas also closes with Escape. Built-in route hints, partial
+import coverage and original author links remain in the guide selection view.
+
+
+Public catalog reads use `https://api.nextmoe.dev/v2/catalog` with anonymous
+access. Work searches use `works?q=...&include=titles,intros,companies`; guide
+indexes follow every `next_cursor` from `walkthroughs?work_id=...`. Requests
+include R18 works (`nsfw=true`) and keep catalog presentation at `content_limit=sfw`.
+The shared transport serializes requests with a 2.1-second interval and honors
+429/503 `Retry-After` (60 seconds when absent). Search/detail caches reuse the
+existing provider gates. The anonymous API quota also has a daily allowance;
+quota failures remain visible and allow a later retry.
+
+Charts download only when a guide is selected. Downloads run as retained
+`metadata.apply` jobs with a `walkthroughID` field inside the metadata snapshot.
+The bridge checks the stored NextMoe work, guide membership and response work ID,
+then merges the chart into the latest matching snapshot. Full graph JSON survives
+storage and Rust DTO round trips, including future step kinds. Cached guides remain
+available in offline mode; online fetches use the existing network policy.
+
+API contract: [NextMoe v2](https://developer.nextmoe.dev/docs/v2),
+[walkthrough index](https://developer.nextmoe.dev/docs/v2/listCatalogWalkthroughs),
+[walkthrough graph](https://developer.nextmoe.dev/docs/v2/getCatalogWalkthrough).
+Data attribution: **NextMoe · 鲲 Galgame 论坛** and each guide's original author/page.

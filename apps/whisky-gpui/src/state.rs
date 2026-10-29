@@ -194,11 +194,12 @@ pub(crate) struct MetadataGroup {
 }
 
 /// Scraper sources: toggle key, wire name, label.
-pub(crate) const METADATA_SOURCES: [(&str, &str, &str); 4] = [
+pub(crate) const METADATA_SOURCES: [(&str, &str, &str); 5] = [
     ("src-steam", "steam", "Steam"),
     ("src-bangumi", "bangumi", "Bangumi"),
     ("src-vndb", "vndb", "VNDB"),
     ("src-ymgal", "ymgal", "月幕"),
+    ("src-nextmoe", "nextmoe", "NextMoe"),
 ];
 
 /// The Game Info sheet: metadata search, cover choice and GameDB matches for
@@ -210,6 +211,8 @@ pub(crate) struct GameInfoPage {
     pub(crate) title: String,
     pub(crate) input: Option<Entity<InputState>>,
     pub(crate) searching: bool,
+    pub(crate) searching_sources: Vec<String>,
+    pub(crate) sources_expanded: bool,
     pub(crate) applying: bool,
     pub(crate) error: Option<String>,
     pub(crate) groups: Vec<MetadataGroup>,
@@ -293,12 +296,14 @@ impl PreviewState {
                 ("src-bangumi", true),
                 ("src-vndb", true),
                 ("src-ymgal", true),
+                ("src-nextmoe", true),
                 ("offline", preferences::DEFAULT_OFFLINE_MODE),
                 ("updates", preferences::DEFAULT_CHECK_UPDATES),
                 ("blur", preferences::DEFAULT_DETAIL_BLURRED_BACKGROUND),
             ]
             .into(),
             choices: [
+                ("appearance", crate::ui_state::load_appearance().wire().into()),
                 ("create-windows", "Windows 11".into()),
                 ("terminal", preferences::DEFAULT_PREFERRED_TERMINAL.into()),
                 ("cover-fill", preferences::DEFAULT_COVER_FILL_STYLE.into()),
@@ -503,6 +508,9 @@ pub(crate) struct WhiskyApp {
     pub(crate) ambient_index: usize,
     pub(crate) detail: Option<usize>,
     pub(crate) detail_open: bool,
+    pub(crate) detail_character: Option<String>,
+    pub(crate) walkthrough_view: crate::walkthrough::WalkthroughView,
+    pub(crate) appearance: crate::theme::AppearanceMode,
     /// The message on the existing toast; `None` hides it. Runtime and entry
     /// failures reuse the toast instead of introducing another surface.
     pub(crate) notice: Option<SharedString>,
@@ -534,6 +542,13 @@ impl WhiskyApp {
         bridge.set_active(window.is_window_active());
         let activation = cx.observe_window_activation(window, |this, window, _| {
             this.bridge.set_active(window.is_window_active());
+        });
+        let appearance = crate::ui_state::load_appearance();
+        cx.set_window_appearance(appearance.window_override());
+        crate::theme::sync_theme(appearance, Some(window), cx);
+        let appearance_subscription = cx.observe_window_appearance(window, |this, window, cx| {
+            crate::theme::sync_theme(this.appearance, Some(window), cx);
+            cx.notify();
         });
         // Closing the last window quits, but the helper applies the exit policy
         // first. The frame is saved in request_quit for Cmd-Q and close alike.
@@ -655,6 +670,9 @@ impl WhiskyApp {
             ambient_index: 0,
             detail: None,
             detail_open: false,
+            detail_character: None,
+            walkthrough_view: Default::default(),
+            appearance,
             notice: None,
             runtime: RuntimeTable::default(),
             active_backends: HashMap::new(),
@@ -663,7 +681,12 @@ impl WhiskyApp {
             bridge_status: BridgeStatus::Locating,
             service_methods: BTreeSet::new(),
             bridge_dialog: false,
-            _subscriptions: vec![subscription, dependency_subscription, activation],
+            _subscriptions: vec![
+                subscription,
+                dependency_subscription,
+                activation,
+                appearance_subscription,
+            ],
         }
     }
     pub(crate) fn bridge_retry(&mut self, cx: &mut Context<Self>) {
@@ -2044,6 +2067,11 @@ impl WhiskyApp {
                             container,
                             entry_id,
                         } => {
+                            if self.walkthrough_view.pending.as_ref().is_some_and(|(c, e)| c == &container && e == &entry_id) {
+                                self.walkthrough_view.pending = None;
+                                self.walkthrough_view.error = None;
+                                self.bridge.load_entries(&container);
+                            }
                             if self.game_info.as_ref().is_some_and(|page| {
                                 page.container == container && page.entry_id == entry_id
                             }) {
@@ -2150,6 +2178,9 @@ impl WhiskyApp {
                             // whole-bottle re-read would cause.
                         }
                         MetadataUpdate::Failed { reason } => {
+                            if self.walkthrough_view.pending.take().is_some() {
+                                self.walkthrough_view.error = Some(reason.clone());
+                            }
                             if let Some(page) = self.game_info.as_mut() {
                                 page.searching = false;
                                 page.applying = false;
@@ -2553,6 +2584,7 @@ impl WhiskyApp {
         self.preview.sheet = None;
         if self.detail != Some(index) {
             self.detail_scroll.set_offset(point(px(0.), px(0.)));
+            self.detail_character = None;
         }
         self.detail = Some(index);
         self.detail_open = true;
@@ -3026,11 +3058,34 @@ impl WhiskyApp {
         }
     }
 
+    pub(crate) fn set_appearance(
+        &mut self,
+        mode: crate::theme::AppearanceMode,
+        cx: &mut Context<Self>,
+    ) {
+        self.appearance = mode;
+        self.preview.choices.insert("appearance", mode.wire().into());
+        crate::ui_state::save_appearance(mode);
+        cx.set_window_appearance(mode.window_override());
+        crate::theme::sync_theme(mode, None, cx);
+        cx.notify();
+    }
+
+    pub(crate) fn cycle_appearance(&mut self, cx: &mut Context<Self>) {
+        let next = self.appearance.next();
+        self.set_appearance(next, cx);
+        self.show_notice(format!("已切换外观：{}", next.label()), cx);
+    }
+
     /// Select one option from a settings dropdown. Only keys the SwiftUI app
     /// persists are written through; the rest stay session-local.
     pub(crate) fn choose(&mut self, key: &'static str, value: &'static str, cx: &mut Context<Self>) {
         self.preview.choices.insert(key, value.into());
         match key {
+            "appearance" => {
+                self.set_appearance(crate::theme::AppearanceMode::from_wire(value), cx);
+                return;
+            }
             "terminal" => self.persist(preferences::PREFERRED_TERMINAL, json!(value), cx),
             "cover-fill" => self.persist(preferences::COVER_FILL_STYLE, json!(value), cx),
             "detail-layout" => self.persist(preferences::DETAIL_LAYOUT_STYLE, json!(value), cx),
@@ -3092,7 +3147,7 @@ impl WhiskyApp {
         if let Some(raw) = values
             .get(preferences::DISPLAY_MODE)
             .and_then(serde_json::Value::as_str)
-            .and_then(preferences::mode_index)
+            .and_then(preferences::visible_mode_index)
         {
             self.mode = raw;
         }
@@ -3584,6 +3639,8 @@ impl WhiskyApp {
             title,
             input: None,
             searching: false,
+            searching_sources: Vec::new(),
+            sources_expanded: false,
             applying: false,
             error: None,
             groups: Vec::new(),
@@ -3628,7 +3685,7 @@ impl WhiskyApp {
     }
 
     pub(crate) fn search_game_info(&mut self, cx: &mut Context<Self>) {
-        if self.game_info.is_none() {
+        if self.game_info.as_ref().is_none_or(|page| page.searching) {
             return;
         }
         if self.offline() {
@@ -3659,6 +3716,9 @@ impl WhiskyApp {
             }
             self.show_notice("请至少启用一个刮削源", cx);
             return;
+        }
+        if let Some(page) = self.game_info.as_mut() {
+            page.searching_sources = sources.clone();
         }
         self.bridge
             .search_metadata(&container, &entry_id, &query, sources);

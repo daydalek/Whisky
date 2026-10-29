@@ -97,6 +97,7 @@ class BuildTests(unittest.TestCase):
         self.assertNotIn('WHISKY_VERSION', dev['environment'])
         install = build.plan(self.args('whisky-macos-gpui-arm64', '--install'))
         self.assertEqual('install-macos.py', Path(install['steps'][-1]['command'][1]).name)
+        self.assertIn('--remove-source', install['steps'][-1]['command'])
         with self.assertRaises(ValueError):
             build.plan(self.args('whisky-linux-amd64', '--install'))
 
