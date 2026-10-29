@@ -4117,12 +4117,6 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                     entry_id,
                     metadata,
                 }) => {
-                    if metadata_apply.is_some() {
-                        emit_event(&events, BridgeEvent::Metadata {
-                            update: MetadataUpdate::Failed { reason: "正在更新游戏资料，请稍后再试".into() },
-                        });
-                        continue;
-                    }
                     // The entry list changed on disk; never serve the stale cache.
                     cache = None;
                     match client
@@ -4132,19 +4126,19 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                 "container": container,
                                 "entryID": entry_id,
                                 "metadata": metadata,
-                                "background": true,
                             }),
                         )
                         .map_err(classify)
                     {
-                        Ok(reply) => match serde_json::from_value::<JobStartDto>(reply) {
-                            Ok(start) => metadata_apply = Some(LiveMetadataSearch {
-                                container, entry_id, job_id: start.job_id, due: Instant::now() + SCAN_POLL,
-                            }),
-                            Err(error) => emit_event(&events, BridgeEvent::Metadata {
-                                update: MetadataUpdate::Failed { reason: format!("invalid apply reply: {error}") },
-                            }),
-                        },
+                        Ok(_) => emit_event(
+                            &events,
+                            BridgeEvent::Metadata {
+                                update: MetadataUpdate::Applied {
+                                    container,
+                                    entry_id,
+                                },
+                            },
+                        ),
                         Err(CallFailure::Remote(reason)) => emit_event(
                             &events,
                             BridgeEvent::Metadata {

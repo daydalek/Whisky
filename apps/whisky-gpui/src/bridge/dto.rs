@@ -757,12 +757,31 @@ pub(crate) struct MetadataDto {
     #[serde(default)]
     pub(crate) release_date: Option<String>,
     #[serde(default)]
-    pub(crate) characters: Option<Vec<crate::model::Character>>,
+    pub(crate) characters: Option<Vec<CharacterDto>>,
+    #[serde(default)]
+    pub(crate) walkthroughs: Option<Vec<crate::walkthrough::Walkthrough>>,
     #[serde(default)]
     pub(crate) provenance: std::collections::BTreeMap<String, MetadataProvenanceDto>,
+    #[serde(flatten)]
+    pub(crate) extra: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CharacterDto {
+    #[serde(default)]
+    pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) name: String,
+    pub(crate) original_name: Option<String>,
+    #[serde(rename = "imageURL")]
+    pub(crate) image_url: Option<String>,
+    pub(crate) voice_actor: Option<String>,
+    pub(crate) summary: Option<String>,
+    pub(crate) role: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, Deserialize)]
 pub(crate) struct MetadataProvenanceDto {
     pub(crate) source: Option<String>,
     #[serde(default)]

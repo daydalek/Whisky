@@ -16,11 +16,7 @@ use crate::program_settings::{self, ProgramSettingsDto, RunEntryDto};
 use crate::runtime::ClipboardDecision;
 use crate::scan::{self, JobStatus};
 use crate::state::{BottleDialogKind, PreviewSheet, ScanState, WhiskyApp};
-use crate::theme::{
-    RADIUS_LG, badge_bg, card_bg, card_bg_subtle, card_border, code_bg, divider, hover,
-    hover_strong, muted_color, overlay, pill_selected_text, placeholder_gradient, subtext, surface,
-    surface_border,
-};
+use crate::theme::{MUTED, OVERLAY, RADIUS_LG, SURFACE, SURFACE_BORDER};
 use crate::winetricks::{category_label, filtered_verbs};
 
 const PROGRAM_LOCALES: &[(&str, &str)] = &[
@@ -471,24 +467,10 @@ impl WhiskyApp {
             .border_1()
             .cursor_pointer()
             .text_size(px(12.))
-            .border_color(rgba(if selected {
-                if crate::theme::is_dark() { 0xff891b99 } else { 0x00000038 }
-            } else {
-                surface_border()
-            }))
-            .bg(rgba(if selected {
-                if crate::theme::is_dark() { 0xff891b26 } else { crate::theme::selected_bg() }
-            } else {
-                card_bg()
-            }))
-            .text_color(rgb(if selected { pill_selected_text() } else { subtext() }))
-            .hover(|s| {
-                s.bg(rgba(if selected {
-                    if crate::theme::is_dark() { 0xff891b33 } else { hover_strong() }
-                } else {
-                    hover_strong()
-                }))
-            })
+            .border_color(rgba(if selected { 0xff891b99 } else { 0xffffff1f }))
+            .bg(rgba(if selected { 0xff891b26 } else { 0xffffff08 }))
+            .text_color(rgb(if selected { 0xffffff } else { 0xc4c4c9 }))
+            .hover(|s| s.bg(rgba(if selected { 0xff891b33 } else { 0xffffff14 })))
             .when(selected, |d| {
                 d.child(icon("check", 11.).text_color(rgb(crate::theme::ACCENT)))
             })
@@ -566,7 +548,7 @@ impl WhiskyApp {
                     .text_size(px(11.))
                     .line_height(relative(1.4)),
             )
-            .child(div().h(px(1.)).bg(rgba(surface_border())).mt(px(2.)))
+            .child(div().h(px(1.)).bg(rgba(SURFACE_BORDER)).mt(px(2.)))
             .into_any_element()
     }
 
@@ -1077,7 +1059,7 @@ impl WhiskyApp {
             .gap(px(12.))
             .py(px(8.))
             .border_b_1()
-            .border_color(rgba(divider()))
+            .border_color(rgba(0xffffff08))
             .child(
                 col()
                     .flex_1()
@@ -1554,7 +1536,6 @@ impl WhiskyApp {
             let location = candidate.location(&folder);
             let is_root = location == "根目录";
             let row_id = SharedString::from(format!("exe-candidate-{}", i));
-            let (ph_start, ph_end) = placeholder_gradient();
             rows.push(
                 row()
                     .id(row_id)
@@ -1563,11 +1544,11 @@ impl WhiskyApp {
                     .my(px(3.))
                     .gap(px(12.))
                     .rounded(px(8.))
-                    .bg(rgba(card_bg_subtle()))
+                    .bg(rgba(0xffffff05))
                     .border_1()
-                    .border_color(rgba(card_border()))
+                    .border_color(rgba(0xffffff08))
                     .cursor_pointer()
-                    .hover(|d| d.bg(rgba(hover())).border_color(rgba(surface_border())))
+                    .hover(|d| d.bg(rgba(0xffffff10)).border_color(rgba(0xffffff18)))
                     .on_click(move |_, _, cx| {
                         let _ = view.update(cx, |this, cx| {
                             this.choose_executable(&path, cx);
@@ -1577,13 +1558,13 @@ impl WhiskyApp {
                         div()
                             .size(px(36.))
                             .rounded(px(7.))
-                            .bg(gradient(ph_start, ph_end))
+                            .bg(gradient(0xffffff14, 0xffffff06))
                             .border_1()
-                            .border_color(rgba(card_border()))
+                            .border_color(rgba(0xffffff0d))
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(icon("package", 16.).text_color(rgb(if is_root { 0xff891b } else { muted_color() }))),
+                            .child(icon("package", 16.).text_color(rgb(if is_root { 0xff891b } else { 0x97979b }))),
                     )
                     .child(
                         col()
@@ -1617,7 +1598,7 @@ impl WhiskyApp {
                             .child(
                                 div()
                                     .text_size(px(11.))
-                                    .text_color(rgb(muted_color()))
+                                    .text_color(rgb(0x97979b))
                                     .truncate()
                                     .child(location),
                             ),
@@ -1878,7 +1859,7 @@ impl WhiskyApp {
                     .truncate()
                     .font_family("monospace")
                     .text_size(px(11.))
-                    .text_color(rgb(muted_color()))
+                    .text_color(rgb(MUTED))
                     .py(px(4.))
                     .child(output.clone())
                     .into_any_element(),
@@ -1918,26 +1899,18 @@ impl WhiskyApp {
             .gap(px(11.))
             .rounded(px(8.))
             .bg(if selected {
-                rgba(if crate::theme::is_dark() {
-                    0xff891b1f
-                } else {
-                    crate::theme::selected_bg()
-                })
+                rgba(0xff891b1f)
             } else {
-                rgba(card_bg_subtle())
+                rgba(0xffffff04)
             })
             .border_1()
             .border_color(if selected {
-                rgba(if crate::theme::is_dark() {
-                    0xff891b55
-                } else {
-                    0x00000030
-                })
+                rgba(0xff891b55)
             } else {
-                rgba(card_border())
+                rgba(0xffffff08)
             })
             .cursor_pointer()
-            .hover(|d| d.bg(rgba(hover_strong())).border_color(rgba(surface_border())))
+            .hover(|d| d.bg(rgba(0xffffff0e)).border_color(rgba(0xffffff18)))
             .on_click(move |_, _, cx| {
                 let name = name.clone();
                 let _ = view.update(cx, |this, cx| {
@@ -1951,7 +1924,7 @@ impl WhiskyApp {
                     .flex()
                     .justify_center()
                     .text_size(px(13.))
-                    .text_color(rgb(if installed { 0x67d68b } else { muted_color() }))
+                    .text_color(rgb(if installed { 0x67d68b } else { 0x77777c }))
                     .child(if installed { "✓" } else { "○" }),
             )
             .child(
@@ -1969,7 +1942,7 @@ impl WhiskyApp {
                     .child(
                         div()
                             .text_size(px(11.))
-                            .text_color(rgb(muted_color()))
+                            .text_color(rgb(MUTED))
                             .truncate()
                             .child(verb.description.clone()),
                     ),
@@ -2063,9 +2036,9 @@ impl WhiskyApp {
                     .p(px(10.))
                     .my(px(3.))
                     .rounded(px(8.))
-                    .bg(rgba(card_bg_subtle()))
+                    .bg(rgba(0xffffff05))
                     .border_1()
-                    .border_color(rgba(card_border()))
+                    .border_color(rgba(0xffffff08))
                     .child(
                         col()
                             .flex_1()
@@ -2112,9 +2085,9 @@ impl WhiskyApp {
                     .p(px(10.))
                     .my(px(3.))
                     .rounded(px(8.))
-                    .bg(rgba(card_bg_subtle()))
+                    .bg(rgba(0xffffff05))
                     .border_1()
-                    .border_color(rgba(card_border()))
+                    .border_color(rgba(0xffffff08))
                     .child(
                         col()
                             .flex_1()
@@ -2148,9 +2121,7 @@ impl WhiskyApp {
             return div().into_any_element();
         };
         let title = page.title.clone();
-        let walkthrough_only = page.walkthrough_only;
         let searching = page.searching;
-        let searching_sources = page.searching_sources.clone();
         let applying = page.applying;
         let error = page.error.clone();
         let groups = page.groups.clone();
@@ -2212,8 +2183,6 @@ impl WhiskyApp {
             if let Some(provider_error) = &group.error {
                 metadata_rows
                     .push(muted(format!("查询失败：{provider_error}")).text_size(px(11.)).into_any_element());
-            } else if group.games.is_empty() {
-                metadata_rows.push(muted("没有找到匹配作品，请尝试其他名称。").text_size(px(11.)).into_any_element());
             }
             for (game_index, candidate) in group.games.iter().enumerate() {
                 let mut details = candidate.developer.clone();
@@ -2226,16 +2195,15 @@ impl WhiskyApp {
                     }
                     details.push_str(&candidate.release_date);
                 }
-                let (ph_start, ph_end) = placeholder_gradient();
                 metadata_rows.push(
                     row()
                         .gap(px(12.))
                         .p(px(10.))
                         .my(px(3.))
                         .rounded(px(8.))
-                        .bg(rgba(card_bg_subtle()))
+                        .bg(rgba(0xffffff05))
                         .border_1()
-                        .border_color(rgba(card_border()))
+                        .border_color(rgba(0xffffff08))
                         .child(match &candidate.thumbnail {
                             // Narrow fixed-size thumbnail: the row stays
                             // compact, and a placeholder keeps the height
@@ -2252,11 +2220,11 @@ impl WhiskyApp {
                                 .h(px(48.))
                                 .flex_shrink_0()
                                 .rounded(px(5.))
-                                .bg(gradient(ph_start, ph_end))
+                                .bg(gradient(0xffffff12, 0xffffff04))
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .child(icon("package", 16.).text_color(rgb(muted_color())))
+                                .child(icon("package", 16.).text_color(rgb(MUTED)))
                                 .into_any_element(),
                         })
                         .child(
@@ -2415,9 +2383,9 @@ impl WhiskyApp {
                             .p(px(10.))
                             .my(px(3.))
                             .rounded(px(8.))
-                            .bg(rgba(card_bg_subtle()))
+                            .bg(rgba(0xffffff05))
                             .border_1()
-                            .border_color(rgba(card_border()))
+                            .border_color(rgba(0xffffff08))
                             .children(rows)
                             .into_any_element(),
                     );
@@ -2428,10 +2396,6 @@ impl WhiskyApp {
             config_rows.push(muted(message).into_any_element());
         }
 
-        if walkthrough_only {
-            let section = self.section("game-metadata", "查找 NextMoe 攻略", metadata_rows, cx);
-            return self.form("game-info-scroll", vec![section]);
-        }
         self.form(
             "game-info-scroll",
             vec![
@@ -2467,7 +2431,7 @@ impl WhiskyApp {
             PreviewSheet::Audio => "音频故障排查",
             PreviewSheet::Dll => "DLL 覆盖",
             PreviewSheet::Graphics => "高级图形设置",
-            PreviewSheet::GameInfo(_) => if self.game_info.as_ref().is_some_and(|page| page.walkthrough_only) { "查找攻略路线" } else { "游戏资料" },
+            PreviewSheet::GameInfo(_) => "游戏资料",
         };
         let content = match sheet {
             PreviewSheet::RunSettings(i) => self.run_settings(i, window, cx),
@@ -2736,7 +2700,7 @@ impl WhiskyApp {
                             row()
                                 .gap(px(8.))
                                 .py(px(5.))
-                                .child(icon(symbol, 13.).text_color(rgb(muted_color())))
+                                .child(icon(symbol, 13.).text_color(rgb(crate::theme::MUTED)))
                                 .child(muted(detail).text_size(px(11.)))
                                 .into_any_element(),
                         );
@@ -2763,9 +2727,9 @@ impl WhiskyApp {
                             .overflow_y_scroll()
                             .p(px(10.))
                             .rounded(px(8.))
-                            .bg(rgba(code_bg()))
+                            .bg(rgba(0x00000040))
                             .border_1()
-                            .border_color(rgba(surface_border()))
+                            .border_color(rgba(0xffffff10))
                             .text_size(px(11.))
                             .line_height(relative(1.45))
                             .child(report.clone())
@@ -2804,7 +2768,7 @@ impl WhiskyApp {
             .inset_0()
             .occlude()
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-            .bg(rgba(overlay()))
+            .bg(rgba(0x00000088))
             .child(
                 div()
                     .id("settings-dismiss")
@@ -2829,9 +2793,9 @@ impl WhiskyApp {
                     .h(px(ph))
                     .rounded(px(14.))
                     .overflow_hidden()
-                    .bg(rgb(surface()))
+                    .bg(rgb(0x29292c))
                     .border_1()
-                    .border_color(rgba(surface_border()))
+                    .border_color(rgba(0xffffff23))
                     .shadow_xl()
                     .child(
                         row()
@@ -2840,7 +2804,7 @@ impl WhiskyApp {
                             .px(px(18.))
                             .gap(px(12.))
                             .border_b_1()
-                            .border_color(rgba(divider()))
+                            .border_color(rgba(0xffffff0c))
                             .when(!self.preview.sheet_history.is_empty(), |d| {
                                 d.child(Button::new("sheet-back").label("‹").ghost().on_click(
                                     cx.listener(|this, _, _, cx| {
@@ -3079,7 +3043,7 @@ impl WhiskyApp {
             .inset_0()
             .occlude()
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-            .bg(rgba(overlay()))
+            .bg(rgba(OVERLAY))
             .child(
                 div()
                     .id("clipboard-dismiss")
@@ -3099,9 +3063,9 @@ impl WhiskyApp {
                     .h(px(ph))
                     .rounded(px(RADIUS_LG))
                     .overflow_hidden()
-                    .bg(rgb(surface()))
+                    .bg(rgb(SURFACE))
                     .border_1()
-                    .border_color(rgba(surface_border()))
+                    .border_color(rgba(SURFACE_BORDER))
                     .shadow_xl()
                     .child(
                         row()
@@ -3110,7 +3074,7 @@ impl WhiskyApp {
                             .px(px(16.))
                             .gap(px(12.))
                             .border_b_1()
-                            .border_color(rgba(surface_border()))
+                            .border_color(rgba(SURFACE_BORDER))
                             .child(
                                 div()
                                     .flex_1()
@@ -3140,10 +3104,10 @@ impl WhiskyApp {
                                         .flex_shrink_0()
                                         .p(px(10.))
                                         .rounded(px(8.))
-                                        .bg(rgba(badge_bg()))
+                                        .bg(rgba(0xffffff0a))
                                         .font_family("monospace")
                                         .text_size(px(11.))
-                                        .text_color(rgb(muted_color()))
+                                        .text_color(rgb(MUTED))
                                         .line_clamp(4)
                                         .child(preview),
                                 )
@@ -3157,7 +3121,7 @@ impl WhiskyApp {
                             .px(px(16.))
                             .py(px(12.))
                             .border_t_1()
-                            .border_color(rgba(surface_border()))
+                            .border_color(rgba(SURFACE_BORDER))
                             .child(Button::new("clipboard-cancel").label("取消").ghost().on_click(
                                 cx.listener(|this, _, _, cx| this.dismiss_clipboard(cx)),
                             ))
@@ -3281,7 +3245,7 @@ impl WhiskyApp {
                 .px(px(18.))
                 .py(px(13.))
                 .border_t_1()
-                .border_color(rgba(surface_border()))
+                .border_color(rgba(SURFACE_BORDER))
                 .child(
                     Button::new("bottle-remove-cancel")
                         .label("取消")
@@ -3320,7 +3284,7 @@ impl WhiskyApp {
                 .px(px(18.))
                 .py(px(13.))
                 .border_t_1()
-                .border_color(rgba(surface_border()))
+                .border_color(rgba(SURFACE_BORDER))
                 .child(
                     Button::new("bottle-dialog-cancel")
                         .label("取消")
@@ -3348,7 +3312,7 @@ impl WhiskyApp {
             .inset_0()
             .occlude()
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-            .bg(rgba(overlay()))
+            .bg(rgba(OVERLAY))
             .child(
                 div()
                     .id("bottle-dialog-dismiss")
@@ -3371,9 +3335,9 @@ impl WhiskyApp {
                     .h(px(ph))
                     .rounded(px(RADIUS_LG))
                     .overflow_hidden()
-                    .bg(rgb(surface()))
+                    .bg(rgb(SURFACE))
                     .border_1()
-                    .border_color(rgba(surface_border()))
+                    .border_color(rgba(SURFACE_BORDER))
                     .shadow_xl()
                     .child(
                         row()
@@ -3381,7 +3345,7 @@ impl WhiskyApp {
                             .h(px(46.))
                             .px(px(16.))
                             .border_b_1()
-                            .border_color(rgba(surface_border()))
+                            .border_color(rgba(SURFACE_BORDER))
                             .child(
                                 div()
                                     .flex_1()
@@ -3494,7 +3458,7 @@ impl WhiskyApp {
                         .h(px(6.))
                         .w_full()
                         .rounded(px(3.))
-                        .bg(rgba(hover_strong()))
+                        .bg(rgba(0xffffff14))
                         .child(
                             div()
                                 .h_full()
@@ -3530,7 +3494,7 @@ impl WhiskyApp {
             .px(px(18.))
             .py(px(13.))
             .border_t_1()
-            .border_color(rgba(surface_border()))
+            .border_color(rgba(SURFACE_BORDER))
             .when(
                 !self.setup_installing && (installed || version.is_some()),
                 |d| {
@@ -3572,7 +3536,7 @@ impl WhiskyApp {
             .inset_0()
             .occlude()
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-            .bg(rgba(overlay()))
+            .bg(rgba(OVERLAY))
             .child(
                 col()
                     .id("clipboard-dialog-card")
@@ -3585,9 +3549,9 @@ impl WhiskyApp {
                     .h(px(ph))
                     .rounded(px(RADIUS_LG))
                     .overflow_hidden()
-                    .bg(rgb(surface()))
+                    .bg(rgb(SURFACE))
                     .border_1()
-                    .border_color(rgba(surface_border()))
+                    .border_color(rgba(SURFACE_BORDER))
                     .shadow_xl()
                     .child(
                         row()
@@ -3595,7 +3559,7 @@ impl WhiskyApp {
                             .h(px(46.))
                             .px(px(16.))
                             .border_b_1()
-                            .border_color(rgba(surface_border()))
+                            .border_color(rgba(SURFACE_BORDER))
                             .child(
                                 div()
                                     .flex_1()
@@ -3683,7 +3647,7 @@ impl WhiskyApp {
             .inset_0()
             .occlude()
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-            .bg(rgba(overlay()))
+            .bg(rgba(OVERLAY))
             .child(
                 div()
                     .id("about-dismiss")
@@ -3706,9 +3670,9 @@ impl WhiskyApp {
                     .h(px(ph))
                     .rounded(px(RADIUS_LG))
                     .overflow_hidden()
-                    .bg(rgb(surface()))
+                    .bg(rgb(SURFACE))
                     .border_1()
-                    .border_color(rgba(surface_border()))
+                    .border_color(rgba(SURFACE_BORDER))
                     .shadow_xl()
                     .child(
                         row()
@@ -3717,7 +3681,7 @@ impl WhiskyApp {
                             .px(px(16.))
                             .gap(px(12.))
                             .border_b_1()
-                            .border_color(rgba(surface_border()))
+                            .border_color(rgba(SURFACE_BORDER))
                             .child(
                                 div()
                                     .flex_1()
@@ -3754,7 +3718,7 @@ impl WhiskyApp {
                             .px(px(18.))
                             .py(px(13.))
                             .border_t_1()
-                            .border_color(rgba(surface_border()))
+                            .border_color(rgba(SURFACE_BORDER))
                             .child(muted("GNU GPL v3 · 自由软件").text_size(px(11.)))
                             .child(
                                 Button::new("about-done")
@@ -3809,7 +3773,7 @@ impl WhiskyApp {
             .inset_0()
             .occlude()
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-            .bg(rgba(overlay()))
+            .bg(rgba(OVERLAY))
             .child(
                 div()
                     .id("bridge-dialog-dismiss")
@@ -3832,9 +3796,9 @@ impl WhiskyApp {
                     .h(px(ph))
                     .rounded(px(RADIUS_LG))
                     .overflow_hidden()
-                    .bg(rgb(surface()))
+                    .bg(rgb(SURFACE))
                     .border_1()
-                    .border_color(rgba(surface_border()))
+                    .border_color(rgba(SURFACE_BORDER))
                     .shadow_xl()
                     .child(
                         row()
@@ -3843,7 +3807,7 @@ impl WhiskyApp {
                             .px(px(16.))
                             .gap(px(12.))
                             .border_b_1()
-                            .border_color(rgba(surface_border()))
+                            .border_color(rgba(SURFACE_BORDER))
                             .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(title))
                             .child(
                                 Button::new("bridge-dialog-close")
@@ -3876,7 +3840,7 @@ impl WhiskyApp {
                             .px(px(16.))
                             .py(px(12.))
                             .border_t_1()
-                            .border_color(rgba(surface_border()))
+                            .border_color(rgba(SURFACE_BORDER))
                             .child(
                                 Button::new("bridge-dialog-done")
                                     .label("关闭")
@@ -4059,42 +4023,7 @@ impl WhiskyApp {
                     .on_click(cx.listener(move |this, _, _, cx| this.set_metadata_search_source(source, cx))),
             );
         }
-        list.child(row().gap(px(7.)).items_start().pt(px(3.))
-            .child(icon("info", 13.).text_color(rgb(muted_color())))
-            .child(muted("资料因游戏而异；Bangumi 和 VNDB 的人物资料可在设置中控制，攻略需另行打开。")
-                .text_size(px(11.)).line_height(relative(1.4)))).into_any_element()
-    }
-}
-
-fn source_presentation(source: &str) -> (&'static str, &'static str, &'static [&'static str]) {
-    match source {
-        "steam" => ("S", "Steam 商店资料", &["标题", "封面", "简介", "开发商", "发售日期"]),
-        "bangumi" => ("B", "中文社区作品资料", &["中 / 原文标题", "封面", "简介", "发售日期", "人物与声优"]),
-        "vndb" => ("V", "视觉小说资料库", &["多语言标题", "封面", "简介", "开发商", "发售日期", "人物与声优"]),
-        "ymgal" => ("月", "月幕 Galgame 资料库", &["中 / 原文标题", "封面", "简介", "开发商", "发售日期"]),
-        "nextmoe" => ("N", "鲲 Galgame 论坛", &["多语言标题", "封面", "简介", "开发商", "发售日期", "人物与声优", "攻略路线"]),
-        _ => ("·", "游戏资料库", &["游戏资料"]),
-    }
-}
-
-fn metadata_search_message(sources: &[String]) -> String {
-    if sources.is_empty() {
-        return "正在查询游戏资料…".into();
-    }
-    let labels = sources.iter().map(|source| source_label(source)).collect::<Vec<_>>().join("、");
-    format!("正在向 {labels} 查询…")
-}
-
-#[cfg(test)]
-mod metadata_source_tests {
-    use super::metadata_search_message;
-
-    #[test]
-    fn search_message_uses_only_requested_sources() {
-        assert_eq!(metadata_search_message(&["vndb".into()]), "正在向 VNDB 查询…");
-        assert_eq!(metadata_search_message(&["steam".into(), "nextmoe".into()]),
-            "正在向 Steam、NextMoe · 鲲 Galgame 论坛 查询…");
-        assert_eq!(metadata_search_message(&[]), "正在查询游戏资料…");
+        line.into_any_element()
     }
 }
 
@@ -4104,7 +4033,6 @@ fn source_label(source: &str) -> &str {
         "vndb" => "VNDB",
         "steam" => "Steam",
         "ymgal" => "月幕",
-        "nextmoe" => "NextMoe · 鲲 Galgame 论坛",
         "hikarinagi" => "Hikarinagi",
         _ => source,
     }

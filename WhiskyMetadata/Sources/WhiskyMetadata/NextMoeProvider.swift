@@ -143,8 +143,8 @@ private struct Work: Decodable, Sendable {
             }
             return GameCharacter(
                 id: id, name: localized?["zh-Hans"]?.value ?? localized?["zh"]?.value ?? displayName,
-                originalName: displayName, imageURL: image?.url ?? figure?.url,
-                voiceActor: names.isEmpty ? nil : names.joined(separator: " / "), role: role
+                originalName: displayName, role: role, imageURL: image?.url ?? figure?.url,
+                voiceActor: names.isEmpty ? nil : names.joined(separator: " / ")
             )
         }
     }

@@ -28,7 +28,7 @@ struct NextMoeTests {
         #expect(game.releaseDate == "2026-01-01")
         #expect(game.coverURL?.absoluteString == "https://fixture.example/cover.webp")
         #expect(game.matchingTitles.contains("别名"))
-        let detail = try await provider.details(for: game, includeCharacters: false)
+        let detail = try await provider.details(for: game)
         let characters = try #require(detail.characters)
         #expect(characters.count == 2)
         #expect(characters[0].id == "7935")
@@ -46,7 +46,7 @@ struct NextMoeTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = GameMetadataStore(directory: directory, networkAccess: {})
         try await store.save(detail, for: "game")
-        #expect(try await store.load(for: "game") == detail)
+        #expect(try await store.load(for: "game") == GameMetadataRecord(legacy: detail).resolved().metadata)
     }
 
     @Test func lazyChartRetainsGraphTranslationsAndFutureStepKindsThroughDisk() async throws {
@@ -67,7 +67,7 @@ struct NextMoeTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = GameMetadataStore(directory: directory, networkAccess: {})
         try await store.save(game, for: "game")
-        #expect(try await store.load(for: "game") == game)
+        #expect(try await store.load(for: "game") == GameMetadataRecord(legacy: game).resolved().metadata)
     }
 
     @Test func walkthroughIndexCanBeFetchedWithoutWorkDetails() async throws {

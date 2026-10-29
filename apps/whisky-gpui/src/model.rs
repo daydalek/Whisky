@@ -6,13 +6,7 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-#[derive(Clone, Debug, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Character {
-    pub(crate) name: String,
-    pub(crate) original_name: Option<String>,
-    pub(crate) role: Option<String>,
-}
+pub(crate) use crate::bridge::dto::CharacterDto as Character;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Game {

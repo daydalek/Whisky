@@ -43,34 +43,6 @@ struct GameMetadataTests {
         #expect(GameMetadata(source: .bangumi, sourceID: "2", title: "Empty").charactersInDisplayOrder.isEmpty)
     }
 
-    @Test func characterRefreshRetriesTimeoutAndReturnsCharacters() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CharacterTimeoutProtocol.self]
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
-        let provider = PublicGameMetadataProvider(source: .bangumi, session: session, networkAccess: {})
-        let characters = try await provider.fetchCharacters(
-            for: GameMetadata(source: .bangumi, sourceID: "retry", title: "Test")
-        )
-        #expect(characters.map(\.name) == ["Character"])
-    }
-
-    @Test func characterRefreshSurfacesPersistentTimeout() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CharacterTimeoutProtocol.self]
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
-        let provider = PublicGameMetadataProvider(source: .bangumi, session: session, networkAccess: {})
-        do {
-            _ = try await provider.fetchCharacters(
-                for: GameMetadata(source: .bangumi, sourceID: "persistent", title: "Test")
-            )
-            Issue.record("Expected timeout")
-        } catch let error as URLError {
-            #expect(error.code == .timedOut)
-        }
-    }
-
     @Test func roundTripAndRemoval() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -528,34 +500,4 @@ extension PublicGameMetadataProvider {
 
 extension GameMetadataStore {
     init(directory: URL) { self.init(directory: directory, networkAccess: {}) }
-}
-
-private final class CharacterTimeoutProtocol: URLProtocol {
-    private static let lock = NSLock()
-    private nonisolated(unsafe) static var attempts: [String: Int] = [:]
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        guard let url = request.url else { return }
-        let attempt = Self.lock.withLock {
-            Self.attempts[url.path, default: 0] += 1
-            return Self.attempts[url.path, default: 0]
-        }
-        guard request.timeoutInterval == 45 else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
-            return
-        }
-        if url.path.contains("persistent") || attempt == 1 {
-            client?.urlProtocol(self, didFailWithError: URLError(.timedOut))
-            return
-        }
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(#"[{"id":1,"name":"Character","relation":"主角"}]"#.utf8))
-        client?.urlProtocolDidFinishLoading(self)
-    }
-
-    override func stopLoading() {}
 }

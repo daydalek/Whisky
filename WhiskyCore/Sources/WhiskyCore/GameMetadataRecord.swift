@@ -1,24 +1,5 @@
 import Foundation
 
-public struct GameCharacter: Codable, Hashable, Sendable {
-    public var id: String
-    public var name: String
-    public var originalName: String?
-    public var role: String?
-    public var imageURL: URL?
-    public var pageURL: URL?
-
-    public init(id: String, name: String, originalName: String? = nil,
-                role: String? = nil, imageURL: URL? = nil, pageURL: URL? = nil) {
-        self.id = id
-        self.name = name
-        self.originalName = originalName
-        self.role = role
-        self.imageURL = imageURL
-        self.pageURL = pageURL
-    }
-}
-
 public struct MetadataProvenance: Codable, Hashable, Sendable {
     public var source: GameMetadataSource?
     public var sourceID: String?

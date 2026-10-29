@@ -47,16 +47,19 @@ public struct GameCharacter: Codable, Hashable, Sendable, Identifiable {
     public var voiceActor: String?
     public var summary: String?
     public var role: String?
+    public var pageURL: URL?
 
     public init(
         id: String = UUID().uuidString,
         name: String,
         originalName: String? = nil,
+        role: String? = nil,
         imageURL: URL? = nil,
+        pageURL: URL? = nil,
         voiceActor: String? = nil,
-        summary: String? = nil,
-        role: String? = nil
+        summary: String? = nil
     ) {
+        self.pageURL = pageURL
         self.id = id
         self.name = name
         self.originalName = originalName
@@ -85,6 +88,9 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
     public var titleLanguage: String?
     public var characters: [GameCharacter]?
     public var provenance: [String: MetadataProvenance]?
+    public var walkthroughs: [GameWalkthrough]?
+    /// NextMoe work explicitly selected for routes, independent of the metadata source.
+    public var walkthroughWorkID: String?
     public var fetchedAt: Date
 
     public var id: String {

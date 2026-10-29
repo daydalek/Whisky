@@ -219,6 +219,7 @@ pub(crate) struct GameInfoPage {
     pub(crate) matches: Option<Vec<GameDbMatchDto>>,
     pub(crate) config_message: Option<String>,
     pub(crate) config_error: Option<String>,
+    pub(crate) selected_character: Option<String>,
 }
 
 impl GameInfoPage {
@@ -247,12 +248,15 @@ mod metadata_search_tests {
             title: "Game".into(),
             input: None,
             searching: true,
+            searching_sources: Vec::new(),
+            sources_expanded: false,
             applying: false,
             error: None,
             groups: Vec::new(),
             matches: None,
             config_message: None,
             config_error: None,
+            selected_character: None,
         }
     }
 
@@ -3786,6 +3790,7 @@ impl WhiskyApp {
             matches: None,
             config_message: None,
             config_error: None,
+            selected_character: None,
         });
         self.bridge.match_game_config(&container, &entry_id);
         self.load_metadata_editor(cx);
