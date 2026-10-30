@@ -567,6 +567,22 @@ final class EnvironmentVariablesTests: XCTestCase {
 
     // MARK: - hardware scheduling is claimed only where it applies
 
+    func testHostMemoryImportDefaultsOnAndCanBeDisabled() throws {
+        var settings = BottleSettings()
+        var env: [String: String] = [:]
+        settings.environmentVariables(wineEnv: &env)
+        XCTAssertNil(env["MVK_CONFIG_EXTERNAL_MEMORY_HOST"])
+
+        settings.hostMemoryImport = false
+        let encoded = try PropertyListEncoder().encode(settings)
+        let decoded = try PropertyListDecoder().decode(BottleSettings.self, from: encoded)
+        XCTAssertFalse(decoded.hostMemoryImport)
+
+        env = [:]
+        decoded.environmentVariables(wineEnv: &env)
+        XCTAssertEqual(env["MVK_CONFIG_EXTERNAL_MEMORY_HOST"], "0")
+    }
+
     func testD3DMetalBottleClaimsHardwareSchedulingForFrameGeneration() {
         // Wine answers the WDDM 2.7 caps query only for a caller that says it is
         // on D3DMetal, and NVIDIA Streamline refuses DLSS frame generation

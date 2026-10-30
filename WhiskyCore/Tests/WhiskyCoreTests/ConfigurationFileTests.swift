@@ -150,6 +150,22 @@ struct ConfigurationFileTests {
         await #expect(throws: (any Error).self) { try await store.update(field, to: .text("unknown")) }
     }
 
+    @Test func hostMemoryImportIsMacOnlyAndDefaultsOn() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("Metadata.plist")
+        try write(["graphicsConfig": ["future": "retained"]], to: file)
+        let field = try #require(ContainerConfiguration.fields(for: .macOS).first { $0.id == "hostMemoryImport" })
+        #expect(!ContainerConfiguration.fields(for: .linux).contains { $0.id == field.id })
+        #expect(field.defaultValue == .boolean(true))
+        let store = ConfigurationFile(url: file, locking: Lock())
+        #expect(try await store.values(for: [field])[field.id] == .boolean(true))
+        try await store.update(field, to: .boolean(false))
+        #expect(try await store.values(for: [field])[field.id] == .boolean(false))
+        let graphics = try #require(try document(file)["graphicsConfig"] as? [String: Any])
+        #expect(graphics["future"] as? String == "retained")
+    }
+
     @Test func legacyDXVKSelectionCanBeReadAndExplicitlyChanged() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

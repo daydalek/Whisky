@@ -132,6 +132,7 @@ fn decode_field(raw: &Value, platform: &str) -> Result<Option<ConfigField>, Stri
                 | "metalFXSpatial"
                 | "gdiUpscaler"
                 | "frameGeneration"
+                | "hostMemoryImport"
                 | "metal4Enabled"
                 | "metalHud"
                 | "metalTrace"
@@ -389,7 +390,7 @@ pub(crate) fn section_for(field_id: &str) -> &'static SectionSpec {
         | "gpuSpoofing" | "gpuVendor" | "autoEnableDXVK" => "launcher",
         "controllerCompatibilityMode" | "disableHIDAPI" | "allowBackgroundEvents"
         | "disableControllerMapping" | "useButtonLabels" | "commandActsAsControl" => "input",
-        "graphicsBackend" | "metalFX" | "metalFXSpatial" | "gdiUpscaler" | "frameGeneration" | "metal4Enabled" | "metalHud"
+        "graphicsBackend" | "metalFX" | "metalFXSpatial" | "gdiUpscaler" | "frameGeneration" | "hostMemoryImport" | "metal4Enabled" | "metalHud"
         | "metalTrace" | "dxrEnabled" | "metalValidation" | "dxvkAsync" | "dxvkHud" => "graphics",
         "audioDriver" | "audioLatencyPreset" | "outputDeviceMode" | "pinnedDeviceName" => "audio",
         "discordPresence" | "discordBridge" => "discord",

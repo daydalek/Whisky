@@ -125,6 +125,8 @@ struct GraphicsConfigSection: View {
                 .disabled(!bottle.settings.metalFX)
             }
 
+            Toggle("32-bit Vulkan host memory import (restart to apply)", isOn: $bottle.settings.hostMemoryImport)
+
             // The Sequoia compatibility toggle is gone: everything it set is a
             // platform-layer fix applied on every supported macOS, so the
             // switch changed nothing in either position.

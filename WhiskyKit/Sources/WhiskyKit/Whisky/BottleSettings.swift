@@ -414,6 +414,12 @@ public struct BottleSettings: Codable, Equatable {
         set { graphicsConfig.frameGeneration = newValue }
     }
 
+    /// Whether 32-bit Vulkan/DXVK applications may import host memory (`VK_EXT_external_memory_host`).
+    public var hostMemoryImport: Bool {
+        get { graphicsConfig.hostMemoryImport }
+        set { graphicsConfig.hostMemoryImport = newValue }
+    }
+
     /// Whether DXVK is the active graphics backend.
     ///
     /// This property now derives from ``graphicsBackend``. Setting it to `true`
@@ -962,6 +968,10 @@ public struct BottleSettings: Codable, Equatable {
         case .wined3d:
             // Disable D3DMetal, forcing Wine's OpenGL-based wined3d path
             builder.set("WINED3DMETAL", "0", layer: .bottleManaged)
+        }
+
+        if !hostMemoryImport {
+            builder.set("MVK_CONFIG_EXTERNAL_MEMORY_HOST", "0", layer: .bottleManaged)
         }
 
         // GDI presentation belongs to the macOS window driver and applies

@@ -139,6 +139,7 @@ public enum ContainerConfiguration {
                 defaultValue: .text("off"), platforms: [.macOS]
             ),
             toggle("frameGeneration", "帧生成", "graphicsConfig.frameGeneration", false, platforms: [.macOS]),
+            toggle("hostMemoryImport", "32 位 Vulkan 内存导入优化", "graphicsConfig.hostMemoryImport", true, platforms: [.macOS]),
             toggle("metal4Enabled", "Metal 4", "metalConfig.metal4Enabled", true, platforms: [.macOS]),
             toggle("metalHud", "Metal 性能面板", "metalConfig.metalHud", false, platforms: [.macOS]),
             toggle("metalTrace", "Metal 跟踪", "metalConfig.metalTrace", false, platforms: [.macOS]),

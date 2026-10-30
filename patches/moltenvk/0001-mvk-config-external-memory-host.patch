@@ -1,0 +1,79 @@
+diff --git a/Docs/MoltenVK_Configuration_Parameters.md b/Docs/MoltenVK_Configuration_Parameters.md
+index fdb7b9fa3..7834bc123 100644
+--- a/Docs/MoltenVK_Configuration_Parameters.md
++++ b/Docs/MoltenVK_Configuration_Parameters.md
+@@ -658,3 +658,18 @@ In the special case of `VK_SEMAPHORE_TYPE_TIMELINE` semaphores, **MoltenVK** will
+ Makes MoltenVK treat all descriptors as if they had `VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT` set.
+ Versions of MoltenVK with this flag are less forgiving of applications that bind descriptors that point to
+ destroyed objects, so this option can be used to temporarily work around any breakage that may have caused.
++
++
++---------------------------------------
++#### MVK_CONFIG_EXTERNAL_MEMORY_HOST
++
++##### Type: Boolean
++##### Default: `1` (true)
++
++Controls whether MoltenVK advertises and enables the `VK_EXT_external_memory_host` device extension.
++
++When disabled (`0`), `VK_EXT_external_memory_host` is omitted from the advertised device extensions list,
++preventing clients (such as 32-bit Wine WoW64 / DXVK) from importing host-visible guest memory into
++no-copy Metal buffers that can trigger `kIOGPUCommandBufferCallbackErrorOutOfMemory` on Apple Silicon.
++Applications will transparently fall back to standard Vulkan device memory allocation.
+diff --git a/MoltenVK/MoltenVK/API/mvk_private_api.h b/MoltenVK/MoltenVK/API/mvk_private_api.h
+index 11155a4..19d072a 100644
+--- a/MoltenVK/MoltenVK/API/mvk_private_api.h
++++ b/MoltenVK/MoltenVK/API/mvk_private_api.h
+@@ -247,6 +247,7 @@ typedef struct {
+ 	const char* shaderDumpDir;                                                 /**< MVK_CONFIG_SHADER_DUMP_DIR */
+ 	VkBool32 shaderLogEstimatedGLSL;                                           /**< MVK_CONFIG_SHADER_LOG_ESTIMATED_GLSL */
+ 	VkBool32 liveCheckAllResources;                                            /**< MVK_CONFIG_LIVE_CHECK_ALL_RESOURCES */
++	VkBool32 externalMemoryHost;                                               /**< MVK_CONFIG_EXTERNAL_MEMORY_HOST */
+ } MVKConfiguration;
+ 
+ // Legacy support for renamed struct elements.
+diff --git a/MoltenVK/MoltenVK/Layers/MVKExtensions.mm b/MoltenVK/MoltenVK/Layers/MVKExtensions.mm
+index 273a58a..423f7d9 100644
+--- a/MoltenVK/MoltenVK/Layers/MVKExtensions.mm
++++ b/MoltenVK/MoltenVK/Layers/MVKExtensions.mm
+@@ -45,6 +45,9 @@ static VkExtensionProperties mvkMakeExtProps(const char* extensionName, uint32_t
+ 
+ // Returns whether the specified properties are valid for this platform
+ static bool mvkIsSupportedOnPlatform(VkExtensionProperties* pProperties) {
++	if (pProperties == &kVkExtProps_EXT_EXTERNAL_MEMORY_HOST && !getGlobalMVKConfig().externalMemoryHost) {
++		return false;
++	}
+ #define MVK_EXTENSION_MIN_OS(EXT, MAC, IOS, XROS) \
+ 	if (pProperties == &kVkExtProps_##EXT) { return mvkOSVersionIsAtLeast(MAC, IOS, XROS); }
+ 
+diff --git a/MoltenVK/MoltenVK/Utility/MVKConfigMembers.def b/MoltenVK/MoltenVK/Utility/MVKConfigMembers.def
+index 5f7e0a5..e5d957e 100644
+--- a/MoltenVK/MoltenVK/Utility/MVKConfigMembers.def
++++ b/MoltenVK/MoltenVK/Utility/MVKConfigMembers.def
+@@ -86,6 +86,7 @@ MVK_CONFIG_MEMBER(useMetalPrivateAPI,                     VkBool32,
+ MVK_CONFIG_MEMBER_STRING(shaderDumpDir,                   char*,                                    SHADER_DUMP_DIR)
+ MVK_CONFIG_MEMBER(shaderLogEstimatedGLSL,                 VkBool32,                                 SHADER_LOG_ESTIMATED_GLSL)
+ MVK_CONFIG_MEMBER(liveCheckAllResources,                  VkBool32,                                 LIVE_CHECK_ALL_RESOURCES)
++MVK_CONFIG_MEMBER(externalMemoryHost,                     VkBool32,                                 EXTERNAL_MEMORY_HOST)
+ 
+ #undef MVK_CONFIG_MEMBER
+ #undef MVK_CONFIG_MEMBER_STRING
+@@ -101,5 +102,5 @@ MVK_CONFIG_MEMBER(liveCheckAllResources,                  VkBool32,
+  * Once  MVKConfiguration and the list above are in agreement, it may be necessary to modify
+  * this value if the internal padding has changed as a result of new MVKConfiguration members.
+  */
+-#define kMVKConfigurationInternalPaddingByteCount  4
++#define kMVKConfigurationInternalPaddingByteCount  8
+ 
+diff --git a/MoltenVK/MoltenVK/Utility/MVKEnvironment.h b/MoltenVK/MoltenVK/Utility/MVKEnvironment.h
+index e6d176c..4ac5d03 100644
+--- a/MoltenVK/MoltenVK/Utility/MVKEnvironment.h
++++ b/MoltenVK/MoltenVK/Utility/MVKEnvironment.h
+@@ -350,3 +350,7 @@ void mvkSetConfig(MVKConfiguration& dstMVKConfig, const MVKConfiguration& srcMVK
+ #ifndef MVK_CONFIG_LIVE_CHECK_ALL_RESOURCES
+ #   define MVK_CONFIG_LIVE_CHECK_ALL_RESOURCES 0
+ #endif
++
++#ifndef MVK_CONFIG_EXTERNAL_MEMORY_HOST
++#   define MVK_CONFIG_EXTERNAL_MEMORY_HOST 1
++#endif
