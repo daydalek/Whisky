@@ -158,6 +158,7 @@ public struct EntryRecord: Codable, Sendable {
     public let source: String
     public let executable: String?
     public let folder: String?
+    public let gameDirectory: String?
     public let steamAppID: Int?
     /// A folder entry that has no executable chosen yet. Launching one asks the
     /// frontend for a file before anything can run.
@@ -179,6 +180,7 @@ public struct EntryRecord: Codable, Sendable {
         name = entry.name
         container = entry.bottleURL.path
         source = entry.source.rawValue
+        gameDirectory = entry.gameDirectoryURL?.path
         switch entry.launch {
         case let .program(url):
             if entry.source == .folder {

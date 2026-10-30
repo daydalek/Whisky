@@ -234,6 +234,8 @@ private final class MetadataHydrationProtocol: URLProtocol, @unchecked Sendable 
     let empty = try await service.call("metadata.configuration.get", params: fixture.params,
                                        workspace: fixture.workspace)
     #expect(empty.object?["hasRecord"] == .bool(false))
+    #expect(empty.object?["capabilities"]?.object?["nextmoe"]?.object?["characters"] == .bool(true))
+    #expect(empty.object?["capabilities"]?.object?["nextmoe"]?.object?["refresh"] == .bool(true))
     var record = try #require(empty.object?["record"]).decoded(GameMetadataRecord.self)
     #expect(record.defaultSource == .vndb)
     #expect(record.categorySources["cover"] == .steam)

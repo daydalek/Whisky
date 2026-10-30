@@ -94,8 +94,26 @@ public extension GameActivity {
     mutating func record(_ seconds: TimeInterval, at date: Date) -> Bool {
         guard seconds.isFinite, seconds >= 0 else { return false }
         playTime += seconds
+        recordDaily(seconds, endingAt: date)
         lastPlayed = max(lastPlayed ?? date, date)
         return true
+    }
+
+    /// Split an observed interval at calendar boundaries, including DST days.
+    /// Called only after ownership and sample replay checks have succeeded.
+    private mutating func recordDaily(_ seconds: TimeInterval, endingAt end: Date) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        var cursor = end.addingTimeInterval(-seconds)
+        while cursor < end {
+            guard let day = calendar.dateInterval(of: .day, for: cursor) else { break }
+            let boundary = min(day.end, end)
+            guard boundary > cursor else { break }
+            let parts = calendar.dateComponents([.year, .month, .day], from: cursor)
+            let key = String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+            dailyPlayTime[key, default: 0] += boundary.timeIntervalSince(cursor)
+            cursor = boundary
+        }
     }
 
     /// Copy personal history while retaining the destination's active observation lease.

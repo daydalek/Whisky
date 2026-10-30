@@ -270,9 +270,18 @@ impl WhiskyApp {
                 "Library",
                 "layout-grid",
                 games.len(),
-                !self.settings && self.selected_bottle.is_none(),
+                !self.settings && self.preview.page == PreviewPage::Library && self.selected_bottle.is_none(),
             )
             .on_click(cx.listener(|this, _, _, cx| this.select_bottle(None, cx))),
+        );
+        entries = entries.child(
+            sidebar_row(
+                "statistics", "游玩统计", "rows-3",
+                games.iter().filter(|game| !game.is_launcher && game.play_time.unwrap_or(0) > 0).count(),
+                !self.settings && self.preview.page == PreviewPage::Statistics,
+            ).on_click(cx.listener(|this, _, _, cx| {
+                this.navigate(PreviewPage::Statistics, cx);
+            })),
         );
         entries = entries.child(
             muted("Bottles")

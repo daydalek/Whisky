@@ -39,7 +39,8 @@ public enum SteamLibrarySource: Sendable {
                 artworkURL: steamRoot.flatMap { artworkURL(appID: game.appId, steamRoot: $0) },
                 bottleURL: url,
                 source: id,
-                launch: .steam(appID: game.appId)
+                launch: .steam(appID: game.appId),
+                installDirectoryURL: game.installURL
             )
         }
     }

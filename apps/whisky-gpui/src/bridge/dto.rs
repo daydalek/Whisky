@@ -711,6 +711,9 @@ pub(crate) struct EntryDto {
     /// Folder directory path when source is "folder".
     #[serde(default)]
     pub(crate) folder: Option<String>,
+    /// Installation directory for all sources, especially Steam apps.
+    #[serde(default)]
+    pub(crate) game_directory: Option<String>,
     /// Where the entry came from (`pinned`, `steam`, `folder`).
     #[serde(default)]
     pub(crate) source: Option<String>,
@@ -794,6 +797,8 @@ pub(crate) struct MetadataProvenanceDto {
 pub(crate) struct ActivityDto {
     #[serde(default)]
     pub(crate) play_time: Option<f64>,
+    #[serde(default)]
+    pub(crate) daily_play_time: std::collections::BTreeMap<String, f64>,
     #[serde(default)]
     pub(crate) rating: Option<i64>,
     #[serde(default)]
@@ -897,9 +902,11 @@ impl EntryDto {
             hidden: self.hidden,
             rating: self.activity.rating(),
             play_time: self.activity.play_time(),
+            daily_play_time: self.activity.daily_play_time.clone(),
             last_played: self.activity.last_played(),
             executable: self.executable.as_deref().map(expand_path),
             folder_path,
+            game_directory: self.game_directory.as_deref().map(expand_path),
             is_folder,
             needs_executable: self.needs_executable,
             container: self.container.unwrap_or_default(),
@@ -1330,6 +1337,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn steam_install_directory_reaches_game_without_an_executable() {
+        let entry: EntryDto = serde_json::from_value(serde_json::json!({
+            "id": "steam:/bottle:123",
+            "name": "Game",
+            "source": "steam",
+            "gameDirectory": "/Volumes/Games/steamapps/common/中文 Game"
+        })).unwrap();
+        let game = entry.into_game(1);
+        assert!(game.executable.is_none());
+        assert_eq!(game.game_directory(), Some(PathBuf::from(
+            "/Volumes/Games/steamapps/common/中文 Game"
+        )));
+    }
+
     fn entry_with_cover(cover: &str) -> EntryDto {
         EntryDto {
             id: "pinned:/entry".into(),
@@ -1337,6 +1359,7 @@ mod tests {
             container: None,
             executable: None,
             folder: None,
+            game_directory: None,
             needs_executable: false,
             source: None,
             icon: Some("/definitely/missing-icon.png".into()),

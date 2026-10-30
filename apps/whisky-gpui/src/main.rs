@@ -86,6 +86,8 @@ impl Render for WhiskyApp {
         let backdrop = self.backdrop(window, cx);
         let body = if self.settings {
             self.application_settings(cx)
+        } else if self.preview.page == PreviewPage::Statistics {
+            self.statistics_page(width, cx)
         } else if self.preview.page != PreviewPage::Library {
             self.preview_page(window, cx)
         } else {
@@ -279,8 +281,13 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
             "welcome",
             "source-preferences",
             "metadata-editor",
+            "statistics",
+            "statistics-compact",
         ];
         for (stage, name) in names.into_iter().enumerate() {
+            if std::env::var_os("WHISKY_STATISTICS_CAPTURE").is_some() && stage < 16 {
+                continue;
+            }
             handle
                 .update(cx, |_, window, cx| {
                     view.update(cx, |this, cx| {
@@ -357,10 +364,21 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
                                 this.game_info = Some(state::GameInfoPage {
                                     editor, container: "visual-fixture".into(), entry_id: "demo:0".into(),
                                     title: "作品的中文名称".into(), input: None, searching: false,
+                                    searching_sources: Vec::new(), sources_expanded: false,
+                                    selected_character: None, walkthrough_only: false,
                                     applying: false, error: None, groups: Vec::new(), matches: None,
                                     config_message: None, config_error: None,
                                 });
                                 this.preview.sheet = Some(PreviewSheet::GameInfo(0));
+                            }
+                            16 | 17 => {
+                                window.resize(if stage == 16 {
+                                    size(px(1280.), px(900.))
+                                } else {
+                                    size(px(900.), px(700.))
+                                });
+                                this.preview.page = PreviewPage::Statistics;
+                                this.preview.scroll_handles.borrow_mut().remove("statistics-scroll");
                             }
                             _ => {
                                 window.resize(size(px(800.), px(580.)));

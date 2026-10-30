@@ -73,6 +73,9 @@ public struct GameActivity: Codable, Equatable, Sendable {
     public var owner: GameActivityOwner?
     public var lastAppliedSample: GameActivitySampleToken?
     public var playTime: TimeInterval = 0
+    /// Observed seconds by local Gregorian date (YYYY-MM-DD).
+    /// Legacy cumulative time cannot be reconstructed into daily records.
+    public var dailyPlayTime: [String: TimeInterval] = [:]
     public var rating: Int?
     public var lastPlayed: Date?
     /// Confirmed session completion. Legacy lastPlayed samples remain readable separately.
@@ -83,6 +86,7 @@ public struct GameActivity: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case schemaVersion, ownershipGeneration, owner, lastAppliedSample, playTime, rating, lastPlayed
         case lastSessionEndedAt
+        case dailyPlayTime
     }
 
     public init(from decoder: Decoder) throws {
@@ -93,6 +97,7 @@ public struct GameActivity: Codable, Equatable, Sendable {
         ownershipGeneration = try container.decodeIfPresent(UInt64.self, forKey: .ownershipGeneration)
             ?? max(owner?.generation ?? 0, lastAppliedSample?.generation ?? 0)
         playTime = try container.decodeIfPresent(TimeInterval.self, forKey: .playTime) ?? 0
+        dailyPlayTime = try container.decodeIfPresent([String: TimeInterval].self, forKey: .dailyPlayTime) ?? [:]
         rating = try container.decodeIfPresent(Int.self, forKey: .rating)
         lastPlayed = try container.decodeIfPresent(Date.self, forKey: .lastPlayed)
         lastSessionEndedAt = try container.decodeIfPresent(Date.self, forKey: .lastSessionEndedAt)

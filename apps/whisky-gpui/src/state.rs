@@ -117,6 +117,7 @@ pub(crate) struct ProcessesPage {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PreviewPage {
     Library,
+    Statistics,
     Bottle,
     ConfigureBottle,
     Programs,
@@ -293,6 +294,7 @@ mod metadata_search_tests {
 
 pub(crate) struct PreviewState {
     pub(crate) page: PreviewPage,
+    pub(crate) statistics_day: Option<chrono::NaiveDate>,
     pub(crate) history: Vec<PreviewPage>,
     pub(crate) sheet: Option<PreviewSheet>,
     pub(crate) sheet_history: Vec<PreviewSheet>,
@@ -345,6 +347,7 @@ impl PreviewState {
         }
         Self {
             page: PreviewPage::Library,
+            statistics_day: None,
             history: vec![],
             sheet: None,
             sheet_history: vec![],
@@ -1224,6 +1227,7 @@ impl WhiskyApp {
                     self.update_entry(&container, &entry_id, |game| {
                         game.rating = activity.rating();
                         game.play_time = activity.play_time();
+                        game.daily_play_time = activity.daily_play_time.clone();
                         game.last_played = activity.last_played();
                         game.last_session_ended_at = activity.last_session_ended_at();
                     });
@@ -2805,6 +2809,7 @@ impl WhiskyApp {
             Command::BottleRepair => Some("bottle.repair"),
             Command::CleanShaderCache => Some("bottle.cleanCache"),
             Command::Move(_) => Some("entry.move"),
+            Command::OpenGameDirectory(_) => Some("system.open"),
             _ => None,
         };
         method.is_none_or(|method| self.service_available(method))
@@ -2848,6 +2853,17 @@ impl WhiskyApp {
                     self.show_notice(DEMO_NOTICE, cx);
                 } else {
                     self.open_executable_picker(i, false, cx);
+                }
+            }
+            Command::OpenGameDirectory(i) => {
+                if self.demo {
+                    self.show_notice(DEMO_NOTICE, cx);
+                } else if let Some(game) = self.game(i)
+                    && let Some(path) = game.game_directory()
+                {
+                    self.bridge.open(&game.container, &path.to_string_lossy());
+                } else {
+                    self.show_notice("游戏目录不可用，请刷新游戏库后重试。", cx);
                 }
             }
             Command::Reveal(i) => {
@@ -5635,6 +5651,12 @@ impl WhiskyApp {
             self.preview.history.push(self.preview.page);
         }
         self.preview.page = page;
+        if page == PreviewPage::Statistics {
+            self.selected_bottle = None;
+            if !self.demo {
+                self.refresh_library(cx);
+            }
+        }
         self.settings = false;
         self.detail_open = false;
         self.preview.sheet = None;
@@ -5698,6 +5720,7 @@ impl WhiskyApp {
         }
         match self.preview.page {
             PreviewPage::Library => "Library".into(),
+            PreviewPage::Statistics => "游玩统计".into(),
             PreviewPage::Bottle => self.bottle_name().to_owned().into(),
             PreviewPage::ConfigureBottle => "Configure Bottle".into(),
             PreviewPage::Programs => "已安装的程序".into(),

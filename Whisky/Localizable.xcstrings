@@ -61071,6 +61071,28 @@
         }
       }
     },
+    "library.game.openDirectory" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Game Directory"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开游戏目录"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟遊戲目錄"
+          }
+        }
+      }
+    },
     "library.card.configure" : {
       "localizations" : {
         "en" : {

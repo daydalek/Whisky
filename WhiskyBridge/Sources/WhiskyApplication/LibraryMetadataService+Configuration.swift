@@ -80,7 +80,7 @@ extension LibraryMetadataService {
             "capabilities": .object(Dictionary(uniqueKeysWithValues: GameMetadataSource.allCases.map {
                 ($0.rawValue, .object([
                     "refresh": .bool($0 != .hikarinagi),
-                    "characters": .bool($0 == .bangumi || $0 == .vndb)
+                    "characters": .bool($0 == .bangumi || $0 == .vndb || $0 == .nextmoe)
                 ]))
             }))
         ])

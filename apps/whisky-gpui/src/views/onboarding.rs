@@ -77,7 +77,7 @@ impl WhiskyApp {
                 .chain(SOURCES);
             for (id, label) in choices {
                 // Only providers with a character endpoint may be selected.
-                if category == Some("characters") && !["inherit", "bangumi", "vndb"].contains(&id) {
+                if category == Some("characters") && !["inherit", "bangumi", "vndb", "nextmoe"].contains(&id) {
                     continue;
                 }
                 let view = view.clone();
@@ -169,7 +169,7 @@ impl WhiskyApp {
                     );
                 }
                 content = content.child(
-                    muted("人物仅支持 Bangumi / VNDB；跟随不支持人物的默认来源时，该项留空。")
+                    muted("人物仅支持 Bangumi / VNDB / NextMoe；跟随不支持人物的默认来源时，该项留空。")
                         .text_size(px(11.)),
                 );
             }

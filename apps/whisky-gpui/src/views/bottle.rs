@@ -75,6 +75,7 @@ impl WhiskyApp {
             PreviewPage::Processes => self.processes(cx),
             PreviewPage::GameConfigs => self.game_configs(cx),
             PreviewPage::Library => unreachable!(),
+            PreviewPage::Statistics => unreachable!(),
         };
         col()
             .size_full()

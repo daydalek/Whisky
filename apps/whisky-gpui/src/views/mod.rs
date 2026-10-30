@@ -5,6 +5,7 @@ pub(crate) mod dialogs;
 pub(crate) mod import_bottles;
 pub(crate) mod library;
 pub(crate) mod settings;
+pub(crate) mod statistics;
 pub(crate) mod onboarding;
 pub(crate) mod walkthrough;
 pub(crate) mod walkthrough_routes;
@@ -40,6 +41,8 @@ pub(crate) enum Command {
     Hide(usize),
     /// Select the entry's executable (or folder) in Finder.
     Reveal(usize),
+    /// Open the actual installation directory in the host file manager.
+    OpenGameDirectory(usize),
     /// Create a macOS shortcut for the entry's executable.
     Shortcut,
     /// Move an entry into another bottle.
@@ -245,8 +248,6 @@ impl WhiskyApp {
         let game = self.game(index);
         let hidden = game.is_some_and(|game| game.hidden);
         let is_folder = game.is_some_and(|game| game.is_folder);
-        // SwiftUI offers Show in Finder only for program entries (pinned or
-        // folder), which are exactly the ones that carry a path.
         let has_path = game.is_some_and(|game| game.executable.is_some());
         let mut items = vec![
             self.menu_item("运行", Command::Runtime(index), cx),
@@ -266,6 +267,9 @@ impl WhiskyApp {
         ];
         if has_path {
             items.push(self.menu_item(crate::platform::REVEAL_LABEL, Command::Reveal(index), cx));
+        }
+        if game.is_some_and(|game| game.game_directory().is_some()) {
+            items.push(self.menu_item("打开游戏目录", Command::OpenGameDirectory(index), cx));
         }
         items.extend([
             MenuEntry::separator(cx.entity().downgrade()),

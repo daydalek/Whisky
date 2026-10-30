@@ -2902,6 +2902,14 @@ impl WhiskyApp {
                                     Command::Reveal(index),
                                     cx,
                                 ))
+                                .when(self.game(index).is_some_and(|game| game.game_directory().is_some()), |d| {
+                                    d.child(self.action(
+                                        "open-game-directory",
+                                        "打开游戏目录",
+                                        Command::OpenGameDirectory(index),
+                                        cx,
+                                    ))
+                                })
                             })
                             .child(
                                 Button::new("sheet-done")
@@ -4034,7 +4042,7 @@ impl WhiskyApp {
     fn metadata_source_row(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(page) = self.game_info.as_ref() else { return div().into_any_element(); };
         let allowed = self.metadata_sources();
-        let mut line = row().gap(px(8.)).py(px(6.)).items_center().child(
+        let mut line = row().gap(px(8.)).py(px(6.)).items_center().flex_wrap().child(
             muted("搜索平台").text_size(px(11.)),
         );
         for &(source, label) in crate::metadata_editor::PROVIDERS {
@@ -4055,6 +4063,7 @@ fn source_label(source: &str) -> &str {
         "vndb" => "VNDB",
         "steam" => "Steam",
         "ymgal" => "月幕",
+        "nextmoe" => "NextMoe",
         "hikarinagi" => "Hikarinagi",
         _ => source,
     }

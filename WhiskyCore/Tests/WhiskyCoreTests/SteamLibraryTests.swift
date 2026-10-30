@@ -155,6 +155,42 @@ struct SteamLibraryTests {
         #expect(!games.contains { $0.appId == 999 || $0.appId == 777 })
     }
 
+    @Test("Game directories follow Steam manifests across mapped libraries")
+    func entryDirectoriesUseInstallRoots() throws {
+        let (bottle, tempRoot) = try makeFixtureBottle()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let entries = SteamLibrarySource.entries(inBottleAt: bottle)
+        let local = try #require(entries.first { $0.launch == .steam(appID: 4_576_510) })
+        let external = try #require(entries.first { $0.launch == .steam(appID: 1_245_620) })
+        #expect(local.gameDirectoryURL == SteamLibrary.detectInstall(bottleURL: bottle)?
+            .appending(path: "steamapps/common/Casualties Unknown Demo"))
+        #expect(external.gameDirectoryURL?.resolvingSymlinksInPath() == tempRoot
+            .appending(path: "second-library/steamapps/common/ELDEN RING").resolvingSymlinksInPath())
+        #expect(!entries.contains { $0.launch == .steam(appID: 777) })
+    }
+
+    @Test("Program and folder directories do not depend on icons")
+    func programDirectories() {
+        let folder = URL(fileURLWithPath: "/Games/中文 Game")
+        let executable = folder.appending(path: "bin/game.exe")
+        let pin = LibraryEntry(
+            id: "pin", name: "Game", iconURL: nil, bottleURL: folder,
+            source: .pinned, launch: .program(executable)
+        )
+        let scanned = LibraryEntry(
+            id: "folder", name: "Game", iconURL: nil, bottleURL: folder,
+            source: .folder, launch: .program(folder)
+        )
+        #expect(pin.gameDirectoryURL == executable.deletingLastPathComponent())
+        #expect(scanned.gameDirectoryURL == folder)
+        let unknownSteam = LibraryEntry(
+            id: "steam", name: "Unknown", iconURL: executable, bottleURL: folder,
+            source: .steam, launch: .steam(appID: 1)
+        )
+        #expect(unknownSteam.gameDirectoryURL == nil)
+    }
+
     @Test("A second enumeration of an unchanged library returns the same games")
     func enumerationIsCachedUntilTheLibraryChanges() throws {
         let (bottle, tempRoot) = try makeFixtureBottle()

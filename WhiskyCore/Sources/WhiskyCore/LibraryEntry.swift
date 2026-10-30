@@ -61,6 +61,15 @@ public struct LibraryEntry: Identifiable, Hashable, Sendable {
     public let bottleURL: URL
     public let source: LibrarySourceID
     public let launch: Launch
+    /// The installation root, independent of artwork and the launching executable.
+    public let installDirectoryURL: URL?
+
+    public var gameDirectoryURL: URL? {
+        if let installDirectoryURL { return installDirectoryURL }
+        guard case let .program(url) = launch else { return nil }
+        return source == .folder ? url : url.deletingLastPathComponent()
+    }
+
     /// Whether this entry is a storefront client rather than a game.
     ///
     /// A launcher is worth keeping in the library, since it is how you reach an
@@ -80,7 +89,8 @@ public struct LibraryEntry: Identifiable, Hashable, Sendable {
         bottleURL: URL,
         source: LibrarySourceID,
         launch: Launch,
-        launcher: LauncherType? = nil
+        launcher: LauncherType? = nil,
+        installDirectoryURL: URL? = nil
     ) {
         self.id = id
         self.name = name
@@ -90,6 +100,7 @@ public struct LibraryEntry: Identifiable, Hashable, Sendable {
         self.source = source
         self.launch = launch
         self.launcher = launcher
+        self.installDirectoryURL = installDirectoryURL
     }
 }
 

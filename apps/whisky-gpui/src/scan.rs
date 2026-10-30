@@ -167,6 +167,7 @@ mod tests {
             container: None,
             executable: None,
             folder: None,
+            game_directory: None,
             needs_executable: false,
             source: None,
             icon: None,

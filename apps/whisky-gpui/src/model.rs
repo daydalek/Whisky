@@ -32,6 +32,7 @@ pub(crate) struct Game {
     pub(crate) rating: Option<u8>,
     /// Whole seconds of recorded play time, if any.
     pub(crate) play_time: Option<u64>,
+    pub(crate) daily_play_time: std::collections::BTreeMap<String, f64>,
     /// Unix seconds, if the bridge recorded a session.
     pub(crate) last_played: Option<u64>,
     /// Launching executable, when the entry is a program rather than a Store app.
@@ -39,6 +40,8 @@ pub(crate) struct Game {
     pub(crate) executable: Option<PathBuf>,
     /// The folder path for folder entries, preserved even when an executable is chosen.
     pub(crate) folder_path: Option<PathBuf>,
+    /// Installation root supplied by the catalogue, including Steam libraries.
+    pub(crate) game_directory: Option<PathBuf>,
     /// A scanned folder rather than a pinned file or a Steam app. Its
     /// executable is a choice the user makes, so the card offers one.
     pub(crate) is_folder: bool,
@@ -57,6 +60,15 @@ pub(crate) struct Game {
 
 impl Game {
     fn from_demo(index: usize, demo: &DemoGame) -> Self {
+        // Only explicit demo mode uses these synthetic journal entries.
+        let today = chrono::Local::now().date_naive();
+        let daily_play_time: std::collections::BTreeMap<_, _> = (0..175)
+            .filter(|day| index < 4 && (day + index) % (index + 2) == 0)
+            .map(|day| (
+                (today - chrono::Duration::days(day as i64)).to_string(),
+                ((day * 17 + index * 31) % 150 + 10) as f64 * 60.,
+            )).collect();
+        let play_time = daily_play_time.values().sum::<f64>() as u64;
         Self {
             metadata: None,
             character_images: Default::default(),
@@ -72,16 +84,25 @@ impl Game {
             bottle: demo.bottle,
             hidden: false,
             rating: None,
-            play_time: None,
+            play_time: (play_time > 0).then_some(play_time),
+            daily_play_time,
             last_played: None,
             executable: None,
             folder_path: None,
+            game_directory: None,
             is_folder: false,
             needs_executable: false,
-            container: String::new(),
+            container: if demo.bottle == 1 { "demo:galgame" } else { "demo:galgame-win7" }.into(),
             last_session_ended_at: None,
             is_launcher: false,
         }
+    }
+
+    /// The installation directory, not a Steam icon or an executable's subfolder.
+    pub(crate) fn game_directory(&self) -> Option<PathBuf> {
+        self.game_directory.clone().or_else(|| self.folder()).or_else(|| {
+            self.executable.as_ref()?.parent().map(std::path::Path::to_path_buf)
+        })
     }
 
     /// The directory path of a folder entry, safe to pass to `folders.candidates`.
@@ -325,6 +346,20 @@ mod tests {
         assert_eq!(game.year(), None);
         game.release = None;
         assert_eq!(game.year(), None);
+    }
+
+    #[test]
+    fn game_directory_uses_install_root_before_launch_executable() {
+        let mut game = demo_data()[0].clone();
+        assert_eq!(game.game_directory(), None);
+        game.executable = Some(PathBuf::from("/Games/Local/bin/game.exe"));
+        assert_eq!(game.game_directory(), Some(PathBuf::from("/Games/Local/bin")));
+        game.is_folder = true;
+        game.folder_path = Some(PathBuf::from("/Games/Local"));
+        assert_eq!(game.game_directory(), Some(PathBuf::from("/Games/Local")));
+        game.game_directory = Some(PathBuf::from("/SteamLibrary/steamapps/common/游戏"));
+        game.executable = None;
+        assert_eq!(game.game_directory(), Some(PathBuf::from("/SteamLibrary/steamapps/common/游戏")));
     }
 
     #[test]

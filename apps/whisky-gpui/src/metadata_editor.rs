@@ -17,6 +17,7 @@ pub(crate) const PROVIDERS: &[(&str, &str)] = &[
     ("bangumi", "Bangumi"),
     ("vndb", "VNDB"),
     ("ymgal", "月幕"),
+    ("nextmoe", "NextMoe"),
 ];
 pub(crate) const CATEGORIES: &[(&str, &str)] = &[
     ("basic", "基本信息"),
@@ -46,7 +47,7 @@ pub(crate) fn platform_id(source: &str, input: &str) -> Option<String> {
     let digits = match source {
         "vndb" => id.strip_prefix('v').unwrap_or(id),
         "ymgal" => id.strip_prefix("ga").unwrap_or(id),
-        "steam" | "bangumi" => id,
+        "steam" | "bangumi" | "nextmoe" => id,
         _ => return None,
     };
     if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit())
@@ -383,7 +384,7 @@ impl WhiskyApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{MetadataEditor, platform_id};
+    use super::{MetadataEditor, PROVIDERS, platform_id};
     use serde_json::json;
 
     #[test]
@@ -464,6 +465,7 @@ mod tests {
             ("ymgal", "https://www.ymgal.games/ga123", "123"),
             ("vndb", "17", "v17"),
             ("steam", "0042", "42"),
+            ("nextmoe", "0042", "42"),
         ] {
             assert_eq!(platform_id(source, input).as_deref(), Some(id));
         }
@@ -471,6 +473,15 @@ mod tests {
             "https://store.steampowered.com.evil.test/app/42", "https://store.steampowered.com@evil.test/app/42"] {
             assert_eq!(platform_id("steam", input), None);
         }
+    }
+
+    #[test]
+    fn editor_providers_match_search_and_preference_providers() {
+        let editor: std::collections::BTreeSet<_> = PROVIDERS.iter().map(|(id, _)| *id).collect();
+        let settings: std::collections::BTreeSet<_> = crate::onboarding::SOURCES.iter().map(|(id, _)| *id).collect();
+        let search: std::collections::BTreeSet<_> = crate::state::METADATA_SOURCES.iter().map(|(_, id, _)| *id).collect();
+        assert_eq!(editor, settings);
+        assert_eq!(editor, search);
     }
 
     #[test]

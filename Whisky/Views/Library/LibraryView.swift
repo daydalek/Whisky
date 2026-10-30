@@ -514,6 +514,11 @@ struct LibraryView: View {
         if !row.item.isLauncher {
             Button("library.metadata.details") { detailRow = row }
         }
+        if let directory = row.item.gameDirectoryURL {
+            Button("library.game.openDirectory") {
+                NSWorkspace.shared.open(directory)
+            }
+        }
         if case let .program(url) = row.item.launch {
             if bottles.count > 1 {
                 Menu("library.bottle.target") {
