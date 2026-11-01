@@ -246,7 +246,7 @@ public enum GDIUpscaler: String, Codable, CaseIterable, Sendable {
         case .metalfx: "MetalFX Spatial"
         case .anime4k: "Anime4K (CNN x2 S)"
         case .realcugan: "Real-CUGAN (models-se x2)"
-        case .adaptive: "动态 MetalFX／静态 Real-CUGAN"
+        case .adaptive: "动态快速缩放／静态 Real-CUGAN"
         }
     }
 }

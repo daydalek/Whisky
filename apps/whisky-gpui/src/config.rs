@@ -455,7 +455,7 @@ mod tests {
                 {"id": "metalfx", "title": "MetalFX Spatial"},
                 {"id": "anime4k", "title": "Anime4K"},
                 {"id": "realcugan", "title": "Real-CUGAN"},
-                {"id": "adaptive", "title": "动态 MetalFX／静态 Real-CUGAN"}
+                {"id": "adaptive", "title": "动态快速缩放／静态 Real-CUGAN"}
             ]
         }]);
         let mac = decode_schema(&schema, "macos").unwrap();

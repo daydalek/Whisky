@@ -373,10 +373,10 @@ impl WhiskyApp {
                             .when(field.id == "gdiUpscaler", |d| {
                                 d.child(muted("传统 GDI Galgame · Retina 超分；重启游戏后生效。"))
                                     .when(value.as_str() == Some("adaptive"), |d| {
-                                        d.child(muted("局部变化保留高清背景并异步更新；大幅变化稳定 250 毫秒后增强。"))
+                                        d.child(muted("局部变化即时显示；静止约 200 毫秒后异步补充细节。"))
                                     })
                                     .when(value.as_str() == Some("realcugan"), |d| {
-                                        d.child(muted("后台增强静止画面，自动选择可用的推理加速。"))
+                                        d.child(muted("保留静态细节；文字与光标变化即时显示。"))
                                     })
                             }),
                     )
