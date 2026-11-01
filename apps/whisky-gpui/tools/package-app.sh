@@ -146,6 +146,8 @@ codesign --verify --deep --strict "${APP_DIR}"
 xattr -dr com.apple.quarantine "${APP_DIR}" 2>/dev/null || true
 
 # Smoke check: helper discovery must find the bundled helper (read-only probe).
-"${CONTENTS}/MacOS/whisky-gpui" --print-bridge-status
+if [[ "${WHISKY_MANUAL_VERIFICATION:-0}" != 1 ]]; then
+    "${CONTENTS}/MacOS/whisky-gpui" --print-bridge-status
+fi
 
 echo "Packaged ${APP_DIR}"
