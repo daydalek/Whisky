@@ -42,6 +42,8 @@ public final class PreferencesService {
         "preferredTerminal": "terminal", "preferredLinuxTerminal": "auto", "libraryCoverFillStyle": "blurred",
         "libraryDisplayMode": "covers", "librarySort": "recent",
         "libraryDetailLayoutStyle": "hero",
+        "libraryCoverUpscale": "off",
+        "libraryCoverUpscaleEngine": "realcugan",
         "libraryMetadataEnabledSources": "bangumi,vndb,steam,ymgal,nextmoe",
         "libraryMetadataDefaultSource": "bangumi",
         "libraryMetadataBasicSource": "inherit",
@@ -51,6 +53,11 @@ public final class PreferencesService {
         "telemetryConsent": "undecided"
     ]
     private static let pathKeys = ["defaultBottleLocation"]
+    /// Numeric preferences. `libraryCoverWidth` is the cover size control: zero
+    /// asks the shelf to divide the row, a value is the width every cover keeps.
+    private static let numbers: [String: Double] = [
+        "libraryCoverWidth": 0
+    ]
     public init(defaults: UserDefaults, defaultBottleDirectory: URL) {
         self.defaults = defaults
         self.fileURL = nil
@@ -69,6 +76,7 @@ public final class PreferencesService {
             return .object([
                 "booleans": .object(Self.flags.mapValues(JSONValue.bool)),
                 "strings": .object(Self.texts.mapValues(JSONValue.string)),
+                "numbers": .object(Self.numbers.mapValues(JSONValue.number)),
                 "paths": .array(Self.pathKeys.map(JSONValue.string))
             ])
         }
@@ -97,6 +105,10 @@ public final class PreferencesService {
         }
         for (key, fallback) in Self.texts {
             values[key] = .string(defaults.string(forKey: key) ?? fallback)
+        }
+        for (key, fallback) in Self.numbers {
+            let stored = (defaults.object(forKey: key) as? NSNumber)?.doubleValue
+            values[key] = .number(stored ?? fallback)
         }
         let storedLocation = defaults.url(forKey: "defaultBottleLocation")?.path
             ?? defaults.string(forKey: "defaultBottleLocation")
@@ -130,6 +142,10 @@ public final class PreferencesService {
             }
             for (key, fallback) in Self.texts {
                 values[key] = .string(stored[key] as? String ?? fallback)
+            }
+            for (key, fallback) in Self.numbers {
+                let number = (stored[key] as? NSNumber)?.doubleValue
+                values[key] = .number(number ?? fallback)
             }
             values["defaultBottleLocation"] = .string(
                 stored["defaultBottleLocation"] as? String ?? defaultBottleDirectory.path
@@ -169,6 +185,11 @@ public final class PreferencesService {
                     }
                 }
                 result[key] = text
+            } else if Self.numbers[key] != nil {
+                guard let number = value.number, number.isFinite else {
+                    throw BridgeFailure("invalid_params", "Expected number: \(key)")
+                }
+                result[key] = number
             } else if key == "defaultBottleLocation" {
                 result[key] = try ["value": value].path("value").path
             } else {

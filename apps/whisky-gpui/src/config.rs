@@ -133,6 +133,7 @@ fn decode_field(raw: &Value, platform: &str) -> Result<Option<ConfigField>, Stri
                 | "gdiUpscaler"
                 | "frameGeneration"
                 | "hostMemoryImport"
+                | "shadowImportedHostMemory"
                 | "metal4Enabled"
                 | "metalHud"
                 | "metalTrace"
@@ -390,7 +391,7 @@ pub(crate) fn section_for(field_id: &str) -> &'static SectionSpec {
         | "gpuSpoofing" | "gpuVendor" | "autoEnableDXVK" => "launcher",
         "controllerCompatibilityMode" | "disableHIDAPI" | "allowBackgroundEvents"
         | "disableControllerMapping" | "useButtonLabels" | "commandActsAsControl" => "input",
-        "graphicsBackend" | "metalFX" | "metalFXSpatial" | "gdiUpscaler" | "frameGeneration" | "hostMemoryImport" | "metal4Enabled" | "metalHud"
+        "graphicsBackend" | "metalFX" | "metalFXSpatial" | "gdiUpscaler" | "frameGeneration" | "hostMemoryImport" | "shadowImportedHostMemory" | "metal4Enabled" | "metalHud"
         | "metalTrace" | "dxrEnabled" | "metalValidation" | "dxvkAsync" | "dxvkHud" => "graphics",
         "audioDriver" | "audioLatencyPreset" | "outputDeviceMode" | "pinnedDeviceName" => "audio",
         "discordPresence" | "discordBridge" => "discord",
@@ -462,6 +463,23 @@ mod tests {
         assert_eq!(section_for(&mac[0].id).id, "graphics");
         assert_eq!(mac[0].kind.options().len(), 5);
         assert_eq!(mac[0].kind.options()[4].id, "adaptive");
+        assert!(decode_schema(&schema, "linux").unwrap().is_empty());
+        let mut legacy = schema;
+        legacy[0]["platforms"] = json!([]);
+        assert!(decode_schema(&legacy, "linux").unwrap().is_empty());
+    }
+
+    #[test]
+    fn shadow_import_toggle_is_grouped_and_macos_only() {
+        let schema = json!([{
+            "id": "shadowImportedHostMemory", "title": "32 位 Vulkan 内存导入兼容",
+            "input": "toggle", "default": false, "platforms": ["macos"]
+        }]);
+        let mac = decode_schema(&schema, "macos").unwrap();
+        assert_eq!(mac.len(), 1);
+        assert_eq!(mac[0].kind, FieldKind::Toggle);
+        assert_eq!(mac[0].default, json!(false));
+        assert_eq!(section_for(&mac[0].id).id, "graphics");
         assert!(decode_schema(&schema, "linux").unwrap().is_empty());
         let mut legacy = schema;
         legacy[0]["platforms"] = json!([]);

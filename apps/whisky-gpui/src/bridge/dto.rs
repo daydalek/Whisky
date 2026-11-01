@@ -209,6 +209,9 @@ pub(crate) struct PreferencesSchemaDto {
     pub(crate) booleans: BTreeMap<String, bool>,
     #[serde(default)]
     pub(crate) strings: BTreeMap<String, String>,
+    /// Numeric preferences, such as the chosen cover width.
+    #[serde(default)]
+    pub(crate) numbers: BTreeMap<String, f64>,
     #[serde(default)]
     pub(crate) paths: Vec<String>,
 }
@@ -219,6 +222,7 @@ impl PreferencesSchemaDto {
         self.booleans
             .keys()
             .chain(self.strings.keys())
+            .chain(self.numbers.keys())
             .chain(self.paths.iter())
             .map(String::as_str)
     }

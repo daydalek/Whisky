@@ -55,6 +55,19 @@ chmod +x "${CONTENTS}/MacOS/whisky-gpui" "${CONTENTS}/Resources/whisky-bridge" \
 cp -R "${REPO_ROOT}/WhiskyBridge/.build/release/WhiskyCore_WhiskyCore.bundle" \
     "${CONTENTS}/Resources/WhiskyCore_WhiskyCore.bundle"
 
+# Cover upscaling: a small Core ML helper plus the fixed-size tile model it
+# loads. Both live beside the bridge so the app can find them relative to its
+# own executable. The .mlpackage is the source; coremlcompiler turns it into the
+# .mlmodelc Core ML actually opens.
+UPSCALE_SRC="${REPO_ROOT}/apps/whisky-gpui/tools/realcugan-helper"
+if [[ -d "${UPSCALE_SRC}" ]]; then
+    xcrun swiftc -O "${UPSCALE_SRC}/main.swift" -o "${CONTENTS}/Resources/realcugan-helper"
+    mkdir -p "${CONTENTS}/Resources/coreml"
+    xcrun coremlcompiler compile "${UPSCALE_SRC}/realcugan-384x384.mlpackage" \
+        "${CONTENTS}/Resources/coreml" > /dev/null
+    chmod +x "${CONTENTS}/Resources/realcugan-helper"
+fi
+
 if [[ -d "${REPO_ROOT}/ThirdParty" ]]; then
     mkdir -p "${CONTENTS}/Resources/ThirdParty"
     cp -R "${REPO_ROOT}/ThirdParty/"* "${CONTENTS}/Resources/ThirdParty/"

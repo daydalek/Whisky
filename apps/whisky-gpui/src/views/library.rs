@@ -13,7 +13,9 @@ use gpui_kit::{prelude::*, *};
 
 use crate::bridge::BridgeStatus;
 use crate::controls::*;
-use crate::library_layout::{CardRect, LibraryLayout};
+use crate::library_layout::{
+    CardRect, LibraryLayout, MAX_COVER_WIDTH, MIN_COVER_WIDTH,
+};
 use crate::model::{ambient, art};
 use crate::runtime::{RuntimeAction, RuntimeState};
 use crate::state::{DEMO_NOTICE, PreviewPage, WhiskyApp};
@@ -22,6 +24,22 @@ use crate::theme::*;
 const CHARACTER_CARD_WIDTH: f32 = 164.;
 const CHARACTER_CARD_PADDING: f32 = 10.;
 const CHARACTER_PORTRAIT_HEIGHT: f32 = 144.;
+
+/// Cover size track and thumb, in points.
+const COVER_SLIDER_WIDTH: f32 = 118.;
+const COVER_SLIDER_THUMB: f32 = 12.;
+
+/// Pointer x on the cover size track, snapped to whole steps of two points so
+/// a cover never lands on a half pixel. `bounds` is `[origin x, width]`.
+fn cover_slider_value(x: f32, bounds: [f32; 2]) -> f32 {
+    let fraction = if bounds[1] > 0. {
+        ((x - bounds[0]) / bounds[1]).clamp(0., 1.)
+    } else {
+        0.
+    };
+    let raw = MIN_COVER_WIDTH + fraction * (MAX_COVER_WIDTH - MIN_COVER_WIDTH);
+    (raw / 2.).round() * 2.
+}
 
 /// Cover only when at least 80% of the artwork remains visible. Both the card
 /// and portrait have a one-pixel border, which is excluded from the viewport.
@@ -467,6 +485,12 @@ impl WhiskyApp {
                 },
             )
             .when(
+                // Only the shelf has a cover size; the timeline and the classic
+                // list draw fixed rows.
+                self.preview.page == PreviewPage::Library && !self.settings && self.mode == 0,
+                |d| d.child(self.cover_size_control(cx)),
+            )
+            .when(
                 self.preview.page == PreviewPage::Library && !self.settings,
                 |d| {
                     let hidden = self.hidden_count();
@@ -494,6 +518,115 @@ impl WhiskyApp {
                     .flex_shrink_0()
                     .child(gpui_kit::component::input::Input::new(&self.search)),
             )
+    }
+
+    /// Continuous cover size for the shelf. The thumb sits where the covers
+    /// actually are, so an automatic shelf shows its own size rather than a
+    /// number nobody picked; dragging or double-clicking leaves that mode.
+    fn cover_size_control(&self, cx: &mut Context<Self>) -> AnyElement {
+        let automatic = self.cover_width <= f32::EPSILON;
+        let current = if automatic {
+            self.cover_unit.get()
+        } else {
+            self.cover_width
+        };
+        let span = MAX_COVER_WIDTH - MIN_COVER_WIDTH;
+        let fraction = ((current - MIN_COVER_WIDTH) / span).clamp(0., 1.);
+        let thumb = fraction * COVER_SLIDER_WIDTH - COVER_SLIDER_THUMB / 2.;
+        let label: SharedString = if automatic {
+            "自动".into()
+        } else {
+            format!("{current:.0}").into()
+        };
+        // Hit testing needs the track's window position; prepaint is the only
+        // place GPUI hands it out.
+        let bounds = std::rc::Rc::new(std::cell::Cell::new([0f32; 2]));
+        let measured = bounds.clone();
+        let down = bounds.clone();
+        let moved = bounds.clone();
+        row()
+            .gap(px(8.))
+            .flex_shrink_0()
+            .child(
+                div()
+                    .id("cover-size-track")
+                    .relative()
+                    .w(px(COVER_SLIDER_WIDTH))
+                    .h(px(COVER_SLIDER_THUMB + 6.))
+                    .cursor_pointer()
+                    .child(
+                        canvas(
+                            move |bounds, _, _| {
+                                measured.set([
+                                    f32::from(bounds.origin.x),
+                                    f32::from(bounds.size.width),
+                                ]);
+                            },
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .size_full(),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(0.))
+                            .top(px(COVER_SLIDER_THUMB / 2. + 0.5))
+                            .h(px(5.))
+                            .w_full()
+                            .rounded_full()
+                            .bg(rgba(round_btn_bg())),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(0.))
+                            .top(px(COVER_SLIDER_THUMB / 2. + 0.5))
+                            .h(px(5.))
+                            .w(px(COVER_SLIDER_WIDTH * fraction))
+                            .rounded_full()
+                            .bg(rgb(ACCENT)),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(thumb.clamp(
+                                0.,
+                                COVER_SLIDER_WIDTH - COVER_SLIDER_THUMB,
+                            )))
+                            .top(px(3.))
+                            .size(px(COVER_SLIDER_THUMB))
+                            .rounded_full()
+                            .bg(rgb(0xffffff))
+                            .border_1()
+                            .border_color(rgba(round_btn_border())),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            if event.click_count >= 2 {
+                                this.reset_cover_width(cx);
+                                return;
+                            }
+                            this.set_cover_width(
+                                cover_slider_value(f32::from(event.position.x), down.get()),
+                                cx,
+                            );
+                        }),
+                    )
+                    .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, _, cx| {
+                        if !event.dragging() {
+                            return;
+                        }
+                        this.set_cover_width(
+                            cover_slider_value(f32::from(event.position.x), moved.get()),
+                            cx,
+                        );
+                    })),
+            )
+            .child(muted(label).w(px(34.)).text_size(px(11.)))
+            .into_any_element()
     }
     pub(crate) fn backdrop(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         // Per-image channels preserve continuous blending even during rapid A → B → C hovers.
@@ -544,7 +677,9 @@ impl WhiskyApp {
         // Frame stays fixed; only artwork expands, avoiding shelf reflow.
         let iw = width * (1. + amount * 0.025);
         let ih = height * (1. + amount * 0.025);
-        let artwork = self.artwork(index);
+        let artwork = self
+            .artwork(index)
+            .map(|path| self.cover_file(path, cx));
         let title = self
             .game(index)
             .map(|game| game.title.clone())
@@ -754,9 +889,11 @@ impl WhiskyApp {
     }
     pub(crate) fn shelf(&self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let indices = self.ordered(cx);
-        let layout = LibraryLayout::shelf(&indices, width, |i| {
+        let layout = LibraryLayout::shelf_with_width(&indices, width, self.cover_width, |i| {
             self.mixed && self.game(i).is_some_and(|game| game.landscape)
         });
+        // The control reads this to show the size an automatic shelf picked.
+        self.cover_unit.set(layout.cover_width);
         let mut content = div()
             .relative()
             .w_full()
@@ -1202,7 +1339,10 @@ impl WhiskyApp {
             return div().into_any_element();
         };
         let backdrop = self.ambient_art(index);
-        let artwork = self.artwork(index);
+        // The hero cover is a fixed 190 points wide.
+        let artwork = self
+            .artwork(index)
+            .map(|path| self.cover_file(path, cx));
         let mut badges = row().gap(px(8.)).mt(px(8.));
         if self.demo {
             badges = badges

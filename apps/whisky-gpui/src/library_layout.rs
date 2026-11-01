@@ -19,13 +19,53 @@ pub struct CardRect {
 pub struct LibraryLayout {
     pub cards: Vec<(usize, CardRect)>,
     pub height: f32,
+    /// The cover width the layout actually drew, which is the chosen width when
+    /// there is one and the filled column width otherwise. The size control
+    /// parks its thumb here so an automatic layout still reads truthfully.
+    pub cover_width: f32,
+}
+
+/// Narrowest and widest cover the size control can ask for.
+pub const MIN_COVER_WIDTH: f32 = 110.;
+pub const MAX_COVER_WIDTH: f32 = 320.;
+/// The width the column count has always been derived from.
+pub const DEFAULT_COVER_WIDTH: f32 = 140.;
+/// No chosen width: covers divide the row between them.
+pub const AUTOMATIC_COVER_WIDTH: f32 = 0.;
+
+/// `None` means the row is filled, `Some` is a width held for every cover.
+///
+/// A chosen width cannot also keep the row flush: with a fixed window width the
+/// filled size only depends on how many columns fit, so it changes in steps of
+/// tens of points. Holding the width is what makes the control continuous, and
+/// the slack it leaves becomes a symmetric inset instead of a wider cover.
+pub fn chosen_cover_width(value: f32) -> Option<f32> {
+    if value.is_finite() && value > 0. {
+        Some(value.clamp(MIN_COVER_WIDTH, MAX_COVER_WIDTH))
+    } else {
+        None
+    }
 }
 
 impl LibraryLayout {
-    pub fn shelf(indices: &[usize], width: f32, landscape: impl Fn(usize) -> bool) -> Self {
+    /// `cover_width` is the size control's value; [`AUTOMATIC_COVER_WIDTH`]
+    /// keeps every row flush, which is how the shelf drew before the control
+    /// existed.
+    pub fn shelf_with_width(
+        indices: &[usize],
+        width: f32,
+        cover_width: f32,
+        landscape: impl Fn(usize) -> bool,
+    ) -> Self {
         let available = (width - 36.).max(1.);
-        let columns = ((available + 12.) / 152.).floor().max(1.) as usize;
-        let unit = (available - (columns - 1) as f32 * 12.) / columns as f32;
+        let chosen = chosen_cover_width(cover_width);
+        let basis = chosen.unwrap_or(DEFAULT_COVER_WIDTH);
+        let columns = ((available + 12.) / (basis + 12.)).floor().max(1.) as usize;
+        let filled = (available - (columns - 1) as f32 * 12.) / columns as f32;
+        // The filled width is never narrower than the chosen one: the column
+        // count is derived from it. `min` only guards rounding at the boundary.
+        let unit = chosen.map_or(filled, |chosen| filled.min(chosen));
+        let inset = ((available - columns as f32 * unit - (columns - 1) as f32 * 12.) / 2.).max(0.);
         let card_height = unit * 1.5;
         let spans: Vec<u32> = indices
             .iter()
@@ -40,7 +80,7 @@ impl LibraryLayout {
                 cards.push((
                     indices[index],
                     CardRect {
-                        x: 18. + column as f32 * (unit + 12.),
+                        x: 18. + inset + column as f32 * (unit + 12.),
                         y: 18. + row_index as f32 * (card_height + 12.),
                         width: unit * span as f32 + 12. * (span - 1) as f32,
                         height: card_height,
@@ -53,6 +93,7 @@ impl LibraryLayout {
             cards,
             height: 36. + rows.len() as f32 * (card_height + 12.)
                 - if rows.is_empty() { 0. } else { 12. },
+            cover_width: unit,
         }
     }
 
@@ -94,6 +135,7 @@ impl LibraryLayout {
                 })
                 .collect(),
             height: padding * 2. + rows as f32 * (height + gap) - if rows > 0 { gap } else { 0. },
+            cover_width: card_width,
         }
     }
 }
@@ -320,12 +362,12 @@ mod tests {
             for count in [0, 1, 2, 9, 35, 100] {
                 let indices: Vec<_> = (0..count).collect();
                 check(
-                    &LibraryLayout::shelf(&indices, width, |i| i % 3 == 0),
+                    &shelf(&indices, width, |i| i % 3 == 0),
                     &indices,
                     width,
                 );
                 check(
-                    &LibraryLayout::shelf(&indices, width, |_| true),
+                    &shelf(&indices, width, |_| true),
                     &indices,
                     width,
                 );
@@ -337,7 +379,7 @@ mod tests {
 
     #[test]
     fn mixed_shelf_preserves_baseline_packing_and_padding() {
-        let layout = LibraryLayout::shelf(&[0, 1, 2, 3, 4], 480., |i| i == 1 || i == 2);
+        let layout = shelf(&[0, 1, 2, 3, 4], 480., |i| i == 1 || i == 2);
         // Three columns: portrait + landscape, landscape + portrait, portrait.
         assert_eq!(
             layout.cards.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
@@ -348,6 +390,56 @@ mod tests {
         assert_eq!((a.x, a.y), (18., 18.));
         assert!((b.width - (a.width * 2. + 12.)).abs() < 0.01);
         assert!((layout.height - (36. + 3. * a.height + 24.)).abs() < 0.01);
+    }
+
+    #[test]
+    fn chosen_cover_width_holds_its_size_and_centres_the_row() {
+        let layout = LibraryLayout::shelf_with_width(&[0, 1, 2, 3, 4], 1000., 180., |_| false);
+        assert_eq!(layout.cover_width, 180.);
+        assert_eq!(layout.cards.len(), 5);
+        // 964 usable, five 180 covers and four 12 gaps leave 8 on each side.
+        assert!((layout.cards[0].1.x - 26.).abs() < 0.01);
+        assert!((layout.cards[0].1.height - 270.).abs() < 0.01);
+        assert!(
+            (layout.cards[4].1.x + layout.cards[4].1.width - (18. + 964. - 8.)).abs() < 0.01
+        );
+    }
+
+    #[test]
+    fn chosen_cover_width_moves_one_point_at_a_time() {
+        // The filled geometry can only step between column counts; holding the
+        // width is what lets the control change the covers continuously.
+        for width in [700., 1000., 1600.] {
+            let mut previous = 0.;
+            for step in 0 ..= 105 {
+                let chosen = 110. + step as f32 * 2.;
+                let layout =
+                    LibraryLayout::shelf_with_width(&[0, 1, 2, 3], width, chosen, |_| false);
+                assert!((layout.cover_width - chosen).abs() < 0.01);
+                assert!(layout.cover_width >= previous);
+                for (_, card) in &layout.cards {
+                    assert!(card.x + card.width <= width - 18. + 0.01);
+                }
+                previous = layout.cover_width;
+            }
+        }
+    }
+
+    #[test]
+    fn automatic_width_still_fills_the_row() {
+        let layout = shelf(&[0, 1, 2], 480., |_| false);
+        assert!((layout.cover_width - (480. - 36. - 24.) / 3.).abs() < 0.01);
+        assert!((layout.cards[0].1.x - 18.).abs() < 0.01);
+        assert!((layout.cards[2].1.x + layout.cards[2].1.width - (480. - 18.)).abs() < 0.01);
+    }
+
+    #[test]
+    fn chosen_cover_width_is_clamped_to_the_supported_range() {
+        assert_eq!(chosen_cover_width(40.), Some(MIN_COVER_WIDTH));
+        assert_eq!(chosen_cover_width(9_000.), Some(MAX_COVER_WIDTH));
+        assert_eq!(chosen_cover_width(AUTOMATIC_COVER_WIDTH), None);
+        assert_eq!(chosen_cover_width(-5.), None);
+        assert_eq!(chosen_cover_width(f32::NAN), None);
     }
 
     #[test]
@@ -362,7 +454,7 @@ mod tests {
             [9, 7]
         );
 
-        let shelf_filtered = LibraryLayout::shelf(&[9, 7], 1080., |_| false);
+        let shelf_filtered = shelf(&[9, 7], 1080., |_| false);
         assert_eq!(
             shelf_filtered.cards.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
             [9, 7]
@@ -489,10 +581,15 @@ mod tests {
         }
     }
 
+    /// The automatic shelf, as every call site outside the size control gets it.
+    fn shelf(indices: &[usize], width: f32, landscape: impl Fn(usize) -> bool) -> LibraryLayout {
+        LibraryLayout::shelf_with_width(indices, width, AUTOMATIC_COVER_WIDTH, landscape)
+    }
+
     #[test]
     fn wide_shelf_covers_include_the_gutter_and_share_height() {
         // 464 of usable width → three columns, matching WhiskyCore at width 464.
-        let layout = LibraryLayout::shelf(&[0, 1, 2], 500., |index| index == 0 || index == 2);
+        let layout = shelf(&[0, 1, 2], 500., |index| index == 0 || index == 2);
         let (_, portrait) = layout.cards[1];
         let (_, landscape) = layout.cards[0];
         let (_, second_row) = layout.cards[2];

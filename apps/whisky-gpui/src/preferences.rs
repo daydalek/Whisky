@@ -13,6 +13,10 @@
 //! - `librarySingleLineTitles` — `LibraryView.swift:60` (default `false`)
 //! - `libraryMixedCoverLayout` — `LibraryView.swift:61` (default `true`)
 //! - `libraryRefreshAfterExit` — `LibraryView.swift:67` (default `true`)
+//!
+//! `libraryCoverWidth` has no SwiftUI declaration: the cover size control is
+//! GPUI-only, and the bridge stores it as a number so both backends round-trip
+//! it unchanged.
 
 /// The three presentations, in `LibraryDisplayMode` declaration order.
 pub(crate) const MODE_VALUES: [&str; 3] = ["covers", "timeline", "classic"];
@@ -34,6 +38,11 @@ pub(crate) const SHOW_HIDDEN: &str = "libraryShowHiddenGames";
 pub(crate) const SORT: &str = "librarySort";
 pub(crate) const SINGLE_LINE_TITLES: &str = "librarySingleLineTitles";
 pub(crate) const MIXED_COVER_LAYOUT: &str = "libraryMixedCoverLayout";
+pub(crate) const COVER_WIDTH: &str = "libraryCoverWidth";
+/// Cover upscaling factor: `off`, `x2` or `x4` (see `upscale::Factor`).
+pub(crate) const COVER_UPSCALE: &str = "libraryCoverUpscale";
+/// Cover upscaling engine: `anime4k` or `realcugan` (see `upscale::Engine`).
+pub(crate) const COVER_UPSCALE_ENGINE: &str = "libraryCoverUpscaleEngine";
 pub(crate) const REFRESH_AFTER_EXIT: &str = "libraryRefreshAfterExit";
 pub(crate) const DETAIL_BLURRED_BACKGROUND: &str = "libraryDetailBlurredBackground";
 pub(crate) const CENTER_WIDE_COVER_TEXT: &str = "libraryCenterWideCoverText";
@@ -58,6 +67,14 @@ pub(crate) const DEFAULT_SORT: &str = "recent";
 pub(crate) const DEFAULT_SHOW_HIDDEN: bool = false;
 pub(crate) const DEFAULT_SINGLE_LINE_TITLES: bool = false;
 pub(crate) const DEFAULT_MIXED_COVER_LAYOUT: bool = true;
+/// Zero is the automatic shelf: covers divide the row, as before the control.
+pub(crate) const DEFAULT_COVER_WIDTH: f32 = crate::library_layout::AUTOMATIC_COVER_WIDTH;
+/// Covers are upscaled only when asked for: the pass costs a GPU burst and a
+/// cached PNG per cover.
+pub(crate) const DEFAULT_COVER_UPSCALE: &str = "off";
+/// Real-CUGAN has the better line work for cover art; the app falls back to
+/// Anime4K when the helper or its model is not in the bundle.
+pub(crate) const DEFAULT_COVER_UPSCALE_ENGINE: &str = "realcugan";
 pub(crate) const DEFAULT_REFRESH_AFTER_EXIT: bool = true;
 pub(crate) const DEFAULT_DETAIL_BLURRED_BACKGROUND: bool = true;
 pub(crate) const DEFAULT_CENTER_WIDE_COVER_TEXT: bool = false;

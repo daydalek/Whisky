@@ -35,6 +35,8 @@ pub(crate) enum Command {
     /// Name the executable a folder entry starts, without running it.
     Executable(usize),
     Toggle(&'static str),
+    /// Set the shelf's cover width; zero restores the automatic shelf.
+    CoverSize(f32),
     Choose(&'static str, &'static str),
     Sort(usize),
     Notice,
@@ -182,6 +184,13 @@ impl WhiskyApp {
                     self.menu_item("单行显示标题", Command::Toggle("single-title"), cx)
                         .checked(self.flag("single-title")),
                 );
+                if self.cover_width > f32::EPSILON {
+                    items.push(self.menu_item(
+                        "封面大小：恢复自动（双击滑块同效）",
+                        Command::CoverSize(crate::library_layout::AUTOMATIC_COVER_WIDTH),
+                        cx,
+                    ));
+                }
             }
             items.push(MenuEntry::separator(cx.entity().downgrade()));
             items.push(self.menu_item("扫描并同步游戏信息", Command::SyncMetadata, cx));

@@ -171,7 +171,7 @@ public struct BottleGraphicsConfig: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case backend, metalFX, metalFXSpatial, gdiUpscaler, frameGeneration, hostMemoryImport
+        case backend, metalFX, metalFXSpatial, gdiUpscaler, frameGeneration, hostMemoryImport, shadowImportedHostMemory
     }
 
     /// Whether games in this bottle may turn on DLSS frame generation.
@@ -191,11 +191,12 @@ public struct BottleGraphicsConfig: Codable, Equatable {
     /// instant, so this is not something a bottle can be trusted to contain.
     var frameGeneration: Bool = false
 
-    /// Whether 32-bit Vulkan applications and DXVK may import host memory (`VK_EXT_external_memory_host`).
-    ///
-    /// Enabled by default. Disabling this avoids device lost crashes on Apple Silicon
-    /// in certain 32-bit engines (such as Unity 32-bit titles like Aokana).
+    /// Legacy setting for runtimes carrying Whisky's external-memory extension toggle.
+    /// Retained for metadata compatibility; current shadow-import builds use the setting below.
     var hostMemoryImport: Bool = true
+
+    /// Opt-in shadow buffers for imported Vulkan host memory. Requires a supporting MoltenVK.
+    var shadowImportedHostMemory: Bool = false
 
     /// Creates a new graphics config with the default `.recommended` backend.
     public init() {}
@@ -215,6 +216,7 @@ public struct BottleGraphicsConfig: Codable, Equatable {
         // Off for a bottle written before the key existed, which is the same
         // answer the property default gives a new one.
         self.frameGeneration = (try? container.decodeIfPresent(Bool.self, forKey: .frameGeneration)) ?? false
+        self.shadowImportedHostMemory = (try? container.decodeIfPresent(Bool.self, forKey: .shadowImportedHostMemory)) ?? false
         self.hostMemoryImport = (try? container.decodeIfPresent(Bool.self, forKey: .hostMemoryImport)) ?? true
     }
 
@@ -226,6 +228,7 @@ public struct BottleGraphicsConfig: Codable, Equatable {
         try container.encode(metalFXSpatial, forKey: .metalFXSpatial)
         try container.encode(frameGeneration, forKey: .frameGeneration)
         try container.encode(hostMemoryImport, forKey: .hostMemoryImport)
+        try container.encode(shadowImportedHostMemory, forKey: .shadowImportedHostMemory)
     }
 }
 

@@ -7,10 +7,16 @@ publish = false
 [dependencies]
 gpui-kit = "=0.8.0"
 chrono = "=0.4.45"
+image = "=0.25.10"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
 smol = "=2.0.2"
 whisky-bridge = { path = "../../crates/whisky-bridge" }
+
+# Cover upscaling runs Anime4K on Metal compute; the other platforms keep the
+# option visible but inert.
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = "=0.33.0"
 
 [features]
 visual-test = ["gpui-kit/test-support"]

@@ -125,7 +125,14 @@ struct GraphicsConfigSection: View {
                 .disabled(!bottle.settings.metalFX)
             }
 
-            Toggle("32-bit Vulkan host memory import (restart to apply)", isOn: $bottle.settings.hostMemoryImport)
+            Toggle(isOn: $bottle.settings.shadowImportedHostMemory) {
+                VStack(alignment: .leading) {
+                    Text("32 位 Vulkan 内存导入兼容")
+                    Text("适用于导入内存时黑屏或设备丢失的游戏；额外复制缓冲区会增加开销。重启 Steam 和游戏生效。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             // The Sequoia compatibility toggle is gone: everything it set is a
             // platform-layer fix applied on every supported macOS, so the

@@ -420,6 +420,12 @@ public struct BottleSettings: Codable, Equatable {
         set { graphicsConfig.hostMemoryImport = newValue }
     }
 
+    /// Use shadow Metal buffers for imported Vulkan host memory. Restart the launcher and game to apply.
+    public var shadowImportedHostMemory: Bool {
+        get { graphicsConfig.shadowImportedHostMemory }
+        set { graphicsConfig.shadowImportedHostMemory = newValue }
+    }
+
     /// Whether DXVK is the active graphics backend.
     ///
     /// This property now derives from ``graphicsBackend``. Setting it to `true`
@@ -970,6 +976,11 @@ public struct BottleSettings: Codable, Equatable {
             builder.set("WINED3DMETAL", "0", layer: .bottleManaged)
         }
 
+        if shadowImportedHostMemory {
+            builder.set("MVK_CONFIG_SHADOW_IMPORTED_HOST_MEMORY", "1", layer: .bottleManaged)
+        }
+
+        // Compatibility with older runtimes carrying the external-memory extension toggle.
         if !hostMemoryImport {
             builder.set("MVK_CONFIG_EXTERNAL_MEMORY_HOST", "0", layer: .bottleManaged)
         }

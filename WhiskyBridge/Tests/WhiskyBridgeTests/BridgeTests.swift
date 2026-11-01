@@ -321,6 +321,8 @@ private struct Fixture {
     let schema = try service.call("preferences.schema", params: [:])
     let booleans = try #require(schema.object?["booleans"]?.object)
     let strings = try #require(schema.object?["strings"]?.object)
+    let numbers = try #require(schema.object?["numbers"]?.object)
+    #expect(numbers["libraryCoverWidth"] == .number(0))
     for key in [
         "offlineMode", "killOnTerminate", "showMenuBarExtra", "checkWhiskyWineUpdates",
         "libraryRefreshAfterExit", "libraryDetailBlurredBackground", "librarySingleLineTitles",
@@ -349,6 +351,16 @@ private struct Fixture {
     #expect(throws: BridgeFailure.self) { try service.call(
         "preferences.set",
         params: ["key": .string("telemetryConsent"), "value": .bool(true)]
+    ) }
+    // The cover size control writes whole points, so an integer round-trips and
+    // a string is refused rather than silently coerced.
+    _ = try service.call("preferences.set", params: [
+        "key": .string("libraryCoverWidth"), "value": .integer(180)
+    ])
+    #expect(try service.call("preferences.read", params: [:]).object?["libraryCoverWidth"] == .number(180))
+    #expect(throws: BridgeFailure.self) { try service.call(
+        "preferences.set",
+        params: ["key": .string("libraryCoverWidth"), "value": .string("180")]
     ) }
 }
 

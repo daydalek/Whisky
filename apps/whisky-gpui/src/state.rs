@@ -582,6 +582,24 @@ pub(crate) struct WhiskyApp {
     #[cfg(feature = "visual-test")]
     pub(crate) motion_samples: std::cell::RefCell<std::collections::BTreeMap<usize, CardRect>>,
     pub(crate) mixed: bool,
+    /// Chosen cover width in points; zero divides the row between the covers.
+    pub(crate) cover_width: f32,
+    /// The width the shelf drew last, so the control can show an automatic
+    /// size instead of parking its thumb on a number nobody chose.
+    pub(crate) cover_unit: std::cell::Cell<f32>,
+    /// How hard the cover size option works; `Off` draws the file as it arrived.
+    pub(crate) cover_upscale: crate::upscale::Factor,
+    /// Which network enlarges the covers.
+    pub(crate) cover_engine: crate::upscale::Engine,
+    /// Derivatives already prepared, keyed by cover path, passes and engine.
+    cover_derivatives: RefCell<
+        HashMap<(std::path::PathBuf, u8, crate::upscale::Engine), Option<std::path::PathBuf>>,
+    >,
+    /// Jobs in flight, so a redraw does not queue the same work twice.
+    cover_jobs: RefCell<std::collections::HashSet<(std::path::PathBuf, u8, crate::upscale::Engine)>>,
+    /// Whole-library cover derivation while one is running.
+    pub(crate) cover_batch: Option<CoverBatch>,
+    cover_batch_generation: u64,
     pub(crate) hovered: Option<usize>,
     pub(crate) ambient_index: usize,
     pub(crate) detail: Option<usize>,
@@ -605,6 +623,15 @@ pub(crate) struct WhiskyApp {
     pub(crate) focus_handle: FocusHandle,
     pub(crate) _subscriptions: Vec<Subscription>,
 }
+
+/// Progress of a whole-library cover derivation.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CoverBatch {
+    pub(crate) done: usize,
+    pub(crate) total: usize,
+    generation: u64,
+}
+
 impl WhiskyApp {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle();
@@ -748,6 +775,14 @@ impl WhiskyApp {
             #[cfg(feature = "visual-test")]
             motion_samples: Default::default(),
             mixed: preferences::DEFAULT_MIXED_COVER_LAYOUT,
+            cover_width: preferences::DEFAULT_COVER_WIDTH,
+            cover_unit: std::cell::Cell::new(crate::library_layout::DEFAULT_COVER_WIDTH),
+            cover_upscale: crate::upscale::Factor::from_raw(preferences::DEFAULT_COVER_UPSCALE),
+            cover_engine: crate::upscale::Engine::from_raw(preferences::DEFAULT_COVER_UPSCALE_ENGINE),
+            cover_derivatives: RefCell::new(HashMap::new()),
+            cover_jobs: RefCell::new(std::collections::HashSet::new()),
+            cover_batch: None,
+            cover_batch_generation: 0,
             hovered: None,
             ambient_index: 0,
             detail: None,
@@ -2830,6 +2865,7 @@ impl WhiskyApp {
                 self.navigate(PreviewPage::ConfigureBottle, cx);
             }
             Command::Toggle(key) => self.toggle_option(key, cx),
+            Command::CoverSize(width) => self.set_cover_width(width, cx),
             Command::Choose(key, value) => self.choose(key, value, cx),
             Command::Sort(i) => self.set_sort(i, cx),
             Command::Hide(i) => {
@@ -3234,10 +3270,194 @@ impl WhiskyApp {
             }
             "terminal" => self.persist(preferences::PREFERRED_TERMINAL, json!(value), cx),
             "cover-fill" => self.persist(preferences::COVER_FILL_STYLE, json!(value), cx),
+            "cover-upscale" => {
+                self.cover_upscale = crate::upscale::Factor::from_raw(value);
+                // The pass count is part of the cache key, so every prepared
+                // derivative has to be looked up again under the new factor.
+                self.cover_derivatives.borrow_mut().clear();
+                self.cover_jobs.borrow_mut().clear();
+                self.persist(preferences::COVER_UPSCALE, json!(value), cx);
+            }
+            "cover-engine" => {
+                self.cover_engine = crate::upscale::Engine::from_raw(value);
+                self.cover_derivatives.borrow_mut().clear();
+                self.cover_jobs.borrow_mut().clear();
+                self.persist(preferences::COVER_UPSCALE_ENGINE, json!(value), cx);
+            }
             "detail-layout" => self.persist(preferences::DETAIL_LAYOUT_STYLE, json!(value), cx),
             _ => {}
         }
         cx.notify();
+    }
+
+    /// Live value from the cover size control. `persist` debounces the write,
+    /// so a continuous drag costs one call per quiet period, not one per frame.
+    pub(crate) fn set_cover_width(&mut self, value: f32, cx: &mut Context<Self>) {
+        let chosen = crate::library_layout::chosen_cover_width(value)
+            .unwrap_or(crate::library_layout::AUTOMATIC_COVER_WIDTH);
+        if (self.cover_width - chosen).abs() < 0.01 {
+            return;
+        }
+        self.cover_width = chosen;
+        // Whole points, so the helper's decoder keeps it an integer and the
+        // stored value does not depend on float formatting.
+        self.persist(preferences::COVER_WIDTH, json!(chosen.round() as i64), cx);
+        cx.notify();
+    }
+
+    /// Back to the filled shelf the control otherwise overrides.
+    pub(crate) fn reset_cover_width(&mut self, cx: &mut Context<Self>) {
+        self.set_cover_width(crate::library_layout::AUTOMATIC_COVER_WIDTH, cx);
+    }
+
+    /// The file the shelf should draw for a cover: a prepared derivative once
+    /// one is ready, otherwise the original while a worker gets to it. Never
+    /// blocks the frame, and never depends on how large the card is — the factor
+    /// alone decides the passes, so resizing the shelf reuses the same file.
+    pub(crate) fn cover_file(
+        &self,
+        source: std::path::PathBuf,
+        cx: &mut Context<Self>,
+    ) -> std::path::PathBuf {
+        if self.cover_upscale == crate::upscale::Factor::Off || !source.is_absolute() {
+            return source;
+        }
+        let passes = self.cover_upscale.passes();
+        let engine = self.cover_engine;
+        let ready = {
+            self.cover_derivatives
+                .borrow()
+                .get(&(source.clone(), passes, engine))
+                .cloned()
+        };
+        if let Some(ready) = ready {
+            return ready.unwrap_or(source);
+        }
+        self.prepare_cover(source.clone(), passes, engine, cx);
+        source
+    }
+
+    /// Derives a cover for every entry in the library at the widest card size,
+    /// so a shelf resized to the maximum never shows a soft cover again.
+    ///
+    /// Running it a second time cancels the pass; whatever finished stays in the
+    /// cache. One cover at a time, because the derivations share the worker lock
+    /// with the on-demand path.
+    pub(crate) fn start_cover_batch(&mut self, cx: &mut Context<Self>) {
+        if self.cover_batch.is_some() {
+            self.cover_batch = None;
+            self.cover_derivatives.borrow_mut().clear();
+            cx.notify();
+            return;
+        }
+        if self.cover_upscale == crate::upscale::Factor::Off {
+            self.show_notice("先在下面把封面超分设为 2× 或 4×", cx);
+            return;
+        }
+        let mut unique = std::collections::BTreeSet::new();
+        for index in 0 .. self.games().len() {
+            if let Some(path) = self.artwork(index) {
+                unique.insert(path);
+            }
+        }
+        if unique.is_empty() {
+            self.show_notice("游戏库里还没有封面", cx);
+            return;
+        }
+        let covers: Vec<_> = unique.into_iter().collect();
+        self.cover_batch_generation = self.cover_batch_generation.wrapping_add(1);
+        let generation = self.cover_batch_generation;
+        self.cover_batch = Some(CoverBatch {
+            done: 0,
+            total: covers.len(),
+            generation,
+        });
+        let factor = self.cover_upscale;
+        let engine = self.cover_engine;
+        let worker = cx.spawn(async move |this, cx| {
+            for (position, cover) in covers.iter().enumerate() {
+                let running = this
+                    .update(cx, |this, _| {
+                        this.cover_batch.map(|batch| batch.generation) == Some(generation)
+                    })
+                    .unwrap_or(false);
+                if !running {
+                    return;
+                }
+                let job = cover.clone();
+                cx.background_spawn(async move {
+                    let passes = factor.passes();
+                    if passes == 0 {
+                        return;
+                    }
+                    if crate::upscale::upscaled_cover(&job, passes, engine).is_none() {
+                        let _ = crate::upscale::upscaled_cover(
+                            &job,
+                            passes,
+                            crate::upscale::Engine::Anime4K,
+                        );
+                    }
+                })
+                .await;
+                this.update(cx, |this, cx| {
+                    if let Some(batch) = this.cover_batch.as_mut() {
+                        batch.done = position + 1;
+                    }
+                    cx.notify();
+                })
+                .ok();
+            }
+            this.update(cx, |this, cx| {
+                let total = this.cover_batch.map_or(0, |batch| batch.total);
+                this.cover_batch = None;
+                // Prepared files are already on disk; looking them up again is
+                // what makes the shelf switch over without a restart.
+                this.cover_derivatives.borrow_mut().clear();
+                this.show_notice(format!("封面超分完成：{total} 张"), cx);
+            })
+            .ok();
+        });
+        worker.detach();
+        cx.notify();
+    }
+
+    /// Derives one cover on a worker thread. A Real-CUGAN failure — no helper,
+    /// no model, a refused tile — falls back to the in-process network under the
+    /// same key, so the shelf still sharpens and the next frame stops retrying.
+    fn prepare_cover(
+        &self,
+        source: std::path::PathBuf,
+        passes: u8,
+        engine: crate::upscale::Engine,
+        cx: &mut Context<Self>,
+    ) {
+        let key = (source.clone(), passes, engine);
+        if !self.cover_jobs.borrow_mut().insert(key.clone()) {
+            return;
+        }
+        let worker = cx.spawn(async move |this, cx| {
+            let job = source.clone();
+            let derived = cx
+                .background_spawn(async move {
+                    crate::upscale::upscaled_cover(&job, passes, engine).or_else(|| {
+                        (engine == crate::upscale::Engine::RealCugan).then(|| {
+                            crate::upscale::upscaled_cover(
+                                &job,
+                                passes,
+                                crate::upscale::Engine::Anime4K,
+                            )
+                        })?
+                    })
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.cover_jobs.borrow_mut().remove(&key);
+                this.cover_derivatives.borrow_mut().insert(key, derived);
+                cx.notify();
+            })
+            .ok();
+        });
+        worker.detach();
     }
 
     pub(crate) fn set_mode(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -3322,6 +3542,31 @@ impl WhiskyApp {
             .and_then(serde_json::Value::as_bool)
         {
             self.mixed = flag;
+        }
+        if let Some(number) = values
+            .get(preferences::COVER_WIDTH)
+            .and_then(serde_json::Value::as_f64)
+        {
+            self.cover_width = crate::library_layout::chosen_cover_width(number as f32)
+                .unwrap_or(crate::library_layout::AUTOMATIC_COVER_WIDTH);
+        }
+        if let Some(raw) = values
+            .get(preferences::COVER_UPSCALE)
+            .and_then(serde_json::Value::as_str)
+        {
+            self.cover_upscale = crate::upscale::Factor::from_raw(raw);
+            self.preview
+                .choices
+                .insert("cover-upscale", self.cover_upscale.raw().into());
+        }
+        if let Some(raw) = values
+            .get(preferences::COVER_UPSCALE_ENGINE)
+            .and_then(serde_json::Value::as_str)
+        {
+            self.cover_engine = crate::upscale::Engine::from_raw(raw);
+            self.preview
+                .choices
+                .insert("cover-engine", self.cover_engine.raw().into());
         }
         for (preference, toggle) in [
             (preferences::SINGLE_LINE_TITLES, "single-title"),

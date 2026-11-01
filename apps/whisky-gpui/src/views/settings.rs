@@ -7,9 +7,22 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Disableable, Sizable};
 use gpui_kit::{prelude::*, *};
 
-use crate::controls::{muted, row};
+use crate::controls::{col, muted, row};
 use crate::preferences;
 use crate::state::WhiskyApp;
+
+/// The upscaler is Metal compute, so the row says so where it cannot run.
+const COVER_UPSCALE_LABEL: &str = if cfg!(target_os = "macos") {
+    "封面超分"
+} else {
+    "封面超分（需要 Metal，当前平台不可用）"
+};
+/// Real-CUGAN runs through Core ML, Anime4K through Metal; both are Apple-only.
+const COVER_ENGINE_LABEL: &str = if cfg!(target_os = "macos") {
+    "超分引擎"
+} else {
+    "超分引擎（当前平台不可用）"
+};
 
 #[cfg(not(target_os = "linux"))]
 const TERMINALS: [(&str, &str); 3] = [
@@ -28,6 +41,42 @@ const TERMINALS: [(&str, &str); 5] = [
 ];
 
 impl WhiskyApp {
+    /// One-click derivation for the whole library, with live progress; the same
+    /// button cancels a pass that is already running.
+    fn cover_batch_row(&self, cx: &Context<Self>) -> AnyElement {
+        let running = self.cover_batch;
+        let (action, detail) = match running {
+            Some(batch) => (
+                format!("取消（{}/{}）", batch.done, batch.total),
+                "正在后台逐张处理，已完成的会保留。".to_owned(),
+            ),
+            None => (
+                "全部超分".to_owned(),
+                "按 320 点卡片所需的像素处理整个游戏库，已缓存的会跳过。".to_owned(),
+            ),
+        };
+        let disabled = running.is_none() && self.cover_upscale == crate::upscale::Factor::Off;
+        row()
+            .py(px(10.))
+            .gap(px(16.))
+            .items_start()
+            .child(
+                col()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(4.))
+                    .child("批量封面超分")
+                    .child(muted(detail).line_height(relative(1.4))),
+            )
+            .child(
+                Button::new("cover-batch")
+                    .label(action)
+                    .disabled(disabled)
+                    .on_click(cx.listener(|this, _, _, cx| this.start_cover_batch(cx))),
+            )
+            .into_any_element()
+    }
+
     fn terminal_preferences(&self, cx: &Context<Self>) -> AnyElement {
         #[cfg(not(target_os = "linux"))]
         {
@@ -274,6 +323,19 @@ impl WhiskyApp {
                             cx,
                         ),
                         self.toggle("single-title", "单行显示标题", "", cx),
+                        self.choice_pairs(
+                            "cover-upscale",
+                            COVER_UPSCALE_LABEL,
+                            &[("关闭", "off"), ("2× 实用", "x2"), ("4× 激进", "x4")],
+                            cx,
+                        ),
+                        self.choice_pairs(
+                            "cover-engine",
+                            COVER_ENGINE_LABEL,
+                            &[("Real-CUGAN（质量优先）", "realcugan"), ("Anime4K（更快）", "anime4k")],
+                            cx,
+                        ),
+                        self.cover_batch_row(cx),
                         self.toggle("scrape-characters", "默认获取人物资料", "从支持的数据源获取人物、声优与头像。", cx),
                         self.toggle(
                             "center-cover-text",

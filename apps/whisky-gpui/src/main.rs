@@ -32,6 +32,7 @@ mod scan;
 mod state;
 mod theme;
 mod ui_state;
+mod upscale;
 mod views;
 mod winetricks;
 mod walkthrough;

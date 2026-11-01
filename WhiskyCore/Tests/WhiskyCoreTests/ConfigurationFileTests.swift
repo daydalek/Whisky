@@ -150,20 +150,21 @@ struct ConfigurationFileTests {
         await #expect(throws: (any Error).self) { try await store.update(field, to: .text("unknown")) }
     }
 
-    @Test func hostMemoryImportIsMacOnlyAndDefaultsOn() async throws {
+    @Test func shadowImportedHostMemoryIsMacOnlyAndDefaultsOff() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("Metadata.plist")
-        try write(["graphicsConfig": ["future": "retained"]], to: file)
-        let field = try #require(ContainerConfiguration.fields(for: .macOS).first { $0.id == "hostMemoryImport" })
+        try write(["graphicsConfig": ["future": "retained", "hostMemoryImport": false]], to: file)
+        let field = try #require(ContainerConfiguration.fields(for: .macOS).first { $0.id == "shadowImportedHostMemory" })
         #expect(!ContainerConfiguration.fields(for: .linux).contains { $0.id == field.id })
-        #expect(field.defaultValue == .boolean(true))
+        #expect(field.defaultValue == .boolean(false))
         let store = ConfigurationFile(url: file, locking: Lock())
-        #expect(try await store.values(for: [field])[field.id] == .boolean(true))
-        try await store.update(field, to: .boolean(false))
         #expect(try await store.values(for: [field])[field.id] == .boolean(false))
+        try await store.update(field, to: .boolean(true))
+        #expect(try await store.values(for: [field])[field.id] == .boolean(true))
         let graphics = try #require(try document(file)["graphicsConfig"] as? [String: Any])
         #expect(graphics["future"] as? String == "retained")
+        #expect(graphics["hostMemoryImport"] as? Bool == false)
     }
 
     @Test func legacyDXVKSelectionCanBeReadAndExplicitlyChanged() async throws {

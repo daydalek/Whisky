@@ -567,6 +567,32 @@ final class EnvironmentVariablesTests: XCTestCase {
 
     // MARK: - hardware scheduling is claimed only where it applies
 
+    func testShadowImportedHostMemoryDefaultsOffAndRoundTrips() throws {
+        var settings = BottleSettings()
+        var env: [String: String] = [:]
+        settings.environmentVariables(wineEnv: &env)
+        XCTAssertFalse(settings.shadowImportedHostMemory)
+        XCTAssertNil(env["MVK_CONFIG_SHADOW_IMPORTED_HOST_MEMORY"])
+
+        // Older metadata adopts the opt-in default.
+        let legacy = try PropertyListEncoder().encode(settings)
+        var document = try XCTUnwrap(PropertyListSerialization.propertyList(from: legacy, format: nil) as? [String: Any])
+        var graphics = try XCTUnwrap(document["graphicsConfig"] as? [String: Any])
+        graphics.removeValue(forKey: "shadowImportedHostMemory")
+        document["graphicsConfig"] = graphics
+        let legacyData = try PropertyListSerialization.data(fromPropertyList: document, format: .binary, options: 0)
+        XCTAssertFalse(try PropertyListDecoder().decode(BottleSettings.self, from: legacyData).shadowImportedHostMemory)
+
+        settings.shadowImportedHostMemory = true
+        let encoded = try PropertyListEncoder().encode(settings)
+        let decoded = try PropertyListDecoder().decode(BottleSettings.self, from: encoded)
+        XCTAssertTrue(decoded.shadowImportedHostMemory)
+        env = [:]
+        decoded.environmentVariables(wineEnv: &env)
+        XCTAssertEqual(env["MVK_CONFIG_SHADOW_IMPORTED_HOST_MEMORY"], "1")
+        XCTAssertNil(env["MVK_CONFIG_EXTERNAL_MEMORY_HOST"])
+    }
+
     func testHostMemoryImportDefaultsOnAndCanBeDisabled() throws {
         var settings = BottleSettings()
         var env: [String: String] = [:]

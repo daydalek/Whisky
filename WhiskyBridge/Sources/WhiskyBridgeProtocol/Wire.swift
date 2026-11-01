@@ -103,6 +103,17 @@ public enum JSONValue: Codable, Equatable, Sendable {
             nil
         }
     }
+
+    /// A number however the encoder chose to spell it: the decoder narrows to
+    /// `.integer` whenever the value has no fraction, so a whole-point cover
+    /// width arrives as an integer rather than a `.number`.
+    public var number: Double? {
+        switch self {
+        case let .number(number): number
+        case let .integer(integer): Double(integer)
+        default: nil
+        }
+    }
 }
 
 public struct BridgeRequest: Codable, Sendable {
