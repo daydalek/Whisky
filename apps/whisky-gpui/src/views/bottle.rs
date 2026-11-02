@@ -336,7 +336,7 @@ impl WhiskyApp {
                             .gap(px(4.))
                             .child(field.title.clone())
                             .when(field.id == "metalFXSpatial", |d| {
-                                d.child(muted("传统 GDI Galgame · Retina 超分；重启游戏后生效。"))
+                                d.child(muted("GDI / WineD3D OpenGL · Retina 超分；重启游戏后生效。"))
                             })
                             .when(!enabled, |d| {
                                 d.child(muted("需要 Wine 主机适配器").line_height(relative(1.4)))
@@ -371,7 +371,7 @@ impl WhiskyApp {
                     .child(
                         col().flex_1().min_w_0().gap(px(4.)).child(field.title.clone())
                             .when(field.id == "gdiUpscaler", |d| {
-                                d.child(muted("传统 GDI Galgame · Retina 超分；重启游戏后生效。"))
+                                d.child(muted("GDI / WineD3D OpenGL · Retina 超分；重启游戏后生效。"))
                                     .when(value.as_str() == Some("adaptive"), |d| {
                                         d.child(muted("局部变化即时显示；静止约 200 毫秒后异步补充细节。"))
                                     })
@@ -631,7 +631,7 @@ impl WhiskyApp {
                         self.toggle("metalfx", "MetalFX 超分辨率", "", cx),
                         self.choice(
                             "gdi-upscaler",
-                            "GDI 超分算法",
+                            "游戏超分算法",
                             &[
                                 "关闭",
                                 "MetalFX Spatial",

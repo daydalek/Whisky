@@ -128,7 +128,7 @@ public enum ContainerConfiguration {
             ),
             toggle("metalFX", "MetalFX 超分辨率", "graphicsConfig.metalFX", true, platforms: [.macOS]),
             ConfigurationField(
-                "gdiUpscaler", "GDI 超分算法", path: "graphicsConfig.gdiUpscaler",
+                "gdiUpscaler", "游戏超分算法", path: "graphicsConfig.gdiUpscaler",
                 input: .choice([
                     .init("off", "关闭"),
                     .init("metalfx", "MetalFX Spatial"),
