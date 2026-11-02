@@ -3350,6 +3350,9 @@ impl WhiskyApp {
     /// cache. One cover at a time, because the derivations share the worker lock
     /// with the on-demand path.
     pub(crate) fn start_cover_batch(&mut self, cx: &mut Context<Self>) {
+        if self.quitting {
+            return;
+        }
         if !crate::upscale::SUPPORTED {
             self.show_notice("当前平台不支持封面超分", cx);
             return;
@@ -3451,7 +3454,7 @@ impl WhiskyApp {
         engine: crate::upscale::Engine,
         cx: &mut Context<Self>,
     ) {
-        if !crate::upscale::SUPPORTED {
+        if self.quitting || !crate::upscale::SUPPORTED {
             return;
         }
         let key = (source.clone(), passes, engine);
