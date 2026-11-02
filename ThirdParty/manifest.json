@@ -51,14 +51,17 @@
     }
   ],
   "files": {
-    "THIRD-PARTY-NOTICES.md": "49d001d96e549981607525ea1ff01f072ddb3e9fe5c3d3ca27fff59ccb498482",
+    "THIRD-PARTY-NOTICES.md": "e3f8509746f40ef31a26905412ade1e68d996ba07e805a529d8b1b024b2b6b78",
     "cabextract-BUILD.md": "9c4874855a932273e8ae22e1c47e1498869c1526a5d2c5ccc8ec3a20c2c13403",
+    "licenses/Anime4K.txt": "8c5948e4aba1b19d1c78b098813ebf1854fb91f52821bb4e4d7b40b2fcc0cb4f",
     "licenses/GCC-Runtime-Exception.txt": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74",
     "licenses/PostHog-PLCrashReporter.txt": "45f57308a5f95039a6478cf1e47449aa11e28427777d81497bd654c1f41ef5af",
     "licenses/PostHog-libwebp-COPYING.txt": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
     "licenses/PostHog-libwebp-PATENTS.txt": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
     "licenses/PostHog-protobuf-c.txt": "e8185daf5bcd355692052fbdc990ea2d8acef9b4c3a41a32f189f272667e9d6b",
     "licenses/PotatoVN.txt": "a4d6d2731384bcc56f385b7cea4447023230c6d884a53d4973df6639f162dc94",
+    "licenses/RealCUGAN-bilibili-MIT.txt": "8cad8cfdf94baaf23519061af913770e52476ddec2a311e9510582e7bed13cba",
+    "licenses/RealCUGAN-ncnn-MIT.txt": "57157b0fc6954dd1645dc674cc99bebbab4cb84c5b306b910989777e3d0d6fbd",
     "licenses/SemanticVersion.txt": "cc4d4de0920b0d3912203b5d9aa76728ac4a11087f55da9ea00576db7d1e34e2",
     "licenses/Sparkle.txt": "389a4e4e9a32f059775b13a06e25a591445ba229d2838d26dd3e7c0c45127cfe",
     "licenses/Whisky-GPL-3.0.txt": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",

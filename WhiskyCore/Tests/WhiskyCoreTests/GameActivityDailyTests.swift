@@ -1,3 +1,21 @@
+//
+//  GameActivityDailyTests.swift
+//  WhiskyCoreTests
+//
+//  This file is part of Whisky.
+//
+//  Whisky is free software: you can redistribute it and/or modify it under the terms
+//  of the GNU General Public License as published by the Free Software Foundation,
+//  either version 3 of the License, or (at your option) any later version.
+//
+//  Whisky is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  See the GNU General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along with Whisky.
+//  If not, see https://www.gnu.org/licenses/.
+//
+
 import Foundation
 import Testing
 @testable import WhiskyCore
@@ -11,18 +29,18 @@ struct GameActivityDailyTests {
     }
 
     @Test func splitsMidnightAndPreservesCumulativeHistory() throws {
-        let end = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 30, minute: 10)))
+        let end = try #require(calendar.date(from: DateComponents(year: 2_026, month: 10, day: 30, minute: 10)))
         var activity = GameActivity()
-        activity.playTime = 1000
-        #expect(activity.record(1200, at: end) == true)
-        #expect(activity.playTime == 2200)
+        activity.playTime = 1_000
+        #expect(activity.record(1_200, at: end) == true)
+        #expect(activity.playTime == 2_200)
         #expect(activity.dailyPlayTime == ["2026-10-29": 600, "2026-10-30": 600])
         let restored = try JSONDecoder().decode(GameActivity.self, from: JSONEncoder().encode(activity))
         #expect(restored == activity)
     }
 
     @Test func wholeCalendarDaysUseTheirActualDuration() throws {
-        let start = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 8)))
+        let start = try #require(calendar.date(from: DateComponents(year: 2_026, month: 3, day: 8)))
         let end = try #require(calendar.date(byAdding: .day, value: 1, to: start))
         let seconds = end.timeIntervalSince(start)
         var activity = GameActivity()
@@ -33,7 +51,7 @@ struct GameActivityDailyTests {
 
     @Test func legacyRecordsHaveNoInventedDailyHistory() throws {
         let activity = try JSONDecoder().decode(GameActivity.self, from: Data(#"{"playTime":3600}"#.utf8))
-        #expect(activity.playTime == 3600)
+        #expect(activity.playTime == 3_600)
         #expect(activity.dailyPlayTime.isEmpty)
     }
 

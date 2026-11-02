@@ -139,16 +139,27 @@ public enum ContainerConfiguration {
                 defaultValue: .text("off"), platforms: [.macOS]
             ),
             toggle("frameGeneration", "帧生成", "graphicsConfig.frameGeneration", false, platforms: [.macOS]),
-            toggle("shadowImportedHostMemory", "32 位 Vulkan 内存导入兼容（重启 Steam／游戏生效）", "graphicsConfig.shadowImportedHostMemory", false, platforms: [.macOS]),
+            toggle(
+                "shadowImportedHostMemory",
+                "32 位 Vulkan 内存导入兼容（重启 Steam／游戏生效）",
+                "graphicsConfig.shadowImportedHostMemory",
+                false,
+                platforms: [.macOS]
+            ),
             toggle("metal4Enabled", "Metal 4", "metalConfig.metal4Enabled", true, platforms: [.macOS]),
             toggle("metalHud", "Metal 性能面板", "metalConfig.metalHud", false, platforms: [.macOS]),
             toggle("metalTrace", "Metal 跟踪", "metalConfig.metalTrace", false, platforms: [.macOS]),
             toggle("dxrEnabled", "DirectX 光线追踪", "metalConfig.dxrEnabled", false, platforms: [.macOS]),
             toggle("metalValidation", "Metal 验证", "metalConfig.metalValidation", false, platforms: [.macOS]),
             toggle("dxvkAsync", "DXVK 异步编译", "dxvkConfig.dxvkAsync", true),
-            choice("dxvkHud", "DXVK 性能面板", "dxvkConfig.dxvkHud", "off", [
-                ("off", "关闭"), ("fps", "帧率"), ("partial", "简要"), ("full", "完整")
-            ], tagged: true)
+            choice(
+                "dxvkHud",
+                "DXVK 性能面板",
+                "dxvkConfig.dxvkHud",
+                "off",
+                [("off", "关闭"), ("fps", "帧率"), ("partial", "简要"), ("full", "完整")],
+                tagged: true
+            )
         ]),
         .init(id: "audio", title: "音频", fields: [
             ConfigurationField(
@@ -359,35 +370,5 @@ public enum ContainerConfiguration {
             requires: requires,
             platforms: platforms
         )
-    }
-}
-
-public extension ConfigurationFile {
-    func clipboardPreflightConfiguration() throws -> ( // swiftlint:disable:this large_tuple
-        launcher: LauncherType?,
-        policy: ClipboardPolicy,
-        threshold: Int
-    ) {
-        let fields = ContainerConfiguration.fields.filter {
-            ["detectedLauncher", "clipboardPolicy", "clipboardThreshold"].contains($0.id)
-        }
-        let values = try values(for: fields)
-        let launcher: LauncherType? = if case let .text(raw) = values["detectedLauncher"], !raw.isEmpty {
-            LauncherType(rawValue: raw)
-        } else {
-            nil
-        }
-        let policy: ClipboardPolicy = if case let .text(raw) = values["clipboardPolicy"],
-                                         let resolved = ClipboardPolicy(rawValue: raw) {
-            resolved
-        } else {
-            .auto
-        }
-        let threshold: Int = if case let .integer(value) = values["clipboardThreshold"] {
-            value
-        } else {
-            ClipboardPreflight.largeContentThreshold
-        }
-        return (launcher: launcher, policy: policy, threshold: threshold)
     }
 }

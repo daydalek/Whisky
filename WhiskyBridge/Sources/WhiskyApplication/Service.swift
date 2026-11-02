@@ -101,10 +101,14 @@ public final class ApplicationService {
         self.jobs = jobStore
         diagnosticsService = FileDiagnosticsService(jobs: jobStore)
         lifecycleService = ContainerLifecycleService(jobs: jobStore)
-        metadataService = LibraryMetadataService(jobs: jobStore, preferences: preferences, networkAccess: { [weak preferences] in
-            let values = try await preferences?.call("preferences.read", params: [:])
-            if values?.object?["offlineMode"] == .bool(true) { throw URLError(.notConnectedToInternet) }
-        })
+        metadataService = LibraryMetadataService(
+            jobs: jobStore,
+            preferences: preferences,
+            networkAccess: { [weak preferences] in
+                let values = try await preferences?.call("preferences.read", params: [:])
+                if values?.object?["offlineMode"] == .bool(true) { throw URLError(.notConnectedToInternet) }
+            }
+        )
         if !portableLifecycleMethods.isEmpty { jobStore.workspace = workspace }
     }
 

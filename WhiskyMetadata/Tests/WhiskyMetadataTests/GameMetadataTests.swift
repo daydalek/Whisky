@@ -538,7 +538,7 @@ extension GameMetadataStore {
     init(directory: URL) { self.init(directory: directory, networkAccess: {}) }
 }
 
-private final class CharacterTimeoutProtocol: URLProtocol {
+private class CharacterTimeoutProtocol: URLProtocol {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var attempts: [String: Int] = [:]
 
@@ -559,7 +559,11 @@ private final class CharacterTimeoutProtocol: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.timedOut))
             return
         }
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)
+        else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(#"[{"id":1,"name":"Character","relation":"主角"}]"#.utf8))
         client?.urlProtocolDidFinishLoading(self)

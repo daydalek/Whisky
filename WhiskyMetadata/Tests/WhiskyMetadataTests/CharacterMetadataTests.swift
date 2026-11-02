@@ -69,6 +69,7 @@ private final class CharacterFixtureProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocol(self, didLoad: Data("[]".utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
+
     override func stopLoading() {}
 }
 
@@ -81,7 +82,7 @@ private actor CharacterRequestCounter {
     let gate = SourceGatekeeper(minInterval: 0)
     let counter = CharacterRequestCounter()
     try await withThrowingTaskGroup(of: [GameCharacter].self) { group in
-        for _ in 0..<8 {
+        for _ in 0 ..< 8 {
             group.addTask {
                 try await gate.characters("same-game") {
                     await counter.increment()
@@ -90,7 +91,9 @@ private actor CharacterRequestCounter {
                 }
             }
         }
-        for try await result in group { #expect(result.isEmpty) }
+        for try await result in group {
+            #expect(result.isEmpty)
+        }
     }
     #expect(await counter.count == 1)
 }
@@ -98,7 +101,7 @@ private actor CharacterRequestCounter {
 @Test func failedCharacterRefreshHasShortCooldown() async {
     let gate = SourceGatekeeper(minInterval: 0)
     let counter = CharacterRequestCounter()
-    for _ in 0..<3 {
+    for _ in 0 ..< 3 {
         do {
             _ = try await gate.characters("timeout") {
                 await counter.increment()

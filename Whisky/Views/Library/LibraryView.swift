@@ -60,14 +60,14 @@ struct LibraryView: View {
     @AppStorage("librarySingleLineTitles") private var singleLineTitles = false
     @AppStorage("libraryMixedCoverLayout") private var mixedCoverLayout = true
 
-    @StateObject private var model = LibraryModel()
+    @StateObject var model = LibraryModel()
     @State private var search: String = ""
     @State private var appliedSearch = ""
     @State private var scrollAnchor: String?
     @AppStorage("libraryRefreshAfterExit") private var refreshAfterExit = true
-    @State private var detailRow: LibraryRow?
-    @State private var settingsProgram: Program?
-    @State private var steamSettingsRow: LibraryRow?
+    @State var detailRow: LibraryRow?
+    @State var settingsProgram: Program?
+    @State var steamSettingsRow: LibraryRow?
     @State private var metadata: [String: GameMetadata] = [:]
     @State private var metadataRevision = 0
     @State private var coverAspectRatios: [String: Double] = [:]
@@ -81,7 +81,7 @@ struct LibraryView: View {
     @State private var ambientController = LibraryAmbientController()
     @AppStorage("libraryMetadataEnabledSources") private var enabledSourceIDs = "bangumi,vndb,steam,ymgal"
 
-    private var bottles: [Bottle] {
+    var bottles: [Bottle] {
         bottleVM.bottles.filter(\.isAvailable)
     }
 
@@ -491,82 +491,7 @@ struct LibraryView: View {
         )
     }
 
-    @ViewBuilder
-    // swiftlint:disable:next function_body_length
-    private func menu(for row: LibraryRow) -> some View {
-        Button("button.run") { model.launch(row, bottles: bottles) }
-            .disabled(model.state(for: row.item).isPending)
-        if case .steam = row.item.launch, model.state(for: row.item).isPending {
-            Button("library.steam.cancelWaiting") { model.cancelLaunch(row) }
-        }
-        if case .steam = row.item.launch, model.state(for: row.item) == .running {
-            Button("library.card.stop") { model.stop(row, bottles: bottles) }
-        }
-        Divider()
-        Button {
-            model.setHidden(!model.isHidden(row.item), for: row.item)
-        } label: {
-            Label(
-                model.isHidden(row.item) ? "library.visibility.unhide" : "library.visibility.hide",
-                systemImage: model.isHidden(row.item) ? "eye" : "eye.slash"
-            )
-        }
-        if !row.item.isLauncher {
-            Button("library.metadata.details") { detailRow = row }
-        }
-        if let directory = row.item.gameDirectoryURL {
-            Button("library.game.openDirectory") {
-                NSWorkspace.shared.open(directory)
-            }
-        }
-        if case let .program(url) = row.item.launch {
-            if bottles.count > 1 {
-                Menu("library.bottle.target") {
-                    Picker("library.bottle.target", selection: Binding(
-                        get: { row.item.bottleURL },
-                        set: { targetURL in
-                            guard let target = bottles.first(where: { $0.url == targetURL }) else { return }
-                            Task { await model.moveEntry(row.item, to: target, bottles: bottles) }
-                        }
-                    )) {
-                        ForEach(bottles, id: \.url) { bottle in
-                            Text(bottle.settings.name).tag(bottle.url)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
-                }
-            }
-            if row.item.source == .folder {
-                Button("library.scan.executable") {
-                    Task { _ = await model.folderExecutable(row.item, chooseAgain: true) }
-                }
-            }
-            Button("library.program.settings") {
-                Task {
-                    guard let bottle = bottles.first(where: { $0.url == row.item.bottleURL }),
-                          let executable = row.item.source == .folder ? await model.folderExecutable(row.item) : url
-                    else { return }
-                    settingsProgram = bottle.programs.first(where: { $0.url == executable })
-                        ?? Program(url: executable, bottle: bottle)
-                }
-            }
-            Button("button.showInFinder") {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
-            }
-            if row.item.source != .folder {
-                Button("library.card.unpin", role: .destructive) { unpin(url, in: row.item.bottleURL) }
-            }
-        } else if case .steam = row.item.launch {
-            Button("library.program.settings") { steamSettingsRow = row }
-        }
-        // Shared runtime configuration remains in the bottle, not in a game's sheet.
-        Button("library.card.configure") {
-            selectedBottle = row.item.bottleURL
-        }
-    }
-
-    private func unpin(_ url: URL, in bottleURL: URL) {
+    func unpin(_ url: URL, in bottleURL: URL) {
         guard let bottle = bottles.first(where: { $0.url == bottleURL }) else { return }
         bottle.settings.pins.removeAll { $0.url == url }
         if let program = bottle.programs.first(where: { $0.url == url }) {

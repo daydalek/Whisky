@@ -1,3 +1,21 @@
+//
+//  NextMoeTests.swift
+//  WhiskyMetadataTests
+//
+//  This file is part of Whisky.
+//
+//  Whisky is free software: you can redistribute it and/or modify it under the terms
+//  of the GNU General Public License as published by the Free Software Foundation,
+//  either version 3 of the License, or (at your option) any later version.
+//
+//  Whisky is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  See the GNU General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along with Whisky.
+//  If not, see https://www.gnu.org/licenses/.
+//
+
 import Foundation
 import Testing
 import WhiskyCore
@@ -162,7 +180,8 @@ private final class NextMoeFixtureProtocol: URLProtocol, @unchecked Sendable {
         do {
             let url = try #require(request.url)
             let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
-            let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+            let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? [])
+                .map { ($0.name, $0.value ?? "") })
             #expect(url.host == "api.nextmoe.dev")
             #expect(query["nsfw"] == "true")
             #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
@@ -193,10 +212,14 @@ private final class NextMoeFixtureProtocol: URLProtocol, @unchecked Sendable {
                 body = ["status": 429, "code": "RATE_LIMITED"]
             default: throw URLError(.badURL)
             }
-            let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,
-                                                        headerFields: ["Retry-After": "120"]))
+            let response = try #require(HTTPURLResponse(
+                url: url,
+                statusCode: status,
+                httpVersion: nil,
+                headerFields: ["Retry-After": "120"]
+            ))
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: try JSONSerialization.data(withJSONObject: body))
+            try client?.urlProtocol(self, didLoad: JSONSerialization.data(withJSONObject: body))
             client?.urlProtocolDidFinishLoading(self)
         } catch { client?.urlProtocol(self, didFailWithError: error) }
     }
@@ -206,13 +229,20 @@ private final class NextMoeFixtureProtocol: URLProtocol, @unchecked Sendable {
         "release_date": "2026-01-01", "cover": ["url": "https://fixture.example/cover.webp"],
         "titles": [["title": "别名"]], "intros": [["lang": "zh-Hans", "value": "中文简介"]],
         "characters": [
-            ["id": "7935", "display_name": "鳴瀬しろは", "localized": ["zh-Hans": ["value": "鸣濑白羽"]],
-             "roster_role": "main", "image": ["url": "https://fixture.example/character.webp"],
-             "voices": [["display_name": "小原好美"], ["display_name": "第二声优"]]],
+            [
+                "id": "7935",
+                "display_name": "鳴瀬しろは",
+                "localized": ["zh-Hans": ["value": "鸣濑白羽"]],
+                "roster_role": "main",
+                "image": ["url": "https://fixture.example/character.webp"],
+                "voices": [["display_name": "小原好美"], ["display_name": "第二声优"]]
+            ],
             ["id": "2", "display_name": "无配音角色", "voices": []]
         ],
-        "companies": [["display_name": "发行商", "attribution_role": "publisher"],
-                      ["display_name": "开发商", "attribution_role": "developer"]]
+        "companies": [
+            ["display_name": "发行商", "attribution_role": "publisher"],
+            ["display_name": "开发商", "attribution_role": "developer"]
+        ]
     ] }
 
     static var guide: [String: Any] { [
@@ -220,12 +250,26 @@ private final class NextMoeFixtureProtocol: URLProtocol, @unchecked Sendable {
         "source_url": "https://fixture.example/guide", "source_author": "作者", "source_updated_on": "2026-01-01",
         "characters": [], "ending_count": 2, "save_count": 1, "segment_count": 2,
         "work_route_hints": true, "work_content_limit": "sfw", "updated_at": "2026-01-01T00:00:00Z",
-        "chart": ["sections": [["key": "s1", "title": "路线一"]], "entries": [["key": "start", "label": "开始"]],
-                  "saves": [["key": "sv1", "label": "SAVE 1"]], "endings": [["key": "e1", "name": "END"]],
-                  "segments": [["key": "g1", "section_key": "s1", "from_node": ["node_type": "entry", "key": "start"],
-                                "to_node": ["node_type": "ending", "key": "e1"],
-                                "steps": [["step_type": "save", "save_key": "sv1"],
-                                          ["step_type": "choice", "text": "選択", "localized": ["zh-Hans": ["value": "选择", "is_machine": true]]],
-                                          ["step_type": "future-kind", "future_field": "preserved"]]]]]
+        "chart": [
+            "sections": [["key": "s1", "title": "路线一"]],
+            "entries": [["key": "start", "label": "开始"]],
+            "saves": [["key": "sv1", "label": "SAVE 1"]],
+            "endings": [["key": "e1", "name": "END"]],
+            "segments": [[
+                "key": "g1",
+                "section_key": "s1",
+                "from_node": ["node_type": "entry", "key": "start"],
+                "to_node": ["node_type": "ending", "key": "e1"],
+                "steps": [
+                    ["step_type": "save", "save_key": "sv1"],
+                    [
+                        "step_type": "choice",
+                        "text": "選択",
+                        "localized": ["zh-Hans": ["value": "选择", "is_machine": true]]
+                    ],
+                    ["step_type": "future-kind", "future_field": "preserved"]
+                ]
+            ]]
+        ]
     ] }
 }
