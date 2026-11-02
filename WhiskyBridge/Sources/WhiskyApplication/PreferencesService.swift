@@ -164,7 +164,7 @@ public final class PreferencesService {
             }
             values = object
         } else {
-            values = [try params.text("key"): params["value"] ?? .null]
+            values = try [params.text("key"): params["value"] ?? .null]
         }
         let sources: Set<String> = ["bangumi", "vndb", "steam", "ymgal", "nextmoe"]
         var result: [String: Any] = [:]
@@ -179,7 +179,7 @@ public final class PreferencesService {
                     guard chosen.allSatisfy({ sources.contains($0) }) else {
                         throw BridgeFailure("invalid_params", "Unsupported enabled source")
                     }
-                } else if key.hasPrefix("libraryMetadata") && key.hasSuffix("Source") {
+                } else if key.hasPrefix("libraryMetadata"), key.hasSuffix("Source") {
                     guard sources.contains(text) || (key != "libraryMetadataDefaultSource" && text == "inherit") else {
                         throw BridgeFailure("invalid_params", "Unsupported metadata source")
                     }

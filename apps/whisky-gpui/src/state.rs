@@ -3344,6 +3344,10 @@ impl WhiskyApp {
     /// cache. One cover at a time, because the derivations share the worker lock
     /// with the on-demand path.
     pub(crate) fn start_cover_batch(&mut self, cx: &mut Context<Self>) {
+        if !crate::upscale::SUPPORTED {
+            self.show_notice("当前平台不支持封面超分", cx);
+            return;
+        }
         if self.cover_batch.is_some() {
             self.cover_batch = None;
             self.cover_derivatives.borrow_mut().clear();
@@ -3375,6 +3379,7 @@ impl WhiskyApp {
         let factor = self.cover_upscale;
         let engine = self.cover_engine;
         let worker = cx.spawn(async move |this, cx| {
+            let mut succeeded = 0;
             for (position, cover) in covers.iter().enumerate() {
                 let running = this
                     .update(cx, |this, _| {
@@ -3385,21 +3390,25 @@ impl WhiskyApp {
                     return;
                 }
                 let job = cover.clone();
-                cx.background_spawn(async move {
+                let produced = cx.background_spawn(async move {
                     let passes = factor.passes();
                     if passes == 0 {
-                        return;
+                        return false;
                     }
-                    if crate::upscale::upscaled_cover(&job, passes, engine).is_none() {
-                        let _ = crate::upscale::upscaled_cover(
+                    crate::upscale::upscaled_cover(&job, passes, engine).or_else(|| {
+                        crate::upscale::upscaled_cover(
                             &job,
                             passes,
                             crate::upscale::Engine::Anime4K,
-                        );
-                    }
+                        )
+                    }).is_some()
                 })
                 .await;
+                succeeded += usize::from(produced);
                 this.update(cx, |this, cx| {
+                    if !this.cover_batch.is_some_and(|batch| batch.generation == generation) {
+                        return;
+                    }
                     if let Some(batch) = this.cover_batch.as_mut() {
                         batch.done = position + 1;
                     }
@@ -3408,12 +3417,16 @@ impl WhiskyApp {
                 .ok();
             }
             this.update(cx, |this, cx| {
+                if !this.cover_batch.is_some_and(|batch| batch.generation == generation) {
+                    return;
+                }
                 let total = this.cover_batch.map_or(0, |batch| batch.total);
                 this.cover_batch = None;
                 // Prepared files are already on disk; looking them up again is
                 // what makes the shelf switch over without a restart.
                 this.cover_derivatives.borrow_mut().clear();
-                this.show_notice(format!("封面超分完成：{total} 张"), cx);
+                let failed = total.saturating_sub(succeeded);
+                this.show_notice(format!("封面超分完成：成功 {succeeded} 张，未生成 {failed} 张"), cx);
             })
             .ok();
         });
@@ -3431,6 +3444,9 @@ impl WhiskyApp {
         engine: crate::upscale::Engine,
         cx: &mut Context<Self>,
     ) {
+        if !crate::upscale::SUPPORTED {
+            return;
+        }
         let key = (source.clone(), passes, engine);
         if !self.cover_jobs.borrow_mut().insert(key.clone()) {
             return;

@@ -576,7 +576,10 @@ final class EnvironmentVariablesTests: XCTestCase {
 
         // Older metadata adopts the opt-in default.
         let legacy = try PropertyListEncoder().encode(settings)
-        var document = try XCTUnwrap(PropertyListSerialization.propertyList(from: legacy, format: nil) as? [String: Any])
+        let propertyList = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: legacy, format: nil) as? [String: Any]
+        )
+        var document = propertyList
         var graphics = try XCTUnwrap(document["graphicsConfig"] as? [String: Any])
         graphics.removeValue(forKey: "shadowImportedHostMemory")
         document["graphicsConfig"] = graphics

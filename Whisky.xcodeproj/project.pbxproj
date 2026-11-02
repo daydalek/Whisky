@@ -98,6 +98,8 @@
 		C1A2B3C4E5F60601A9B0C1D6 /* AudioFindingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0C1D7 /* AudioFindingsView.swift */; };
 		C1A2B3C4E5F60601A9B0C1D8 /* AudioConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0C1D9 /* AudioConfigSection.swift */; };
 		C1A2B3C4E5F60601A9B0F2D8 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0F2D9 /* LibraryView.swift */; };
+		F2A3B4C5D6E70819A0B1C2D3 /* LibraryView+Menu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3B4C5D6E70819A0B1C2D4 /* LibraryView+Menu.swift */; };
+		F2A3B4C5D6E70819A0B1C2D5 /* GraphicsConfigSection+Notices.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3B4C5D6E70819A0B1C2D6 /* GraphicsConfigSection+Notices.swift */; };
 		C1A2B3C4E5F60601A9B0F1D8 /* LibraryCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0F1D9 /* LibraryCard.swift */; };
 		B82D9168CA8E401CA33A0001 /* LibraryGameSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82D9168CA8E401CA33A0002 /* LibraryGameSheet.swift */; };
 		C1A2B3C4E5F60601A9B0D1D8 /* DiscordConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0D1D9 /* DiscordConfigSection.swift */; };
@@ -287,6 +289,8 @@
 		C1A2B3C4E5F60601A9B0C1D7 /* AudioFindingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFindingsView.swift; sourceTree = "<group>"; };
 		C1A2B3C4E5F60601A9B0C1D9 /* AudioConfigSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioConfigSection.swift; sourceTree = "<group>"; };
 		C1A2B3C4E5F60601A9B0F2D9 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LibraryView.swift; path = Whisky/Views/Library/LibraryView.swift; sourceTree = SOURCE_ROOT; };
+		F2A3B4C5D6E70819A0B1C2D4 /* LibraryView+Menu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "LibraryView+Menu.swift"; path = "Whisky/Views/Library/LibraryView+Menu.swift"; sourceTree = SOURCE_ROOT; };
+		F2A3B4C5D6E70819A0B1C2D6 /* GraphicsConfigSection+Notices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GraphicsConfigSection+Notices.swift"; sourceTree = "<group>"; };
 		C1A2B3C4E5F60601A9B0F1D9 /* LibraryCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LibraryCard.swift; path = Whisky/Views/Library/LibraryCard.swift; sourceTree = SOURCE_ROOT; };
 		B82D9168CA8E401CA33A0002 /* LibraryGameSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LibraryGameSheet.swift; path = Whisky/Views/Library/LibraryGameSheet.swift; sourceTree = SOURCE_ROOT; };
 		C1A2B3C4E5F60601A9B0D1D9 /* DiscordConfigSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscordConfigSection.swift; sourceTree = "<group>"; };
@@ -452,6 +456,7 @@
 			children = (
 				C1A2B3C4E5F60601A9B0C1D9 /* AudioConfigSection.swift */,
 				C1A2B3C4E5F60601A9B0F2D9 /* LibraryView.swift */,
+				F2A3B4C5D6E70819A0B1C2D4 /* LibraryView+Menu.swift */,
 				C1A2B3C4E5F60601A9B0F1D9 /* LibraryCard.swift */,
 				B82D9168CA8E401CA33A0002 /* LibraryGameSheet.swift */,
 				C1A2B3C4E5F60601A9B0D1D9 /* DiscordConfigSection.swift */,
@@ -476,6 +481,7 @@
 				407A01251379955919903C3F /* CleanupConfigSection.swift */,
 				B1C2D3E4F5A60402A9B0C1E1 /* BackendPickerView.swift */,
 				B1C2D3E4F5A60402A9B0C1E3 /* GraphicsConfigSection.swift */,
+				F2A3B4C5D6E70819A0B1C2D6 /* GraphicsConfigSection+Notices.swift */,
 				D1A2B3C4E5F60901A9B0C1D1 /* ResolutionConfigSection.swift */,
 				B1C2D3E4F5A60402A9B0C1E5 /* DXVKSettingsView.swift */,
 			);
@@ -992,6 +998,7 @@
 				1A8BB6C8C6FC24E0837A3C59 /* CleanupConfigSection.swift in Sources */,
 				B1C2D3E4F5A60402A9B0C1E0 /* BackendPickerView.swift in Sources */,
 				B1C2D3E4F5A60402A9B0C1E2 /* GraphicsConfigSection.swift in Sources */,
+				F2A3B4C5D6E70819A0B1C2D5 /* GraphicsConfigSection+Notices.swift in Sources */,
 				D1A2B3C4E5F60901A9B0C1D0 /* ResolutionConfigSection.swift in Sources */,
 				B1C2D3E4F5A60402A9B0C1E4 /* DXVKSettingsView.swift in Sources */,
 				D1A2B3C4E5F60504A9B0C1D1 /* DiagnosticsView.swift in Sources */,
@@ -1006,6 +1013,7 @@
 				C1A2B3C4E5F60601A9B0C1D6 /* AudioFindingsView.swift in Sources */,
 				C1A2B3C4E5F60601A9B0C1D8 /* AudioConfigSection.swift in Sources */,
 				C1A2B3C4E5F60601A9B0F2D8 /* LibraryView.swift in Sources */,
+				F2A3B4C5D6E70819A0B1C2D3 /* LibraryView+Menu.swift in Sources */,
 				C1A2B3C4E5F60601A9B0F1D8 /* LibraryCard.swift in Sources */,
 				B82D9168CA8E401CA33A0001 /* LibraryGameSheet.swift in Sources */,
 				C1A2B3C4E5F60601A9B0D1D8 /* DiscordConfigSection.swift in Sources */,

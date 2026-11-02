@@ -32,14 +32,17 @@ public final class LibraryMetadataService {
         "metadata.cover.import", "metadata.cover.reset"
     ]
     private static let searchThumbnailLimit = 8
-    private let portraitGate = SourceGatekeeper(minInterval: 0.25)
     let jobs: BridgeJobStore
     let session: URLSession
     let networkAccess: MetadataNetworkAccess
     let preferences: PreferencesService?
 
-    public init(jobs: BridgeJobStore, session: URLSession = .shared,
-                preferences: PreferencesService? = nil, networkAccess: @escaping MetadataNetworkAccess) {
+    public init(
+        jobs: BridgeJobStore,
+        session: URLSession = .shared,
+        preferences: PreferencesService? = nil,
+        networkAccess: @escaping MetadataNetworkAccess
+    ) {
         self.jobs = jobs
         self.session = session
         self.networkAccess = networkAccess
@@ -113,8 +116,11 @@ public final class LibraryMetadataService {
             guard latest == previous else {
                 throw BridgeFailure("operation_failed", "The linked game has changed")
             }
-            var result = latest ?? GameMetadata(source: .nextmoe, sourceID: metadata.sourceID,
-                                               title: value.object?["localTitle"]?.string ?? metadata.title)
+            var result = latest ?? GameMetadata(
+                source: .nextmoe,
+                sourceID: metadata.sourceID,
+                title: value.object?["localTitle"]?.string ?? metadata.title
+            )
             result.walkthroughWorkID = metadata.sourceID
             result.walkthroughs = guides
             try await store.save(result, for: entry.metadataIdentity)
@@ -122,7 +128,8 @@ public final class LibraryMetadataService {
         }
         if let walkthroughID = value.object?["walkthroughID"]?.string {
             guard let current = try await store.load(for: entry.metadataIdentity), current.id == metadata.id,
-                  current.walkthroughs?.contains(where: { $0.id == walkthroughID }) == true else {
+                  current.walkthroughs?.contains(where: { $0.id == walkthroughID }) == true
+            else {
                 throw BridgeFailure("invalid_params", "Choose a walkthrough from the linked NextMoe work")
             }
             guard let workID = current.walkthroughWorkID ?? (current.source == .nextmoe ? current.sourceID : nil) else {
@@ -132,7 +139,8 @@ public final class LibraryMetadataService {
                 .walkthrough(id: walkthroughID, workID: workID)
             guard var latest = try await store.load(for: entry.metadataIdentity), latest.id == current.id,
                   (latest.walkthroughWorkID ?? (latest.source == .nextmoe ? latest.sourceID : nil)) == workID,
-                  let index = latest.walkthroughs?.firstIndex(where: { $0.id == walkthroughID }) else {
+                  let index = latest.walkthroughs?.firstIndex(where: { $0.id == walkthroughID })
+            else {
                 throw BridgeFailure("operation_failed", "The linked game has changed")
             }
             latest.walkthroughs?[index] = guide
@@ -142,7 +150,8 @@ public final class LibraryMetadataService {
         let refreshCharacters = value.object?["refreshCharacters"] == .bool(true)
         if refreshCharacters {
             guard let current = try await store.load(for: entry.metadataIdentity),
-                  current.id == metadata.id else {
+                  current.id == metadata.id
+            else {
                 throw BridgeFailure("operation_failed", "The linked game has changed")
             }
             metadata = current
@@ -162,7 +171,8 @@ public final class LibraryMetadataService {
         }
         if refreshCharacters {
             guard var current = try await store.load(for: entry.metadataIdentity),
-                  current.id == metadata.id else {
+                  current.id == metadata.id
+            else {
                 throw BridgeFailure("operation_failed", "The linked game has changed")
             }
             current.characters = metadata.characters
@@ -204,9 +214,7 @@ public final class LibraryMetadataService {
             guard !Task.isCancelled else { return }
             guard store.cachedCoverURL(for: url) == nil else { continue }
             do {
-                try await portraitGate.paced { [session] in
-                    try await store.cacheCover(from: url, session: session)
-                }
+                try await store.cacheCover(from: url, session: session)
             } catch {
                 if Task.isCancelled { return }
             }
@@ -279,7 +287,8 @@ public final class LibraryMetadataService {
     func enabledSources(_ params: [String: JSONValue]) throws -> [GameMetadataSource] {
         if params["sources"] != nil { return Self.requestedSources(params) }
         guard let text = try preferences?.call("preferences.read", params: [:])
-            .object?["libraryMetadataEnabledSources"]?.string else {
+            .object?["libraryMetadataEnabledSources"]?.string
+        else {
             return [.bangumi, .vndb, .steam, .ymgal, .nextmoe]
         }
         return text.split(separator: ",").compactMap { GameMetadataSource(rawValue: String($0)) }

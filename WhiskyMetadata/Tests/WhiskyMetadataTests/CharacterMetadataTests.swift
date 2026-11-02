@@ -69,6 +69,7 @@ private final class CharacterFixtureProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocol(self, didLoad: Data("[]".utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
+
     override func stopLoading() {}
 }
 
@@ -81,7 +82,7 @@ private actor CharacterRequestCounter {
     let gate = SourceGatekeeper(minInterval: 0)
     let counter = CharacterRequestCounter()
     try await withThrowingTaskGroup(of: [GameCharacter].self) { group in
-        for _ in 0..<8 {
+        for _ in 0 ..< 8 {
             group.addTask {
                 try await gate.characters("same-game") {
                     await counter.increment()
@@ -90,7 +91,9 @@ private actor CharacterRequestCounter {
                 }
             }
         }
-        for try await result in group { #expect(result.isEmpty) }
+        for try await result in group {
+            #expect(result.isEmpty)
+        }
     }
     #expect(await counter.count == 1)
 }
@@ -98,7 +101,7 @@ private actor CharacterRequestCounter {
 @Test func failedCharacterRefreshHasShortCooldown() async {
     let gate = SourceGatekeeper(minInterval: 0)
     let counter = CharacterRequestCounter()
-    for _ in 0..<3 {
+    for _ in 0 ..< 3 {
         do {
             _ = try await gate.characters("timeout") {
                 await counter.increment()
@@ -110,6 +113,56 @@ private actor CharacterRequestCounter {
         } catch { Issue.record(error) }
     }
     #expect(await counter.count == 1)
+}
+
+@Test func compositeRefreshUsesTheInjectedTransportPacingGate() async throws {
+    CompositeRefreshProtocol.reset()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CompositeRefreshProtocol.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let provider = PublicGameMetadataProvider(
+        source: .bangumi,
+        session: session,
+        networkAccess: {},
+        transportMinimumInterval: 0.06
+    )
+    let game = try await provider.refresh(sourceID: "42")
+    #expect(game.characters == [])
+    let dates = CompositeRefreshProtocol.requestDates
+    #expect(dates.count == 2)
+    if dates.count == 2 {
+        #expect(dates[1].timeIntervalSince(dates[0]) >= 0.05)
+    }
+}
+
+private final class CompositeRefreshProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var dates: [Date] = []
+
+    static var requestDates: [Date] { lock.withLock { dates } }
+    static func reset() { lock.withLock { dates = [] } }
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        Self.lock.withLock { Self.dates.append(Date()) }
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                  url: url,
+                  statusCode: 200,
+                  httpVersion: nil,
+                  headerFields: ["Content-Type": "application/json"]
+              )
+        else { return }
+        let body = url.path.hasSuffix("/characters")
+            ? Data("[]".utf8)
+            : Data(#"{"id":42,"name":"Test","name_cn":"","summary":"","date":"2020-01-01"}"#.utf8)
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
 }
 
 @Test func characterRateLimitAlsoCoolsDownSearches() async {

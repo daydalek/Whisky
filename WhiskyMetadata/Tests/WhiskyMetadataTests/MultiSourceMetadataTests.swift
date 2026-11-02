@@ -1,3 +1,21 @@
+//
+//  MultiSourceMetadataTests.swift
+//  WhiskyMetadataTests
+//
+//  This file is part of Whisky.
+//
+//  Whisky is free software: you can redistribute it and/or modify it under the terms
+//  of the GNU General Public License as published by the Free Software Foundation,
+//  either version 3 of the License, or (at your option) any later version.
+//
+//  Whisky is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  See the GNU General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along with Whisky.
+//  If not, see https://www.gnu.org/licenses/.
+//
+
 import Foundation
 import Testing
 import WhiskyCore
@@ -21,7 +39,7 @@ import FoundationNetworking
     }
 }
 
-private final class CharacterFixtureProtocol: URLProtocol, @unchecked Sendable {
+private class CharacterFixtureProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -40,12 +58,21 @@ private final class CharacterFixtureProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
-                                       headerFields: ["Content-Type": "application/json"])!
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )
+        else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
+
     override func stopLoading() {}
 }
 
@@ -76,8 +103,13 @@ private final class CharacterFixtureProtocol: URLProtocol, @unchecked Sendable {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    let remote = GameMetadata(source: .vndb, sourceID: "v17", title: "Ever17",
-                              originalTitle: "Ever17", titleLanguage: "ja")
+    let remote = GameMetadata(
+        source: .vndb,
+        sourceID: "v17",
+        title: "Ever17",
+        originalTitle: "Ever17",
+        titleLanguage: "ja"
+    )
     let legacy = remote.usingLibraryTitle("时空轮回")
     #expect(legacy.title == "时空轮回")
     let path = root.appendingPathComponent(LibraryStorageLayout.key("game")).appendingPathExtension("json")
@@ -90,8 +122,13 @@ private final class CharacterFixtureProtocol: URLProtocol, @unchecked Sendable {
     #expect(try await store.load(for: "game")?.provenance?["title"]?.manual == true)
     #expect(try await store.loadRecord(for: "game")?.snapshots["vndb"]?.title == "Ever17")
     #expect(GameMetadataRecord(legacy: remote).manualTitle == nil)
-    let officialChinese = GameMetadata(source: .vndb, sourceID: "v1", title: "中文",
-                                       alternateTitles: ["Original"], titleLanguage: "zh-Hans")
+    let officialChinese = GameMetadata(
+        source: .vndb,
+        sourceID: "v1",
+        title: "中文",
+        alternateTitles: ["Original"],
+        titleLanguage: "zh-Hans"
+    )
     #expect(GameMetadataRecord(legacy: officialChinese).manualTitle == nil)
 }
 

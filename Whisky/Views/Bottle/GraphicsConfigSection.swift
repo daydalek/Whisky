@@ -22,8 +22,8 @@ import WhiskyKit
 
 struct GraphicsConfigSection: View {
     @ObservedObject var bottle: Bottle
-    @AppStorage("graphicsAdvancedMode") private var advancedMode: Bool = false
-    @State private var hasRunningProcesses: Bool = false
+    @AppStorage("graphicsAdvancedMode") var advancedMode: Bool = false
+    @State var hasRunningProcesses: Bool = false
 
     private var resolvedBackend: GraphicsBackend {
         if bottle.settings.graphicsBackend == .recommended {
@@ -196,144 +196,6 @@ struct GraphicsConfigSection: View {
         }
         .task {
             await checkRunningProcesses()
-        }
-    }
-
-    // MARK: - Launcher Backend Reset Notice
-
-    private var launcherBackendResetNotice: some View {
-        HStack {
-            Image(systemName: "info.circle")
-                .foregroundStyle(.blue)
-            Text("config.graphics.backend.launcherReset")
-                .font(.caption)
-            Spacer()
-            Button {
-                bottle.settings.launcherBackendResetNotice = false
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.borderless)
-            .help("config.graphics.backend.launcherReset.dismiss")
-            .accessibilityLabel("config.graphics.backend.launcherReset.dismiss")
-        }
-    }
-
-    // MARK: - D3DMetal Missing Warning
-
-    private var d3dMetalMissingWarning: some View {
-        HStack {
-            Image(systemName: "exclamationmark.triangle")
-                .foregroundStyle(.orange)
-            Text("config.graphics.backend.d3dMetal.missingWarning")
-                .font(.caption)
-            Spacer()
-        }
-    }
-
-    // MARK: - Running Process Warning
-
-    private var runningProcessWarning: some View {
-        HStack {
-            Image(systemName: "info.circle")
-                .foregroundStyle(.blue)
-            Text("config.graphics.nextLaunchInfo")
-                .font(.caption)
-            Spacer()
-            Button("config.graphics.stopBottle") {
-                Wine.killBottle(bottle: bottle)
-                Task {
-                    // Brief delay for wineserver to stop
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    await checkRunningProcesses()
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.red)
-        }
-        .padding(8)
-        .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    // MARK: - Running Process Check
-
-    private func checkRunningProcesses() async {
-        let wineserverActive = await Wine.isWineserverRunning(for: bottle)
-        let trackedCount = ProcessRegistry.shared.getProcessCount(for: bottle)
-        hasRunningProcesses = wineserverActive || trackedCount > 0
-    }
-
-    // MARK: - Advanced Settings Badge
-
-    private var hasAdvancedSettingsConfigured: Bool {
-        // Default dxvkAsync is true; check if any advanced-only settings differ from defaults
-        !bottle.settings.dxvkAsync
-            || bottle.settings.dxvkHud != .off
-            || bottle.settings.metalHud
-            || bottle.settings.metalTrace
-            || bottle.settings.metalValidation
-            || bottle.settings.dxrEnabled
-    }
-
-    private var advancedSettingsBadge: some View {
-        HStack {
-            Image(systemName: "gearshape.2")
-                .foregroundStyle(.secondary)
-            Text("config.graphics.advancedActive")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button("config.graphics.showAdvanced") {
-                advancedMode = true
-            }
-            .font(.caption)
-        }
-    }
-
-    // MARK: - Per-Program Override Info
-
-    private var programsWithGraphicsOverrides: [Program] {
-        bottle.programs.filter { $0.settings.overrides?.graphicsBackend != nil }
-    }
-
-    private var programOverridesBadge: some View {
-        HStack {
-            Image(systemName: "slider.horizontal.3")
-                .foregroundStyle(.secondary)
-            Text("config.graphics.programOverridesActive")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button("config.graphics.showAdvanced") {
-                advancedMode = true
-            }
-            .font(.caption)
-        }
-    }
-
-    private var programOverridesInfo: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("config.graphics.programOverrides")
-                .font(.headline)
-            ForEach(programsWithGraphicsOverrides) { program in
-                HStack {
-                    Image(systemName: "slider.horizontal.3")
-                        .foregroundStyle(.blue)
-                        .font(.caption)
-                    Text(program.name)
-                        .font(.callout)
-                    Spacer()
-                    Text(
-                        program.settings.overrides?.graphicsBackend?.displayName
-                            ?? String(localized: "config.graphics.inherited")
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-            }
-            Text("config.graphics.programOverrides.hint")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 }

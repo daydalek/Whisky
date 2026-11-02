@@ -231,12 +231,12 @@ struct FolderGameLibraryTests {
         let store = GameMetadataStore(directory: root)
         let metadata = GameMetadata(source: .bangumi, sourceID: "1", title: "Game")
         try await store.saveAutomatic(metadata, for: "folder")
-        #expect(try await store.load(for: "folder") == metadata)
+        #expect(try await store.loadRecord(for: "folder")?.snapshots[metadata.source.rawValue] == metadata)
         try await store.remove(for: "folder")
         try await store.saveAutomatic(metadata, for: "folder")
         #expect(try await store.load(for: "folder") == nil)
         try await store.save(metadata, for: "folder")
-        #expect(try await store.load(for: "folder") == metadata)
+        #expect(try await store.loadRecord(for: "folder")?.snapshots[metadata.source.rawValue] == metadata)
     }
 
     @Test func automaticMatchNeverOverwritesManualMetadata() async throws {
@@ -247,7 +247,7 @@ struct FolderGameLibraryTests {
         try await store.save(chosen, for: "folder")
         let other = GameMetadata(source: .bangumi, sourceID: "2", title: "Other")
         try await GameMetadataStore(directory: root).saveAutomatic(other, for: "folder")
-        #expect(try await store.load(for: "folder") == chosen)
+        #expect(try await store.loadRecord(for: "folder")?.snapshots[chosen.source.rawValue] == chosen)
     }
 
     @Test func externalRootsAndBottleRelativePathsRoundTrip() {
@@ -370,7 +370,8 @@ struct FolderGameLibraryTests {
             targetIdentity: "program:/Games/Unlinked"
         )
 
-        #expect(try await storeB.load(for: "program:/Games/Moved") == metadata)
+        #expect(try await storeB.loadRecord(for: "program:/Games/Moved")?
+            .snapshots[metadata.source.rawValue] == metadata)
         #expect(storeB.cachedCoverURL(for: coverURL) != nil)
         #expect(try await storeB.allowsAutomaticMatch(for: "program:/Games/Unlinked") == false)
     }

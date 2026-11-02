@@ -1,3 +1,21 @@
+//
+//  GameWalkthrough.swift
+//  WhiskyCore
+//
+//  This file is part of Whisky.
+//
+//  Whisky is free software: you can redistribute it and/or modify it under the terms
+//  of the GNU General Public License as published by the Free Software Foundation,
+//  either version 3 of the License, or (at your option) any later version.
+//
+//  Whisky is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  See the GNU General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along with Whisky.
+//  If not, see https://www.gnu.org/licenses/.
+//
+
 import Foundation
 
 /// The provider's graph is retained verbatim so new step kinds survive storage and bridge round trips.
@@ -7,12 +25,17 @@ public enum WalkthroughValue: Codable, Hashable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer()
-        if value.decodeNil() { self = .null }
-        else if let item = try? value.decode(Bool.self) { self = .bool(item) }
-        else if let item = try? value.decode(String.self) { self = .string(item) }
-        else if let item = try? value.decode(Double.self) { self = .number(item) }
-        else if let item = try? value.decode([WalkthroughValue].self) { self = .array(item) }
-        else { self = try .object(value.decode([String: WalkthroughValue].self)) }
+        if value.decodeNil() { self = .null } else if let item = try? value.decode(Bool.self) {
+            self = .bool(item)
+        } else if let item = try? value.decode(String.self) {
+            self = .string(item)
+        } else if let item = try? value.decode(Double.self) {
+            self = .number(item)
+        } else if let item = try? value.decode([WalkthroughValue].self) {
+            self = .array(item)
+        } else {
+            self = try .object(value.decode([String: WalkthroughValue].self))
+        }
     }
 
     public func encode(to encoder: Encoder) throws {

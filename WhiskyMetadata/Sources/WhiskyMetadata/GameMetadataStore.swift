@@ -25,8 +25,13 @@ import WhiskyCore
 /// Separate from ProgramSettings: attaching or removing artwork cannot change a launch.
 /// The caller supplies a bottle-relative identity so moving a bottle preserves metadata.
 public actor GameMetadataStore {
+    private static let maximumArtworkFailureEntries = 256
+
     private let directory: URL
     private let networkAccess: MetadataNetworkAccess
+    private var artworkDownloads: [URL: ArtworkDownloadRecord] = [:]
+    private var artworkFailures: [URL: Date] = [:]
+    private var artworkLimiters: [ObjectIdentifier: ArtworkTransportLimiter] = [:]
 
     public init(directory: URL, networkAccess: @escaping MetadataNetworkAccess) {
         self.networkAccess = networkAccess
@@ -113,9 +118,19 @@ public actor GameMetadataStore {
     }
 
     /// No actor suspension between validating the current binding and publishing.
-    public func updateSnapshot(_ snapshot: GameMetadata, for identity: String) throws -> Bool {
+    public func updateSnapshot(
+        _ snapshot: GameMetadata,
+        for identity: String,
+        preservingCharacters: Bool = false
+    ) throws -> Bool {
         guard var current = try loadRecord(for: identity),
-              current.bindings[snapshot.source.rawValue] == snapshot.sourceID else { return false }
+              current.bindings[snapshot.source.rawValue] == snapshot.sourceID
+        else { return false }
+        var snapshot = snapshot
+        if preservingCharacters,
+           current.snapshots[snapshot.source.rawValue]?.sourceID == snapshot.sourceID {
+            snapshot.characters = current.snapshots[snapshot.source.rawValue]?.characters
+        }
         current.snapshots[snapshot.source.rawValue] = snapshot
         try saveRecord(current, for: identity)
         return true
@@ -158,22 +173,55 @@ public actor GameMetadataStore {
         guard cachedCoverURL(for: url) == nil else { return }
         try await networkAccess()
         guard url.scheme == "https" else { throw URLError(.unsupportedURL) }
-        var request = URLRequest(url: url, timeoutInterval: 20)
-        request.setValue("Whisky/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200 ..< 300).contains(http.statusCode),
-              response.mimeType?.hasPrefix("image/") == true,
-              !data.isEmpty, data.count <= 15 * 1_024 * 1_024
-        else {
-            throw URLError(.badServerResponse)
+        pruneArtworkFailures(now: Date())
+        if let until = artworkFailures[url] {
+            guard until <= Date() else { throw URLError(.resourceUnavailable) }
+            artworkFailures[url] = nil
         }
-        try Task.checkCancellation()
+        if let download = artworkDownloads[url] {
+            try await waitForArtworkDownload(url: url, generation: download.generation)
+            try Task.checkCancellation()
+            return
+        }
+        let limiter = artworkLimiter(for: session)
         let location = coverLocation(for: url)
-        try FileManager.default.createDirectory(
-            at: location.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try data.write(to: location, options: .atomic)
+        let generation = UUID()
+        let worker = Task {
+            let request = {
+                var request = URLRequest(url: url, timeoutInterval: 20)
+                request.setValue("Whisky/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
+                return request
+            }()
+            do {
+                let data = try await limiter.download(host: url.host ?? "") {
+                    try await networkAccess()
+                    try Task.checkCancellation()
+                    return try await ArtworkDataLoader.download(request, configuration: session.configuration)
+                }
+                try Task.checkCancellation()
+                completeArtworkDownload(
+                    url: url, generation: generation, data: data, location: location
+                )
+            } catch {
+                failArtworkDownload(url: url, generation: generation, error: error)
+            }
+        }
+        artworkDownloads[url] = ArtworkDownloadRecord(generation: generation, worker: worker)
+        try await waitForArtworkDownload(url: url, generation: generation)
+        try Task.checkCancellation()
+    }
+
+    private func artworkLimiter(for session: URLSession) -> ArtworkTransportLimiter {
+        if session === URLSession.shared {
+            return .shared
+        }
+        let identifier = ObjectIdentifier(session)
+        if let existing = artworkLimiters[identifier] {
+            return existing
+        }
+        let created = ArtworkTransportLimiter(minInterval: 0)
+        artworkLimiters[identifier] = created
+        return created
     }
 
     /// Copies saved metadata, manual-unlink markers, and cached cover artwork to another bottle's store.
@@ -238,6 +286,93 @@ public actor GameMetadataStore {
     private nonisolated func location(for identity: String) -> URL {
         let digest = LibraryStorageLayout.key(identity)
         return directory.appendingPathComponent(digest).appendingPathExtension("json")
+    }
+}
+
+private extension GameMetadataStore {
+    func waitForArtworkDownload(url: URL, generation: UUID) async throws {
+        let consumer = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                guard var download = artworkDownloads[url], download.generation == generation else {
+                    continuation.resume(throwing: URLError(.resourceUnavailable))
+                    return
+                }
+                guard !Task.isCancelled else {
+                    if download.consumers.isEmpty {
+                        artworkDownloads[url] = nil
+                        download.worker.cancel()
+                    }
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                download.consumers[consumer] = continuation
+                artworkDownloads[url] = download
+                if Task.isCancelled {
+                    Task { cancelArtworkConsumer(url: url, generation: generation, consumer: consumer) }
+                }
+            }
+        } onCancel: {
+            Task { await cancelArtworkConsumer(url: url, generation: generation, consumer: consumer) }
+        }
+    }
+
+    func cancelArtworkConsumer(url: URL, generation: UUID, consumer: UUID) {
+        guard var download = artworkDownloads[url], download.generation == generation,
+              let continuation = download.consumers.removeValue(forKey: consumer)
+        else { return }
+        continuation.resume(throwing: CancellationError())
+        if download.consumers.isEmpty {
+            artworkDownloads[url] = nil
+            download.worker.cancel()
+        } else {
+            artworkDownloads[url] = download
+        }
+    }
+
+    func completeArtworkDownload(url: URL, generation: UUID, data: Data, location: URL) {
+        guard let download = artworkDownloads[url], download.generation == generation else { return }
+        guard !download.consumers.isEmpty else {
+            artworkDownloads[url] = nil
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(
+                at: location.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try data.write(to: location, options: .atomic)
+        } catch {
+            failArtworkDownload(url: url, generation: generation, error: error)
+            return
+        }
+        artworkDownloads[url] = nil
+        artworkFailures[url] = nil
+        download.consumers.values.forEach { $0.resume() }
+    }
+
+    func failArtworkDownload(url: URL, generation: UUID, error: any Error) {
+        guard let download = artworkDownloads[url], download.generation == generation else { return }
+        artworkDownloads[url] = nil
+        let urlError = error as? URLError
+        let networkIsOffline = urlError?.code == .notConnectedToInternet
+        if !download.consumers.isEmpty, !(error is CancellationError), !networkIsOffline, !Task.isCancelled {
+            let retryAfter = (error as? ArtworkRateLimitError)?.retryAfter ?? 30
+            artworkFailures[url] = Date().addingTimeInterval(max(30, retryAfter))
+            pruneArtworkFailures(now: Date(), preserving: url)
+        }
+        download.consumers.values.forEach { $0.resume(throwing: error) }
+    }
+
+    func pruneArtworkFailures(now: Date, preserving urlToKeep: URL? = nil) {
+        artworkFailures = artworkFailures.filter { $0.value > now }
+        let excess = artworkFailures.count - Self.maximumArtworkFailureEntries
+        guard excess > 0 else { return }
+        let removable = artworkFailures
+            .filter { artworkDownloads[$0.key] == nil && $0.key != urlToKeep }
+            .sorted { $0.value < $1.value }
+        for (url, _) in removable.prefix(excess) {
+            artworkFailures[url] = nil
+        }
     }
 }
 

@@ -884,7 +884,8 @@ extension LibraryGameSheet {
             let chars = try await provider.fetchCharacters(for: current)
             try Task.checkCancellation()
             guard var updated = metadata,
-                  updated.source == current.source, updated.sourceID == current.sourceID else { return }
+                  updated.source == current.source, updated.sourceID == current.sourceID
+            else { return }
             updated.characters = chars
             try await store.save(updated, for: item.metadataIdentity)
             metadata = updated

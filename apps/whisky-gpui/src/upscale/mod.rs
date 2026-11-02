@@ -17,6 +17,8 @@ use std::path::{Path, PathBuf};
 
 mod cache;
 
+pub(crate) const SUPPORTED: bool = cfg!(target_os = "macos");
+
 #[cfg(target_os = "macos")]
 mod anime4k;
 
@@ -118,7 +120,7 @@ fn dimensions(source: &Path) -> Option<(u32, u32)> {
 /// The derived cover for `source`, or `None` when it cannot be produced — the
 /// caller then keeps drawing the original.
 pub(crate) fn upscaled_cover(source: &Path, passes: u8, engine: Engine) -> Option<PathBuf> {
-    if !source.is_absolute() || passes == 0 {
+    if !SUPPORTED || !source.is_absolute() || passes == 0 {
         return None;
     }
     let (width, height) = dimensions(source)?;
@@ -206,6 +208,19 @@ fn wide(rgba: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
 #[cfg(not(target_os = "macos"))]
 fn wide(_rgba: &[u8], _width: u32, _height: u32) -> Option<Vec<u8>> {
     None
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod platform_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_platform_never_starts_an_upscaler() {
+        assert!(!SUPPORTED);
+        for engine in [Engine::Anime4K, Engine::RealCugan] {
+            assert!(upscaled_cover(Path::new("/unused-cover.png"), 1, engine).is_none());
+        }
+    }
 }
 
 #[cfg(test)]

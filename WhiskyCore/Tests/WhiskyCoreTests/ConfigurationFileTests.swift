@@ -155,7 +155,8 @@ struct ConfigurationFileTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let file = root.appendingPathComponent("Metadata.plist")
         try write(["graphicsConfig": ["future": "retained", "hostMemoryImport": false]], to: file)
-        let field = try #require(ContainerConfiguration.fields(for: .macOS).first { $0.id == "shadowImportedHostMemory" })
+        let field = try #require(ContainerConfiguration.fields(for: .macOS)
+            .first { $0.id == "shadowImportedHostMemory" })
         #expect(!ContainerConfiguration.fields(for: .linux).contains { $0.id == field.id })
         #expect(field.defaultValue == .boolean(false))
         let store = ConfigurationFile(url: file, locking: Lock())

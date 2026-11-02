@@ -35,6 +35,7 @@ extension LibraryMetadataService {
     ) throws -> JSONValue {
         let container = try workspace.resolve(params)
         let preferred = try defaultRecord().defaultSource
+        let includeCharacters = try includeCharacters(params)
         let enabled = try enabledSources(params).filter { $0 != .hikarinagi }
         let sources = enabled.filter { $0 == preferred } + enabled.filter { $0 != preferred }
         let providers = sources.map { PublicGameMetadataProvider(
@@ -89,13 +90,14 @@ extension LibraryMetadataService {
                     providers: providers,
                     store: candidateStore,
                     visibility: visibility,
-                    includeCharacters: params["includeCharacters"]?.bool ?? true
+                    includeCharacters: includeCharacters
                 )
                 matched += outcome.matched
                 failed += outcome.failed
                 let freshRecord = outcome.record
                 if automatic,
                    let folderKey,
+                   outcome.failed == 0,
                    !outcome.allProvidersFailed {
                     // Providers answered; the initial match is complete even
                     // without a candidate, so do not retry on the next pass.
@@ -148,7 +150,7 @@ extension LibraryMetadataService {
         do {
             let details = try await PublicGameMetadataProvider(
                 source: candidate.source, session: session, networkAccess: networkAccess
-            ).details(for: candidate)
+            ).details(for: candidate, includeCharacters: includeCharacters)
             var metadataRecord = try defaultRecord()
             metadataRecord.defaultSource = details.source
             metadataRecord.bindings[details.source.rawValue] = details.sourceID

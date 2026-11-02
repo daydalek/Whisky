@@ -208,7 +208,8 @@ public struct EntryRecord: Codable, Sendable {
         characterImages = Dictionary(
             (metadata?.characters ?? []).compactMap { character in
                 guard let url = character.imageURL,
-                      let cached = store.cachedCoverURL(for: url) else { return nil }
+                      let cached = store.cachedCoverURL(for: url)
+                else { return nil }
                 return (character.id, cached.path)
             },
             uniquingKeysWith: { first, _ in first }

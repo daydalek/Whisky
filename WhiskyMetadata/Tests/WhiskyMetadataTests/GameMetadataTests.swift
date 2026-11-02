@@ -251,7 +251,15 @@ struct GameMetadataTests {
         #expect(first.first?.thumbnailURL?.absoluteString == "https://example.org/thumb.jpg")
         #expect(CountingNetworkProtocol.requestCount == 1)
         #expect(PublicGameMetadataProvider.parseRetryAfter("45") == 45)
-        #expect(PublicGameMetadataProvider.parseRetryAfter("9999") == 300)
+        #expect(PublicGameMetadataProvider.parseRetryAfter("9999") == 9_999)
+        #expect(PublicGameMetadataProvider.parseRetryAfter("inf") == nil)
+        #expect(PublicGameMetadataProvider.parseRetryAfter("nan") == nil)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss z"
+        let longHTTPDate = formatter.string(from: Date().addingTimeInterval(3_600))
+        #expect((PublicGameMetadataProvider.parseRetryAfter(longHTTPDate) ?? 0) > 3_500)
     }
 
     @Test func localChineseTitleAllowsKatakanaMiddleDot() {
@@ -530,7 +538,7 @@ extension GameMetadataStore {
     init(directory: URL) { self.init(directory: directory, networkAccess: {}) }
 }
 
-private final class CharacterTimeoutProtocol: URLProtocol {
+private class CharacterTimeoutProtocol: URLProtocol {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var attempts: [String: Int] = [:]
 
@@ -551,7 +559,11 @@ private final class CharacterTimeoutProtocol: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.timedOut))
             return
         }
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)
+        else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(#"[{"id":1,"name":"Character","relation":"主角"}]"#.utf8))
         client?.urlProtocolDidFinishLoading(self)

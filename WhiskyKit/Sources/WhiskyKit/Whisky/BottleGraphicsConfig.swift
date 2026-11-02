@@ -216,7 +216,8 @@ public struct BottleGraphicsConfig: Codable, Equatable {
         // Off for a bottle written before the key existed, which is the same
         // answer the property default gives a new one.
         self.frameGeneration = (try? container.decodeIfPresent(Bool.self, forKey: .frameGeneration)) ?? false
-        self.shadowImportedHostMemory = (try? container.decodeIfPresent(Bool.self, forKey: .shadowImportedHostMemory)) ?? false
+        self.shadowImportedHostMemory =
+            (try? container.decodeIfPresent(Bool.self, forKey: .shadowImportedHostMemory)) ?? false
         self.hostMemoryImport = (try? container.decodeIfPresent(Bool.self, forKey: .hostMemoryImport)) ?? true
     }
 

@@ -70,6 +70,28 @@ Apache-2.0 attribution; the Apache text is supplied in `swift-argument-parser.tx
 Swift Runtime Library Exception, where supplied upstream, are preserved in
 `swift-docc-plugin.txt` and `swift-docc-symbolkit.txt`.
 
+## Bundled shader source
+
+- **Anime4K CNN x2 S** — <https://github.com/bloc97/Anime4K>; MIT, copyright
+  2019–2021 bloc97; full text in `Anime4K.txt`. The GPUI library's cover
+  upscaler (`apps/whisky-gpui/src/upscale/anime4k.metal`) is that network's four
+  convolutions and its depth-to-space pass, translated to Metal by this fork's
+  sibling Wine repository and kept verbatim, licence header included. Weights
+  are part of the shader; no model file is distributed. `anime4k.rs` supplies the
+  dispatch code written for this application.
+
+## Bundled model weights
+
+- **Real-CUGAN models-se `up2x-no-denoise`** — <https://github.com/bilibili/ailab>
+  (Real-CUGAN) and <https://github.com/nihui/realcugan-ncnn-vulkan>; MIT for both;
+  full texts in `RealCUGAN-bilibili-MIT.txt` and `RealCUGAN-ncnn-MIT.txt`. The
+  ncnn graph is converted to a fixed-size Core ML program by this fork
+  (`convert-realcugan-coreml.py`) and shipped as
+  `realcugan-384x384.mlpackage`; `realcugan-helper` tiles a cover into that
+  window, blends the overlaps, and writes the enlarged PNG. Weights are MIT and
+  were checked against the digest pinned in `dependencies.json` before
+  conversion.
+
 ## Metadata design reference and data attribution
 
 The metadata provider design references PotatoVN by GoldenPotato137:

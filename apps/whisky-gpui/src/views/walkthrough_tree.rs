@@ -439,7 +439,7 @@ impl WhiskyApp {
                         ),
                     )
                     .child(
-                        muted("点击路线节点阅读步骤 · 拖动或滚动平移 · 捏合或 ⌘ + 滚轮缩放")
+                        muted(crate::platform::ZOOM_HINT)
                             .text_size(px(10.)),
                     ),
             )

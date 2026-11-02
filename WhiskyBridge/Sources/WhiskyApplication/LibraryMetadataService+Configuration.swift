@@ -1,3 +1,21 @@
+//
+//  LibraryMetadataService+Configuration.swift
+//  WhiskyApplication
+//
+//  This file is part of Whisky.
+//
+//  Whisky is free software: you can redistribute it and/or modify it under the terms
+//  of the GNU General Public License as published by the Free Software Foundation,
+//  either version 3 of the License, or (at your option) any later version.
+//
+//  Whisky is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+//  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+//  See the GNU General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License along with Whisky.
+//  If not, see https://www.gnu.org/licenses/.
+//
+
 import Foundation
 import WhiskyBridgeProtocol
 import WhiskyCore
@@ -10,6 +28,7 @@ extension LibraryMetadataService {
         let existing = try await store.loadRecord(for: entry.metadataIdentity)
         var record = try existing ?? defaultRecord()
         var errors: [String: JSONValue] = [:]
+        let includeCharacters = try includeCharacters(params)
         if method == "metadata.configuration.save" {
             guard let value = params["record"] else {
                 throw BridgeFailure("invalid_params", "Missing metadata record")
@@ -22,7 +41,7 @@ extension LibraryMetadataService {
             if let existing {
                 for (source, snapshot) in existing.snapshots
                     where existing.bindings[source] == snapshot.sourceID
-                        && record.bindings[source] == snapshot.sourceID {
+                    && record.bindings[source] == snapshot.sourceID {
                     record.snapshots[source] = snapshot
                 }
             }
@@ -43,7 +62,7 @@ extension LibraryMetadataService {
                     guard !unchanged else { continue }
                     let snapshot = try await PublicGameMetadataProvider(
                         source: source, session: session, networkAccess: networkAccess
-                    ).refresh(sourceID: id)
+                    ).refresh(sourceID: id, includeCharacters: includeCharacters)
                     guard snapshot.sourceID == id else { throw URLError(.badServerResponse) }
                     record.snapshots[key] = snapshot
                     if let cover = snapshot.coverURL { hydratedCovers.append(cover) }
@@ -60,11 +79,16 @@ extension LibraryMetadataService {
                 do {
                     let snapshot = try await PublicGameMetadataProvider(
                         source: source, session: session, networkAccess: networkAccess
-                    ).refresh(sourceID: id)
+                    ).refresh(sourceID: id, includeCharacters: includeCharacters)
                     guard snapshot.sourceID == id else { throw URLError(.badServerResponse) }
                     // Re-read after network suspension: don't resurrect an old binding
                     // or overwrite another editor's manual changes.
-                    guard try await store.updateSnapshot(snapshot, for: entry.metadataIdentity) else { continue }
+                    guard try await store.updateSnapshot(
+                        snapshot,
+                        for: entry.metadataIdentity,
+                        preservingCharacters: !includeCharacters
+                    )
+                    else { continue }
                     if let cover = snapshot.coverURL { try? await store.cacheCover(from: cover, session: session) }
                 } catch {
                     errors[source.rawValue] = .string(error.localizedDescription)
@@ -90,7 +114,8 @@ extension LibraryMetadataService {
         let categories: Set<String> = ["basic", "summary", "cover", "characters"]
         guard record.version == 1, record.defaultSource != .hikarinagi,
               Set(record.categorySources.keys).isSubset(of: categories),
-              !record.categorySources.values.contains(.hikarinagi) else {
+              !record.categorySources.values.contains(.hikarinagi)
+        else {
             throw BridgeFailure("invalid_params", "Unsupported metadata strategy")
         }
         for (key, id) in record.bindings {
@@ -115,5 +140,11 @@ extension LibraryMetadataService {
             }
         }
         return record
+    }
+
+    func includeCharacters(_ params: [String: JSONValue]) throws -> Bool {
+        if let explicit = params["includeCharacters"]?.bool { return explicit }
+        let values = try preferences?.call("preferences.read", params: [:]).object ?? [:]
+        return values["libraryMetadataScrapeCharacters"]?.bool ?? true
     }
 }
