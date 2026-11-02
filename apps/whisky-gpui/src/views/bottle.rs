@@ -378,6 +378,12 @@ impl WhiskyApp {
                                     .when(value.as_str() == Some("realcugan"), |d| {
                                         d.child(muted("保留静态细节；文字与光标变化即时显示。"))
                                     })
+                                    .when(value.as_str() == Some("adaptive-realesrgan"), |d| {
+                                        d.child(muted("局部变化即时显示；静止约 200 毫秒后异步补充 AnimeVideo-v3 细节。"))
+                                    })
+                                    .when(value.as_str() == Some("realesrgan"), |d| {
+                                        d.child(muted("以 AnimeVideo-v3 保留静态细节；文字与光标变化即时显示。"))
+                                    })
                             }),
                     )
                     .child(
@@ -638,6 +644,8 @@ impl WhiskyApp {
                                 "Anime4K",
                                 "Real-CUGAN",
                                 "动态 MetalFX／静态 Real-CUGAN",
+                                "AnimeVideo-v3",
+                                "动态 MetalFX／静态 AnimeVideo-v3",
                             ],
                             cx,
                         ),

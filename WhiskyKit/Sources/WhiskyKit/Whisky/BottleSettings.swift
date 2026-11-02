@@ -987,7 +987,22 @@ public struct BottleSettings: Codable, Equatable {
 
         // GDI presentation belongs to the macOS window driver and applies
         // independently of the bottle's Direct3D translation backend.
-        builder.set("WINE_GDI_UPSCALER", gdiUpscaler.rawValue, layer: .bottleManaged)
+        let gdiUpscalerValue: String
+        let neuralModel: String
+        switch gdiUpscaler {
+        case .realesrgan:
+            gdiUpscalerValue = "realcugan"
+            neuralModel = "animevideov3"
+        case .adaptiveRealesrgan:
+            gdiUpscalerValue = "adaptive"
+            neuralModel = "animevideov3"
+        default:
+            gdiUpscalerValue = gdiUpscaler.rawValue
+            neuralModel = "realcugan"
+        }
+        builder.set("WINE_GDI_UPSCALER", gdiUpscalerValue, layer: .bottleManaged)
+        // An older runtime ignores WINE_GDI_NEURAL_MODEL and runs Real-CUGAN.
+        builder.set("WINE_GDI_NEURAL_MODEL", neuralModel, layer: .bottleManaged)
         builder.set("WINE_METALFX", gdiUpscaler == .metalfx ? "spatial" : "off", layer: .bottleManaged)
 
         // Enhanced sync mode

@@ -60,6 +60,30 @@ startup checks respect the update and offline preferences. Bundled Wine acts as
 a fallback; `WHISKY_WINE_RUNTIME` selects an externally managed fixed path.
 See the [Linux Wine update contract](../../docs/gpui-port/LINUX_WINE_UPDATES.md).
 
+### Linux cover upscaling
+
+Cover upscaling on Linux drives a locally installed `realcugan-ncnn-vulkan`
+binary plus its `models-se` directory (the `up2x-no-denoise.param`/`.bin`
+pair); nothing is downloaded or bundled. Discovery looks next to the
+executable, then on `PATH` for the exact name, and checks `models-se` beside
+the helper before the usual `/usr` and `/usr/local` share directories. Two
+environment variables pin explicit paths and fail closed when set but invalid:
+
+```sh
+export WHISKY_REALCUGAN_HELPER=/opt/tools/realcugan-ncnn-vulkan
+export WHISKY_REALCUGAN_MODELS=/opt/tools/models-se
+```
+
+Discovery runs once at launch, so restart the app after installing the helper
+or changing these variables. Settings offers Real-CUGAN on Vulkan GPU (the
+helper picks a device) or on CPU (`-g -1`); GPU availability is only proven at
+inference time — a driver or runtime failure keeps the original cover rather
+than showing a broken one. CPU mode needs no GPU device, though the binary
+itself may still require a Vulkan loader or Vulkan-capable build at runtime,
+and it is much slower. When the helper or models are missing the controls stay
+visible with a hint and the batch button is disabled. Each x2 pass is capped at
+two minutes; cancelling a batch kills the in-flight pass.
+
 ## Bridge helper
 
 The helper is the SwiftPM executable product `whisky-bridge` from

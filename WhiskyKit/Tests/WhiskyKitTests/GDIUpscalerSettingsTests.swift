@@ -27,6 +27,8 @@ final class GDIUpscalerSettingsTests: XCTestCase {
             (["metalFXSpatial": true, "gdiUpscaler": "off"], .off),
             (["metalFXSpatial": true, "gdiUpscaler": "anime4k"], .anime4k),
             (["gdiUpscaler": "realcugan"], .realcugan),
+            (["gdiUpscaler": "realesrgan"], .realesrgan),
+            (["gdiUpscaler": "adaptive-realesrgan"], .adaptiveRealesrgan),
             (["gdiUpscaler": "future-algorithm"], .off),
             (["gdiUpscaler": 42], .off)
         ]
@@ -54,6 +56,12 @@ final class GDIUpscalerSettingsTests: XCTestCase {
     }
 
     func testEveryAlgorithmReachesLaunchEnvironmentAcrossBackends() {
+        // The Wine driver keeps only the original WINE_GDI_UPSCALER vocabulary;
+        // Real-ESRGAN selections ride the neural-model variable instead.
+        let upscalerValue: [GDIUpscaler: String] = [
+            .realesrgan: "realcugan",
+            .adaptiveRealesrgan: "adaptive"
+        ]
         for backend in [GraphicsBackend.d3dMetal, .dxvk, .dxmt, .wined3d] {
             var settings = BottleSettings()
             settings.graphicsBackend = backend
@@ -61,7 +69,11 @@ final class GDIUpscalerSettingsTests: XCTestCase {
                 settings.gdiUpscaler = algorithm
                 var builder = EnvironmentBuilder()
                 _ = settings.populateBottleManagedLayer(builder: &builder, builtinD3D12IsD3DMetal: false)
-                XCTAssertEqual(builder.resolve().environment["WINE_GDI_UPSCALER"], algorithm.rawValue)
+                XCTAssertEqual(builder.resolve().environment["WINE_GDI_UPSCALER"],
+                               upscalerValue[algorithm] ?? algorithm.rawValue)
+                XCTAssertEqual(builder.resolve().environment["WINE_GDI_NEURAL_MODEL"],
+                               [.realesrgan, .adaptiveRealesrgan].contains(algorithm)
+                               ? "animevideov3" : "realcugan")
                 XCTAssertEqual(builder.resolve().environment["WINE_METALFX"], algorithm == .metalfx ? "spatial" : "off")
                 XCTAssertEqual(settings.graphicsBackend, backend)
                 XCTAssertFalse(settings.frameGeneration)

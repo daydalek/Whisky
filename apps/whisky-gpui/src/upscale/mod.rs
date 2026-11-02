@@ -14,13 +14,15 @@
 //! larger than any card.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 
 mod cache;
 
-pub(crate) const SUPPORTED: bool = cfg!(target_os = "macos");
-
 #[cfg(target_os = "macos")]
 mod anime4k;
+
+#[cfg(any(target_os = "linux", test))]
+mod linux;
 
 /// Two passes are 4x. A third would be 8x, which no card asks for.
 const MAX_PASSES: u8 = 2;
@@ -36,13 +38,38 @@ static WORKER: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub(crate) enum Engine {
     Anime4K,
     RealCugan,
+    RealCuganCpu,
 }
 
 impl Engine {
     pub(crate) fn from_raw(raw: &str) -> Self {
         match raw {
             "realcugan" => Self::RealCugan,
+            "realcugan-cpu" => Self::RealCuganCpu,
+            "anime4k" => Self::Anime4K,
             _ => Self::Anime4K,
+        }
+        .platform_default()
+    }
+
+    fn platform_default(self) -> Self {
+        #[cfg(target_os = "macos")]
+        {
+            match self {
+                Self::RealCuganCpu => Self::RealCugan,
+                engine => engine,
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            match self {
+                Self::RealCuganCpu => Self::RealCuganCpu,
+                _ => Self::RealCugan,
+            }
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            self
         }
     }
 
@@ -50,8 +77,69 @@ impl Engine {
         match self {
             Self::Anime4K => "anime4k",
             Self::RealCugan => "realcugan",
+            Self::RealCuganCpu => "realcugan-cpu",
         }
     }
+
+    fn available(self) -> bool {
+        match self {
+            Self::Anime4K => cfg!(target_os = "macos"),
+            Self::RealCugan => {
+                cfg!(target_os = "macos") || cfg!(any(target_os = "linux", test))
+            }
+            Self::RealCuganCpu => cfg!(any(target_os = "linux", test)),
+        }
+    }
+
+    fn ncnn(self) -> bool {
+        match self {
+            Self::RealCugan => cfg!(target_os = "linux"),
+            Self::RealCuganCpu => cfg!(any(target_os = "linux", test)),
+            Self::Anime4K => false,
+        }
+    }
+}
+
+pub(crate) fn engines() -> &'static [Engine] {
+    #[cfg(target_os = "macos")]
+    {
+        &[Engine::RealCugan, Engine::Anime4K]
+    }
+    #[cfg(target_os = "linux")]
+    {
+        &[Engine::RealCugan, Engine::RealCuganCpu]
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        &[]
+    }
+}
+
+pub(crate) fn supported() -> bool {
+    !engines().is_empty()
+}
+
+pub(crate) fn ready() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        true
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux::config().is_some()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        false
+    }
+}
+
+fn cache_key(engine: Engine) -> Option<String> {
+    #[cfg(any(target_os = "linux", test))]
+    if engine.ncnn() {
+        return linux::config().map(|config| config.key(engine));
+    }
+    Some(engine.raw().to_owned())
 }
 
 /// How hard the option works on a cover.
@@ -120,7 +208,19 @@ fn dimensions(source: &Path) -> Option<(u32, u32)> {
 /// The derived cover for `source`, or `None` when it cannot be produced — the
 /// caller then keeps drawing the original.
 pub(crate) fn upscaled_cover(source: &Path, passes: u8, engine: Engine) -> Option<PathBuf> {
-    if !SUPPORTED || !source.is_absolute() || passes == 0 {
+    upscaled_cover_with_cancel(source, passes, engine, &AtomicBool::new(false))
+}
+
+pub(crate) fn upscaled_cover_with_cancel(
+    source: &Path,
+    passes: u8,
+    engine: Engine,
+    cancel: &AtomicBool,
+) -> Option<PathBuf> {
+    if !engine.available() || !source.is_absolute() || passes == 0 {
+        return None;
+    }
+    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
         return None;
     }
     let (width, height) = dimensions(source)?;
@@ -131,20 +231,69 @@ pub(crate) fn upscaled_cover(source: &Path, passes: u8, engine: Engine) -> Optio
     if passes == 0 {
         return None;
     }
-    let derived = cache::location(source, passes, engine.raw())?;
-    if derived.exists() {
+    let derived = cache::location(source, passes, &cache_key(engine)?)?;
+    let expected = (width << passes, height << passes);
+    if cached(&derived, engine, expected) {
         return Some(derived);
     }
     // One cover at a time: a four-times derivation holds hundreds of megabytes
     // of float buffers, and the worker pool would otherwise run several.
     let _worker = WORKER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if derived.exists() {
+    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    if cached(&derived, engine, expected) {
         return Some(derived);
     }
     match engine {
+        Engine::RealCugan | Engine::RealCuganCpu if engine.ncnn() => {
+            ncnn_cover(source, passes, engine, &derived, expected, cancel)
+        }
         Engine::Anime4K => anime4k_cover(source, passes, &derived),
         Engine::RealCugan => realcugan_cover(source, passes, &derived),
+        Engine::RealCuganCpu => None,
     }
+}
+
+fn cached(derived: &Path, engine: Engine, expected: (u32, u32)) -> bool {
+    if !derived.exists() {
+        return false;
+    }
+    !engine.ncnn() || valid_ncnn(derived, expected)
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn valid_ncnn(path: &Path, expected: (u32, u32)) -> bool {
+    linux::valid_output(path, expected)
+}
+
+#[cfg(not(any(target_os = "linux", test)))]
+fn valid_ncnn(_path: &Path, _expected: (u32, u32)) -> bool {
+    false
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn ncnn_cover(
+    source: &Path,
+    passes: u8,
+    engine: Engine,
+    derived: &Path,
+    expected: (u32, u32),
+    cancel: &AtomicBool,
+) -> Option<PathBuf> {
+    linux::derive(linux::config()?, source, passes, engine, derived, expected, cancel)
+}
+
+#[cfg(not(any(target_os = "linux", test)))]
+fn ncnn_cover(
+    _source: &Path,
+    _passes: u8,
+    _engine: Engine,
+    _derived: &Path,
+    _expected: (u32, u32),
+    _cancel: &AtomicBool,
+) -> Option<PathBuf> {
+    None
 }
 
 /// Runs the in-process Metal network for each pass.
@@ -210,14 +359,15 @@ fn wide(_rgba: &[u8], _width: u32, _height: u32) -> Option<Vec<u8>> {
     None
 }
 
-#[cfg(all(test, not(target_os = "macos")))]
+#[cfg(all(test, not(any(target_os = "macos", target_os = "linux"))))]
 mod platform_tests {
     use super::*;
 
     #[test]
     fn unsupported_platform_never_starts_an_upscaler() {
-        assert!(!SUPPORTED);
-        for engine in [Engine::Anime4K, Engine::RealCugan] {
+        assert!(!supported());
+        assert!(engines().is_empty());
+        for engine in [Engine::Anime4K, Engine::RealCugan, Engine::RealCuganCpu] {
             assert!(upscaled_cover(Path::new("/unused-cover.png"), 1, engine).is_none());
         }
     }
@@ -257,8 +407,8 @@ mod tests {
         let cover = PathBuf::from(path);
         let (width, height) = dimensions(&cover).expect("cover readable");
         let passes = capped_passes(2, width, height);
-        for engine in [Engine::Anime4K, Engine::RealCugan] {
-            let derived = upscaled_cover(&cover, passes, engine);
+        for engine in engines() {
+            let derived = upscaled_cover(&cover, passes, *engine);
             let size = derived.as_ref().and_then(|path| dimensions(path));
             println!("{engine:?}: {derived:?} -> {size:?}");
             assert!(derived.is_some(), "{engine:?} produced nothing");
@@ -267,9 +417,26 @@ mod tests {
 
     #[test]
     fn every_engine_round_trips_its_raw_value() {
-        for engine in [Engine::Anime4K, Engine::RealCugan] {
-            assert_eq!(Engine::from_raw(engine.raw()), engine);
+        for engine in engines() {
+            assert_eq!(Engine::from_raw(engine.raw()), *engine);
         }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn macos_mapping_keeps_both_bundled_engines() {
+        assert_eq!(Engine::from_raw("anime4k"), Engine::Anime4K);
+        assert_eq!(Engine::from_raw("realcugan"), Engine::RealCugan);
         assert_eq!(Engine::from_raw("nonsense"), Engine::Anime4K);
+        assert_eq!(Engine::from_raw("realcugan-cpu"), Engine::RealCugan);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn linux_mapping_folds_apple_engines_into_realcugan() {
+        assert_eq!(Engine::from_raw("anime4k"), Engine::RealCugan);
+        assert_eq!(Engine::from_raw("nonsense"), Engine::RealCugan);
+        assert_eq!(Engine::from_raw("realcugan"), Engine::RealCugan);
+        assert_eq!(Engine::from_raw("realcugan-cpu"), Engine::RealCuganCpu);
     }
 }

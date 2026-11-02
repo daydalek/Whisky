@@ -455,14 +455,16 @@ mod tests {
                 {"id": "metalfx", "title": "MetalFX Spatial"},
                 {"id": "anime4k", "title": "Anime4K"},
                 {"id": "realcugan", "title": "Real-CUGAN"},
-                {"id": "adaptive", "title": "动态快速缩放／静态 Real-CUGAN"}
+                {"id": "adaptive", "title": "动态快速缩放／静态 Real-CUGAN"},
+                {"id": "realesrgan", "title": "Real-ESRGAN AnimeVideo-v3"},
+                {"id": "adaptive-realesrgan", "title": "动态快速缩放／静态 AnimeVideo-v3"}
             ]
         }]);
         let mac = decode_schema(&schema, "macos").unwrap();
         assert_eq!(mac.len(), 1);
         assert_eq!(section_for(&mac[0].id).id, "graphics");
-        assert_eq!(mac[0].kind.options().len(), 5);
-        assert_eq!(mac[0].kind.options()[4].id, "adaptive");
+        assert_eq!(mac[0].kind.options().len(), 7);
+        assert_eq!(mac[0].kind.options()[6].id, "adaptive-realesrgan");
         assert!(decode_schema(&schema, "linux").unwrap().is_empty());
         let mut legacy = schema;
         legacy[0]["platforms"] = json!([]);

@@ -91,6 +91,16 @@ struct GraphicsConfigSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if bottle.settings.gdiUpscaler == .adaptiveRealesrgan {
+                Text(verbatim: "变化时使用 MetalFX；画面稳定 250 毫秒后使用后台 AnimeVideo-v3 结果。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if bottle.settings.gdiUpscaler == .realesrgan {
+                Text(verbatim: "AnimeVideo-v3 后台增强静止画面，自动选择可用的推理加速。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             // MetalFX rides on D3DMetal's DLSS bridge and Metal 4 is D3DMetal's
             // own command-encoding backend, so both are meaningless under any

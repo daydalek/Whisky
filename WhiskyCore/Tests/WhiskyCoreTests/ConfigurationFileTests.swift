@@ -20,6 +20,9 @@ import Foundation
 import Testing
 @testable import WhiskyCore
 
+private let gdiUpscalerChoices = ["off", "metalfx", "anime4k", "realcugan", "adaptive",
+                                  "realesrgan", "adaptive-realesrgan"]
+
 @Suite("Portable configuration transactions")
 struct ConfigurationFileTests {
     final class Lock: ActivityFileLocking, @unchecked Sendable {
@@ -136,11 +139,11 @@ struct ConfigurationFileTests {
         guard case let .choice(options) = field.input else { Issue.record("Expected choice field")
             return
         }
-        #expect(options.map(\.id) == ["off", "metalfx", "anime4k", "realcugan", "adaptive"])
+        #expect(options.map(\.id) == gdiUpscalerChoices)
         let store = ConfigurationFile(url: file, locking: Lock())
         #expect(try await store.values(for: [field])[field.id] == .text("metalfx"))
         #expect(try Data(contentsOf: file) == original)
-        for option in ["off", "anime4k", "realcugan", "adaptive", "metalfx"] {
+        for option in ["off", "anime4k", "realcugan", "adaptive", "metalfx", "realesrgan", "adaptive-realesrgan"] {
             try await store.update(field, to: .text(option))
             #expect(try await store.values(for: [field])[field.id] == .text(option))
             let graphics = try #require(try document(file)["graphicsConfig"] as? [String: Any])

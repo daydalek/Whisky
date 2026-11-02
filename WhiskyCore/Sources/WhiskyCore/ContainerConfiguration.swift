@@ -134,7 +134,9 @@ public enum ContainerConfiguration {
                     .init("metalfx", "MetalFX Spatial"),
                     .init("anime4k", "Anime4K (CNN x2 S)"),
                     .init("realcugan", "Real-CUGAN (models-se x2)"),
-                    .init("adaptive", "动态快速缩放／静态 Real-CUGAN")
+                    .init("adaptive", "动态快速缩放／静态 Real-CUGAN"),
+                    .init("realesrgan", "Real-ESRGAN AnimeVideo-v3 (x2)"),
+                    .init("adaptive-realesrgan", "动态快速缩放／静态 AnimeVideo-v3")
                 ]),
                 defaultValue: .text("off"), platforms: [.macOS]
             ),

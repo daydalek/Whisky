@@ -600,6 +600,7 @@ pub(crate) struct WhiskyApp {
     /// Whole-library cover derivation while one is running.
     pub(crate) cover_batch: Option<CoverBatch>,
     cover_batch_generation: u64,
+    cover_batch_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     pub(crate) hovered: Option<usize>,
     pub(crate) ambient_index: usize,
     pub(crate) detail: Option<usize>,
@@ -783,6 +784,7 @@ impl WhiskyApp {
             cover_jobs: RefCell::new(std::collections::HashSet::new()),
             cover_batch: None,
             cover_batch_generation: 0,
+            cover_batch_cancel: None,
             hovered: None,
             ambient_index: 0,
             detail: None,
@@ -3276,12 +3278,14 @@ impl WhiskyApp {
                 // derivative has to be looked up again under the new factor.
                 self.cover_derivatives.borrow_mut().clear();
                 self.cover_jobs.borrow_mut().clear();
+                self.cancel_cover_batch();
                 self.persist(preferences::COVER_UPSCALE, json!(value), cx);
             }
             "cover-engine" => {
                 self.cover_engine = crate::upscale::Engine::from_raw(value);
                 self.cover_derivatives.borrow_mut().clear();
                 self.cover_jobs.borrow_mut().clear();
+                self.cancel_cover_batch();
                 self.persist(preferences::COVER_UPSCALE_ENGINE, json!(value), cx);
             }
             "detail-layout" => self.persist(preferences::DETAIL_LAYOUT_STYLE, json!(value), cx),
@@ -3337,6 +3341,15 @@ impl WhiskyApp {
         source
     }
 
+    fn cancel_cover_batch(&mut self) {
+        if let Some(token) = self.cover_batch_cancel.take() {
+            token.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        if self.cover_batch.take().is_some() {
+            self.cover_derivatives.borrow_mut().clear();
+        }
+    }
+
     /// Derives a cover for every entry in the library at the widest card size,
     /// so a shelf resized to the maximum never shows a soft cover again.
     ///
@@ -3344,14 +3357,20 @@ impl WhiskyApp {
     /// cache. One cover at a time, because the derivations share the worker lock
     /// with the on-demand path.
     pub(crate) fn start_cover_batch(&mut self, cx: &mut Context<Self>) {
-        if !crate::upscale::SUPPORTED {
+        if self.cover_batch.is_some() {
+            self.cancel_cover_batch();
+            cx.notify();
+            return;
+        }
+        if !crate::upscale::supported() {
             self.show_notice("当前平台不支持封面超分", cx);
             return;
         }
-        if self.cover_batch.is_some() {
-            self.cover_batch = None;
-            self.cover_derivatives.borrow_mut().clear();
-            cx.notify();
+        if !crate::upscale::ready() {
+            self.show_notice(
+                "未找到 realcugan-ncnn-vulkan 或 models-se 模型；安装或设置 WHISKY_REALCUGAN_HELPER、WHISKY_REALCUGAN_MODELS 后重启应用",
+                cx,
+            );
             return;
         }
         if self.cover_upscale == crate::upscale::Factor::Off {
@@ -3378,6 +3397,8 @@ impl WhiskyApp {
         });
         let factor = self.cover_upscale;
         let engine = self.cover_engine;
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.cover_batch_cancel = Some(cancel.clone());
         let worker = cx.spawn(async move |this, cx| {
             let mut succeeded = 0;
             for (position, cover) in covers.iter().enumerate() {
@@ -3390,18 +3411,26 @@ impl WhiskyApp {
                     return;
                 }
                 let job = cover.clone();
+                let flag = cancel.clone();
                 let produced = cx.background_spawn(async move {
                     let passes = factor.passes();
                     if passes == 0 {
                         return false;
                     }
-                    crate::upscale::upscaled_cover(&job, passes, engine).or_else(|| {
-                        crate::upscale::upscaled_cover(
-                            &job,
-                            passes,
-                            crate::upscale::Engine::Anime4K,
-                        )
-                    }).is_some()
+                    crate::upscale::upscaled_cover_with_cancel(&job, passes, engine, &flag)
+                        .or_else(|| {
+                            crate::upscale::engines()
+                                .contains(&crate::upscale::Engine::Anime4K)
+                                .then(|| {
+                                    crate::upscale::upscaled_cover_with_cancel(
+                                        &job,
+                                        passes,
+                                        crate::upscale::Engine::Anime4K,
+                                        &flag,
+                                    )
+                                })?
+                        })
+                        .is_some()
                 })
                 .await;
                 succeeded += usize::from(produced);
@@ -3422,6 +3451,7 @@ impl WhiskyApp {
                 }
                 let total = this.cover_batch.map_or(0, |batch| batch.total);
                 this.cover_batch = None;
+                this.cover_batch_cancel = None;
                 // Prepared files are already on disk; looking them up again is
                 // what makes the shelf switch over without a restart.
                 this.cover_derivatives.borrow_mut().clear();
@@ -3444,7 +3474,7 @@ impl WhiskyApp {
         engine: crate::upscale::Engine,
         cx: &mut Context<Self>,
     ) {
-        if !crate::upscale::SUPPORTED {
+        if !crate::upscale::supported() || !crate::upscale::ready() {
             return;
         }
         let key = (source.clone(), passes, engine);
@@ -3456,7 +3486,10 @@ impl WhiskyApp {
             let derived = cx
                 .background_spawn(async move {
                     crate::upscale::upscaled_cover(&job, passes, engine).or_else(|| {
-                        (engine == crate::upscale::Engine::RealCugan).then(|| {
+                        (engine == crate::upscale::Engine::RealCugan
+                            && crate::upscale::engines()
+                                .contains(&crate::upscale::Engine::Anime4K))
+                        .then(|| {
                             crate::upscale::upscaled_cover(
                                 &job,
                                 passes,

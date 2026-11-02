@@ -11,10 +11,21 @@ use crate::controls::{col, muted, row};
 use crate::preferences;
 use crate::state::WhiskyApp;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const COVER_UPSCALE_LABEL: &str = "封面超分";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const COVER_ENGINE_LABEL: &str = "超分引擎";
+
+#[cfg(target_os = "macos")]
+const COVER_ENGINES: &[(&str, &str)] = &[
+    ("Real-CUGAN（质量优先）", "realcugan"),
+    ("Anime4K（更快）", "anime4k"),
+];
+#[cfg(target_os = "linux")]
+const COVER_ENGINES: &[(&str, &str)] = &[
+    ("Real-CUGAN（Vulkan GPU）", "realcugan"),
+    ("Real-CUGAN（CPU）", "realcugan-cpu"),
+];
 
 #[cfg(not(target_os = "linux"))]
 const TERMINALS: [(&str, &str); 3] = [
@@ -35,7 +46,7 @@ const TERMINALS: [(&str, &str); 5] = [
 impl WhiskyApp {
     /// One-click derivation for the whole library, with live progress; the same
     /// button cancels a pass that is already running.
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn cover_batch_row(&self, cx: &Context<Self>) -> AnyElement {
         let running = self.cover_batch;
         let (action, detail) = match running {
@@ -48,7 +59,8 @@ impl WhiskyApp {
                 "按 320 点卡片所需的像素处理整个游戏库，已缓存的会跳过。".to_owned(),
             ),
         };
-        let disabled = running.is_none() && self.cover_upscale == crate::upscale::Factor::Off;
+        let disabled = running.is_none()
+            && (self.cover_upscale == crate::upscale::Factor::Off || !crate::upscale::ready());
         row()
             .py(px(10.))
             .gap(px(16.))
@@ -67,6 +79,19 @@ impl WhiskyApp {
                     .disabled(disabled)
                     .on_click(cx.listener(|this, _, _, cx| this.start_cover_batch(cx))),
             )
+            .into_any_element()
+    }
+
+    #[cfg(target_os = "linux")]
+    fn cover_upscale_status(&self) -> AnyElement {
+        let text = if crate::upscale::ready() {
+            "已找到 realcugan-ncnn-vulkan；Vulkan GPU 是否可用将在首次推理时检测，失败时保留原图。CPU 模式不需要 GPU 设备，但仍要求该二进制能在本机运行（含 Vulkan 加载器），且明显更慢。"
+        } else {
+            "未找到 realcugan-ncnn-vulkan 或 models-se 模型目录；安装后可设置 WHISKY_REALCUGAN_HELPER 与 WHISKY_REALCUGAN_MODELS 指定路径，重启应用后生效。"
+        };
+        row()
+            .py(px(10.))
+            .child(muted(text).line_height(relative(1.4)))
             .into_any_element()
     }
 
@@ -316,21 +341,23 @@ impl WhiskyApp {
                             cx,
                         ),
                         self.toggle("single-title", "单行显示标题", "", cx),
-                        #[cfg(target_os = "macos")]
+                        #[cfg(any(target_os = "macos", target_os = "linux"))]
                         self.choice_pairs(
                             "cover-upscale",
                             COVER_UPSCALE_LABEL,
                             &[("关闭", "off"), ("2× 实用", "x2"), ("4× 激进", "x4")],
                             cx,
                         ),
-                        #[cfg(target_os = "macos")]
+                        #[cfg(any(target_os = "macos", target_os = "linux"))]
                         self.choice_pairs(
                             "cover-engine",
                             COVER_ENGINE_LABEL,
-                            &[("Real-CUGAN（质量优先）", "realcugan"), ("Anime4K（更快）", "anime4k")],
+                            COVER_ENGINES,
                             cx,
                         ),
-                        #[cfg(target_os = "macos")]
+                        #[cfg(target_os = "linux")]
+                        self.cover_upscale_status(),
+                        #[cfg(any(target_os = "macos", target_os = "linux"))]
                         self.cover_batch_row(cx),
                         self.toggle("scrape-characters", "默认获取人物资料", "从支持的数据源获取人物、声优与头像。", cx),
                         self.toggle(
