@@ -168,21 +168,21 @@ pub(crate) fn upscaled_cover_with_cancel(
     }
     #[cfg(not(target_os = "linux"))]
     {
-    let derived = cache::location(source, passes, engine.raw())?;
-    if derived.exists() {
-        return Some(derived);
-    }
-    // One cover at a time: a four-times derivation holds hundreds of megabytes
-    // of float buffers, and the worker pool would otherwise run several.
-    let _worker = WORKER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if derived.exists() {
-        return Some(derived);
-    }
-    match engine {
-        Engine::Anime4K => anime4k_cover(source, passes, &derived),
-        Engine::RealCugan => realcugan_cover(source, passes, &derived)
-            .or_else(|| upscaled_cover_fallback(source, passes)),
-    }
+        let derived = cache::location(source, passes, engine.raw())?;
+        if derived.exists() {
+            return Some(derived);
+        }
+        // One cover at a time: a four-times derivation holds hundreds of megabytes
+        // of float buffers, and the worker pool would otherwise run several.
+        let _worker = WORKER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if derived.exists() {
+            return Some(derived);
+        }
+        match engine {
+            Engine::Anime4K => anime4k_cover(source, passes, &derived),
+            Engine::RealCugan => realcugan_cover(source, passes, &derived)
+                .or_else(|| upscaled_cover_fallback(source, passes)),
+        }
     }
 }
 

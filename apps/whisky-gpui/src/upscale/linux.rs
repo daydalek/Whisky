@@ -54,7 +54,7 @@ pub(super) fn status() -> &'static str {
     match STATUS.load(Ordering::Relaxed) {
         STATUS_READY => "组件已就绪",
         STATUS_WORKING => "正在处理封面",
-        STATUS_CPU => "GPU 不可用，正在使用 CPU",
+        STATUS_CPU => "CPU 兼容模式",
         STATUS_MISSING => "组件缺失或损坏",
         STATUS_FAILED => "超分失败，保留原图",
         _ => "组件随应用提供，首次使用时校验",
@@ -1397,32 +1397,12 @@ mod tests {
     #[test]
     #[ignore = "requires an explicitly built RealCUGAN helper and bundled models"]
     fn bundled_real_helper_upscales_extensionless_odd_rgba_image() {
-        let helper = std::env::var_os("WHISKY_REALCUGAN_HELPER")
-            .map(PathBuf::from)
-            .expect("set WHISKY_REALCUGAN_HELPER to the built helper");
-        let models = std::env::var_os("WHISKY_REALCUGAN_MODELS")
-            .map(PathBuf::from)
-            .expect("set WHISKY_REALCUGAN_MODELS to the bundled models-se directory");
-        assert!(
-            executable(&helper),
-            "built helper must be executable: {}",
-            helper.display()
-        );
-        assert!(
-            valid_models(&models),
-            "models-se payload is absent or corrupt"
-        );
+        config().expect("built helper and bundled models must be available");
         let fixture = Fixture::new("real-helper");
         let source = fixture.0.join("odd rgba cover");
         image::RgbaImage::from_pixel(7, 5, image::Rgba([7, 60, 120, 255]))
             .save_with_format(&source, image::ImageFormat::Png)
             .unwrap();
-        let old_helper = std::env::var_os("WHISKY_REALCUGAN_HELPER");
-        let old_models = std::env::var_os("WHISKY_REALCUGAN_MODELS");
-        unsafe {
-            std::env::set_var("WHISKY_REALCUGAN_HELPER", &helper);
-            std::env::set_var("WHISKY_REALCUGAN_MODELS", &models);
-        }
         let cancel = AtomicBool::new(false);
         let x2 =
             super::super::upscaled_cover_with_cancel(&source, 1, Engine::RealCuganCpu, &cancel)
@@ -1432,17 +1412,5 @@ mod tests {
             super::super::upscaled_cover_with_cancel(&source, 2, Engine::RealCuganCpu, &cancel)
                 .expect("CPU x4 real inference should succeed");
         assert_eq!(super::super::dimensions(&x4), Some((28, 20)));
-        unsafe {
-            if let Some(value) = old_helper {
-                std::env::set_var("WHISKY_REALCUGAN_HELPER", value);
-            } else {
-                std::env::remove_var("WHISKY_REALCUGAN_HELPER");
-            }
-            if let Some(value) = old_models {
-                std::env::set_var("WHISKY_REALCUGAN_MODELS", value);
-            } else {
-                std::env::remove_var("WHISKY_REALCUGAN_MODELS");
-            }
-        }
     }
 }

@@ -8,8 +8,8 @@ import platform
 import struct
 import sys
 import tarfile
-import types
 import tempfile
+import types
 import unittest
 import zipfile
 
@@ -24,11 +24,21 @@ def load(name, path):
 
 
 builder = load('upscaler_builder', TOOLS / 'build-linux-upscaler.py')
-sys.modules.setdefault('tomllib', types.ModuleType('tomllib'))
-if not hasattr(hashlib, 'file_digest'):
-    hashlib.file_digest = lambda stream, algorithm: hashlib.new(algorithm, stream.read())
-packager = load('upscaler_packager', TOOLS / 'package-linux.py')
+try:
+    import tomllib
+except ModuleNotFoundError:
+    compatibility = types.ModuleType('tomllib')
+    sys.modules['tomllib'] = compatibility
+    try:
+        packager = load('upscaler_packager', TOOLS / 'package-linux.py')
+    finally:
+        del sys.modules['tomllib']
+else:
+    packager = load('upscaler_packager', TOOLS / 'package-linux.py')
 distro = load('distribution_packager', Path(__file__).with_name('package-linux.py'))
+if not hasattr(hashlib, 'file_digest'):
+    packager.digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+    distro.digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 class UpscalerBuildTests(unittest.TestCase):
@@ -95,6 +105,49 @@ class UpscalerBuildTests(unittest.TestCase):
         (payload / model_dir / 'up2x-no-denoise.bin').write_bytes(b'tampered')
         with self.assertRaisesRegex(ValueError, 'hash mismatch'):
             packager.verify_upscaler(payload, arch)
+
+    def test_package_resource_copy_creates_manifest_parent_and_refreshes(self):
+        arch = 'aarch64' if platform.machine() in ('aarch64', 'arm64') else 'x86_64'
+        helper_rel = 'bin/realcugan-ncnn-vulkan'
+        model_dir = 'share/realcugan-ncnn-vulkan/models-se'
+        payload = self.root / 'payload'
+        helper = payload / helper_rel
+        helper.parent.mkdir(parents=True)
+        header = bytearray(64)
+        header[:6] = b'\x7fELF\x02\x01'
+        struct.pack_into('<H', header, 18, 183 if arch == 'aarch64' else 62)
+        helper.write_bytes(header)
+        helper.chmod(0o755)
+        files = {helper_rel: dict(sha256=hashlib.sha256(header).hexdigest(), size=len(header))}
+        for name, content in [('up2x-no-denoise.param', b'param'), ('up2x-no-denoise.bin', b'model')]:
+            path = payload / model_dir / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+            files[f'{model_dir}/{name}'] = dict(sha256=hashlib.sha256(content).hexdigest(), size=len(content))
+        manifest = dict(schemaVersion=1, architecture=arch, modelFamily='models-se', files=files)
+        manifest_path = payload / 'share/whisky/upscalers/manifest.json'
+        manifest_path.parent.mkdir(parents=True)
+        manifest_path.write_text(json.dumps(manifest))
+        for relative, content in (
+                ('share/licenses/whisky/upscalers/example-license.txt', b'license'),
+                ('share/whisky/sources/upscalers/example-source.zip', b'source archive')):
+            path = payload / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        packager.verify_upscaler(payload, arch)
+
+        bundle = self.root / 'bundle'
+        packaged_helper = bundle / helper_rel
+        packaged_helper.parent.mkdir(parents=True)
+        packaged_helper.write_bytes(bytes(header) + b'patchelf-updated')
+        packaged_helper.chmod(0o755)
+        packager.copy_upscaler_resources(payload, bundle)
+
+        self.assertEqual(b'license',
+                         (bundle / 'share/licenses/whisky/upscalers/example-license.txt').read_bytes())
+        self.assertEqual(b'source archive',
+                         (bundle / 'share/whisky/sources/upscalers/example-source.zip').read_bytes())
+        packager.verify_upscaler(bundle, arch)
 
 
 if __name__ == '__main__':

@@ -116,7 +116,7 @@ def copy_licenses(source_root, ncnn_root, output):
     shutil.copyfile(ncnn_root / 'LICENSE.txt', output / 'ncnn-LICENSE.txt')
     shutil.copyfile(ncnn_root / 'glslang/LICENSE.txt', output / 'glslang-LICENSE.txt')
     for header in ('stb_image.h', 'stb_image_write.h'):
-        shutil.copyfile(ncnn_root / 'src' / header, output / ('STB-' + header))
+        shutil.copyfile(source_root / 'src' / header, output / ('STB-' + header))
     shutil.copyfile(MODEL_NOTICE / 'licenses/RealCUGAN-bilibili-MIT.txt',
                     output / 'models-bilibili-MIT.txt')
     shutil.copyfile(MODEL_NOTICE / 'licenses/RealCUGAN-ncnn-MIT.txt',
@@ -143,7 +143,7 @@ def build(args):
         extract_tar(real_archive, extracted)
         source_root = extracted / LOCK['realcugan']['root']
         ncnn_root = source_root / 'src/ncnn'
-        ncnn_root.mkdir(parents=True)
+        ncnn_root.mkdir(parents=True, exist_ok=True)
         extract_zip(ncnn_archive, ncnn_root)
         model_source = source_root / 'models/models-se'
         for name, metadata in LOCK['models']['files'].items():
@@ -152,7 +152,7 @@ def build(args):
                 raise ValueError('Pinned model checksum mismatch: ' + name)
 
         build_dir = work / 'build'
-        subprocess.run([
+        cmake_args = [
             'cmake', '-S', source_root / 'src', '-B', build_dir, '-G', 'Ninja',
             '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_C_FLAGS=-O3',
             '-DCMAKE_CXX_FLAGS=-O3', '-DUSE_SYSTEM_WEBP=ON', '-DNCNN_VULKAN=ON',
@@ -160,7 +160,9 @@ def build(args):
             '-DNCNN_BUILD_TESTS=OFF', '-DNCNN_BUILD_TOOLS=OFF',
             '-DNCNN_BUILD_EXAMPLES=OFF', '-DNCNN_BUILD_BENCHMARK=OFF',
             '-DNCNN_AVX512=OFF', '-DNCNN_SYSTEM_GLSLANG=OFF',
-        ], check=True)
+            '-DWITH_LAYER_gemm=ON',
+        ]
+        subprocess.run(cmake_args, check=True)
         subprocess.run(['cmake', '--build', build_dir, '--parallel', str(args.jobs),
                         '--target', 'realcugan-ncnn-vulkan'], check=True)
         candidates = list(build_dir.rglob('realcugan-ncnn-vulkan'))
@@ -190,6 +192,9 @@ def build(args):
                 path = models / name
                 files[f'share/realcugan-ncnn-vulkan/models-se/{name}'] = dict(
                     sha256=digest(path), size=path.stat().st_size)
+            recipe = ['CMAKE_BUILD_TYPE=Release', 'USE_SYSTEM_WEBP=ON', 'NCNN_VULKAN=ON',
+                      'NCNN_BUILD_TESTS/TOOLS/EXAMPLES=OFF', 'NCNN_AVX512=OFF',
+                      'WITH_LAYER_gemm=ON']
             manifest = dict(
                 schemaVersion=1, helperVersion=LOCK['realcugan']['version'],
                 ncnnVersion=LOCK['ncnn']['version'], architecture=arch,
@@ -199,8 +204,7 @@ def build(args):
                     'ncnn': dict(url=LOCK['ncnn']['url'], sha256=LOCK['ncnn']['sha256']),
                 },
                 systemDependencies=['libwebp-dev at build time', 'libwebp at runtime', 'libvulkan'],
-                recipe=['CMAKE_BUILD_TYPE=Release', 'USE_SYSTEM_WEBP=ON', 'NCNN_VULKAN=ON',
-                        'NCNN_BUILD_TESTS/TOOLS/EXAMPLES=OFF', 'NCNN_AVX512=OFF'],
+                recipe=recipe,
                 licenseFiles=sorted(path.name for path in licenses.iterdir()),
             )
             manifest_path = stage / 'share/whisky/upscalers/manifest.json'

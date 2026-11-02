@@ -85,6 +85,16 @@ def refresh_upscaler_manifest(bundle):
     manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
 
 
+def copy_upscaler_resources(payload, bundle):
+    for relative in ('share/realcugan-ncnn-vulkan', 'share/licenses/whisky/upscalers',
+                     'share/whisky/sources/upscalers'):
+        shutil.copytree(payload / relative, bundle / relative, dirs_exist_ok=True)
+    manifest_path = bundle / 'share/whisky/upscalers/manifest.json'
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(payload / 'share/whisky/upscalers/manifest.json', manifest_path)
+    refresh_upscaler_manifest(bundle)
+
+
 def copy_sources(output, target):
     destination = output / 'share/whisky/sources'
     destination.mkdir(parents=True)
@@ -222,12 +232,7 @@ def main():
     shutil.copyfile(icu_license, notices / 'Foundation-ICU-LICENSE.txt')
     shutil.copyfile(TOOLS / 'linux-runtime-packages.txt', output / 'share/whisky-runtime-packages.txt')
     copy_sources(output, target)
-    for relative in ('share/realcugan-ncnn-vulkan', 'share/licenses/whisky/upscalers',
-                     'share/whisky/sources/upscalers'):
-        shutil.copytree(args.upscaler / relative, output / relative, dirs_exist_ok=True)
-    shutil.copyfile(args.upscaler / 'share/whisky/upscalers/manifest.json',
-                    output / 'share/whisky/upscalers/manifest.json')
-    refresh_upscaler_manifest(output)
+    copy_upscaler_resources(args.upscaler, output)
     (output / 'README.txt').write_text(
         'Whisky Linux file and host services\n\n'
         'Target: Ubuntu 24.04 or compatible systems, ' + architecture + '.\n'
