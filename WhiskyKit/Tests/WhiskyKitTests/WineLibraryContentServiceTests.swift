@@ -126,7 +126,7 @@ struct WineLibraryContentServiceTests {
         #expect(try records.load(for: moved).playTime == 90)
         #expect(try service.visibility(in: target.url).hiddenIdentities == [moved.metadataIdentity])
         #expect(try await GameMetadataStore(directory: moved.metadataDirectory)
-            .load(for: moved.metadataIdentity) == metadata)
+            .loadRecord(for: moved.metadataIdentity)?.snapshots[metadata.source.rawValue] == metadata)
     }
 
     @Test func folderMovePreservesExecutableMappingAndTargetLease() async throws {

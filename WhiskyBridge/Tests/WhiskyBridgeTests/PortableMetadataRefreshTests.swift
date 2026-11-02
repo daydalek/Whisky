@@ -200,7 +200,7 @@ private final class PreferenceRefreshProtocol: URLProtocol, @unchecked Sendable 
     #expect(groups.first?.object?["games"] == .array([]))
 }
 
-private final class MetadataJobProtocol: URLProtocol, @unchecked Sendable {
+final class MetadataJobProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var hook: (@Sendable () throws -> Void)?
     static func setHook(_ callback: (@Sendable () throws -> Void)?) {

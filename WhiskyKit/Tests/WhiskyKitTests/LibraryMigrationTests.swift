@@ -93,7 +93,8 @@ struct LibraryMigrationTests {
         let movedTitle = try #require(movedEntries.first { $0.name == "Title" })
         let movedUnlinked = try #require(movedEntries.first { $0.name == "Unlinked" })
         let targetStore = GameMetadataStore(directory: movedTitle.metadataDirectory)
-        #expect(try await targetStore.load(for: movedTitle.metadataIdentity) == metadata)
+        #expect(try await targetStore.loadRecord(for: movedTitle.metadataIdentity)?
+            .snapshots[metadata.source.rawValue] == metadata)
         #expect(try Data(contentsOf: targetStore.coverLocation(for: cover)) == coverData)
         #expect(try await targetStore.allowsAutomaticMatch(for: movedUnlinked.metadataIdentity) == false)
         #expect(moved.pendingMetadata.isEmpty)

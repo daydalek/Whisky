@@ -118,7 +118,13 @@ struct SteamReadyLaunchTests {
         driver.accepted = false
         var timing = SteamOrchestratorFixture.fast
         timing.retryDelay = 0.02
+        timing.launchGrace = 5
         let model = SteamClientOrchestrator(bottle: bottle, driver: driver, timing: timing)
+        driver.onLaunchGame = { _ in
+            if driver.launched.count == 2 {
+                driver.script = [["steam.exe", "game1.exe"]]
+            }
+        }
         model.launch(games[0])
         await SteamOrchestratorFixture.awaitIdle(model)
         #expect(driver.launched.count == 2)
