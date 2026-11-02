@@ -41,7 +41,7 @@ pub(crate) const MIXED_COVER_LAYOUT: &str = "libraryMixedCoverLayout";
 pub(crate) const COVER_WIDTH: &str = "libraryCoverWidth";
 /// Cover upscaling factor: `off`, `x2` or `x4` (see `upscale::Factor`).
 pub(crate) const COVER_UPSCALE: &str = "libraryCoverUpscale";
-/// Cover upscaling engine: `anime4k` or `realcugan` (see `upscale::Engine`).
+/// Cover upscaling engine: `anime4k`, `realcugan` or Linux `realcugan-cpu`.
 pub(crate) const COVER_UPSCALE_ENGINE: &str = "libraryCoverUpscaleEngine";
 pub(crate) const REFRESH_AFTER_EXIT: &str = "libraryRefreshAfterExit";
 pub(crate) const DETAIL_BLURRED_BACKGROUND: &str = "libraryDetailBlurredBackground";
@@ -73,7 +73,7 @@ pub(crate) const DEFAULT_COVER_WIDTH: f32 = crate::library_layout::AUTOMATIC_COV
 /// cached PNG per cover.
 pub(crate) const DEFAULT_COVER_UPSCALE: &str = "off";
 /// Real-CUGAN has the better line work for cover art; the app falls back to
-/// Anime4K when the helper or its model is not in the bundle.
+/// Anime4K on macOS, or CPU inference on Linux, if acceleration fails.
 pub(crate) const DEFAULT_COVER_UPSCALE_ENGINE: &str = "realcugan";
 pub(crate) const DEFAULT_REFRESH_AFTER_EXIT: bool = true;
 pub(crate) const DEFAULT_DETAIL_BLURRED_BACKGROUND: bool = true;

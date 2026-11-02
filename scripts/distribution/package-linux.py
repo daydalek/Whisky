@@ -31,12 +31,51 @@ def run(*args, **kwargs):
     return subprocess.check_output(list(map(str, args)), text=True, **kwargs)
 
 
+def verify_upscaler(bundle, architecture):
+    manifest_path = bundle / 'share/whisky/upscalers/manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get('schemaVersion') != 1 or manifest.get('modelFamily') != 'models-se':
+        raise ValueError('Missing or unsupported bundled upscaler manifest')
+    if manifest.get('architecture') != architecture:
+        raise ValueError('Bundled upscaler architecture differs from application')
+    expected = {
+        'bin/realcugan-ncnn-vulkan',
+        'share/realcugan-ncnn-vulkan/models-se/up2x-no-denoise.param',
+        'share/realcugan-ncnn-vulkan/models-se/up2x-no-denoise.bin',
+    }
+    if set(manifest.get('files', {})) != expected:
+        raise ValueError('Bundled upscaler inventory is incomplete')
+    helper = bundle / 'bin/realcugan-ncnn-vulkan'
+    with helper.open('rb') as stream:
+        header = stream.read(20)
+    if not os.access(helper, os.X_OK) or header[:6] != b'\x7fELF\x02\x01':
+        raise ValueError('Bundled upscaler helper must be executable ELF')
+    if struct.unpack_from('<H', header, 18)[0] != ARCHITECTURES[architecture][2]:
+        raise ValueError('Bundled upscaler helper ELF architecture mismatch')
+    for relative, entry in manifest['files'].items():
+        path = bundle / relative
+        if path.is_symlink() or not path.is_file() or digest(path) != entry.get('sha256') \
+                or path.stat().st_size != entry.get('size'):
+            raise ValueError('Bundled upscaler resource hash mismatch: ' + relative)
+    return manifest
+
+
+def refresh_upscaler_manifest(bundle):
+    path = bundle / 'share/whisky/upscalers/manifest.json'
+    manifest = json.loads(path.read_text())
+    helper = bundle / 'bin/realcugan-ncnn-vulkan'
+    manifest['files']['bin/realcugan-ncnn-vulkan'] = dict(
+        sha256=digest(helper), size=helper.stat().st_size)
+    path.write_text(json.dumps(manifest, indent=2) + '\n')
+
+
 def verify(bundle):
     manifest = json.loads((bundle / 'manifest.json').read_text())
     if manifest.get('formatVersion') != 1 or manifest.get('platform') != 'linux':
         raise ValueError('Expected Linux bundle manifest version 1')
     if manifest['architecture'] not in ARCHITECTURES:
         raise ValueError('Unsupported bundle architecture')
+    verify_upscaler(bundle, manifest['architecture'])
     actual = {str(p.relative_to(bundle)) for p in bundle.rglob('*') if p.is_file()}
     if actual != set(manifest['files']) | {'manifest.json'}:
         raise ValueError('Bundle inventory differs from manifest')
@@ -257,6 +296,7 @@ def portable_libraries(bundle):
         relative = os.path.relpath(destination, path.parent)
         swift = os.path.relpath(bundle / 'lib/swift', path.parent)
         run('patchelf', '--set-rpath', '$ORIGIN:$ORIGIN/' + relative + ':$ORIGIN/' + swift, path)
+    refresh_upscaler_manifest(bundle)
     schemas = bundle / 'share/glib-2.0/schemas'
     schemas.mkdir(parents=True)
     for source in Path('/usr/share/glib-2.0/schemas').glob('org.gtk.*.xml'):

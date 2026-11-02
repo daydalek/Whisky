@@ -2,22 +2,39 @@ use std::ffi::OsString;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, sync_channel};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use sha2::{Digest, Sha256};
 
 use super::Engine;
 
 const HELPER_NAME: &str = "realcugan-ncnn-vulkan";
 const MODEL_FILES: [&str; 2] = ["up2x-no-denoise.param", "up2x-no-denoise.bin"];
+const MODEL_FAMILY: &str = "models-se";
+const MODEL_DIRECTORY: &str = "share/realcugan-ncnn-vulkan/models-se";
+const BUNDLE_MANIFEST: &str = "share/whisky/upscalers/manifest.json";
+const INFERENCE_SCHEMA: u64 = 2;
+const STDERR_LIMIT: usize = 16 * 1024;
 const PASS_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_millis(40);
 const STAGE_ATTEMPTS: u32 = 64;
 
+const STATUS_INITIAL: u8 = 0;
+const STATUS_READY: u8 = 1;
+const STATUS_WORKING: u8 = 2;
+const STATUS_CPU: u8 = 3;
+const STATUS_MISSING: u8 = 4;
+const STATUS_FAILED: u8 = 5;
+static STATUS: AtomicU8 = AtomicU8::new(STATUS_INITIAL);
+
+#[derive(Clone)]
 pub(super) struct Config {
     helper: PathBuf,
     models: PathBuf,
-    fingerprint: u64,
+    fingerprint: String,
 }
 
 impl Config {
@@ -26,145 +43,328 @@ impl Config {
             Engine::RealCuganCpu => "cpu",
             _ => "gpu",
         };
-        format!("realcugan-ncnn-{device}-{:016x}", self.fingerprint)
+        format!(
+            "realcugan-ncnn-v{INFERENCE_SCHEMA}-{device}-{}",
+            self.fingerprint
+        )
     }
 }
 
-pub(super) fn config() -> Option<&'static Config> {
-    static CONFIG: OnceLock<Option<Config>> = OnceLock::new();
-    CONFIG
-        .get_or_init(|| {
-            resolve(
-                std::env::var_os("WHISKY_REALCUGAN_HELPER"),
-                std::env::var_os("PATH"),
-                std::env::current_exe()
-                    .ok()
-                    .and_then(|exe| exe.parent().map(Path::to_path_buf)),
-                std::env::var_os("WHISKY_REALCUGAN_MODELS"),
-            )
-        })
-        .as_ref()
+pub(super) fn status() -> &'static str {
+    match STATUS.load(Ordering::Relaxed) {
+        STATUS_READY => "组件已就绪",
+        STATUS_WORKING => "正在处理封面",
+        STATUS_CPU => "GPU 不可用，正在使用 CPU",
+        STATUS_MISSING => "组件缺失或损坏",
+        STATUS_FAILED => "超分失败，保留原图",
+        _ => "组件随应用提供，首次使用时校验",
+    }
+}
+
+#[derive(Clone)]
+struct RuntimePaths {
+    helper: PathBuf,
+    models: PathBuf,
+    manifest: Option<PathBuf>,
+    bundled: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FileIdentity {
+    path: PathBuf,
+    device: u64,
+    inode: u64,
+    size: u64,
+    modified_sec: i64,
+    modified_nsec: i64,
+    changed_sec: i64,
+    changed_nsec: i64,
+    mode: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Snapshot(Vec<FileIdentity>);
+
+struct CachedConfig {
+    snapshot: Snapshot,
+    config: Config,
+}
+
+fn runtime_paths(
+    helper_override: Option<OsString>,
+    exe_dir: Option<PathBuf>,
+    models_override: Option<OsString>,
+) -> Option<RuntimePaths> {
+    let bundled = helper_override.is_none() && models_override.is_none();
+    let executable_dir = exe_dir.clone();
+    let helper = match helper_override {
+        Some(path) => {
+            let path = PathBuf::from(path);
+            (path.is_absolute() && path.file_name().is_some_and(|name| name == HELPER_NAME))
+                .then_some(path)?
+        }
+        None => exe_dir?.join(HELPER_NAME),
+    };
+    let models = match models_override {
+        Some(path) => {
+            let path = PathBuf::from(path);
+            (path.is_absolute() && path.file_name().is_some_and(|name| name == MODEL_FAMILY))
+                .then_some(path)?
+        }
+        None => {
+            let dir = executable_dir.as_deref().or_else(|| helper.parent())?;
+            dir.parent()?.join(MODEL_DIRECTORY)
+        }
+    };
+    let manifest = if bundled {
+        let dir = executable_dir.as_deref()?;
+        Some(dir.parent()?.join(BUNDLE_MANIFEST))
+    } else {
+        None
+    };
+    Some(RuntimePaths {
+        helper,
+        models,
+        manifest,
+        bundled,
+    })
+}
+
+fn metadata_identity(path: &Path, allow_directory: bool) -> Option<FileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    if metadata.file_type().is_symlink()
+        || (!metadata.is_file() && !(allow_directory && metadata.is_dir()))
+    {
+        return None;
+    }
+    Some(FileIdentity {
+        path: path.to_path_buf(),
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        size: metadata.len(),
+        modified_sec: metadata.mtime(),
+        modified_nsec: metadata.mtime_nsec(),
+        changed_sec: metadata.ctime(),
+        changed_nsec: metadata.ctime_nsec(),
+        mode: metadata.mode(),
+    })
+}
+
+fn snapshot(paths: &RuntimePaths) -> Option<Snapshot> {
+    let mut entries = vec![
+        metadata_identity(&paths.helper, false)?,
+        metadata_identity(&paths.models, true)?,
+    ];
+    for name in MODEL_FILES {
+        entries.push(metadata_identity(&paths.models.join(name), false)?);
+    }
+    if let Some(manifest) = &paths.manifest {
+        entries.push(metadata_identity(manifest, false)?);
+    }
+    Some(Snapshot(entries))
+}
+
+fn config() -> Option<Config> {
+    let paths = runtime_paths(
+        std::env::var_os("WHISKY_REALCUGAN_HELPER"),
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(Path::to_path_buf)),
+        std::env::var_os("WHISKY_REALCUGAN_MODELS"),
+    );
+    let Some(paths) = paths else {
+        STATUS.store(STATUS_MISSING, Ordering::Relaxed);
+        return None;
+    };
+    let Some(snapshot) = snapshot(&paths) else {
+        STATUS.store(STATUS_MISSING, Ordering::Relaxed);
+        return None;
+    };
+    static CONFIG: OnceLock<Mutex<Option<CachedConfig>>> = OnceLock::new();
+    let cache = CONFIG.get_or_init(|| Mutex::new(None));
+    let mut cached = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(current) = cached.as_ref() {
+        if current.snapshot == snapshot {
+            STATUS.store(STATUS_READY, Ordering::Relaxed);
+            return Some(current.config.clone());
+        }
+    }
+    let Some(config) = load_config(&paths) else {
+        *cached = None;
+        STATUS.store(STATUS_MISSING, Ordering::Relaxed);
+        return None;
+    };
+    *cached = Some(CachedConfig {
+        snapshot,
+        config: config.clone(),
+    });
+    STATUS.store(STATUS_READY, Ordering::Relaxed);
+    Some(config)
 }
 
 fn resolve(
     helper_override: Option<OsString>,
-    search_path: Option<OsString>,
     exe_dir: Option<PathBuf>,
     models_override: Option<OsString>,
 ) -> Option<Config> {
-    let helper = match helper_override {
-        Some(path) => {
-            let path = PathBuf::from(path);
-            (path.is_absolute() && executable(&path)).then_some(path)?
-        }
-        None => helper_candidates(search_path.as_ref(), exe_dir.as_deref())
-            .into_iter()
-            .find(|candidate| executable(candidate))?,
-    };
-    let models = match models_override {
-        Some(dir) => {
-            let dir = PathBuf::from(dir);
-            (dir.is_absolute() && valid_models(&dir)).then_some(dir)?
-        }
-        None => model_candidates(&helper)
-            .into_iter()
-            .find(|candidate| valid_models(candidate))?,
-    };
+    let paths = runtime_paths(helper_override, exe_dir, models_override)?;
+    load_config(&paths)
+}
+
+fn load_config(paths: &RuntimePaths) -> Option<Config> {
+    if paths.helper.file_name()?.to_str()? != HELPER_NAME
+        || paths.models.file_name()?.to_str()? != MODEL_FAMILY
+        || !executable(&paths.helper)
+        || !valid_models(&paths.models)
+    {
+        return None;
+    }
+    let helper_hash = sha256_file(&paths.helper)?;
+    let model_hashes = [
+        sha256_file(&paths.models.join(MODEL_FILES[0]))?,
+        sha256_file(&paths.models.join(MODEL_FILES[1]))?,
+    ];
+    if paths.bundled && !validate_bundle_manifest(paths, &helper_hash, &model_hashes) {
+        return None;
+    }
     Some(Config {
-        fingerprint: fingerprint(&helper, &models)?,
-        helper,
-        models,
+        helper: paths.helper.clone(),
+        models: paths.models.clone(),
+        fingerprint: cache_fingerprint(&helper_hash, &model_hashes),
     })
 }
 
-fn helper_candidates(search_path: Option<&OsString>, exe_dir: Option<&Path>) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    if let Some(dir) = exe_dir {
-        candidates.push(dir.join(HELPER_NAME));
-    }
-    if let Some(path) = search_path {
-        candidates.extend(
-            std::env::split_paths(path)
-                .filter(|entry| entry.is_absolute())
-                .map(|entry| entry.join(HELPER_NAME)),
-        );
-    }
-    candidates
-}
-
-fn model_candidates(helper: &Path) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    if let Some(parent) = helper.parent() {
-        candidates.push(parent.join("models-se"));
-        candidates.push(
-            parent
-                .join("..")
-                .join("share")
-                .join("realcugan-ncnn-vulkan")
-                .join("models-se"),
-        );
-    }
-    candidates.push(PathBuf::from("/usr/share/realcugan-ncnn-vulkan/models-se"));
-    candidates.push(PathBuf::from("/usr/share/realcugan/models-se"));
-    candidates.push(PathBuf::from("/usr/local/share/realcugan-ncnn-vulkan/models-se"));
-    candidates
-}
-
 fn executable(path: &Path) -> bool {
-    let Ok(metadata) = std::fs::metadata(path) else {
-        return false;
-    };
-    if !metadata.is_file() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(not(unix))]
-    {
-        true
-    }
+    metadata_identity(path, false)
+        .is_some_and(|identity| identity.mode & 0o111 != 0 && identity.size > 0)
 }
 
 fn valid_models(dir: &Path) -> bool {
-    dir.is_dir()
+    dir.file_name().is_some_and(|name| name == MODEL_FAMILY)
+        && metadata_identity(dir, true).is_some()
         && MODEL_FILES.iter().all(|name| {
-            std::fs::metadata(dir.join(name))
-                .map(|metadata| metadata.is_file() && metadata.len() > 0)
-                .unwrap_or(false)
+            metadata_identity(&dir.join(name), false).is_some_and(|metadata| metadata.size > 0)
         })
 }
 
-fn fingerprint(helper: &Path, models: &Path) -> Option<u64> {
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    let metadata = std::fs::metadata(helper).ok()?;
-    for part in [
-        metadata.len(),
-        metadata
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-            .map(|age| age.as_nanos() as u64)
-            .unwrap_or(0),
-    ] {
-        hash ^= part;
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    let mut bytes = Vec::new();
-    for name in MODEL_FILES {
-        bytes.clear();
-        std::fs::File::open(models.join(name))
-            .ok()?
-            .read_to_end(&mut bytes)
-            .ok()?;
-        for byte in &bytes {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+fn sha256_file(path: &Path) -> Option<String> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = file.read(&mut buffer).ok()?;
+        if count == 0 {
+            break;
         }
+        digest.update(&buffer[..count]);
     }
-    Some(hash)
+    Some(format!("{:x}", digest.finalize()))
+}
+
+fn cache_fingerprint(helper_hash: &str, model_hashes: &[String; 2]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(helper_hash.as_bytes());
+    digest.update(b"\0");
+    for hash in model_hashes {
+        digest.update(hash.as_bytes());
+        digest.update(b"\0");
+    }
+    digest.update(b"schema=2;noise=0;scale=2;format=png;tile=128;jobs=1:1:1;syncgap=2");
+    format!("{:x}", digest.finalize())
+}
+
+fn validate_bundle_manifest(
+    paths: &RuntimePaths,
+    helper_hash: &str,
+    model_hashes: &[String; 2],
+) -> bool {
+    let Some(manifest_path) = paths.manifest.as_deref() else {
+        return false;
+    };
+    let Some(bundle) = manifest_path
+        .ancestors()
+        .find(|ancestor| ancestor.join("bin").join(HELPER_NAME) == paths.helper)
+    else {
+        return false;
+    };
+    if bundle.join(MODEL_DIRECTORY) != paths.models {
+        return false;
+    }
+    let Ok(bytes) = std::fs::read(manifest_path) else {
+        return false;
+    };
+    let Ok(manifest) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return false;
+    };
+    if manifest
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+        != Some(1)
+        || manifest
+            .get("modelFamily")
+            .and_then(serde_json::Value::as_str)
+            != Some(MODEL_FAMILY)
+    {
+        return false;
+    }
+    let Some(inference) = manifest.get("inference") else {
+        return false;
+    };
+    if inference
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+        != Some(INFERENCE_SCHEMA)
+        || inference.get("noise").and_then(serde_json::Value::as_u64) != Some(0)
+        || inference.get("scale").and_then(serde_json::Value::as_u64) != Some(2)
+        || inference.get("format").and_then(serde_json::Value::as_str) != Some("png")
+        || inference
+            .get("tileSize")
+            .and_then(serde_json::Value::as_u64)
+            != Some(128)
+        || inference.get("jobs").and_then(serde_json::Value::as_str) != Some("1:1:1")
+        || inference.get("syncgap").and_then(serde_json::Value::as_u64) != Some(2)
+    {
+        return false;
+    }
+    let Some(files) = manifest.get("files").and_then(serde_json::Value::as_object) else {
+        return false;
+    };
+    let mut expected = vec![(
+        format!("bin/{HELPER_NAME}"),
+        helper_hash,
+        paths.helper.clone(),
+    )];
+    for (index, name) in MODEL_FILES.iter().enumerate() {
+        expected.push((
+            format!("{MODEL_DIRECTORY}/{name}"),
+            &model_hashes[index],
+            paths.models.join(name),
+        ));
+    }
+    expected.into_iter().all(|(name, hash, path)| {
+        let Some(entry) = files.get(&name) else {
+            return false;
+        };
+        entry.get("sha256").and_then(serde_json::Value::as_str) == Some(hash)
+            && entry.get("size").and_then(serde_json::Value::as_u64)
+                == std::fs::symlink_metadata(&path)
+                    .ok()
+                    .map(|metadata| metadata.len())
+    })
+}
+
+fn fingerprint(helper: &Path, models: &Path) -> Option<String> {
+    Some(cache_fingerprint(
+        &sha256_file(helper)?,
+        &[
+            sha256_file(&models.join(MODEL_FILES[0]))?,
+            sha256_file(&models.join(MODEL_FILES[1]))?,
+        ],
+    ))
 }
 
 pub(super) fn valid_output(path: &Path, expected: (u32, u32)) -> bool {
@@ -212,7 +412,7 @@ pub(super) fn derive(
         .save_with_format(&input, image::ImageFormat::Png)
         .ok()?;
     let mut current = input;
-    for pass in 0 .. passes {
+    for pass in 0..passes {
         if cancel.load(Ordering::Relaxed) {
             return None;
         }
@@ -253,7 +453,7 @@ fn run_pass(
         .arg("-o")
         .arg(output)
         .arg("-n")
-        .arg("-1")
+        .arg("0")
         .arg("-s")
         .arg("2")
         .arg("-f")
@@ -262,6 +462,8 @@ fn run_pass(
         .arg("128")
         .arg("-j")
         .arg("1:1:1")
+        .arg("-c")
+        .arg("2")
         .arg("-m")
         .arg(&config.models);
     if engine == Engine::RealCuganCpu {
@@ -270,28 +472,89 @@ fn run_pass(
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
+        .map_err(|error| eprintln!("cover upscaler: could not start helper: {error}"))
         .ok()?;
+    let diagnostics = drain_stderr(child.stderr.take()?);
     let deadline = Instant::now() + timeout;
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                return (status.success() && output.is_file()).then_some(());
+                let detail = receive_diagnostics(&diagnostics);
+                if !status.success() || !output.is_file() {
+                    log_failure(format!("helper exited with {status}; {detail}"));
+                    return None;
+                }
+                return Some(());
             }
             Ok(None) => {
                 if cancel.load(Ordering::Relaxed) || Instant::now() >= deadline {
                     kill_wait(&mut child);
+                    let detail = receive_diagnostics(&diagnostics);
+                    log_failure(format!(
+                        "{}; {detail}",
+                        if cancel.load(Ordering::Relaxed) {
+                            "helper cancelled"
+                        } else {
+                            "helper timed out"
+                        }
+                    ));
                     return None;
                 }
                 std::thread::sleep(POLL);
             }
             Err(_) => {
                 kill_wait(&mut child);
+                let detail = receive_diagnostics(&diagnostics);
+                log_failure(format!("could not wait for helper; {detail}"));
                 return None;
             }
         }
     }
+}
+
+fn drain_stderr(mut stderr: std::process::ChildStderr) -> Receiver<String> {
+    let (sender, receiver) = sync_channel(1);
+    std::thread::spawn(move || {
+        let mut tail = Vec::with_capacity(STDERR_LIMIT);
+        let mut buffer = [0_u8; 4096];
+        loop {
+            match stderr.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(count) => {
+                    if count >= STDERR_LIMIT {
+                        tail.clear();
+                        tail.extend_from_slice(&buffer[count - STDERR_LIMIT..count]);
+                    } else {
+                        let overflow = tail
+                            .len()
+                            .saturating_add(count)
+                            .saturating_sub(STDERR_LIMIT);
+                        if overflow > 0 {
+                            tail.drain(..overflow);
+                        }
+                        tail.extend_from_slice(&buffer[..count]);
+                    }
+                }
+            }
+        }
+        let _ = sender.send(String::from_utf8_lossy(&tail).into_owned());
+    });
+    receiver
+}
+
+fn receive_diagnostics(receiver: &Receiver<String>) -> String {
+    receiver
+        .recv_timeout(Duration::from_millis(100))
+        .unwrap_or_else(|_| "stderr unavailable".to_owned())
+}
+
+fn log_failure(message: String) {
+    eprintln!(
+        "cover upscaler: {}",
+        message.chars().take(STDERR_LIMIT).collect::<String>()
+    );
 }
 
 fn kill_wait(child: &mut Child) {
@@ -299,12 +562,134 @@ fn kill_wait(child: &mut Child) {
     let _ = child.wait();
 }
 
+pub(super) fn upscaled_cover(
+    source: &Path,
+    passes: u8,
+    engine: Engine,
+    cancel: &AtomicBool,
+) -> Option<PathBuf> {
+    if cancel.load(Ordering::Relaxed) {
+        return None;
+    }
+    let Some(config) = config() else {
+        STATUS.store(STATUS_MISSING, Ordering::Relaxed);
+        return None;
+    };
+    let (width, height) = super::dimensions(source)?;
+    let expected = (
+        width.checked_shl(u32::from(passes))?,
+        height.checked_shl(u32::from(passes))?,
+    );
+    let cpu_cache = super::cache::location(source, passes, &config.key(Engine::RealCuganCpu))?;
+    let gpu_cache = super::cache::location(source, passes, &config.key(Engine::RealCugan))?;
+
+    if engine == Engine::RealCugan {
+        return derive_auto(
+            &config, source, passes, &gpu_cache, &cpu_cache, expected, cancel,
+        );
+    }
+
+    let selected = if engine == Engine::RealCuganCpu {
+        Engine::RealCuganCpu
+    } else {
+        Engine::RealCugan
+    };
+    let target = if selected == Engine::RealCuganCpu {
+        &cpu_cache
+    } else {
+        &gpu_cache
+    };
+    if valid_output(target, expected) {
+        STATUS.store(
+            if selected == Engine::RealCuganCpu {
+                STATUS_CPU
+            } else {
+                STATUS_READY
+            },
+            Ordering::Relaxed,
+        );
+        return Some(target.clone());
+    }
+    STATUS.store(
+        if selected == Engine::RealCuganCpu {
+            STATUS_CPU
+        } else {
+            STATUS_WORKING
+        },
+        Ordering::Relaxed,
+    );
+    let output = derive(&config, source, passes, selected, target, expected, cancel);
+    STATUS.store(
+        if output.is_some() {
+            if selected == Engine::RealCuganCpu {
+                STATUS_CPU
+            } else {
+                STATUS_READY
+            }
+        } else {
+            STATUS_FAILED
+        },
+        Ordering::Relaxed,
+    );
+    output
+}
+
+fn derive_auto(
+    config: &Config,
+    source: &Path,
+    passes: u8,
+    gpu_cache: &Path,
+    cpu_cache: &Path,
+    expected: (u32, u32),
+    cancel: &AtomicBool,
+) -> Option<PathBuf> {
+    if valid_output(cpu_cache, expected) {
+        STATUS.store(STATUS_CPU, Ordering::Relaxed);
+        return Some(cpu_cache.to_path_buf());
+    }
+    if valid_output(gpu_cache, expected) {
+        STATUS.store(STATUS_READY, Ordering::Relaxed);
+        return Some(gpu_cache.to_path_buf());
+    }
+    STATUS.store(STATUS_WORKING, Ordering::Relaxed);
+    if let Some(output) = derive(
+        config,
+        source,
+        passes,
+        Engine::RealCugan,
+        gpu_cache,
+        expected,
+        cancel,
+    ) {
+        STATUS.store(STATUS_READY, Ordering::Relaxed);
+        return Some(output);
+    }
+    if cancel.load(Ordering::Relaxed) {
+        STATUS.store(STATUS_FAILED, Ordering::Relaxed);
+        return None;
+    }
+    STATUS.store(STATUS_CPU, Ordering::Relaxed);
+    let output = derive(
+        config,
+        source,
+        passes,
+        Engine::RealCuganCpu,
+        cpu_cache,
+        expected,
+        cancel,
+    );
+    if output.is_none() {
+        STATUS.store(STATUS_FAILED, Ordering::Relaxed);
+    }
+    output
+}
+
 struct Stage(PathBuf);
 
 impl Stage {
     fn new(parent: &Path) -> Option<Self> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
-        for _ in 0 .. STAGE_ATTEMPTS {
+        for _ in 0..STAGE_ATTEMPTS {
             let nanos = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|age| age.as_nanos())
@@ -364,7 +749,7 @@ mod tests {
             let helper = self.0.join(HELPER_NAME);
             let log = self.0.join("invocations.log");
             let script = format!(
-                "#!/bin/sh\nout=\"\"\nwhile [ $# -gt 0 ]; do\n  echo \"$1\" >> \"{0}\"\n  if [ \"$1\" = \"-o\" ]; then shift; out=\"$1\"; echo \"$1\" >> \"{0}\"; fi\n  shift || break\ndone\n{1}\n",
+                "#!/bin/sh\nout=\"\"\ndevice=\"\"\nwhile [ $# -gt 0 ]; do\n  printf '%s\\n' \"$1\" >> \"{0}\"\n  if [ \"$1\" = \"-o\" ]; then shift; out=\"$1\"; printf '%s\\n' \"$1\" >> \"{0}\"; fi\n  if [ \"$1\" = \"-g\" ]; then shift; device=\"$1\"; printf '%s\\n' \"$1\" >> \"{0}\"; fi\n  shift || break\ndone\n{1}\n",
                 log.display(),
                 body,
             );
@@ -443,54 +828,34 @@ mod tests {
     }
 
     #[test]
-    fn discovery_finds_helper_next_to_exe_and_in_path() {
+    fn defaults_are_only_the_adjacent_bundle_layout() {
         let fixture = Fixture::new("discovery");
         let exe_dir = fixture.0.join("bin");
         std::fs::create_dir_all(&exe_dir).unwrap();
-        let helper = fixture.helper("true");
-        let helper_in_bin = exe_dir.join(HELPER_NAME);
-        std::fs::copy(&helper, &helper_in_bin).unwrap();
-        let models = fixture.models();
-        let found = resolve(None, None, Some(exe_dir.clone()), Some(models.clone().into()))
-            .expect("helper beside the executable");
-        assert_eq!(found.helper, helper_in_bin);
-        std::fs::remove_file(&helper_in_bin).unwrap();
-        let search = std::env::join_paths([fixture.0.clone()]).unwrap();
-        let found = resolve(None, Some(search), Some(exe_dir), Some(models.into()))
-            .expect("helper on PATH");
-        assert_eq!(found.helper, helper);
+        let paths = runtime_paths(None, Some(exe_dir.clone()), None).expect("bundle paths");
+        assert_eq!(paths.helper, exe_dir.join(HELPER_NAME));
+        assert_eq!(paths.models, fixture.0.join(MODEL_DIRECTORY));
+        assert_eq!(paths.manifest, Some(fixture.0.join(BUNDLE_MANIFEST)));
+        assert!(paths.bundled);
     }
 
     #[test]
-    fn discovery_ignores_relative_and_empty_path_entries() {
-        let fixture = Fixture::new("relative-path");
-        fixture.helper("true");
-        let search = std::env::join_paths([
-            PathBuf::from("relative"),
-            PathBuf::new(),
-            fixture.0.clone(),
-        ])
-        .unwrap();
-        let found = resolve(None, Some(search), None, Some(fixture.models().into()))
-            .expect("absolute entry still matches");
-        assert_eq!(found.helper, fixture.0.join(HELPER_NAME));
-    }
-
-    #[test]
-    fn explicit_helper_override_fails_closed_when_invalid() {
+    fn explicit_helper_override_requires_an_absolute_executable() {
         let fixture = Fixture::new("bad-override");
-        fixture.helper("true");
-        let search = std::env::join_paths([fixture.0.clone()]).unwrap();
+        let models = fixture.models();
         for bad in [
             OsString::from("/definitely/not/here"),
             OsString::from("relative/helper"),
         ] {
-            assert!(resolve(Some(bad), Some(search.clone()), None, None).is_none());
+            assert!(resolve(Some(bad), None, Some(models.clone().into())).is_none());
         }
         let plain = fixture.0.join("plain");
         std::fs::write(&plain, b"#!/bin/sh\n").unwrap();
         std::fs::set_permissions(&plain, std::fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(resolve(Some(plain.into()), Some(search), None, None).is_none());
+        let named = fixture.0.join(HELPER_NAME);
+        std::fs::copy(plain, &named).unwrap();
+        std::fs::set_permissions(&named, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(resolve(Some(named.into()), None, Some(models.into())).is_some());
     }
 
     #[test]
@@ -500,31 +865,22 @@ mod tests {
         let incomplete = fixture.0.join("half");
         std::fs::create_dir_all(&incomplete).unwrap();
         std::fs::write(incomplete.join("up2x-no-denoise.param"), b"p").unwrap();
-        for bad in [incomplete.clone().into(), OsString::from("rel/models")] {
-            assert!(resolve(Some(helper.clone().into()), None, None, Some(bad)).is_none());
+        for bad in [incomplete.clone().into(), OsString::from("rel/models-se")] {
+            assert!(resolve(Some(helper.clone().into()), None, Some(bad)).is_none());
         }
         std::fs::write(incomplete.join("up2x-no-denoise.bin"), b"").unwrap();
-        assert!(
-            resolve(Some(helper.clone().into()), None, None, Some(incomplete.into())).is_none()
-        );
+        assert!(resolve(Some(helper.clone().into()), None, Some(incomplete.into())).is_none());
         let sibling = helper.parent().unwrap().join("models-se");
-        let chosen = fixture.0.join("chosen");
+        let chosen = fixture.0.join("alternate").join(MODEL_FAMILY);
         for (dir, byte) in [(&sibling, b"x"), (&chosen, b"y")] {
             std::fs::create_dir_all(dir).unwrap();
             std::fs::write(dir.join("up2x-no-denoise.param"), byte).unwrap();
             std::fs::write(dir.join("up2x-no-denoise.bin"), byte).unwrap();
         }
-        let found = resolve(Some(helper.into()), None, None, Some(chosen.clone().into()))
+        let found = resolve(Some(helper.into()), None, Some(chosen.clone().into()))
             .expect("explicit models accepted");
         assert_eq!(found.models, chosen);
-        let found = resolve(
-            Some(fixture.0.join(HELPER_NAME).into()),
-            None,
-            None,
-            None,
-        )
-        .expect("sibling models-se discovered");
-        assert_eq!(found.models, sibling);
+        assert!(sibling.exists());
     }
 
     #[test]
@@ -550,17 +906,22 @@ mod tests {
         let log = fixture.log();
         let args: Vec<&str> = log.trim().lines().collect();
         assert_eq!(args.first(), Some(&"-i"));
-        assert!(!args.iter().any(|line| *line == "-g"), "gpu omits -g: {log}");
+        assert!(
+            !args.iter().any(|line| *line == "-g"),
+            "gpu omits -g: {log}"
+        );
         for (flag, value) in [
-            ("-n", "-1"),
+            ("-n", "0"),
             ("-s", "2"),
             ("-f", "png"),
             ("-t", "128"),
             ("-j", "1:1:1"),
+            ("-c", "2"),
         ] {
-            let position = args.iter().position(|line| *line == flag).unwrap_or_else(|| {
-                panic!("missing {flag}: {log}")
-            });
+            let position = args
+                .iter()
+                .position(|line| *line == flag)
+                .unwrap_or_else(|| panic!("missing {flag}: {log}"));
             assert_eq!(args[position + 1], value, "{flag}: {log}");
         }
         let models_position = args.iter().position(|line| *line == "-m").unwrap();
@@ -581,7 +942,10 @@ mod tests {
         .expect("cpu pass succeeds");
         let log = fixture.log();
         let args: Vec<&str> = log.trim().lines().collect();
-        let position = args.iter().rposition(|line| *line == "-g").expect("-g passed");
+        let position = args
+            .iter()
+            .rposition(|line| *line == "-g")
+            .expect("-g passed");
         assert_eq!(args[position + 1], "-1", "cpu selects -g -1: {log}");
         assert!(derived.exists());
     }
@@ -625,13 +989,33 @@ mod tests {
         let script = format!("cp \"{}\" \"$out\"\n", out2x.display());
         let target = fixture.0.join("cache").join("target.png");
         let cancel = AtomicBool::new(false);
-        let first = derive_with(&fixture, &script, &source, 1, Engine::RealCugan, &target, &cancel)
-            .expect("first run");
+        let first = derive_with(
+            &fixture,
+            &script,
+            &source,
+            1,
+            Engine::RealCugan,
+            &target,
+            &cancel,
+        )
+        .expect("first run");
         std::fs::remove_file(fixture.0.join("invocations.log")).unwrap();
-        let second = derive_with(&fixture, &script, &source, 1, Engine::RealCugan, &target, &cancel)
-            .expect("cached hit");
+        let second = derive_with(
+            &fixture,
+            &script,
+            &source,
+            1,
+            Engine::RealCugan,
+            &target,
+            &cancel,
+        )
+        .expect("cached hit");
         assert_eq!(first, second);
-        assert!(fixture.log().is_empty(), "no second spawn: {}", fixture.log());
+        assert!(
+            fixture.log().is_empty(),
+            "no second spawn: {}",
+            fixture.log()
+        );
     }
 
     #[test]
@@ -643,13 +1027,24 @@ mod tests {
         let cancel = AtomicBool::new(false);
         for (name, script) in [
             ("exit", "exit 1\n".to_owned()),
-            ("wrong-size", format!("cp \"{}\" \"$out\"\n", wrong.display())),
+            (
+                "wrong-size",
+                format!("cp \"{}\" \"$out\"\n", wrong.display()),
+            ),
             ("no-output", "true\n".to_owned()),
         ] {
             let target = fixture.0.join("cache").join(format!("{name}.png"));
             assert!(
-                derive_with(&fixture, &script, &source, 1, Engine::RealCugan, &target, &cancel)
-                    .is_none(),
+                derive_with(
+                    &fixture,
+                    &script,
+                    &source,
+                    1,
+                    Engine::RealCugan,
+                    &target,
+                    &cancel
+                )
+                .is_none(),
                 "{name} must not publish",
             );
             assert!(!target.exists());
@@ -669,12 +1064,23 @@ mod tests {
         );
         let target = fixture.0.join("cache").join("x4.png");
         assert!(
-            derive_with(&fixture, &script, &source, 2, Engine::RealCugan, &target, &AtomicBool::new(false))
-                .is_none()
+            derive_with(
+                &fixture,
+                &script,
+                &source,
+                2,
+                Engine::RealCugan,
+                &target,
+                &AtomicBool::new(false)
+            )
+            .is_none()
         );
         assert!(!target.exists());
         assert!(stray_stages(target.parent().unwrap()).is_empty());
-        assert_eq!(fixture.log().lines().filter(|line| *line == "-i").count(), 2);
+        assert_eq!(
+            fixture.log().lines().filter(|line| *line == "-i").count(),
+            2
+        );
     }
 
     #[test]
@@ -688,14 +1094,22 @@ mod tests {
             ("garbage.png", b"not a png".to_vec()),
             ("truncated.png", {
                 let bytes = std::fs::read(&out2x).unwrap();
-                bytes[.. bytes.len() / 2].to_vec()
+                bytes[..bytes.len() / 2].to_vec()
             }),
         ] {
             let target = fixture.0.join("cache").join(name);
             std::fs::create_dir_all(target.parent().unwrap()).unwrap();
             std::fs::write(&target, corrupt).unwrap();
-            let derived = derive_with(&fixture, &script, &source, 1, Engine::RealCugan, &target, &cancel)
-                .expect("corrupt cache rebuilt");
+            let derived = derive_with(
+                &fixture,
+                &script,
+                &source,
+                1,
+                Engine::RealCugan,
+                &target,
+                &cancel,
+            )
+            .expect("corrupt cache rebuilt");
             assert!(valid_output(&derived, (16, 12)));
         }
     }
@@ -709,7 +1123,16 @@ mod tests {
         let target = fixture.0.join("cache").join("target.png");
         let cancel = AtomicBool::new(true);
         assert!(
-            derive_with(&fixture, &script, &source, 1, Engine::RealCugan, &target, &cancel).is_none()
+            derive_with(
+                &fixture,
+                &script,
+                &source,
+                1,
+                Engine::RealCugan,
+                &target,
+                &cancel
+            )
+            .is_none()
         );
         assert!(fixture.log().is_empty());
         assert!(!target.exists());
@@ -728,8 +1151,16 @@ mod tests {
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink(&sentinel, &target).unwrap();
         assert!(
-            derive_with(&fixture, &script, &source, 1, Engine::RealCugan, &target, &AtomicBool::new(false))
-                .is_none()
+            derive_with(
+                &fixture,
+                &script,
+                &source,
+                1,
+                Engine::RealCugan,
+                &target,
+                &AtomicBool::new(false)
+            )
+            .is_none()
         );
         assert!(target.symlink_metadata().unwrap().is_symlink());
         assert_eq!(std::fs::read(&sentinel).unwrap(), b"keep me");
@@ -743,8 +1174,16 @@ mod tests {
         let script = format!("ln -sf \"{}\" \"$out\"\n", sentinel.display());
         let target = fixture.0.join("cache").join("target.png");
         assert!(
-            derive_with(&fixture, &script, &source, 1, Engine::RealCugan, &target, &AtomicBool::new(false))
-                .is_none()
+            derive_with(
+                &fixture,
+                &script,
+                &source,
+                1,
+                Engine::RealCugan,
+                &target,
+                &AtomicBool::new(false)
+            )
+            .is_none()
         );
         assert!(!target.exists());
         assert!(stray_stages(target.parent().unwrap()).is_empty());
@@ -756,12 +1195,18 @@ mod tests {
         let parent = fixture.0.join("cache");
         std::fs::create_dir_all(&parent).unwrap();
         let first = Stage::create(&parent, "job").expect("first create");
-        assert!(Stage::create(&parent, "job").is_none(), "existing dir refused");
+        assert!(
+            Stage::create(&parent, "job").is_none(),
+            "existing dir refused"
+        );
         let occupied = parent.join("occupied");
         std::fs::create_dir_all(&occupied).unwrap();
         std::fs::write(occupied.join("sentinel"), b"keep me").unwrap();
         assert!(Stage::create(&parent, "occupied").is_none());
-        assert_eq!(std::fs::read(occupied.join("sentinel")).unwrap(), b"keep me");
+        assert_eq!(
+            std::fs::read(occupied.join("sentinel")).unwrap(),
+            b"keep me"
+        );
         let link = parent.join("link");
         std::os::unix::fs::symlink(&occupied, &link).unwrap();
         assert!(Stage::create(&parent, "link").is_none());
@@ -778,16 +1223,21 @@ mod tests {
         let config = fixture.config(&helper, &models);
         let output = fixture.0.join("cache").join("out.png");
         let start = Instant::now();
-        assert!(run_pass(
-            &config,
-            Engine::RealCugan,
-            &source,
-            &output,
-            Duration::from_millis(200),
-            &AtomicBool::new(false),
-        )
-        .is_none());
-        assert!(start.elapsed() < Duration::from_secs(10), "kill + wait took too long");
+        assert!(
+            run_pass(
+                &config,
+                Engine::RealCugan,
+                &source,
+                &output,
+                Duration::from_millis(200),
+                &AtomicBool::new(false),
+            )
+            .is_none()
+        );
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "kill + wait took too long"
+        );
         assert!(!output.exists());
     }
 
@@ -815,7 +1265,10 @@ mod tests {
         std::thread::sleep(Duration::from_millis(150));
         cancel.store(true, Ordering::Relaxed);
         assert!(worker.join().unwrap().is_none());
-        assert!(start.elapsed() < Duration::from_secs(10), "cancel did not kill");
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "cancel did not kill"
+        );
     }
 
     #[test]
@@ -830,9 +1283,166 @@ mod tests {
         );
         std::fs::write(models.join("up2x-no-denoise.bin"), b"other").unwrap();
         let second = fixture.config(&helper, &models);
-        assert_ne!(
-            first.key(Engine::RealCugan),
-            second.key(Engine::RealCugan),
+        assert_ne!(first.key(Engine::RealCugan), second.key(Engine::RealCugan),);
+        let changed_helper = fixture.helper("true\n# changed");
+        let third = fixture.config(&changed_helper, &models);
+        assert_ne!(second.key(Engine::RealCugan), third.key(Engine::RealCugan));
+        assert!(first.key(Engine::RealCugan).contains("v2"));
+    }
+
+    #[test]
+    fn packaged_manifest_rejects_missing_and_corrupt_components() {
+        let fixture = Fixture::new("bundle-validation");
+        let root = fixture.0.join("bundle");
+        let helper = root.join("bin").join(HELPER_NAME);
+        std::fs::create_dir_all(helper.parent().unwrap()).unwrap();
+        let source_helper = fixture.helper("true");
+        std::fs::copy(source_helper, &helper).unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let models = root.join(MODEL_DIRECTORY);
+        std::fs::create_dir_all(&models).unwrap();
+        std::fs::write(models.join(MODEL_FILES[0]), b"param-data").unwrap();
+        std::fs::write(models.join(MODEL_FILES[1]), b"model-data").unwrap();
+        assert!(resolve(None, Some(root.join("bin")), None).is_none());
+
+        let entries = serde_json::json!({
+            format!("bin/{HELPER_NAME}"): {
+                "sha256": sha256_file(&helper).unwrap(),
+                "size": helper.metadata().unwrap().len()
+            },
+            format!("{MODEL_DIRECTORY}/{}", MODEL_FILES[0]): {
+                "sha256": sha256_file(&models.join(MODEL_FILES[0])).unwrap(),
+                "size": models.join(MODEL_FILES[0]).metadata().unwrap().len()
+            },
+            format!("{MODEL_DIRECTORY}/{}", MODEL_FILES[1]): {
+                "sha256": sha256_file(&models.join(MODEL_FILES[1])).unwrap(),
+                "size": models.join(MODEL_FILES[1]).metadata().unwrap().len()
+            }
+        });
+        let manifest = serde_json::json!({
+            "schemaVersion": 1,
+            "modelFamily": MODEL_FAMILY,
+            "inference": {
+                "schemaVersion": INFERENCE_SCHEMA,
+                "noise": 0,
+                "scale": 2,
+                "format": "png",
+                "tileSize": 128,
+                "jobs": "1:1:1",
+                "syncgap": 2
+            },
+            "files": entries
+        });
+        let manifest_path = root.join(BUNDLE_MANIFEST);
+        std::fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        assert!(resolve(None, Some(root.join("bin")), None).is_some());
+        std::fs::write(models.join(MODEL_FILES[1]), b"tampered").unwrap();
+        assert!(resolve(None, Some(root.join("bin")), None).is_none());
+    }
+
+    #[test]
+    fn automatic_mode_retries_cpu_once_after_gpu_failure() {
+        let fixture = Fixture::new("auto-fallback");
+        let source = fixture.png("cover", 8, 6);
+        let out2x = fixture.png("fixture-2x.png", 16, 12);
+        let script = format!(
+            "if [ \"$device\" = -1 ]; then cp \"{}\" \"$out\"; else exit 1; fi\n",
+            out2x.display()
         );
+        let helper = fixture.helper(&script);
+        let models = fixture.models();
+        let config = fixture.config(&helper, &models);
+        let gpu = fixture.0.join("cache/gpu.png");
+        let cpu = fixture.0.join("cache/cpu.png");
+        let result = derive_auto(
+            &config,
+            &source,
+            1,
+            &gpu,
+            &cpu,
+            (16, 12),
+            &AtomicBool::new(false),
+        )
+        .expect("CPU retry succeeds");
+        assert_eq!(result, cpu);
+        let log = fixture.log();
+        assert_eq!(log.lines().filter(|line| *line == "-i").count(), 2, "{log}");
+        assert_eq!(log.lines().filter(|line| *line == "-g").count(), 1, "{log}");
+        assert_eq!(log.lines().filter(|line| *line == "-n").count(), 2, "{log}");
+    }
+
+    #[test]
+    fn automatic_mode_does_not_retry_cpu_after_cancellation() {
+        let fixture = Fixture::new("auto-cancel");
+        let source = fixture.png("cover", 8, 6);
+        let helper = fixture.helper("exec sleep 30\n");
+        let models = fixture.models();
+        let config = fixture.config(&helper, &models);
+        let gpu = fixture.0.join("cache/gpu.png");
+        let cpu = fixture.0.join("cache/cpu.png");
+        let cancel = Arc::new(AtomicBool::new(false));
+        let worker_cancel = cancel.clone();
+        let worker = std::thread::spawn(move || {
+            derive_auto(&config, &source, 1, &gpu, &cpu, (16, 12), &worker_cancel)
+        });
+        std::thread::sleep(Duration::from_millis(150));
+        cancel.store(true, Ordering::Relaxed);
+        assert!(worker.join().unwrap().is_none());
+        let log = fixture.log();
+        assert_eq!(log.lines().filter(|line| *line == "-i").count(), 1, "{log}");
+        assert!(!log.lines().any(|line| line == "-g"), "{log}");
+    }
+
+    #[test]
+    #[ignore = "requires an explicitly built RealCUGAN helper and bundled models"]
+    fn bundled_real_helper_upscales_extensionless_odd_rgba_image() {
+        let helper = std::env::var_os("WHISKY_REALCUGAN_HELPER")
+            .map(PathBuf::from)
+            .expect("set WHISKY_REALCUGAN_HELPER to the built helper");
+        let models = std::env::var_os("WHISKY_REALCUGAN_MODELS")
+            .map(PathBuf::from)
+            .expect("set WHISKY_REALCUGAN_MODELS to the bundled models-se directory");
+        assert!(
+            executable(&helper),
+            "built helper must be executable: {}",
+            helper.display()
+        );
+        assert!(
+            valid_models(&models),
+            "models-se payload is absent or corrupt"
+        );
+        let fixture = Fixture::new("real-helper");
+        let source = fixture.0.join("odd rgba cover");
+        image::RgbaImage::from_pixel(7, 5, image::Rgba([7, 60, 120, 255]))
+            .save_with_format(&source, image::ImageFormat::Png)
+            .unwrap();
+        let old_helper = std::env::var_os("WHISKY_REALCUGAN_HELPER");
+        let old_models = std::env::var_os("WHISKY_REALCUGAN_MODELS");
+        unsafe {
+            std::env::set_var("WHISKY_REALCUGAN_HELPER", &helper);
+            std::env::set_var("WHISKY_REALCUGAN_MODELS", &models);
+        }
+        let cancel = AtomicBool::new(false);
+        let x2 =
+            super::super::upscaled_cover_with_cancel(&source, 1, Engine::RealCuganCpu, &cancel)
+                .expect("CPU x2 real inference should succeed");
+        assert_eq!(super::super::dimensions(&x2), Some((14, 10)));
+        let x4 =
+            super::super::upscaled_cover_with_cancel(&source, 2, Engine::RealCuganCpu, &cancel)
+                .expect("CPU x4 real inference should succeed");
+        assert_eq!(super::super::dimensions(&x4), Some((28, 20)));
+        unsafe {
+            if let Some(value) = old_helper {
+                std::env::set_var("WHISKY_REALCUGAN_HELPER", value);
+            } else {
+                std::env::remove_var("WHISKY_REALCUGAN_HELPER");
+            }
+            if let Some(value) = old_models {
+                std::env::set_var("WHISKY_REALCUGAN_MODELS", value);
+            } else {
+                std::env::remove_var("WHISKY_REALCUGAN_MODELS");
+            }
+        }
     }
 }

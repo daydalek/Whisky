@@ -600,6 +600,7 @@ pub(crate) struct WhiskyApp {
     /// Whole-library cover derivation while one is running.
     pub(crate) cover_batch: Option<CoverBatch>,
     cover_batch_generation: u64,
+    cover_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub(crate) hovered: Option<usize>,
     pub(crate) ambient_index: usize,
     pub(crate) detail: Option<usize>,
@@ -783,6 +784,7 @@ impl WhiskyApp {
             cover_jobs: RefCell::new(std::collections::HashSet::new()),
             cover_batch: None,
             cover_batch_generation: 0,
+            cover_cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             hovered: None,
             ambient_index: 0,
             detail: None,
@@ -3036,6 +3038,7 @@ impl WhiskyApp {
             return;
         }
         self.quitting = true;
+        self.cancel_cover_jobs();
         self.quit_error = None;
         self.quit_generation = self.quit_generation.wrapping_add(1);
         let generation = self.quit_generation;
@@ -3271,6 +3274,7 @@ impl WhiskyApp {
             "terminal" => self.persist(preferences::PREFERRED_TERMINAL, json!(value), cx),
             "cover-fill" => self.persist(preferences::COVER_FILL_STYLE, json!(value), cx),
             "cover-upscale" => {
+                self.cancel_cover_jobs();
                 self.cover_upscale = crate::upscale::Factor::from_raw(value);
                 // The pass count is part of the cache key, so every prepared
                 // derivative has to be looked up again under the new factor.
@@ -3279,10 +3283,12 @@ impl WhiskyApp {
                 self.persist(preferences::COVER_UPSCALE, json!(value), cx);
             }
             "cover-engine" => {
+                self.cancel_cover_jobs();
                 self.cover_engine = crate::upscale::Engine::from_raw(value);
                 self.cover_derivatives.borrow_mut().clear();
                 self.cover_jobs.borrow_mut().clear();
-                self.persist(preferences::COVER_UPSCALE_ENGINE, json!(value), cx);
+                self.preview.choices.insert("cover-engine", self.cover_engine.raw().into());
+                self.persist(preferences::COVER_UPSCALE_ENGINE, json!(self.cover_engine.raw()), cx);
             }
             "detail-layout" => self.persist(preferences::DETAIL_LAYOUT_STYLE, json!(value), cx),
             _ => {}
@@ -3349,7 +3355,7 @@ impl WhiskyApp {
             return;
         }
         if self.cover_batch.is_some() {
-            self.cover_batch = None;
+            self.cancel_cover_jobs();
             self.cover_derivatives.borrow_mut().clear();
             cx.notify();
             return;
@@ -3378,6 +3384,7 @@ impl WhiskyApp {
         });
         let factor = self.cover_upscale;
         let engine = self.cover_engine;
+        let cancel = self.cover_cancel.clone();
         let worker = cx.spawn(async move |this, cx| {
             let mut succeeded = 0;
             for (position, cover) in covers.iter().enumerate() {
@@ -3390,18 +3397,13 @@ impl WhiskyApp {
                     return;
                 }
                 let job = cover.clone();
+                let cancel = cancel.clone();
                 let produced = cx.background_spawn(async move {
                     let passes = factor.passes();
                     if passes == 0 {
                         return false;
                     }
-                    crate::upscale::upscaled_cover(&job, passes, engine).or_else(|| {
-                        crate::upscale::upscaled_cover(
-                            &job,
-                            passes,
-                            crate::upscale::Engine::Anime4K,
-                        )
-                    }).is_some()
+                    crate::upscale::upscaled_cover_with_cancel(&job, passes, engine, &cancel).is_some()
                 })
                 .await;
                 succeeded += usize::from(produced);
@@ -3434,9 +3436,14 @@ impl WhiskyApp {
         cx.notify();
     }
 
-    /// Derives one cover on a worker thread. A Real-CUGAN failure — no helper,
-    /// no model, a refused tile — falls back to the in-process network under the
-    /// same key, so the shelf still sharpens and the next frame stops retrying.
+    fn cancel_cover_jobs(&mut self) {
+        self.cover_cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.cover_cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.cover_jobs.borrow_mut().clear();
+        self.cover_batch = None;
+    }
+
+    /// Derives one cover on a worker thread; platform-specific fallbacks live in the backend.
     fn prepare_cover(
         &self,
         source: std::path::PathBuf,
@@ -3451,22 +3458,19 @@ impl WhiskyApp {
         if !self.cover_jobs.borrow_mut().insert(key.clone()) {
             return;
         }
+        let cancel = self.cover_cancel.clone();
         let worker = cx.spawn(async move |this, cx| {
             let job = source.clone();
+            let job_cancel = cancel.clone();
             let derived = cx
                 .background_spawn(async move {
-                    crate::upscale::upscaled_cover(&job, passes, engine).or_else(|| {
-                        (engine == crate::upscale::Engine::RealCugan).then(|| {
-                            crate::upscale::upscaled_cover(
-                                &job,
-                                passes,
-                                crate::upscale::Engine::Anime4K,
-                            )
-                        })?
-                    })
+                    crate::upscale::upscaled_cover_with_cancel(&job, passes, engine, &job_cancel)
                 })
                 .await;
             this.update(cx, |this, cx| {
+                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
                 this.cover_jobs.borrow_mut().remove(&key);
                 this.cover_derivatives.borrow_mut().insert(key, derived);
                 cx.notify();

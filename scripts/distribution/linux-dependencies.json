@@ -26,6 +26,7 @@
     "libgl1",
     "libgles2",
     "libvulkan1",
+    "libwebp7",
     "xdg-utils",
     "desktop-file-utils"
   ],
@@ -41,6 +42,7 @@
     "libglvnd-glx",
     "libglvnd-gles",
     "vulkan-loader",
+    "libwebp",
     "xdg-utils",
     "desktop-file-utils"
   ],
@@ -60,6 +62,7 @@
     "libEGL.so",
     "libOpenGL.so",
     "libvulkan.so",
+    "libwebp.so",
     "libdrm",
     "libgbm.so",
     "libstdc++.so.",
