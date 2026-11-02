@@ -251,7 +251,15 @@ struct GameMetadataTests {
         #expect(first.first?.thumbnailURL?.absoluteString == "https://example.org/thumb.jpg")
         #expect(CountingNetworkProtocol.requestCount == 1)
         #expect(PublicGameMetadataProvider.parseRetryAfter("45") == 45)
-        #expect(PublicGameMetadataProvider.parseRetryAfter("9999") == 300)
+        #expect(PublicGameMetadataProvider.parseRetryAfter("9999") == 9999)
+        #expect(PublicGameMetadataProvider.parseRetryAfter("inf") == nil)
+        #expect(PublicGameMetadataProvider.parseRetryAfter("nan") == nil)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss z"
+        let longHTTPDate = formatter.string(from: Date().addingTimeInterval(3_600))
+        #expect((PublicGameMetadataProvider.parseRetryAfter(longHTTPDate) ?? 0) > 3_500)
     }
 
     @Test func localChineseTitleAllowsKatakanaMiddleDot() {

@@ -32,7 +32,6 @@ public final class LibraryMetadataService {
         "metadata.cover.import", "metadata.cover.reset"
     ]
     private static let searchThumbnailLimit = 8
-    private let portraitGate = SourceGatekeeper(minInterval: 0.25)
     let jobs: BridgeJobStore
     let session: URLSession
     let networkAccess: MetadataNetworkAccess
@@ -204,9 +203,7 @@ public final class LibraryMetadataService {
             guard !Task.isCancelled else { return }
             guard store.cachedCoverURL(for: url) == nil else { continue }
             do {
-                try await portraitGate.paced { [session] in
-                    try await store.cacheCover(from: url, session: session)
-                }
+                try await store.cacheCover(from: url, session: session)
             } catch {
                 if Task.isCancelled { return }
             }

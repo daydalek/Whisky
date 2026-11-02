@@ -10,6 +10,7 @@ extension LibraryMetadataService {
         let existing = try await store.loadRecord(for: entry.metadataIdentity)
         var record = try existing ?? defaultRecord()
         var errors: [String: JSONValue] = [:]
+        let includeCharacters = try includeCharacters(params)
         if method == "metadata.configuration.save" {
             guard let value = params["record"] else {
                 throw BridgeFailure("invalid_params", "Missing metadata record")
@@ -43,7 +44,7 @@ extension LibraryMetadataService {
                     guard !unchanged else { continue }
                     let snapshot = try await PublicGameMetadataProvider(
                         source: source, session: session, networkAccess: networkAccess
-                    ).refresh(sourceID: id)
+                    ).refresh(sourceID: id, includeCharacters: includeCharacters)
                     guard snapshot.sourceID == id else { throw URLError(.badServerResponse) }
                     record.snapshots[key] = snapshot
                     if let cover = snapshot.coverURL { hydratedCovers.append(cover) }
@@ -60,11 +61,15 @@ extension LibraryMetadataService {
                 do {
                     let snapshot = try await PublicGameMetadataProvider(
                         source: source, session: session, networkAccess: networkAccess
-                    ).refresh(sourceID: id)
+                    ).refresh(sourceID: id, includeCharacters: includeCharacters)
                     guard snapshot.sourceID == id else { throw URLError(.badServerResponse) }
                     // Re-read after network suspension: don't resurrect an old binding
                     // or overwrite another editor's manual changes.
-                    guard try await store.updateSnapshot(snapshot, for: entry.metadataIdentity) else { continue }
+                    guard try await store.updateSnapshot(
+                        snapshot,
+                        for: entry.metadataIdentity,
+                        preservingCharacters: !includeCharacters
+                    ) else { continue }
                     if let cover = snapshot.coverURL { try? await store.cacheCover(from: cover, session: session) }
                 } catch {
                     errors[source.rawValue] = .string(error.localizedDescription)
@@ -115,5 +120,11 @@ extension LibraryMetadataService {
             }
         }
         return record
+    }
+
+    func includeCharacters(_ params: [String: JSONValue]) throws -> Bool {
+        if let explicit = params["includeCharacters"]?.bool { return explicit }
+        let values = try preferences?.call("preferences.read", params: [:]).object ?? [:]
+        return values["libraryMetadataScrapeCharacters"]?.bool ?? true
     }
 }

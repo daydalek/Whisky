@@ -143,3 +143,92 @@ private final class CoverProtocol: URLProtocol, @unchecked Sendable {
 
     override func stopLoading() {}
 }
+
+@Test func concurrentCoverRequestsShareOneStreamingDownload() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CoordinatedCoverProtocol.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("metadata-coalesce-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let remote = try #require(URL(string: "https://fixture.example/coalesced.png"))
+    let store = GameMetadataStore(directory: root, networkAccess: {})
+    try await withThrowingTaskGroup(of: Void.self) { group in
+        for _ in 0 ..< 6 {
+            group.addTask { try await store.cacheCover(from: remote, session: session) }
+        }
+        try await group.waitForAll()
+    }
+    #expect(CoordinatedCoverProtocol.count(for: remote.path) == 1)
+    #expect(try Data(contentsOf: #require(store.cachedCoverURL(for: remote))) == coverBytes)
+}
+
+@Test func coverRateLimitCooldownSuppressesTheNextRequest() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CoordinatedCoverProtocol.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("metadata-rate-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let remote = try #require(URL(string: "https://fixture.example/rate.png"))
+    let store = GameMetadataStore(directory: root, networkAccess: {})
+    for _ in 0 ..< 2 {
+        await #expect(throws: (any Error).self) {
+            try await store.cacheCover(from: remote, session: session)
+        }
+    }
+    #expect(CoordinatedCoverProtocol.count(for: remote.path) == 1)
+    #expect(store.cachedCoverURL(for: remote) == nil)
+}
+
+@Test func streamingCoverLimitCancelsWithoutPublishingCache() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CoordinatedCoverProtocol.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("metadata-limit-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let remote = try #require(URL(string: "https://fixture.example/oversized.png"))
+    let store = GameMetadataStore(directory: root, networkAccess: {})
+    await #expect(throws: (any Error).self) {
+        try await store.cacheCover(from: remote, session: session)
+    }
+    #expect(CoordinatedCoverProtocol.count(for: remote.path) == 1)
+    #expect(store.cachedCoverURL(for: remote) == nil)
+}
+
+private final class CoordinatedCoverProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var counts: [String: Int] = [:]
+
+    static func count(for path: String) -> Int { lock.withLock { counts[path, default: 0] } }
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        guard let url = request.url else { return }
+        Self.lock.withLock { Self.counts[url.path, default: 0] += 1 }
+        if url.path == "/coalesced.png" {
+            Thread.sleep(forTimeInterval: 0.03)
+        }
+        let status = url.path == "/rate.png" ? 429 : 200
+        let headers = status == 429
+            ? ["Content-Type": "text/plain", "Retry-After": "120"]
+            : ["Content-Type": "image/png"]
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: status,
+            httpVersion: nil,
+            headerFields: headers
+        ) else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if url.path == "/oversized.png" {
+            client?.urlProtocol(self, didLoad: Data(repeating: 0, count: 8 * 1_024 * 1_024))
+            client?.urlProtocol(self, didLoad: Data(repeating: 0, count: 8 * 1_024 * 1_024))
+        } else if status == 200 {
+            client?.urlProtocol(self, didLoad: coverBytes)
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}

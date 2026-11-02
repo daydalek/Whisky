@@ -27,6 +27,9 @@ import WhiskyCore
 public actor GameMetadataStore {
     private let directory: URL
     private let networkAccess: MetadataNetworkAccess
+    private var artworkDownloads: [URL: Task<Void, any Error>] = [:]
+    private var artworkFailures: [URL: Date] = [:]
+    private var artworkLimiters: [ObjectIdentifier: ArtworkTransportLimiter] = [:]
 
     public init(directory: URL, networkAccess: @escaping MetadataNetworkAccess) {
         self.networkAccess = networkAccess
@@ -113,9 +116,18 @@ public actor GameMetadataStore {
     }
 
     /// No actor suspension between validating the current binding and publishing.
-    public func updateSnapshot(_ snapshot: GameMetadata, for identity: String) throws -> Bool {
+    public func updateSnapshot(
+        _ snapshot: GameMetadata,
+        for identity: String,
+        preservingCharacters: Bool = false
+    ) throws -> Bool {
         guard var current = try loadRecord(for: identity),
               current.bindings[snapshot.source.rawValue] == snapshot.sourceID else { return false }
+        var snapshot = snapshot
+        if preservingCharacters,
+           current.snapshots[snapshot.source.rawValue]?.sourceID == snapshot.sourceID {
+            snapshot.characters = current.snapshots[snapshot.source.rawValue]?.characters
+        }
         current.snapshots[snapshot.source.rawValue] = snapshot
         try saveRecord(current, for: identity)
         return true
@@ -158,22 +170,59 @@ public actor GameMetadataStore {
         guard cachedCoverURL(for: url) == nil else { return }
         try await networkAccess()
         guard url.scheme == "https" else { throw URLError(.unsupportedURL) }
-        var request = URLRequest(url: url, timeoutInterval: 20)
-        request.setValue("Whisky/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200 ..< 300).contains(http.statusCode),
-              response.mimeType?.hasPrefix("image/") == true,
-              !data.isEmpty, data.count <= 15 * 1_024 * 1_024
-        else {
-            throw URLError(.badServerResponse)
+        if let until = artworkFailures[url] {
+            guard until <= Date() else { throw URLError(.resourceUnavailable) }
+            artworkFailures[url] = nil
+        }
+        if let download = artworkDownloads[url] {
+            try await download.value
+            try Task.checkCancellation()
+            return
+        }
+
+        let limiter: ArtworkTransportLimiter
+        if session === URLSession.shared {
+            limiter = .shared
+        } else {
+            let identifier = ObjectIdentifier(session)
+            if let existing = artworkLimiters[identifier] {
+                limiter = existing
+            } else {
+                let created = ArtworkTransportLimiter(minInterval: 0)
+                artworkLimiters[identifier] = created
+                limiter = created
+            }
+        }
+        let location = coverLocation(for: url)
+        let download = Task {
+            let request = {
+                var request = URLRequest(url: url, timeoutInterval: 20)
+                request.setValue("Whisky/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
+                return request
+            }()
+            let data = try await limiter.download(host: url.host ?? "") {
+                try await ArtworkDataLoader.download(request, configuration: session.configuration)
+            }
+            try Task.checkCancellation()
+            try FileManager.default.createDirectory(
+                at: location.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try data.write(to: location, options: .atomic)
+        }
+        artworkDownloads[url] = download
+        do {
+            try await download.value
+            artworkDownloads[url] = nil
+            artworkFailures[url] = nil
+        } catch {
+            artworkDownloads[url] = nil
+            if !Task.isCancelled {
+                let retryAfter = (error as? ArtworkRateLimitError)?.retryAfter ?? 30
+                artworkFailures[url] = Date().addingTimeInterval(max(30, retryAfter))
+            }
+            throw error
         }
         try Task.checkCancellation()
-        let location = coverLocation(for: url)
-        try FileManager.default.createDirectory(
-            at: location.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try data.write(to: location, options: .atomic)
     }
 
     /// Copies saved metadata, manual-unlink markers, and cached cover artwork to another bottle's store.
@@ -238,6 +287,201 @@ public actor GameMetadataStore {
     private nonisolated func location(for identity: String) -> URL {
         let digest = LibraryStorageLayout.key(identity)
         return directory.appendingPathComponent(digest).appendingPathExtension("json")
+    }
+}
+
+private struct ArtworkRateLimitError: Error, Sendable {
+    let statusCode: Int
+    let retryAfter: TimeInterval
+}
+
+private actor ArtworkTransportLimiter {
+    static let shared = ArtworkTransportLimiter(minInterval: 0.25)
+
+    private let minInterval: TimeInterval
+    private var active = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var nextRequestAt: [String: Date] = [:]
+
+    init(minInterval: TimeInterval) {
+        self.minInterval = minInterval
+    }
+
+    func download(
+        host: String,
+        operation: @Sendable () async throws -> Data
+    ) async throws -> Data {
+        try await acquire()
+        defer { release() }
+        let now = Date()
+        let start = max(now, nextRequestAt[host] ?? now)
+        nextRequestAt[host] = start.addingTimeInterval(minInterval)
+        let delay = start.timeIntervalSince(now)
+        if delay > 0 {
+            try await Task.sleep(for: .seconds(delay))
+        }
+        return try await operation()
+    }
+
+    private func acquire() async throws {
+        if active >= 4 {
+            await withCheckedContinuation { waiters.append($0) }
+        } else {
+            active += 1
+        }
+        do {
+            try Task.checkCancellation()
+        } catch {
+            release()
+            throw error
+        }
+    }
+
+    private func release() {
+        if let waiter = waiters.first {
+            waiters.removeFirst()
+            waiter.resume()
+        } else {
+            active -= 1
+        }
+    }
+}
+
+private final class ArtworkDataLoader: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private static let maximumBytes = 15 * 1_024 * 1_024
+
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Data, any Error>?
+    private var session: URLSession?
+    private var task: URLSessionDataTask?
+    private var data = Data()
+    private var cancelled = false
+
+    static func download(_ request: URLRequest, configuration: URLSessionConfiguration) async throws -> Data {
+        let loader = ArtworkDataLoader()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                loader.start(request, configuration: configuration, continuation: continuation)
+            }
+        } onCancel: {
+            loader.cancel()
+        }
+    }
+
+    private func start(
+        _ request: URLRequest,
+        configuration: URLSessionConfiguration,
+        continuation: CheckedContinuation<Data, any Error>
+    ) {
+        lock.lock()
+        guard !cancelled else {
+            lock.unlock()
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+        self.continuation = continuation
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        let task = session.dataTask(with: request)
+        self.session = session
+        self.task = task
+        lock.unlock()
+        task.resume()
+    }
+
+    private func cancel() {
+        lock.withLock { cancelled = true }
+        finish(.failure(CancellationError()))
+    }
+
+    private func finish(_ result: Result<Data, any Error>) {
+        let state: (CheckedContinuation<Data, any Error>, URLSession, URLSessionDataTask)? = lock.withLock {
+            guard let continuation, let session, let task else { return nil }
+            self.continuation = nil
+            self.session = nil
+            self.task = nil
+            return (continuation, session, task)
+        }
+        guard let (continuation, session, task) = state else { return }
+        task.cancel()
+        session.invalidateAndCancel()
+        continuation.resume(with: result)
+    }
+
+    func urlSession(
+        _: URLSession,
+        task _: URLSessionTask,
+        willPerformHTTPRedirection _: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard request.url?.scheme == "https" else {
+            completionHandler(nil)
+            finish(.failure(URLError(.unsupportedURL)))
+            return
+        }
+        completionHandler(request)
+    }
+
+    func urlSession(
+        _: URLSession,
+        dataTask _: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard response.url?.scheme == "https",
+              let http = response as? HTTPURLResponse
+        else {
+            completionHandler(.cancel)
+            finish(.failure(URLError(.unsupportedURL)))
+            return
+        }
+        guard (200 ..< 300).contains(http.statusCode) else {
+            completionHandler(.cancel)
+            if http.statusCode == 429 || http.statusCode == 503 {
+                finish(.failure(ArtworkRateLimitError(
+                    statusCode: http.statusCode,
+                    retryAfter: PublicGameMetadataProvider.parseRetryAfter(
+                        http.value(forHTTPHeaderField: "Retry-After")
+                    ) ?? 30
+                )))
+            } else {
+                finish(.failure(ProviderError.http(http.statusCode)))
+            }
+            return
+        }
+        guard response.mimeType?.hasPrefix("image/") == true,
+              response.expectedContentLength <= Int64(Self.maximumBytes)
+                || response.expectedContentLength == NSURLSessionTransferSizeUnknown
+        else {
+            completionHandler(.cancel)
+            finish(.failure(URLError(.badServerResponse)))
+            return
+        }
+        completionHandler(.allow)
+    }
+
+    func urlSession(_: URLSession, dataTask _: URLSessionDataTask, didReceive chunk: Data) {
+        let accepted = lock.withLock {
+            guard data.count <= Self.maximumBytes - chunk.count else { return false }
+            data.append(chunk)
+            return true
+        }
+        if !accepted {
+            finish(.failure(URLError(.dataLengthExceedsMaximum)))
+        }
+    }
+
+    func urlSession(_: URLSession, task _: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        if let error {
+            finish(.failure(error))
+        } else {
+            let data = lock.withLock { self.data }
+            if data.isEmpty {
+                finish(.failure(URLError(.zeroByteResource)))
+            } else {
+                finish(.success(data))
+            }
+        }
     }
 }
 

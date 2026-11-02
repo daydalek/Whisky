@@ -30,11 +30,13 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
     private let networkAccess: MetadataNetworkAccess
     private let ymgalClient: YMGalClient
     private let gatekeeper: SourceGatekeeper
+    private let transportGate: SourceGatekeeper
 
     public init(
         source: GameMetadataSource,
         session: URLSession = .shared,
-        networkAccess: @escaping MetadataNetworkAccess
+        networkAccess: @escaping MetadataNetworkAccess,
+        transportMinimumInterval: TimeInterval? = nil
     ) {
         self.source = source
         self.networkAccess = networkAccess
@@ -42,6 +44,11 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
         let isShared = session === URLSession.shared
         self.ymgalClient = isShared ? .shared : YMGalClient(session: session, minInterval: 0)
         self.gatekeeper = isShared ? SourceGatekeeper.shared(for: source) : SourceGatekeeper(minInterval: 0)
+        if isShared, transportMinimumInterval == nil {
+            self.transportGate = SourceGatekeeper.sharedTransport(for: source)
+        } else {
+            self.transportGate = SourceGatekeeper(minInterval: transportMinimumInterval ?? 0)
+        }
     }
 
     public func search(_ query: String) async throws -> [GameMetadata] {
@@ -73,8 +80,10 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
         try await networkAccess()
         guard candidate.source == source else { throw URLError(.badURL) }
         if source == .nextmoe {
-            return try await gatekeeper.details(candidate.sourceID) {
-                try await NextMoeProvider(session: session, networkAccess: networkAccess).details(candidate)
+            let cacheID = "\(candidate.sourceID):characters=\(includeCharacters)"
+            return try await gatekeeper.details(cacheID) {
+                try await NextMoeProvider(session: session, networkAccess: networkAccess)
+                    .details(candidate, includeCharacters: includeCharacters)
             }
         }
         if source == .ymgal {
@@ -113,7 +122,7 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
     }
 
     /// Refresh only an explicitly confirmed identity, never a title search.
-    public func refresh(sourceID: String) async throws -> GameMetadata {
+    public func refresh(sourceID: String, includeCharacters: Bool = true) async throws -> GameMetadata {
         try await networkAccess()
         switch source {
         case .bangumi:
@@ -121,7 +130,7 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
                   let url = URL(string: "https://api.bgm.tv/v0/subjects/\(sourceID)") else {
                 throw URLError(.badURL)
             }
-            return try await gatekeeper.details(sourceID) {
+            return try await gatekeeper.details("\(sourceID):characters=\(includeCharacters)") {
                 let subject = try await request(url, as: BangumiSubject.self)
                 var game = GameMetadata(
                     source: .bangumi, sourceID: String(subject.id),
@@ -131,18 +140,26 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
                     thumbnailURL: subject.images?.common,
                     pageURL: URL(string: "https://bgm.tv/subject/\(subject.id)")
                 )
-                game.characters = try await fetchCharactersWithRetry { try await fetchBangumiCharacters(for: String(subject.id)) }
+                if includeCharacters {
+                    game.characters = try await fetchCharactersWithRetry {
+                        try await fetchBangumiCharacters(for: String(subject.id))
+                    }
+                }
                 return game
             }
         case .vndb:
             guard sourceID.range(of: #"^v[0-9]+$"#, options: .regularExpression) != nil else {
                 throw URLError(.badURL)
             }
-            return try await gatekeeper.details(sourceID) {
+            return try await gatekeeper.details("\(sourceID):characters=\(includeCharacters)") {
                 guard var game = try await vndb(sourceID).first(where: { $0.sourceID == sourceID }) else {
                     throw URLError(.resourceUnavailable)
                 }
-                game.characters = try await fetchCharactersWithRetry { try await fetchVNDBCharacters(for: sourceID) }
+                if includeCharacters {
+                    game.characters = try await fetchCharactersWithRetry {
+                        try await fetchVNDBCharacters(for: sourceID)
+                    }
+                }
                 return game
             }
         case .steam:
@@ -154,7 +171,10 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
         case .ymgal:
             return try await details(for: GameMetadata(source: source, sourceID: sourceID, title: ""))
         case .nextmoe:
-            return try await details(for: GameMetadata(source: source, sourceID: sourceID, title: ""))
+            return try await details(
+                for: GameMetadata(source: source, sourceID: sourceID, title: ""),
+                includeCharacters: includeCharacters
+            )
         case .hikarinagi:
             throw ProviderError.directAPIUnavailable
         }
@@ -204,19 +224,23 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        try await networkAccess()
-        let (data, response) = try await session.data(for: request)
-        guard let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-        guard (200 ..< 300).contains(response.statusCode) else {
-            if response.statusCode == 429 || response.statusCode == 503 {
-                throw ProviderError.rateLimited(
-                    response.statusCode,
-                    retryAfter: Self.parseRetryAfter(response.value(forHTTPHeaderField: "Retry-After"))
-                )
+        let preparedRequest = request
+        let data = try await transportGate.paced {
+            try await networkAccess()
+            let (data, response) = try await session.data(for: preparedRequest)
+            guard let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+            guard (200 ..< 300).contains(response.statusCode) else {
+                if response.statusCode == 429 || response.statusCode == 503 {
+                    throw ProviderError.rateLimited(
+                        response.statusCode,
+                        retryAfter: Self.parseRetryAfter(response.value(forHTTPHeaderField: "Retry-After"))
+                    )
+                }
+                throw ProviderError.http(response.statusCode)
             }
-            throw ProviderError.http(response.statusCode)
+            try Task.checkCancellation()
+            return data
         }
-        try Task.checkCancellation()
         return try JSONDecoder().decode(type, from: data)
     }
 
@@ -342,8 +366,8 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
         guard let header = header?.trimmingCharacters(in: .whitespacesAndNewlines), !header.isEmpty else {
             return nil
         }
-        if let seconds = TimeInterval(header), seconds >= 0 {
-            return min(max(seconds, 1), 300)
+        if let seconds = TimeInterval(header), seconds.isFinite, seconds >= 0 {
+            return max(seconds, 1)
         }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -351,7 +375,7 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
         formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
         if let date = formatter.date(from: header) {
             let delta = date.timeIntervalSinceNow
-            return delta > 0 ? min(delta, 300) : nil
+            return delta > 0 ? delta : nil
         }
         return nil
     }
@@ -632,6 +656,10 @@ public actor SourceGatekeeper {
     private static let vndb = SourceGatekeeper(minInterval: 0.25)
     private static let steam = SourceGatekeeper(minInterval: 0.25)
     private static let fallback = SourceGatekeeper(minInterval: 0)
+    private static let bangumiTransport = SourceGatekeeper(minInterval: 0.25)
+    private static let vndbTransport = SourceGatekeeper(minInterval: 0.25)
+    private static let steamTransport = SourceGatekeeper(minInterval: 0.25)
+    private static let fallbackTransport = SourceGatekeeper(minInterval: 0)
 
     static func shared(for source: GameMetadataSource) -> SourceGatekeeper {
         switch source {
@@ -639,6 +667,15 @@ public actor SourceGatekeeper {
         case .vndb: vndb
         case .steam: steam
         case .ymgal, .hikarinagi, .nextmoe: fallback
+        }
+    }
+
+    static func sharedTransport(for source: GameMetadataSource) -> SourceGatekeeper {
+        switch source {
+        case .bangumi: bangumiTransport
+        case .vndb: vndbTransport
+        case .steam: steamTransport
+        case .ymgal, .hikarinagi, .nextmoe: fallbackTransport
         }
     }
 

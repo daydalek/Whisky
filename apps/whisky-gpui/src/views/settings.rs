@@ -11,18 +11,10 @@ use crate::controls::{col, muted, row};
 use crate::preferences;
 use crate::state::WhiskyApp;
 
-/// The upscaler is Metal compute, so the row says so where it cannot run.
-const COVER_UPSCALE_LABEL: &str = if cfg!(target_os = "macos") {
-    "封面超分"
-} else {
-    "封面超分（需要 Metal，当前平台不可用）"
-};
-/// Real-CUGAN runs through Core ML, Anime4K through Metal; both are Apple-only.
-const COVER_ENGINE_LABEL: &str = if cfg!(target_os = "macos") {
-    "超分引擎"
-} else {
-    "超分引擎（当前平台不可用）"
-};
+#[cfg(target_os = "macos")]
+const COVER_UPSCALE_LABEL: &str = "封面超分";
+#[cfg(target_os = "macos")]
+const COVER_ENGINE_LABEL: &str = "超分引擎";
 
 #[cfg(not(target_os = "linux"))]
 const TERMINALS: [(&str, &str); 3] = [
@@ -43,6 +35,7 @@ const TERMINALS: [(&str, &str); 5] = [
 impl WhiskyApp {
     /// One-click derivation for the whole library, with live progress; the same
     /// button cancels a pass that is already running.
+    #[cfg(target_os = "macos")]
     fn cover_batch_row(&self, cx: &Context<Self>) -> AnyElement {
         let running = self.cover_batch;
         let (action, detail) = match running {
@@ -323,18 +316,21 @@ impl WhiskyApp {
                             cx,
                         ),
                         self.toggle("single-title", "单行显示标题", "", cx),
+                        #[cfg(target_os = "macos")]
                         self.choice_pairs(
                             "cover-upscale",
                             COVER_UPSCALE_LABEL,
                             &[("关闭", "off"), ("2× 实用", "x2"), ("4× 激进", "x4")],
                             cx,
                         ),
+                        #[cfg(target_os = "macos")]
                         self.choice_pairs(
                             "cover-engine",
                             COVER_ENGINE_LABEL,
                             &[("Real-CUGAN（质量优先）", "realcugan"), ("Anime4K（更快）", "anime4k")],
                             cx,
                         ),
+                        #[cfg(target_os = "macos")]
                         self.cover_batch_row(cx),
                         self.toggle("scrape-characters", "默认获取人物资料", "从支持的数据源获取人物、声优与头像。", cx),
                         self.toggle(

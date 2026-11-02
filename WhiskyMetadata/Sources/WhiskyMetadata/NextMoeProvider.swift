@@ -22,9 +22,11 @@ public struct NextMoeProvider: Sendable {
         return page.items.map { $0.metadata() }
     }
 
-    public func details(_ candidate: GameMetadata) async throws -> GameMetadata {
+    public func details(_ candidate: GameMetadata, includeCharacters: Bool = true) async throws -> GameMetadata {
         guard candidate.source == .nextmoe, Self.validID(candidate.sourceID) else { throw URLError(.badURL) }
-        let work: Work = try await get("works/\(candidate.sourceID)", ["include": "titles,intros,companies,characters"])
+        var includes = "titles,intros,companies"
+        if includeCharacters { includes += ",characters" }
+        let work: Work = try await get("works/\(candidate.sourceID)", ["include": includes])
         var metadata = work.metadata()
         metadata.walkthroughs = try await walkthroughs(workID: work.id)
         return metadata

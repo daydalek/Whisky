@@ -276,17 +276,33 @@ private let pngPixel = Data(base64Encoded:
     "iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGP43+HyHxkzoAsAAHyRFlERVA2OAAAAAElFTkSuQmCC"
 ) ?? Data()
 
+private final class SlowCharacterCompletion: @unchecked Sendable {
+    private weak var protocolHandler: URLProtocol?
+    private let url: URL?
+
+    init(_ protocolHandler: URLProtocol) {
+        self.protocolHandler = protocolHandler
+        url = protocolHandler.request.url
+    }
+
+    func finish() {
+        guard let protocolHandler,
+              let url,
+              let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)
+        else { return }
+        protocolHandler.client?.urlProtocol(protocolHandler, didReceive: response, cacheStoragePolicy: .notAllowed)
+        protocolHandler.client?.urlProtocol(protocolHandler, didLoad: Data("[]".utf8))
+        protocolHandler.client?.urlProtocolDidFinishLoading(protocolHandler)
+    }
+}
+
 private final class SlowCharacterProtocol: URLProtocol, @unchecked Sendable {
     override static func canInit(with request: URLRequest) -> Bool { true }
     override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        DispatchQueue.global().asyncAfter(deadline: .now() + 6) { [self] in
-            guard let url = request.url,
-                  let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)
-            else { return }
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data("[]".utf8))
-            client?.urlProtocolDidFinishLoading(self)
+        let completion = SlowCharacterCompletion(self)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 6) {
+            completion.finish()
         }
     }
     override func stopLoading() {}
@@ -425,6 +441,157 @@ private final class SlowCharacterProtocol: URLProtocol, @unchecked Sendable {
     #expect(current.pendingMetadata == ["Other/New"])
     let raw = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: location)) as? [String: Any])
     #expect(raw["future"] as? String == "retained")
+}
+
+@Test @MainActor func automaticMetadataRetiresOnlyCompletedOrUnmatchedPendingEntries() async throws {
+    for mode in ["failure", "success", "no-match"] {
+        let fixture = try MetadataFixture()
+        defer { fixture.remove() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MetadataOutcomeProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        MetadataOutcomeProtocol.setMode(mode)
+        let folder = fixture.bottle.appendingPathComponent("Games/Test")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var library = FolderGameLibrary()
+        library.automaticMetadata = true
+        library.roots = ["Games"]
+        library.initializedRoots = ["Games"]
+        library.knownFolders = ["Games/Test"]
+        library.pendingMetadata = ["Games/Test"]
+        try library.save(bottleURL: fixture.bottle)
+        let jobs = BridgeJobStore()
+        let service = LibraryMetadataService(jobs: jobs, session: session, networkAccess: {})
+        var params = fixture.params
+        params["automatic"] = .bool(true)
+        params["includeCharacters"] = .bool(true)
+        params["sources"] = .array([.string("bangumi")])
+        let result = try await waitForMetadataJob(
+            service.call("metadata.sync", params: params, workspace: fixture.workspace),
+            jobs: jobs
+        )
+        let current = try FolderGameLibrary.load(bottleURL: fixture.bottle)
+        if mode == "failure" {
+            #expect(result.object?["failed"] == .integer(1))
+            #expect(current.pendingMetadata == ["Games/Test"])
+        } else {
+            #expect(result.object?["failed"] == .integer(0))
+            #expect(current.pendingMetadata.isEmpty)
+        }
+    }
+}
+
+@Test @MainActor func characterPreferenceControlsHydrationAndRefreshWithoutErasingCache() async throws {
+    let fixture = try MetadataFixture()
+    defer { fixture.remove() }
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [PreferenceRefreshProtocol.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let preferences = PreferencesService(
+        fileURL: fixture.root.appendingPathComponent("preferences.plist"),
+        defaultBottleDirectory: fixture.root
+    )
+    _ = try preferences.call("preferences.set", params: [
+        "key": .string("libraryMetadataScrapeCharacters"),
+        "value": .bool(false)
+    ])
+    let service = LibraryMetadataService(
+        jobs: BridgeJobStore(),
+        session: session,
+        preferences: preferences,
+        networkAccess: {}
+    )
+    let entry = try await fixture.workspace.entry(fixture.params)
+    let store = GameMetadataStore(directory: entry.metadataDirectory, networkAccess: {})
+    let candidate = GameMetadata(source: .bangumi, sourceID: "42", title: "Search result")
+    var params = fixture.params
+    params["record"] = try .encoded(GameMetadataRecord(legacy: candidate))
+    params["hydrate"] = .bool(true)
+    params["sources"] = .array([.string("bangumi")])
+    PreferenceRefreshProtocol.reset()
+    _ = try await service.call("metadata.configuration.save", params: params, workspace: fixture.workspace)
+    #expect(PreferenceRefreshProtocol.paths == ["/v0/subjects/42"])
+
+    var record = try #require(try await store.loadRecord(for: entry.metadataIdentity))
+    record.snapshots["bangumi"]?.characters = [GameCharacter(id: "old", name: "Cached")]
+    try await store.saveRecord(record, for: entry.metadataIdentity)
+    PreferenceRefreshProtocol.reset()
+    _ = try await service.call("metadata.refresh", params: fixture.params, workspace: fixture.workspace)
+    let preserved = try #require(try await store.loadRecord(for: entry.metadataIdentity))
+    #expect(preserved.snapshots["bangumi"]?.characters?.map(\.id) == ["old"])
+    #expect(PreferenceRefreshProtocol.paths == ["/v0/subjects/42"])
+
+    PreferenceRefreshProtocol.reset()
+    var explicit = fixture.params
+    explicit["includeCharacters"] = .bool(true)
+    _ = try await service.call("metadata.refresh", params: explicit, workspace: fixture.workspace)
+    let refreshed = try #require(try await store.loadRecord(for: entry.metadataIdentity))
+    #expect(refreshed.snapshots["bangumi"]?.characters == [])
+    #expect(PreferenceRefreshProtocol.paths == ["/v0/subjects/42", "/v0/subjects/42/characters"])
+}
+
+private final class MetadataOutcomeProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var mode = "success"
+
+    static func setMode(_ value: String) { lock.withLock { mode = value } }
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        guard let url = request.url else { return }
+        let mode = Self.lock.withLock { Self.mode }
+        let isCharacters = url.path.hasSuffix("/characters")
+        let status = mode == "failure" && isCharacters ? 500 : 200
+        let data: Data
+        if isCharacters {
+            data = Data("[]".utf8)
+        } else if mode == "no-match" {
+            data = Data(#"{"data":[]}"#.utf8)
+        } else {
+            data = Data(#"{"data":[{"id":42,"name":"Test","name_cn":"Test"}]}"#.utf8)
+        }
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: status,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        ) else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
+private final class PreferenceRefreshProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var requestedPaths: [String] = []
+
+    static var paths: [String] { lock.withLock { requestedPaths } }
+    static func reset() { lock.withLock { requestedPaths = [] } }
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        guard let url = request.url else { return }
+        Self.lock.withLock { Self.requestedPaths.append(url.path) }
+        let data = url.path.hasSuffix("/characters")
+            ? Data("[]".utf8)
+            : Data(#"{"id":42,"name":"Refreshed","name_cn":"Refreshed","summary":"Updated"}"#.utf8)
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        ) else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
 }
 
 @Test @MainActor func applicationMetadataUsesTheLiveOfflinePreference() async throws {

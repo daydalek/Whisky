@@ -28,7 +28,7 @@ struct NextMoeTests {
         #expect(game.releaseDate == "2026-01-01")
         #expect(game.coverURL?.absoluteString == "https://fixture.example/cover.webp")
         #expect(game.matchingTitles.contains("别名"))
-        let detail = try await provider.details(for: game)
+        let detail = try await provider.details(for: game, includeCharacters: true)
         let characters = try #require(detail.characters)
         #expect(characters.count == 2)
         #expect(characters[0].id == "7935")
@@ -100,6 +100,55 @@ struct NextMoeTests {
             #expect(code == 429)
             #expect(retryAfter == 120)
         }
+    }
+
+    @Test func detailQueriesAndCacheKeysRespectCharacterPreference() async throws {
+        CharacterPreferenceProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CharacterPreferenceProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let provider = PublicGameMetadataProvider(source: .nextmoe, session: session, networkAccess: {})
+        let candidate = GameMetadata(source: .nextmoe, sourceID: "4", title: "Test")
+        let without = try await provider.details(for: candidate, includeCharacters: false)
+        let with = try await provider.details(for: candidate, includeCharacters: true)
+        #expect(without.characters == nil)
+        #expect(with.characters?.count == 1)
+        #expect(CharacterPreferenceProtocol.characterFlags == [false, true])
+    }
+}
+
+private final class CharacterPreferenceProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var flags: [Bool] = []
+
+    static var characterFlags: [Bool] { lock.withLock { flags } }
+    static func reset() { lock.withLock { flags = [] } }
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        guard let url = request.url else { return }
+        let isWork = url.path.hasSuffix("/works/4")
+        let includesCharacters = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "include" }?.value?.contains("characters") == true
+        if isWork {
+            Self.lock.withLock { Self.flags.append(includesCharacters) }
+        }
+        let work = includesCharacters
+            ? #"{"id":"4","display_name":"Test","localized":{},"characters":[{"id":"1","display_name":"Character"}]}"#
+            : #"{"id":"4","display_name":"Test","localized":{}}"#
+        let body = isWork ? Data(work.utf8) : Data(#"{"items":[],"next_cursor":null}"#.utf8)
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        ) else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
     }
 }
 
