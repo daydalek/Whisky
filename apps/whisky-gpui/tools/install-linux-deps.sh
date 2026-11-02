@@ -9,4 +9,5 @@ apt-get install -y --no-install-recommends \
     libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev \
     libxcb-shape0-dev libxcb-xfixes0-dev libxcb-render0-dev libxcb-randr0-dev \
     libxcb-xinput-dev libxcb-cursor-dev libvulkan-dev mesa-vulkan-drivers \
+    cmake ninja-build libwebp-dev \
     xvfb xauth dbus-x11 xdotool xterm imagemagick fonts-noto-cjk python3 python3-pyatspi python3-gi desktop-file-utils xdg-utils

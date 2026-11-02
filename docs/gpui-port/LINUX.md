@@ -965,6 +965,15 @@ Linux application preferences live in
 `$XDG_CONFIG_HOME/whisky/preferences.plist`, falling back to
 `~/.config/whisky/preferences.plist`. The existing SwiftUI-compatible macOS
 UserDefaults backend continues to serve macOS callers.
+
+Linux release bundles include the Real-CUGAN ncnn helper and the `models-se`
+no-denoise weights, so cover upscaling works without a separate model download.
+Automatic mode tries Vulkan and falls back to CPU for that request; CPU-only
+mode is available when Vulkan is unsuitable. GPU driver support and inference
+hardware affect speed and visual output. Developers can build the pinned helper
+with `apps/whisky-gpui/tools/build-linux-upscaler.py` and set absolute
+`WHISKY_REALCUGAN_HELPER` / `WHISKY_REALCUGAN_MODELS` overrides (the latter must
+name a `models-se` directory).
 Imported program logs resolve under `$XDG_STATE_HOME/whisky/logs`, with
 `~/.local/state/whisky/logs` as the Linux fallback.
 

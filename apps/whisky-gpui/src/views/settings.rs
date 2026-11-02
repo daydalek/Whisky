@@ -11,7 +11,7 @@ use crate::controls::{col, muted, row};
 use crate::preferences;
 use crate::state::WhiskyApp;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 const COVER_UPSCALE_LABEL: &str = "封面超分";
 #[cfg(target_os = "macos")]
 const COVER_ENGINE_LABEL: &str = "超分引擎";
@@ -35,7 +35,7 @@ const TERMINALS: [(&str, &str); 5] = [
 impl WhiskyApp {
     /// One-click derivation for the whole library, with live progress; the same
     /// button cancels a pass that is already running.
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn cover_batch_row(&self, cx: &Context<Self>) -> AnyElement {
         let running = self.cover_batch;
         let (action, detail) = match running {
@@ -45,7 +45,7 @@ impl WhiskyApp {
             ),
             None => (
                 "全部超分".to_owned(),
-                "按 320 点卡片所需的像素处理整个游戏库，已缓存的会跳过。".to_owned(),
+                "按所选倍率处理整个游戏库，已缓存的会跳过；过大图片会降低倍率。".to_owned(),
             ),
         };
         let disabled = running.is_none() && self.cover_upscale == crate::upscale::Factor::Off;
@@ -316,7 +316,7 @@ impl WhiskyApp {
                             cx,
                         ),
                         self.toggle("single-title", "单行显示标题", "", cx),
-                        #[cfg(target_os = "macos")]
+                        #[cfg(any(target_os = "macos", target_os = "linux"))]
                         self.choice_pairs(
                             "cover-upscale",
                             COVER_UPSCALE_LABEL,
@@ -330,7 +330,16 @@ impl WhiskyApp {
                             &[("Real-CUGAN（质量优先）", "realcugan"), ("Anime4K（更快）", "anime4k")],
                             cx,
                         ),
-                        #[cfg(target_os = "macos")]
+                        #[cfg(target_os = "linux")]
+                        self.choice_pairs(
+                            "cover-engine",
+                            "处理设备",
+                            &[("自动（Vulkan / CPU）", "realcugan"), ("CPU 兼容模式", "realcugan-cpu")],
+                            cx,
+                        ),
+                        #[cfg(target_os = "linux")]
+                        self.info("超分组件", crate::upscale::status()),
+                        #[cfg(any(target_os = "macos", target_os = "linux"))]
                         self.cover_batch_row(cx),
                         self.toggle("scrape-characters", "默认获取人物资料", "从支持的数据源获取人物、声优与头像。", cx),
                         self.toggle(

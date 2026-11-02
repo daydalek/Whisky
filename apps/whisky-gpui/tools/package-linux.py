@@ -48,6 +48,53 @@ def dependencies(path):
         r'^\s*(\S+)\s+=>\s+(/.*?)\s+\(0x[0-9a-f]+\)', result, re.MULTILINE)}
 
 
+def verify_upscaler(payload, architecture):
+    manifest_path = payload / 'share/whisky/upscalers/manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get('schemaVersion') != 1 or manifest.get('modelFamily') != 'models-se':
+        raise ValueError('Unsupported upscaler manifest')
+    if manifest.get('architecture') != architecture:
+        raise ValueError('Upscaler helper architecture differs from application')
+    required = {
+        'bin/realcugan-ncnn-vulkan',
+        'share/realcugan-ncnn-vulkan/models-se/up2x-no-denoise.param',
+        'share/realcugan-ncnn-vulkan/models-se/up2x-no-denoise.bin',
+    }
+    if set(manifest.get('files', {})) != required:
+        raise ValueError('Upscaler manifest resource inventory is incomplete')
+    helper = payload / 'bin/realcugan-ncnn-vulkan'
+    if helper.is_symlink() or not helper.is_file() or not os.access(helper, os.X_OK):
+        raise ValueError('Upscaler helper must be a regular executable')
+    if elf_machine(helper) != (62 if architecture == 'x86_64' else 183):
+        raise ValueError('Upscaler helper ELF architecture differs from application')
+    for relative, expected in manifest['files'].items():
+        path = payload / relative
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('Missing or linked upscaler resource: ' + relative)
+        if digest(path) != expected.get('sha256') or path.stat().st_size != expected.get('size'):
+            raise ValueError('Upscaler manifest hash mismatch: ' + relative)
+    return manifest
+
+
+def refresh_upscaler_manifest(bundle):
+    manifest_path = bundle / 'share/whisky/upscalers/manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    helper = bundle / 'bin/realcugan-ncnn-vulkan'
+    manifest['files']['bin/realcugan-ncnn-vulkan'] = dict(
+        sha256=digest(helper), size=helper.stat().st_size)
+    manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
+
+
+def copy_upscaler_resources(payload, bundle):
+    for relative in ('share/realcugan-ncnn-vulkan', 'share/licenses/whisky/upscalers',
+                     'share/whisky/sources/upscalers'):
+        shutil.copytree(payload / relative, bundle / relative, dirs_exist_ok=True)
+    manifest_path = bundle / 'share/whisky/upscalers/manifest.json'
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(payload / 'share/whisky/upscalers/manifest.json', manifest_path)
+    refresh_upscaler_manifest(bundle)
+
+
 def copy_sources(output, target):
     destination = output / 'share/whisky/sources'
     destination.mkdir(parents=True)
@@ -102,6 +149,7 @@ def main():
     parser.add_argument('--products', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--archive', required=True, type=Path)
+    parser.add_argument('--upscaler', required=True, type=Path)
     args = parser.parse_args()
     if platform.system() != 'Linux':
         parser.error('Run packaging in the Linux build environment')
@@ -123,6 +171,7 @@ def main():
     if len(machines) != 1 or any(not os.access(path, os.X_OK) for path in sources.values()):
         parser.error('Products must be executable ELF files for one architecture')
     architecture = 'aarch64' if machines == {183} else 'x86_64'
+    verify_upscaler(args.upscaler.resolve(strict=True), architecture)
     target = f'{architecture}-unknown-linux-gnu'
     swift = json.loads(command('swift', '-print-target-info'))
     if swift['target']['triple'] != target:
@@ -138,6 +187,8 @@ def main():
                 runtime[name] = location
             else:
                 system.add(name)
+    for name in dependencies(args.upscaler / 'bin/realcugan-ncnn-vulkan'):
+        system.add(name)
     if 'libswiftCore.so' not in runtime:
         parser.error('The bridge must resolve a Swift runtime before packaging')
     # Resolve every input before creating a new artifact directory.
@@ -159,6 +210,10 @@ def main():
         shutil.copyfile(source, binary)
         binary.chmod(0o755)
         subprocess.run(['patchelf', '--set-rpath', '$ORIGIN/../lib/swift', str(binary)], check=True)
+    helper = output / 'bin/realcugan-ncnn-vulkan'
+    shutil.copyfile(args.upscaler / 'bin/realcugan-ncnn-vulkan', helper)
+    helper.chmod(0o755)
+    subprocess.run(['patchelf', '--set-rpath', '$ORIGIN', str(helper)], check=True)
     shutil.copytree(database_resources, output / 'bin/WhiskyCore_WhiskyCore.resources')
     shutil.copytree(args.products / 'WhiskyBridge_WhiskyApplication.resources',
                     output / 'bin/WhiskyBridge_WhiskyApplication.resources')
@@ -177,6 +232,7 @@ def main():
     shutil.copyfile(icu_license, notices / 'Foundation-ICU-LICENSE.txt')
     shutil.copyfile(TOOLS / 'linux-runtime-packages.txt', output / 'share/whisky-runtime-packages.txt')
     copy_sources(output, target)
+    copy_upscaler_resources(args.upscaler, output)
     (output / 'README.txt').write_text(
         'Whisky Linux file and host services\n\n'
         'Target: Ubuntu 24.04 or compatible systems, ' + architecture + '.\n'
@@ -185,12 +241,13 @@ def main():
         'Settings can install or refresh the desktop entry at its current location.\n'
         'Swift libraries are bundled; GTK, graphics drivers, fonts and host tools use system packages.\n'
         'Application sources and locked Rust source archives are in share/whisky/sources.\n'
+        'Pinned Real-CUGAN and ncnn source archives are in share/whisky/sources/upscalers.\n'
         'Dependency declarations and supplied license texts are in share/whisky/dependencies.json and share/licenses.\n'
         'Copied ELF programs and Swift libraries have modified RUNPATH values using $ORIGIN-relative directories.\n'
         'Original binary/runtime hashes and modified file hashes are recorded in manifest.json.\n'
         'Settings can download and update the separately published Linux Wine runtime.\n'
         'Wine execution requires an x86_64 runtime and compatible host libraries and kernel.\n')
-    executables = {output / 'Whisky'} | {output / 'bin' / name for name in PRODUCTS}
+    executables = {output / 'Whisky', helper} | {output / 'bin' / name for name in PRODUCTS}
     output.chmod(0o755)
     for path in output.rglob('*'):
         path.chmod(0o755 if path.is_dir() or path in executables else 0o644)
