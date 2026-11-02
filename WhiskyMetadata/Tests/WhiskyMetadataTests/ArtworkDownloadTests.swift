@@ -54,7 +54,7 @@ private let artworkTestBytes = Data(base64Encoded:
     }
 
     #expect(GatedCoverProtocol.totalCount(for: urls.map { $0.path }) == 4)
-    #expect(store.cachedCoverURL(for: urls[4]) == nil)
+    #expect(urls.filter { store.cachedCoverURL(for: $0) != nil }.count == 4)
 }
 
 @Test func cancelingOneCoverConsumerLeavesTheSharedDownloadForAnother() async throws {
