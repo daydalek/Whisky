@@ -25,6 +25,8 @@ import WhiskyCore
 /// Separate from ProgramSettings: attaching or removing artwork cannot change a launch.
 /// The caller supplies a bottle-relative identity so moving a bottle preserves metadata.
 public actor GameMetadataStore {
+    private static let maximumArtworkFailureEntries = 256
+
     private let directory: URL
     private let networkAccess: MetadataNetworkAccess
     private var artworkDownloads: [URL: Task<Void, any Error>] = [:]
@@ -170,6 +172,7 @@ public actor GameMetadataStore {
         guard cachedCoverURL(for: url) == nil else { return }
         try await networkAccess()
         guard url.scheme == "https" else { throw URLError(.unsupportedURL) }
+        pruneArtworkFailures(now: Date())
         if let until = artworkFailures[url] {
             guard until <= Date() else { throw URLError(.resourceUnavailable) }
             artworkFailures[url] = nil
@@ -219,10 +222,23 @@ public actor GameMetadataStore {
             if !Task.isCancelled {
                 let retryAfter = (error as? ArtworkRateLimitError)?.retryAfter ?? 30
                 artworkFailures[url] = Date().addingTimeInterval(max(30, retryAfter))
+                pruneArtworkFailures(now: Date(), preserving: url)
             }
             throw error
         }
         try Task.checkCancellation()
+    }
+
+    private func pruneArtworkFailures(now: Date, preserving urlToKeep: URL? = nil) {
+        artworkFailures = artworkFailures.filter { $0.value > now }
+        let excess = artworkFailures.count - Self.maximumArtworkFailureEntries
+        guard excess > 0 else { return }
+        let removable = artworkFailures
+            .filter { artworkDownloads[$0.key] == nil && $0.key != urlToKeep }
+            .sorted { $0.value < $1.value }
+        for (url, _) in removable.prefix(excess) {
+            artworkFailures[url] = nil
+        }
     }
 
     /// Copies saved metadata, manual-unlink markers, and cached cover artwork to another bottle's store.
@@ -295,13 +311,22 @@ private struct ArtworkRateLimitError: Error, Sendable {
     let retryAfter: TimeInterval
 }
 
+private struct ArtworkHostCooldown: Sendable {
+    let statusCode: Int
+    let until: Date
+}
+
 private actor ArtworkTransportLimiter {
     static let shared = ArtworkTransportLimiter(minInterval: 0.25)
+
+    private static let maximumTrackedHosts = 256
 
     private let minInterval: TimeInterval
     private var active = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var nextRequestAt: [String: Date] = [:]
+    private var hostCooldowns: [String: ArtworkHostCooldown] = [:]
+    private var activeHosts: [String: Int] = [:]
 
     init(minInterval: TimeInterval) {
         self.minInterval = minInterval
@@ -311,8 +336,20 @@ private actor ArtworkTransportLimiter {
         host: String,
         operation: @Sendable () async throws -> Data
     ) async throws -> Data {
+        activeHosts[host, default: 0] += 1
+        defer {
+            if let count = activeHosts[host], count > 1 {
+                activeHosts[host] = count - 1
+            } else {
+                activeHosts[host] = nil
+            }
+            prune(now: Date(), preservingHost: host)
+        }
+        prune(now: Date())
+        try enforceCooldown(for: host)
         try await acquire()
         defer { release() }
+        try enforceCooldown(for: host)
         let now = Date()
         let start = max(now, nextRequestAt[host] ?? now)
         nextRequestAt[host] = start.addingTimeInterval(minInterval)
@@ -320,7 +357,54 @@ private actor ArtworkTransportLimiter {
         if delay > 0 {
             try await Task.sleep(for: .seconds(delay))
         }
-        return try await operation()
+        try enforceCooldown(for: host)
+        do {
+            return try await operation()
+        } catch let error as ArtworkRateLimitError {
+            extendCooldown(for: host, with: error)
+            throw error
+        }
+    }
+
+    private func enforceCooldown(for host: String) throws {
+        guard let cooldown = hostCooldowns[host] else { return }
+        let retryAfter = cooldown.until.timeIntervalSinceNow
+        guard retryAfter > 0 else {
+            hostCooldowns[host] = nil
+            return
+        }
+        throw ArtworkRateLimitError(statusCode: cooldown.statusCode, retryAfter: retryAfter)
+    }
+
+    private func extendCooldown(for host: String, with error: ArtworkRateLimitError) {
+        let until = Date().addingTimeInterval(max(30, error.retryAfter))
+        guard hostCooldowns[host].map({ $0.until < until }) ?? true else { return }
+        hostCooldowns[host] = ArtworkHostCooldown(statusCode: error.statusCode, until: until)
+    }
+
+    private func prune(now: Date, preservingHost hostToKeep: String? = nil) {
+        hostCooldowns = hostCooldowns.filter { $0.value.until > now }
+        nextRequestAt = nextRequestAt.filter { $0.value > now }
+
+        let cooldownExcess = hostCooldowns.count - Self.maximumTrackedHosts
+        if cooldownExcess > 0 {
+            let removable = hostCooldowns
+                .filter { activeHosts[$0.key] == nil && $0.key != hostToKeep }
+                .sorted { $0.value.until < $1.value.until }
+            for (host, _) in removable.prefix(cooldownExcess) {
+                hostCooldowns[host] = nil
+            }
+        }
+
+        let pacingExcess = nextRequestAt.count - Self.maximumTrackedHosts
+        if pacingExcess > 0 {
+            let removable = nextRequestAt
+                .filter { activeHosts[$0.key] == nil && $0.key != hostToKeep }
+                .sorted { $0.value < $1.value }
+            for (host, _) in removable.prefix(pacingExcess) {
+                nextRequestAt[host] = nil
+            }
+        }
     }
 
     private func acquire() async throws {

@@ -181,6 +181,32 @@ private final class CoverProtocol: URLProtocol, @unchecked Sendable {
     #expect(store.cachedCoverURL(for: remote) == nil)
 }
 
+@Test func coverRateLimitCooldownIsSharedAcrossURLsOnOneHost() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [CoordinatedCoverProtocol.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("metadata-host-rate-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = GameMetadataStore(directory: root, networkAccess: {})
+    let rateLimited = try #require(URL(string: "https://fixture.example/host-rate.png"))
+    let sameHost = try #require(URL(string: "https://fixture.example/host-suppressed.png"))
+    let otherHost = try #require(URL(string: "https://other.example/other-host.png"))
+
+    await #expect(throws: (any Error).self) {
+        try await store.cacheCover(from: rateLimited, session: session)
+    }
+    await #expect(throws: (any Error).self) {
+        try await store.cacheCover(from: sameHost, session: session)
+    }
+    try await store.cacheCover(from: otherHost, session: session)
+
+    #expect(CoordinatedCoverProtocol.count(for: rateLimited.path) == 1)
+    #expect(CoordinatedCoverProtocol.count(for: sameHost.path) == 0)
+    #expect(CoordinatedCoverProtocol.count(for: otherHost.path) == 1)
+    #expect(store.cachedCoverURL(for: otherHost) != nil)
+}
+
 @Test func streamingCoverLimitCancelsWithoutPublishingCache() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [CoordinatedCoverProtocol.self]
@@ -212,7 +238,7 @@ private final class CoordinatedCoverProtocol: URLProtocol, @unchecked Sendable {
         if url.path == "/coalesced.png" {
             Thread.sleep(forTimeInterval: 0.03)
         }
-        let status = url.path == "/rate.png" ? 429 : 200
+        let status = ["/rate.png", "/host-rate.png"].contains(url.path) ? 429 : 200
         let headers = status == 429
             ? ["Content-Type": "text/plain", "Retry-After": "120"]
             : ["Content-Type": "image/png"]

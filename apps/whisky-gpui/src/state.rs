@@ -3406,6 +3406,9 @@ impl WhiskyApp {
                 .await;
                 succeeded += usize::from(produced);
                 this.update(cx, |this, cx| {
+                    if !this.cover_batch.is_some_and(|batch| batch.generation == generation) {
+                        return;
+                    }
                     if let Some(batch) = this.cover_batch.as_mut() {
                         batch.done = position + 1;
                     }
