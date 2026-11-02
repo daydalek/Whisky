@@ -92,15 +92,15 @@
 ## Code Layout
 
 ### Source Repositories & Build Trees
-- Wine Source Code: `/Users/daydalek/codes/ge-proton-macos-wine-poc/work/metalfx/fresh/sources/wine`
+- Wine Source Code: `../ge-proton-macos-wine-poc/work/metalfx/fresh/sources/wine` (sibling checkout)
   - Target Vulkan Thunk: `dlls/win32u/vulkan.c`
   - Target WineD3D Feature Level: `dlls/wined3d/adapter_vk.c`
-- Wine Build Tree: `/Users/daydalek/codes/ge-proton-macos-wine-poc/work/metalfx/build`
+- Wine Build Tree: `../ge-proton-macos-wine-poc/work/metalfx/build`
   - Unix Graphics Module: `dlls/win32u/win32u.so`
   - WineD3D Module: `dlls/wined3d/wined3d.so` and `dlls/wined3d/i386-windows/wined3d.dll`
 - Whisky Runtime Deployment:
-  - Runtime Wine Root: `/Users/daydalek/Library/Application Support/com.franke.Whisky/Libraries/Wine`
+  - Runtime Wine Root: `~/Library/Application Support/com.franke.Whisky/Libraries/Wine`
   - Active win32u.so: `.../Libraries/Wine/lib/wine/x86_64-unix/win32u.so`
 - Target Bottle:
-  - Prefix Root: `/Users/daydalek/Library/Containers/com.franke.Whisky/Bottles/9C6C4CD2-82BE-43E9-81E5-8AF2591EA484`
+  - Prefix Root: `~/Library/Containers/com.franke.Whisky/Bottles/<bottle-uuid>` (`$WINEPREFIX`)
   - Game Executable: `drive_c/Program Files (x86)/Steam/steamapps/common/Aokana/Aokana.exe`

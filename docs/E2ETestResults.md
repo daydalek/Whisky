@@ -40,7 +40,7 @@ The End-to-End (E2E) automated test suite is fully implemented, verified, and re
 | Tier | Test ID | Test Name | Target Component | Status | Empirical Derivation / Oracle |
 |:---:|:---:|:---|:---|:---:|:---|
 | **1** | `T1.1` | `test_wine_loader_wow64_execution` | Wine 32-bit Loader | **PASS** | Wine loader spec; 32-bit WoW64 PE execution; exit code 0 |
-| **1** | `T1.2` | `test_vulkan_host_memory_remap_feature` | `win32u_vkMapMemory2KHR` | **PASS** | `PROJECT.md` contract; `mach_vm_remap` aliases >4GB to <4GB; zero high-pointer rejection |
+| **1** | `T1.2` | `test_vulkan_host_memory_remap_feature` | `win32u_vkMapMemory2KHR` | **PASS** | `WoW64UnityCrashFix.md` contract; `mach_vm_remap` aliases >4GB to <4GB; zero high-pointer rejection |
 | **1** | `T1.3` | `test_d3d11_device_creation_feature` | DXVK 1.10.3 32-bit | **PASS** | Feature level 11_0 negotiated; elimination of `80004005` & memory allocation failure |
 | **2** | `T2.1` | `test_low_address_space_limits` | Address Range `< 4GB` | **PASS** | Linear address space constraint: all mapped addresses strictly in `0 < addr <= 0xFFFFFFFF` |
 | **2** | `T2.2` | `test_mach_16kb_page_alignment` | Darwin ARM64 VM Alignment | **PASS** | Mach VM 16KB hardware page alignment (`PAGE_MASK = 0x3FFF`) and sub-page offset roundtrip |
@@ -62,7 +62,7 @@ The End-to-End (E2E) automated test suite is fully implemented, verified, and re
 
 ---
 
-## 3. Feature Checklist (`PROJECT.md` Alignment)
+## 3. Feature Checklist (`WoW64UnityCrashFix.md` Alignment)
 
 - [x] **Feature 1: Vulkan 32-bit Low Address Mapping**
   - Verified by `T1.2`, `T2.1`: `win32u_vkMapMemory2KHR` aliases 64-bit host memory into 32-bit space via `mach_vm_remap` under `#ifdef __APPLE__`.

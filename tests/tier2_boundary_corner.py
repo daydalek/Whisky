@@ -10,6 +10,7 @@ from typing import List
 from tests.common import (
     TestResult,
     DEFAULT_WINE_ROOT,
+    DEFAULT_CRASH_DIR,
     get_crash_directories,
     check_crash_dump_for_null_pagefault,
 )
@@ -125,11 +126,7 @@ def test_null_check_and_crash_prevention() -> TestResult:
         # Ensure we check the error.log
         if check_crash_dump_for_null_pagefault(crash_folder):
             # Check modification time
-            mtime = os.path.getmtime(os.path.join(
-                os.getenv("WINEPREFIX", "/Users/daydalek/Library/Containers/com.franke.Whisky/Bottles/9C6C4CD2-82BE-43E9-81E5-8AF2591EA484"),
-                "drive_c", "users", "crossover", "AppData", "Local", "Temp", "NekoNyanSoft", "Aokana", "Crashes",
-                crash_folder
-            ))
+            mtime = os.path.getmtime(os.path.join(DEFAULT_CRASH_DIR, crash_folder))
             # If created after the patch was deployed, flag regression
             patch_mtime = os.path.getmtime(ACTIVE_WIN32U) if os.path.exists(ACTIVE_WIN32U) else 0
             if mtime > patch_mtime:
