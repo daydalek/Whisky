@@ -251,7 +251,7 @@ struct GameMetadataTests {
         #expect(first.first?.thumbnailURL?.absoluteString == "https://example.org/thumb.jpg")
         #expect(CountingNetworkProtocol.requestCount == 1)
         #expect(PublicGameMetadataProvider.parseRetryAfter("45") == 45)
-        #expect(PublicGameMetadataProvider.parseRetryAfter("9999") == 9999)
+        #expect(PublicGameMetadataProvider.parseRetryAfter("9999") == 9_999)
         #expect(PublicGameMetadataProvider.parseRetryAfter("inf") == nil)
         #expect(PublicGameMetadataProvider.parseRetryAfter("nan") == nil)
         let formatter = DateFormatter()

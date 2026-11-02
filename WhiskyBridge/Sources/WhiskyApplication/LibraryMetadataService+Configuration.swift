@@ -69,7 +69,8 @@ extension LibraryMetadataService {
                         snapshot,
                         for: entry.metadataIdentity,
                         preservingCharacters: !includeCharacters
-                    ) else { continue }
+                    )
+                    else { continue }
                     if let cover = snapshot.coverURL { try? await store.cacheCover(from: cover, session: session) }
                 } catch {
                     errors[source.rawValue] = .string(error.localizedDescription)
@@ -95,7 +96,8 @@ extension LibraryMetadataService {
         let categories: Set<String> = ["basic", "summary", "cover", "characters"]
         guard record.version == 1, record.defaultSource != .hikarinagi,
               Set(record.categorySources.keys).isSubset(of: categories),
-              !record.categorySources.values.contains(.hikarinagi) else {
+              !record.categorySources.values.contains(.hikarinagi)
+        else {
             throw BridgeFailure("invalid_params", "Unsupported metadata strategy")
         }
         for (key, id) in record.bindings {

@@ -145,7 +145,8 @@ private final class CharacterPreferenceProtocol: URLProtocol, @unchecked Sendabl
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "application/json"]
-        ) else { return }
+        )
+        else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: body)
         client?.urlProtocolDidFinishLoading(self)

@@ -247,7 +247,8 @@ private final class CoordinatedCoverProtocol: URLProtocol, @unchecked Sendable {
             statusCode: status,
             httpVersion: nil,
             headerFields: headers
-        ) else { return }
+        )
+        else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         if url.path == "/oversized.png" {
             client?.urlProtocol(self, didLoad: Data(repeating: 0, count: 8 * 1_024 * 1_024))

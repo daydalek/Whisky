@@ -546,20 +546,20 @@ private final class MetadataOutcomeProtocol: URLProtocol, @unchecked Sendable {
         let mode = Self.lock.withLock { Self.mode }
         let isCharacters = url.path.hasSuffix("/characters")
         let status = mode == "failure" && isCharacters ? 500 : 200
-        let data: Data
-        if isCharacters {
-            data = Data("[]".utf8)
+        let data = if isCharacters {
+            Data("[]".utf8)
         } else if mode == "no-match" {
-            data = Data(#"{"data":[]}"#.utf8)
+            Data(#"{"data":[]}"#.utf8)
         } else {
-            data = Data(#"{"data":[{"id":42,"name":"Test","name_cn":"Test"}]}"#.utf8)
+            Data(#"{"data":[{"id":42,"name":"Test","name_cn":"Test"}]}"#.utf8)
         }
         guard let response = HTTPURLResponse(
             url: url,
             statusCode: status,
             httpVersion: nil,
             headerFields: ["Content-Type": "application/json"]
-        ) else { return }
+        )
+        else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
@@ -587,7 +587,8 @@ private final class PreferenceRefreshProtocol: URLProtocol, @unchecked Sendable 
             statusCode: 200,
             httpVersion: nil,
             headerFields: ["Content-Type": "application/json"]
-        ) else { return }
+        )
+        else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
@@ -734,11 +735,14 @@ private final class WalkthroughFixtureProtocol: URLProtocol, @unchecked Sendable
         do {
             let url = try #require(request.url)
             #expect(url.path == "/v2/catalog/walkthroughs/1")
-            var value = try #require(JSONSerialization.jsonObject(with: Data(nextMoeGuideFixture.utf8)) as? [String: Any])
+            var value = try #require(
+                JSONSerialization.jsonObject(with: Data(nextMoeGuideFixture.utf8)) as? [String: Any]
+            )
             value["chart"] = ["sections": [], "entries": [], "saves": [], "endings": [], "segments": []]
             let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            let data = try JSONSerialization.data(withJSONObject: value)
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: try JSONSerialization.data(withJSONObject: value))
+            client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
         } catch { client?.urlProtocol(self, didFailWithError: error) }
     }

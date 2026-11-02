@@ -29,7 +29,7 @@ public actor GameMetadataStore {
 
     private let directory: URL
     private let networkAccess: MetadataNetworkAccess
-    private var artworkDownloads: [URL: Task<Void, any Error>] = [:]
+    private var artworkDownloads: [URL: ArtworkDownloadRecord] = [:]
     private var artworkFailures: [URL: Date] = [:]
     private var artworkLimiters: [ObjectIdentifier: ArtworkTransportLimiter] = [:]
 
@@ -124,7 +124,8 @@ public actor GameMetadataStore {
         preservingCharacters: Bool = false
     ) throws -> Bool {
         guard var current = try loadRecord(for: identity),
-              current.bindings[snapshot.source.rawValue] == snapshot.sourceID else { return false }
+              current.bindings[snapshot.source.rawValue] == snapshot.sourceID
+        else { return false }
         var snapshot = snapshot
         if preservingCharacters,
            current.snapshots[snapshot.source.rawValue]?.sourceID == snapshot.sourceID {
@@ -178,67 +179,49 @@ public actor GameMetadataStore {
             artworkFailures[url] = nil
         }
         if let download = artworkDownloads[url] {
-            try await download.value
+            try await waitForArtworkDownload(url: url, generation: download.generation)
             try Task.checkCancellation()
             return
         }
-
-        let limiter: ArtworkTransportLimiter
-        if session === URLSession.shared {
-            limiter = .shared
-        } else {
-            let identifier = ObjectIdentifier(session)
-            if let existing = artworkLimiters[identifier] {
-                limiter = existing
-            } else {
-                let created = ArtworkTransportLimiter(minInterval: 0)
-                artworkLimiters[identifier] = created
-                limiter = created
-            }
-        }
+        let limiter = artworkLimiter(for: session)
         let location = coverLocation(for: url)
-        let download = Task {
+        let generation = UUID()
+        let worker = Task {
             let request = {
                 var request = URLRequest(url: url, timeoutInterval: 20)
                 request.setValue("Whisky/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
                 return request
             }()
-            let data = try await limiter.download(host: url.host ?? "") {
-                try await ArtworkDataLoader.download(request, configuration: session.configuration)
+            do {
+                let data = try await limiter.download(host: url.host ?? "") {
+                    try await networkAccess()
+                    try Task.checkCancellation()
+                    return try await ArtworkDataLoader.download(request, configuration: session.configuration)
+                }
+                try Task.checkCancellation()
+                completeArtworkDownload(
+                    url: url, generation: generation, data: data, location: location
+                )
+            } catch {
+                failArtworkDownload(url: url, generation: generation, error: error)
             }
-            try Task.checkCancellation()
-            try FileManager.default.createDirectory(
-                at: location.deletingLastPathComponent(), withIntermediateDirectories: true
-            )
-            try data.write(to: location, options: .atomic)
         }
-        artworkDownloads[url] = download
-        do {
-            try await download.value
-            artworkDownloads[url] = nil
-            artworkFailures[url] = nil
-        } catch {
-            artworkDownloads[url] = nil
-            if !Task.isCancelled {
-                let retryAfter = (error as? ArtworkRateLimitError)?.retryAfter ?? 30
-                artworkFailures[url] = Date().addingTimeInterval(max(30, retryAfter))
-                pruneArtworkFailures(now: Date(), preserving: url)
-            }
-            throw error
-        }
+        artworkDownloads[url] = ArtworkDownloadRecord(generation: generation, worker: worker)
+        try await waitForArtworkDownload(url: url, generation: generation)
         try Task.checkCancellation()
     }
 
-    private func pruneArtworkFailures(now: Date, preserving urlToKeep: URL? = nil) {
-        artworkFailures = artworkFailures.filter { $0.value > now }
-        let excess = artworkFailures.count - Self.maximumArtworkFailureEntries
-        guard excess > 0 else { return }
-        let removable = artworkFailures
-            .filter { artworkDownloads[$0.key] == nil && $0.key != urlToKeep }
-            .sorted { $0.value < $1.value }
-        for (url, _) in removable.prefix(excess) {
-            artworkFailures[url] = nil
+    private func artworkLimiter(for session: URLSession) -> ArtworkTransportLimiter {
+        if session === URLSession.shared {
+            return .shared
         }
+        let identifier = ObjectIdentifier(session)
+        if let existing = artworkLimiters[identifier] {
+            return existing
+        }
+        let created = ArtworkTransportLimiter(minInterval: 0)
+        artworkLimiters[identifier] = created
+        return created
     }
 
     /// Copies saved metadata, manual-unlink markers, and cached cover artwork to another bottle's store.
@@ -306,265 +289,89 @@ public actor GameMetadataStore {
     }
 }
 
-private struct ArtworkRateLimitError: Error, Sendable {
-    let statusCode: Int
-    let retryAfter: TimeInterval
-}
-
-private struct ArtworkHostCooldown: Sendable {
-    let statusCode: Int
-    let until: Date
-}
-
-private actor ArtworkTransportLimiter {
-    static let shared = ArtworkTransportLimiter(minInterval: 0.25)
-
-    private static let maximumTrackedHosts = 256
-
-    private let minInterval: TimeInterval
-    private var active = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-    private var nextRequestAt: [String: Date] = [:]
-    private var hostCooldowns: [String: ArtworkHostCooldown] = [:]
-    private var activeHosts: [String: Int] = [:]
-
-    init(minInterval: TimeInterval) {
-        self.minInterval = minInterval
-    }
-
-    func download(
-        host: String,
-        operation: @Sendable () async throws -> Data
-    ) async throws -> Data {
-        activeHosts[host, default: 0] += 1
-        defer {
-            if let count = activeHosts[host], count > 1 {
-                activeHosts[host] = count - 1
-            } else {
-                activeHosts[host] = nil
-            }
-            prune(now: Date(), preservingHost: host)
-        }
-        prune(now: Date())
-        try enforceCooldown(for: host)
-        try await acquire()
-        defer { release() }
-        try enforceCooldown(for: host)
-        let now = Date()
-        let start = max(now, nextRequestAt[host] ?? now)
-        nextRequestAt[host] = start.addingTimeInterval(minInterval)
-        let delay = start.timeIntervalSince(now)
-        if delay > 0 {
-            try await Task.sleep(for: .seconds(delay))
-        }
-        try enforceCooldown(for: host)
-        do {
-            return try await operation()
-        } catch let error as ArtworkRateLimitError {
-            extendCooldown(for: host, with: error)
-            throw error
-        }
-    }
-
-    private func enforceCooldown(for host: String) throws {
-        guard let cooldown = hostCooldowns[host] else { return }
-        let retryAfter = cooldown.until.timeIntervalSinceNow
-        guard retryAfter > 0 else {
-            hostCooldowns[host] = nil
-            return
-        }
-        throw ArtworkRateLimitError(statusCode: cooldown.statusCode, retryAfter: retryAfter)
-    }
-
-    private func extendCooldown(for host: String, with error: ArtworkRateLimitError) {
-        let until = Date().addingTimeInterval(max(30, error.retryAfter))
-        guard hostCooldowns[host].map({ $0.until < until }) ?? true else { return }
-        hostCooldowns[host] = ArtworkHostCooldown(statusCode: error.statusCode, until: until)
-    }
-
-    private func prune(now: Date, preservingHost hostToKeep: String? = nil) {
-        hostCooldowns = hostCooldowns.filter { $0.value.until > now }
-        nextRequestAt = nextRequestAt.filter { $0.value > now }
-
-        let cooldownExcess = hostCooldowns.count - Self.maximumTrackedHosts
-        if cooldownExcess > 0 {
-            let removable = hostCooldowns
-                .filter { activeHosts[$0.key] == nil && $0.key != hostToKeep }
-                .sorted { $0.value.until < $1.value.until }
-            for (host, _) in removable.prefix(cooldownExcess) {
-                hostCooldowns[host] = nil
-            }
-        }
-
-        let pacingExcess = nextRequestAt.count - Self.maximumTrackedHosts
-        if pacingExcess > 0 {
-            let removable = nextRequestAt
-                .filter { activeHosts[$0.key] == nil && $0.key != hostToKeep }
-                .sorted { $0.value < $1.value }
-            for (host, _) in removable.prefix(pacingExcess) {
-                nextRequestAt[host] = nil
-            }
-        }
-    }
-
-    private func acquire() async throws {
-        if active >= 4 {
-            await withCheckedContinuation { waiters.append($0) }
-        } else {
-            active += 1
-        }
-        do {
-            try Task.checkCancellation()
-        } catch {
-            release()
-            throw error
-        }
-    }
-
-    private func release() {
-        if let waiter = waiters.first {
-            waiters.removeFirst()
-            waiter.resume()
-        } else {
-            active -= 1
-        }
-    }
-}
-
-private final class ArtworkDataLoader: NSObject, URLSessionDataDelegate, @unchecked Sendable {
-    private static let maximumBytes = 15 * 1_024 * 1_024
-
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Data, any Error>?
-    private var session: URLSession?
-    private var task: URLSessionDataTask?
-    private var data = Data()
-    private var cancelled = false
-
-    static func download(_ request: URLRequest, configuration: URLSessionConfiguration) async throws -> Data {
-        let loader = ArtworkDataLoader()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                loader.start(request, configuration: configuration, continuation: continuation)
+private extension GameMetadataStore {
+    func waitForArtworkDownload(url: URL, generation: UUID) async throws {
+        let consumer = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                guard var download = artworkDownloads[url], download.generation == generation else {
+                    continuation.resume(throwing: URLError(.resourceUnavailable))
+                    return
+                }
+                guard !Task.isCancelled else {
+                    if download.consumers.isEmpty {
+                        artworkDownloads[url] = nil
+                        download.worker.cancel()
+                    }
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                download.consumers[consumer] = continuation
+                artworkDownloads[url] = download
+                if Task.isCancelled {
+                    Task { cancelArtworkConsumer(url: url, generation: generation, consumer: consumer) }
+                }
             }
         } onCancel: {
-            loader.cancel()
+            Task { await cancelArtworkConsumer(url: url, generation: generation, consumer: consumer) }
         }
     }
 
-    private func start(
-        _ request: URLRequest,
-        configuration: URLSessionConfiguration,
-        continuation: CheckedContinuation<Data, any Error>
-    ) {
-        lock.lock()
-        guard !cancelled else {
-            lock.unlock()
-            continuation.resume(throwing: CancellationError())
-            return
-        }
-        self.continuation = continuation
-        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-        let task = session.dataTask(with: request)
-        self.session = session
-        self.task = task
-        lock.unlock()
-        task.resume()
-    }
-
-    private func cancel() {
-        lock.withLock { cancelled = true }
-        finish(.failure(CancellationError()))
-    }
-
-    private func finish(_ result: Result<Data, any Error>) {
-        let state: (CheckedContinuation<Data, any Error>, URLSession, URLSessionDataTask)? = lock.withLock {
-            guard let continuation, let session, let task else { return nil }
-            self.continuation = nil
-            self.session = nil
-            self.task = nil
-            return (continuation, session, task)
-        }
-        guard let (continuation, session, task) = state else { return }
-        task.cancel()
-        session.invalidateAndCancel()
-        continuation.resume(with: result)
-    }
-
-    func urlSession(
-        _: URLSession,
-        task _: URLSessionTask,
-        willPerformHTTPRedirection _: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        guard request.url?.scheme == "https" else {
-            completionHandler(nil)
-            finish(.failure(URLError(.unsupportedURL)))
-            return
-        }
-        completionHandler(request)
-    }
-
-    func urlSession(
-        _: URLSession,
-        dataTask _: URLSessionDataTask,
-        didReceive response: URLResponse,
-        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
-    ) {
-        guard response.url?.scheme == "https",
-              let http = response as? HTTPURLResponse
-        else {
-            completionHandler(.cancel)
-            finish(.failure(URLError(.unsupportedURL)))
-            return
-        }
-        guard (200 ..< 300).contains(http.statusCode) else {
-            completionHandler(.cancel)
-            if http.statusCode == 429 || http.statusCode == 503 {
-                finish(.failure(ArtworkRateLimitError(
-                    statusCode: http.statusCode,
-                    retryAfter: PublicGameMetadataProvider.parseRetryAfter(
-                        http.value(forHTTPHeaderField: "Retry-After")
-                    ) ?? 30
-                )))
-            } else {
-                finish(.failure(ProviderError.http(http.statusCode)))
-            }
-            return
-        }
-        guard response.mimeType?.hasPrefix("image/") == true,
-              response.expectedContentLength <= Int64(Self.maximumBytes)
-                || response.expectedContentLength == NSURLSessionTransferSizeUnknown
-        else {
-            completionHandler(.cancel)
-            finish(.failure(URLError(.badServerResponse)))
-            return
-        }
-        completionHandler(.allow)
-    }
-
-    func urlSession(_: URLSession, dataTask _: URLSessionDataTask, didReceive chunk: Data) {
-        let accepted = lock.withLock {
-            guard data.count <= Self.maximumBytes - chunk.count else { return false }
-            data.append(chunk)
-            return true
-        }
-        if !accepted {
-            finish(.failure(URLError(.dataLengthExceedsMaximum)))
-        }
-    }
-
-    func urlSession(_: URLSession, task _: URLSessionTask, didCompleteWithError error: (any Error)?) {
-        if let error {
-            finish(.failure(error))
+    func cancelArtworkConsumer(url: URL, generation: UUID, consumer: UUID) {
+        guard var download = artworkDownloads[url], download.generation == generation,
+              let continuation = download.consumers.removeValue(forKey: consumer)
+        else { return }
+        continuation.resume(throwing: CancellationError())
+        if download.consumers.isEmpty {
+            artworkDownloads[url] = nil
+            download.worker.cancel()
         } else {
-            let data = lock.withLock { self.data }
-            if data.isEmpty {
-                finish(.failure(URLError(.zeroByteResource)))
-            } else {
-                finish(.success(data))
-            }
+            artworkDownloads[url] = download
+        }
+    }
+
+    func completeArtworkDownload(url: URL, generation: UUID, data: Data, location: URL) {
+        guard let download = artworkDownloads[url], download.generation == generation else { return }
+        guard !download.consumers.isEmpty else {
+            artworkDownloads[url] = nil
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(
+                at: location.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try data.write(to: location, options: .atomic)
+        } catch {
+            failArtworkDownload(url: url, generation: generation, error: error)
+            return
+        }
+        artworkDownloads[url] = nil
+        artworkFailures[url] = nil
+        download.consumers.values.forEach { $0.resume() }
+    }
+
+    func failArtworkDownload(url: URL, generation: UUID, error: any Error) {
+        guard let download = artworkDownloads[url], download.generation == generation else { return }
+        artworkDownloads[url] = nil
+        let urlError = error as? URLError
+        let networkIsOffline = urlError?.code == .notConnectedToInternet
+        if !download.consumers.isEmpty, !(error is CancellationError), !networkIsOffline, !Task.isCancelled {
+            let retryAfter = (error as? ArtworkRateLimitError)?.retryAfter ?? 30
+            artworkFailures[url] = Date().addingTimeInterval(max(30, retryAfter))
+            pruneArtworkFailures(now: Date(), preserving: url)
+        }
+        download.consumers.values.forEach { $0.resume(throwing: error) }
+    }
+
+    func pruneArtworkFailures(now: Date, preserving urlToKeep: URL? = nil) {
+        artworkFailures = artworkFailures.filter { $0.value > now }
+        let excess = artworkFailures.count - Self.maximumArtworkFailureEntries
+        guard excess > 0 else { return }
+        let removable = artworkFailures
+            .filter { artworkDownloads[$0.key] == nil && $0.key != urlToKeep }
+            .sorted { $0.value < $1.value }
+        for (url, _) in removable.prefix(excess) {
+            artworkFailures[url] = nil
         }
     }
 }

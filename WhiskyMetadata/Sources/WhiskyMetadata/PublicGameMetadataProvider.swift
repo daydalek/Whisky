@@ -126,58 +126,79 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
         try await networkAccess()
         switch source {
         case .bangumi:
-            guard UInt64(sourceID) != nil,
-                  let url = URL(string: "https://api.bgm.tv/v0/subjects/\(sourceID)") else {
-                throw URLError(.badURL)
-            }
-            return try await gatekeeper.details("\(sourceID):characters=\(includeCharacters)") {
-                let subject = try await request(url, as: BangumiSubject.self)
-                var game = GameMetadata(
-                    source: .bangumi, sourceID: String(subject.id),
-                    title: subject.nameCN.flatMap { $0.isEmpty ? nil : $0 } ?? subject.name,
-                    originalTitle: subject.name, summary: subject.summary ?? "",
-                    releaseDate: subject.date ?? "", coverURL: subject.images?.large,
-                    thumbnailURL: subject.images?.common,
-                    pageURL: URL(string: "https://bgm.tv/subject/\(subject.id)")
-                )
-                if includeCharacters {
-                    game.characters = try await fetchCharactersWithRetry {
-                        try await fetchBangumiCharacters(for: String(subject.id))
-                    }
-                }
-                return game
-            }
+            return try await refreshBangumi(sourceID: sourceID, includeCharacters: includeCharacters)
         case .vndb:
-            guard sourceID.range(of: #"^v[0-9]+$"#, options: .regularExpression) != nil else {
-                throw URLError(.badURL)
-            }
-            return try await gatekeeper.details("\(sourceID):characters=\(includeCharacters)") {
-                guard var game = try await vndb(sourceID).first(where: { $0.sourceID == sourceID }) else {
-                    throw URLError(.resourceUnavailable)
-                }
-                if includeCharacters {
-                    game.characters = try await fetchCharactersWithRetry {
-                        try await fetchVNDBCharacters(for: sourceID)
-                    }
-                }
-                return game
-            }
+            return try await refreshVNDB(sourceID: sourceID, includeCharacters: includeCharacters)
         case .steam:
-            return try await details(for: GameMetadata(
-                source: source, sourceID: sourceID, title: "",
-                coverURL: URL(string: "https://cdn.akamai.steamstatic.com/steam/apps/\(sourceID)/library_600x900.jpg"),
-                pageURL: URL(string: "https://store.steampowered.com/app/\(sourceID)")
-            ))
+            return try await refreshSteam(sourceID: sourceID)
         case .ymgal:
-            return try await details(for: GameMetadata(source: source, sourceID: sourceID, title: ""))
+            return try await refreshYMGal(sourceID: sourceID)
         case .nextmoe:
-            return try await details(
-                for: GameMetadata(source: source, sourceID: sourceID, title: ""),
-                includeCharacters: includeCharacters
-            )
+            return try await refreshNextMoe(sourceID: sourceID, includeCharacters: includeCharacters)
         case .hikarinagi:
             throw ProviderError.directAPIUnavailable
         }
+    }
+
+    private func refreshBangumi(sourceID: String, includeCharacters: Bool) async throws -> GameMetadata {
+        guard UInt64(sourceID) != nil,
+              let url = URL(string: "https://api.bgm.tv/v0/subjects/\(sourceID)")
+        else {
+            throw URLError(.badURL)
+        }
+        return try await gatekeeper.details("\(sourceID):characters=\(includeCharacters)") {
+            let subject = try await request(url, as: BangumiSubject.self)
+            var game = GameMetadata(
+                source: .bangumi, sourceID: String(subject.id),
+                title: subject.nameCN.flatMap { $0.isEmpty ? nil : $0 } ?? subject.name,
+                originalTitle: subject.name, summary: subject.summary ?? "",
+                releaseDate: subject.date ?? "", coverURL: subject.images?.large,
+                thumbnailURL: subject.images?.common,
+                pageURL: URL(string: "https://bgm.tv/subject/\(subject.id)")
+            )
+            if includeCharacters {
+                game.characters = try await fetchCharactersWithRetry {
+                    try await fetchBangumiCharacters(for: String(subject.id))
+                }
+            }
+            return game
+        }
+    }
+
+    private func refreshVNDB(sourceID: String, includeCharacters: Bool) async throws -> GameMetadata {
+        guard sourceID.range(of: #"^v[0-9]+$"#, options: .regularExpression) != nil else {
+            throw URLError(.badURL)
+        }
+        return try await gatekeeper.details("\(sourceID):characters=\(includeCharacters)") {
+            guard var game = try await vndb(sourceID).first(where: { $0.sourceID == sourceID }) else {
+                throw URLError(.resourceUnavailable)
+            }
+            if includeCharacters {
+                game.characters = try await fetchCharactersWithRetry {
+                    try await fetchVNDBCharacters(for: sourceID)
+                }
+            }
+            return game
+        }
+    }
+
+    private func refreshSteam(sourceID: String) async throws -> GameMetadata {
+        try await details(for: GameMetadata(
+            source: source, sourceID: sourceID, title: "",
+            coverURL: URL(string: "https://cdn.akamai.steamstatic.com/steam/apps/\(sourceID)/library_600x900.jpg"),
+            pageURL: URL(string: "https://store.steampowered.com/app/\(sourceID)")
+        ))
+    }
+
+    private func refreshYMGal(sourceID: String) async throws -> GameMetadata {
+        try await details(for: GameMetadata(source: source, sourceID: sourceID, title: ""))
+    }
+
+    private func refreshNextMoe(sourceID: String, includeCharacters: Bool) async throws -> GameMetadata {
+        try await details(
+            for: GameMetadata(source: source, sourceID: sourceID, title: ""),
+            includeCharacters: includeCharacters
+        )
     }
 
     public func fetchCharacters(for candidate: GameMetadata) async throws -> [GameCharacter] {
@@ -188,9 +209,9 @@ public struct PublicGameMetadataProvider: GameMetadataProvider {
         return try await gatekeeper.characters(sourceID) {
             try await fetchCharactersWithRetry {
                 switch source {
-                case .vndb: return try await fetchVNDBCharacters(for: sourceID)
-                case .bangumi: return try await fetchBangumiCharacters(for: sourceID)
-                case .ymgal, .steam, .hikarinagi, .nextmoe: return []
+                case .vndb: try await fetchVNDBCharacters(for: sourceID)
+                case .bangumi: try await fetchBangumiCharacters(for: sourceID)
+                case .ymgal, .steam, .hikarinagi, .nextmoe: []
                 }
             }
         }
@@ -519,6 +540,7 @@ private struct VNDBCharacter: Decodable {
         let id: String
         let role: String?
     }
+
     let id: String
     let name: String
     let original: String?
@@ -537,6 +559,7 @@ private struct VNDBCharInfo: Decodable {
         let id: String
         let role: String?
     }
+
     let vns: [Appearance]?
     let id: String
     let name: String
