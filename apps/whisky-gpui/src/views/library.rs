@@ -13,9 +13,7 @@ use gpui_kit::{prelude::*, *};
 
 use crate::bridge::BridgeStatus;
 use crate::controls::*;
-use crate::library_layout::{
-    CardRect, LibraryLayout, MAX_COVER_WIDTH, MIN_COVER_WIDTH,
-};
+use crate::library_layout::{CardRect, LibraryLayout};
 use crate::model::{ambient, art};
 use crate::runtime::{RuntimeAction, RuntimeState};
 use crate::state::{DEMO_NOTICE, PreviewPage, WhiskyApp};
@@ -29,16 +27,30 @@ const CHARACTER_PORTRAIT_HEIGHT: f32 = 144.;
 const COVER_SLIDER_WIDTH: f32 = 118.;
 const COVER_SLIDER_THUMB: f32 = 12.;
 
-/// Pointer x on the cover size track, snapped to whole steps of two points so
-/// a cover never lands on a half pixel. `bounds` is `[origin x, width]`.
-fn cover_slider_value(x: f32, bounds: [f32; 2]) -> f32 {
+/// Pointer x on the cover size track, snapped to the nearest level the shelf
+/// can draw flush. `bounds` is `[origin x, width]`; `levels` is narrowest
+/// first, matching the track's left-to-right growth.
+fn cover_slider_value(x: f32, bounds: [f32; 2], levels: &[f32]) -> f32 {
     let fraction = if bounds[1] > 0. {
         ((x - bounds[0]) / bounds[1]).clamp(0., 1.)
     } else {
         0.
     };
-    let raw = MIN_COVER_WIDTH + fraction * (MAX_COVER_WIDTH - MIN_COVER_WIDTH);
-    (raw / 2.).round() * 2.
+    match levels.len() {
+        0 => 0.,
+        1 => levels[0],
+        count => levels[(fraction * (count - 1) as f32).round() as usize],
+    }
+}
+
+/// Index of the level nearest `current` — where the control's thumb sits.
+fn cover_level_index(levels: &[f32], current: f32) -> usize {
+    levels
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| (*a - current).abs().total_cmp(&(*b - current).abs()))
+        .map(|(index, _)| index)
+        .unwrap_or(0)
 }
 
 /// Cover only when at least 80% of the artwork remains visible. Both the card
@@ -216,7 +228,7 @@ impl WhiskyApp {
     }
 
     /// The blurred backdrop is derived from the same artwork.
-    fn ambient_art(&self, index: usize) -> Option<std::path::PathBuf> {
+    pub(crate) fn ambient_art(&self, index: usize) -> Option<std::path::PathBuf> {
         if self.demo {
             Some(ambient(index))
         } else {
@@ -242,6 +254,8 @@ impl WhiskyApp {
         match self.mode {
             1 => self.timeline(width, window, cx),
             2 => self.classic(width, window, cx),
+            3 => self.immersive(width, window, cx),
+            4 => self.gallery(width, window, cx),
             _ => self.shelf(width, window, cx),
         }
     }
@@ -417,37 +431,9 @@ impl WhiskyApp {
             .into_any_element()
     }
     pub(crate) fn toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut modes = row()
-            .gap(px(1.))
-            .p(px(3.))
-            .rounded_full()
-            .bg(rgba(round_btn_bg()))
-            .border_1()
-            .border_color(rgba(round_btn_border()));
-        for (index, name) in ["library-big", "rows-3"]
-            .into_iter()
-            .enumerate()
-        {
-            modes = modes.child(
-                row()
-                    .id(("mode", index))
-                    .w(px(34.))
-                    .h(px(28.))
-                    .justify_center()
-                    .rounded_full()
-                    .bg(if self.mode == index {
-                        rgba(selected_bg())
-                    } else {
-                        rgba(0x00000000)
-                    })
-                    .cursor_pointer()
-                    .hover(|s| s.bg(rgba(hover_strong())))
-                    .child(icon(name, 19.))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.set_mode(index, cx);
-                    })),
-            );
-        }
+        // Classic stays hidden in GPUI; immersive is GPUI-only. Labelled
+        // segments read better than bare icons: each mode names its layout.
+        let modes = self.library_mode_menu(cx);
         row()
             .h(px(52.))
             .flex_shrink_0()
@@ -520,30 +506,52 @@ impl WhiskyApp {
             )
     }
 
-    /// Continuous cover size for the shelf. The thumb sits where the covers
-    /// actually are, so an automatic shelf shows its own size rather than a
-    /// number nobody picked; dragging or double-clicking leaves that mode.
+    /// Stepped cover size for the shelf. The thumb sits on the level the covers
+    /// actually draw, so an automatic shelf still reads truthfully; dragging or
+    /// double-clicking leaves that mode. Every level fills the row, so the
+    /// shelf never leaves a gap at the edges.
     fn cover_size_control(&self, cx: &mut Context<Self>) -> AnyElement {
         let automatic = self.cover_width <= f32::EPSILON;
+        let levels = crate::library_layout::cover_levels(self.cover_span.get());
         let current = if automatic {
             self.cover_unit.get()
         } else {
             self.cover_width
         };
-        let span = MAX_COVER_WIDTH - MIN_COVER_WIDTH;
-        let fraction = ((current - MIN_COVER_WIDTH) / span).clamp(0., 1.);
+        let position = cover_level_index(&levels, current);
+        let fraction = if levels.len() > 1 {
+            position as f32 / (levels.len() - 1) as f32
+        } else {
+            0.
+        };
         let thumb = fraction * COVER_SLIDER_WIDTH - COVER_SLIDER_THUMB / 2.;
         let label: SharedString = if automatic {
             "自动".into()
         } else {
-            format!("{current:.0}").into()
+            format!("{:.0}", levels[position]).into()
         };
+        let ticks: Vec<AnyElement> = (1..levels.len().saturating_sub(1))
+            .map(|index| {
+                let offset =
+                    COVER_SLIDER_WIDTH * index as f32 / (levels.len() - 1) as f32;
+                div()
+                    .absolute()
+                    .left(px(offset - 1.))
+                    .top(px(COVER_SLIDER_THUMB / 2. + 0.5 + 1.))
+                    .size(px(3.))
+                    .rounded_full()
+                    .bg(rgba(round_btn_border()))
+                    .into_any_element()
+            })
+            .collect();
         // Hit testing needs the track's window position; prepaint is the only
         // place GPUI hands it out.
         let bounds = std::rc::Rc::new(std::cell::Cell::new([0f32; 2]));
         let measured = bounds.clone();
         let down = bounds.clone();
         let moved = bounds.clone();
+        let down_levels = levels.clone();
+        let moved_levels = levels.clone();
         row()
             .gap(px(8.))
             .flex_shrink_0()
@@ -587,6 +595,7 @@ impl WhiskyApp {
                             .rounded_full()
                             .bg(rgb(ACCENT)),
                     )
+                    .children(ticks)
                     .child(
                         div()
                             .absolute()
@@ -610,7 +619,11 @@ impl WhiskyApp {
                                 return;
                             }
                             this.set_cover_width(
-                                cover_slider_value(f32::from(event.position.x), down.get()),
+                                cover_slider_value(
+                                    f32::from(event.position.x),
+                                    down.get(),
+                                    &down_levels,
+                                ),
                                 cx,
                             );
                         }),
@@ -620,7 +633,11 @@ impl WhiskyApp {
                             return;
                         }
                         this.set_cover_width(
-                            cover_slider_value(f32::from(event.position.x), moved.get()),
+                            cover_slider_value(
+                                f32::from(event.position.x),
+                                moved.get(),
+                                &moved_levels,
+                            ),
                             cx,
                         );
                     })),
@@ -663,6 +680,7 @@ impl WhiskyApp {
         index: usize,
         width: f32,
         height: f32,
+        title_overlay: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -728,36 +746,40 @@ impl WhiskyApp {
                     .child(icon("package", 26.).text_color(rgb(muted_color())))
                     .into_any_element(),
             })
-            .child(
-                div()
-                    .absolute()
-                    .bottom_0()
-                    .w_full()
-                    .h(px(85.))
-                    .bg(gradient(0x00000000, 0x000000b5)),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .bottom(px(9.))
-                    .left(px(10.))
-                    .right(px(9.))
-                    .text_size(px(12.))
-                    .text_color(rgb(0xf4f4f6))
-                    .font_weight(FontWeight::BOLD)
-                    .when(self.preview_single_line(), |d| d.truncate())
-                    .when(!self.preview_single_line(), |d| d.line_clamp(2))
-                    // `libraryCenterWideCoverText`: wide covers get a
-                    // centered label instead of the leading one.
-                    .when(
-                        self.flag("center-cover-text")
-                            && self
-                                .game(index)
-                                .is_some_and(|game| game.landscape),
-                        |d| d.text_center(),
-                    )
-                    .child(title),
-            )
+            // Overlay title is used by the classic card; the shelf draws its
+            // label below the artwork instead.
+            .when(title_overlay, |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .bottom_0()
+                        .w_full()
+                        .h(px(85.))
+                        .bg(gradient(0x00000000, 0x000000b5)),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .bottom(px(9.))
+                        .left(px(10.))
+                        .right(px(9.))
+                        .text_size(px(12.))
+                        .text_color(rgb(0xf4f4f6))
+                        .font_weight(FontWeight::BOLD)
+                        .when(self.preview_single_line(), |d| d.truncate())
+                        .when(!self.preview_single_line(), |d| d.line_clamp(2))
+                        // `libraryCenterWideCoverText`: wide covers get a
+                        // centered label instead of the leading one.
+                        .when(
+                            self.flag("center-cover-text")
+                                && self
+                                    .game(index)
+                                    .is_some_and(|game| game.landscape),
+                            |d| d.text_center(),
+                        )
+                        .child(title),
+                )
+            })
             // Running and pending states are always visible; only the idle
             // affordance waits for hover, as it did before.
             .child(match self.runtime_state(index) {
@@ -788,13 +810,24 @@ impl WhiskyApp {
         amount: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        self.play_circle(("cover-play", index), index, amount, cx)
+    }
+    /// Same circle under a caller-chosen id: the immersive page draws the
+    /// same game in more than one row, so `cover-play` alone would collide.
+    pub(crate) fn play_circle(
+        &self,
+        id: impl Into<ElementId>,
+        index: usize,
+        amount: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let action = if self.demo {
             None
         } else {
             self.primary_action(index).action
         };
         let mut circle = row()
-            .id(("cover-play", index))
+            .id(id)
             .absolute()
             .top(px(10. + (1. - amount) * 5.))
             .right(px(10.))
@@ -890,8 +923,10 @@ impl WhiskyApp {
         let layout = LibraryLayout::shelf_with_width(&indices, width, self.cover_width, |i| {
             self.mixed && self.game(i).is_some_and(|game| game.landscape)
         });
-        // The control reads this to show the size an automatic shelf picked.
+        // The control reads these to show the size an automatic shelf picked
+        // and which flush levels the current row width offers.
         self.cover_unit.set(layout.cover_width);
+        self.cover_span.set(crate::library_layout::shelf_available(width));
         let mut content = div()
             .relative()
             .w_full()
@@ -902,7 +937,7 @@ impl WhiskyApp {
             content = content.child(self.card_slot(
                 index,
                 rect,
-                self.cover(index, rect.width, rect.height, window, cx),
+                self.cover(index, rect.width, rect.height, true, window, cx),
             ));
         }
         if indices.is_empty() {
@@ -916,7 +951,7 @@ impl WhiskyApp {
         index: usize,
         demo_label: &'static str,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    ) -> Stateful<Div> {
         // The demo has no runtime; it keeps its own label and its notice.
         let (label, enabled, busy, action) = if self.demo {
             (demo_label, true, false, None)
@@ -1249,7 +1284,7 @@ impl WhiskyApp {
                 .bg(rgba(card_bg()))
                 .border_1()
                 .border_color(rgba(card_border()))
-                .child(self.cover(i, rect.width, (rect.height - 55.).max(1.), window, cx))
+                .child(self.cover(i, rect.width, (rect.height - 55.).max(1.), true, window, cx))
                 .child(
                     row()
                         .px(px(12.))

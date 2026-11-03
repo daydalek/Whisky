@@ -428,6 +428,8 @@ pub(crate) struct WhiskyApp {
     pub(crate) preview: PreviewState,
     pub(crate) search: Entity<InputState>,
     pub(crate) mode: usize,
+    pub(crate) gallery_selection: Option<(String, String)>,
+    pub(crate) gallery_detail_scroll: ScrollHandle,
     /// The bundled demo snapshot, enabled with `WHISKY_GPUI_DEMO_DATA=1`.
     pub(crate) demo: bool,
     pub(crate) bottles: Vec<BottleVm>,
@@ -578,7 +580,7 @@ pub(crate) struct WhiskyApp {
     pub(crate) motion: bool,
     pub(crate) lively: bool,
     pub(crate) reversed: bool,
-    pub(crate) library_scroll: [ScrollHandle; 3],
+    pub(crate) library_scroll: [ScrollHandle; 5],
     pub(crate) detail_scroll: ScrollHandle,
     pub(crate) scroll_needs_measurement: std::cell::Cell<bool>,
     #[cfg(feature = "visual-test")]
@@ -589,6 +591,10 @@ pub(crate) struct WhiskyApp {
     /// The width the shelf drew last, so the control can show an automatic
     /// size instead of parking its thumb on a number nobody chose.
     pub(crate) cover_unit: std::cell::Cell<f32>,
+    /// The row width the shelf last laid out into, so the control knows which
+    /// flush size levels exist. Zero until the shelf first renders.
+    pub(crate) cover_span: std::cell::Cell<f32>,
+    pub(crate) artwork_cache: Entity<crate::artwork::ArtworkCache>,
     /// How hard the cover size option works; `Off` draws the file as it arrived.
     pub(crate) cover_upscale: crate::upscale::Factor,
     /// Which network enlarges the covers.
@@ -605,6 +611,19 @@ pub(crate) struct WhiskyApp {
     cover_batch_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     pub(crate) hovered: Option<usize>,
     pub(crate) ambient_index: usize,
+    /// Current hero slide of the immersive mode; wraps at render time against
+    /// the featured set.
+    pub(crate) immersive_slide: usize,
+    /// Hero pointer hover: pauses the auto-advance and reveals the edge
+    /// chevrons.
+    pub(crate) immersive_hero_hovered: bool,
+    /// Bumped by manual slide navigation; a running loop exits once its
+    /// captured epoch no longer matches, which restarts the 8 s countdown.
+    immersive_carousel_epoch: std::cell::Cell<u64>,
+    /// True while one auto-advance loop is alive; guards the lazy start.
+    immersive_carousel_running: std::cell::Cell<bool>,
+    /// Scroll handle per horizontal row, keyed by the row's stable name.
+    pub(crate) immersive_row_scrolls: std::cell::RefCell<HashMap<String, ScrollHandle>>,
     pub(crate) detail: Option<usize>,
     pub(crate) detail_open: bool,
     pub(crate) detail_character: Option<String>,
@@ -679,6 +698,8 @@ impl WhiskyApp {
             preview,
             search,
             mode: 0,
+            gallery_selection: None,
+            gallery_detail_scroll: ScrollHandle::new(),
             demo,
             bottles: if demo { demo_bottles() } else { Vec::new() },
             entries: Vec::new(),
@@ -780,6 +801,8 @@ impl WhiskyApp {
             mixed: preferences::DEFAULT_MIXED_COVER_LAYOUT,
             cover_width: preferences::DEFAULT_COVER_WIDTH,
             cover_unit: std::cell::Cell::new(crate::library_layout::DEFAULT_COVER_WIDTH),
+            cover_span: std::cell::Cell::new(crate::library_layout::shelf_available(1000.)),
+            artwork_cache: crate::artwork::ArtworkCache::new(cx),
             cover_upscale: crate::upscale::Factor::from_raw(preferences::DEFAULT_COVER_UPSCALE),
             cover_engine: crate::upscale::Engine::from_raw(preferences::DEFAULT_COVER_UPSCALE_ENGINE),
             cover_derivatives: RefCell::new(HashMap::new()),
@@ -3302,7 +3325,7 @@ impl WhiskyApp {
     }
 
     /// Live value from the cover size control. `persist` debounces the write,
-    /// so a continuous drag costs one call per quiet period, not one per frame.
+    /// so a drag across levels costs one call per quiet period, not per frame.
     pub(crate) fn set_cover_width(&mut self, value: f32, cx: &mut Context<Self>) {
         let chosen = crate::library_layout::chosen_cover_width(value)
             .unwrap_or(crate::library_layout::AUTOMATIC_COVER_WIDTH);
@@ -3533,15 +3556,87 @@ impl WhiskyApp {
     }
 
     pub(crate) fn set_mode(&mut self, index: usize, cx: &mut Context<Self>) {
+        let index = preferences::visible_mode_index(preferences::mode_value(index)).unwrap_or(0);
         self.mode = index;
-        self.settings = false;
+        self.invalidate_view();
         self.hovered = None;
+        self.immersive_hero_hovered = false;
+        if index == 3 {
+            self.immersive_slide = 0;
+            self.ensure_immersive_carousel(cx);
+        }
         self.persist(
             preferences::DISPLAY_MODE,
             json!(preferences::mode_value(index)),
             cx,
         );
         cx.notify();
+    }
+
+    pub(crate) fn select_gallery_game(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(game) = self.game(index) {
+            self.gallery_selection = Some((game.container.clone(), game.id.clone()));
+            self.gallery_detail_scroll.set_offset(point(px(0.), px(0.)));
+            self.hovered = None;
+            cx.notify();
+        }
+    }
+
+    /// Manual hero navigation: remembers the slide and restarts the
+    /// auto-advance countdown by retiring the running loop (the epoch check
+    /// below makes it exit on its next tick).
+    pub(crate) fn set_immersive_slide(&mut self, slide: usize, cx: &mut Context<Self>) {
+        self.immersive_slide = slide;
+        self.immersive_carousel_epoch
+            .set(self.immersive_carousel_epoch.get().wrapping_add(1));
+        self.immersive_carousel_running.set(false);
+        self.ensure_immersive_carousel(cx);
+        cx.notify();
+    }
+
+    /// The single auto-advance loop for the hero carousel, started by
+    /// `set_mode` and lazily by the first immersive render (a persisted
+    /// mode=3 never passes `set_mode`). The loop exits on its next tick once
+    /// another loop owns the epoch or the mode leaves immersive, so at most
+    /// one loop ever runs.
+    pub(crate) fn ensure_immersive_carousel(&self, cx: &mut Context<Self>) {
+        if self.mode != 3 || self.immersive_carousel_running.replace(true) {
+            return;
+        }
+        let epoch = self.immersive_carousel_epoch.get();
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_secs(CAROUSEL_SECS))
+                    .await;
+                let keep_running = this
+                    .update(cx, |this, cx| {
+                        if this.immersive_carousel_epoch.get() != epoch {
+                            // A newer loop took over; it owns the flag.
+                            return false;
+                        }
+                        if this.mode != 3 {
+                            this.immersive_carousel_running.set(false);
+                            return false;
+                        }
+                        let idle = this.preview.page == PreviewPage::Library
+                            && !this.settings
+                            && !this.detail_open
+                            && this.preview.sheet.is_none()
+                            && !this.immersive_hero_hovered;
+                        if idle {
+                            this.immersive_slide = this.immersive_slide.wrapping_add(1);
+                            cx.notify();
+                        }
+                        true
+                    })
+                    .unwrap_or(false);
+                if !keep_running {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     fn set_sort(&mut self, index: usize, cx: &mut Context<Self>) {

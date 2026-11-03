@@ -181,26 +181,6 @@ impl WhiskyApp {
                         this.command(Command::Runtime(index), cx);
                     }))));
         }
-        let mut recent = panel().child(heading("接着上次的冒险"))
-            .child(muted("按最近游玩排序 · 累计时长包含旧版记录"));
-        let mut recent_games: Vec<_> = self.games().iter().enumerate()
-            .filter(|(_, game)| !game.is_launcher && (game.play_time.unwrap_or(0) > 0 || game.last_played.is_some()))
-            .collect();
-        recent_games.sort_by(|a, b| b.1.last_played.cmp(&a.1.last_played)
-            .then(b.1.play_time.cmp(&a.1.play_time)).then(a.1.title.cmp(&b.1.title)));
-        for (index, game) in recent_games.into_iter().take(3) {
-            let primary = self.primary_action(index);
-            recent = recent.child(row().gap(px(12.)).py(px(6.))
-                .child(col().flex_1().min_w_0().gap(px(4.))
-                    .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(game.title.clone()))
-                    .child(muted(format!("累计 {}", duration(game.play_time.unwrap_or(0) as f64)))))
-                .child(Button::new(("statistics-recent", index))
-                    .label(if self.demo || primary.label == "Play" { "继续游玩" } else { primary.label })
-                    .disabled(!self.demo && !primary.enabled)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.command(Command::Runtime(index), cx);
-                    }))));
-        }
         self.preview_scroll("statistics-scroll",
             col().w_full().p(px(26.)).gap(px(22.))
                 .child(row().justify_between().gap(px(12.)).flex_wrap()
@@ -219,7 +199,6 @@ impl WhiskyApp {
                         })).child(muted("多")))
                     .child(muted("点击日期查看明细 · 颜色按每日时长分级：半小时 / 1 小时 / 2 小时")))
                 .child(details)
-                .child(recent)
                 .child(muted("每日明细从此版本开始记录，旧版累计时长不会被分配到历史日期。日期按记录时的本地时区划分；统计范围为当前库中的游戏，不含启动器。"))
         )
     }

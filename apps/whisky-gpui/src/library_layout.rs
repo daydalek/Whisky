@@ -32,13 +32,17 @@ pub const MAX_COVER_WIDTH: f32 = 320.;
 pub const DEFAULT_COVER_WIDTH: f32 = 140.;
 /// No chosen width: covers divide the row between them.
 pub const AUTOMATIC_COVER_WIDTH: f32 = 0.;
+/// The margin a shelf row keeps on each side, and the gap between covers.
+const SHELF_MARGIN: f32 = 18.;
+const SHELF_GAP: f32 = 12.;
 
-/// `None` means the row is filled, `Some` is a width held for every cover.
+/// `None` means the row is filled, `Some` is the desired cover width.
 ///
 /// A chosen width cannot also keep the row flush: with a fixed window width the
 /// filled size only depends on how many columns fit, so it changes in steps of
-/// tens of points. Holding the width is what makes the control continuous, and
-/// the slack it leaves becomes a symmetric inset instead of a wider cover.
+/// tens of points. The value therefore steers the pick — the layout snaps to
+/// the nearest of [`cover_levels`], the sizes at which covers divide the row
+/// exactly — instead of holding the width and leaving edge slack.
 pub fn chosen_cover_width(value: f32) -> Option<f32> {
     if value.is_finite() && value > 0. {
         Some(value.clamp(MIN_COVER_WIDTH, MAX_COVER_WIDTH))
@@ -47,25 +51,63 @@ pub fn chosen_cover_width(value: f32) -> Option<f32> {
     }
 }
 
+/// Points of row the shelf can lay covers into for a `width`-point viewport.
+pub fn shelf_available(width: f32) -> f32 {
+    (width - SHELF_MARGIN * 2.).max(1.)
+}
+
+/// Flush cover widths the shelf can draw for `available` points of row,
+/// narrowest first — the steps of the size control. Every entry divides the
+/// row exactly, so picking one never leaves a gap at the edges.
+pub fn cover_levels(available: f32) -> Vec<f32> {
+    let available = available.max(1.);
+    let span = available + SHELF_GAP;
+    let widest = (span / (MAX_COVER_WIDTH + SHELF_GAP)).ceil().max(1.) as usize;
+    let narrowest = (span / (MIN_COVER_WIDTH + SHELF_GAP))
+        .floor()
+        .max(widest as f32) as usize;
+    (widest..=narrowest)
+        .rev()
+        .map(|columns| span / columns as f32 - SHELF_GAP)
+        .collect()
+}
+
+/// Column count whose flush cover width is nearest `desired`, restricted to
+/// counts that keep covers inside `[MIN_COVER_WIDTH, MAX_COVER_WIDTH]`.
+fn cover_columns(available: f32, desired: f32) -> usize {
+    let available = available.max(1.);
+    let span = available + SHELF_GAP;
+    let widest = (span / (MAX_COVER_WIDTH + SHELF_GAP)).ceil().max(1.) as usize;
+    let narrowest = (span / (MIN_COVER_WIDTH + SHELF_GAP))
+        .floor()
+        .max(widest as f32) as usize;
+    (widest..=narrowest)
+        .min_by(|&a, &b| {
+            let left = (span / a as f32 - SHELF_GAP - desired).abs();
+            let right = (span / b as f32 - SHELF_GAP - desired).abs();
+            left.total_cmp(&right)
+        })
+        .unwrap_or(1)
+}
+
 impl LibraryLayout {
     /// `cover_width` is the size control's value; [`AUTOMATIC_COVER_WIDTH`]
-    /// keeps every row flush, which is how the shelf drew before the control
-    /// existed.
+    /// divides the row at the default column count. Either way the layout
+    /// snaps to a flush level, so every full row reaches both edges.
     pub fn shelf_with_width(
         indices: &[usize],
         width: f32,
         cover_width: f32,
         landscape: impl Fn(usize) -> bool,
     ) -> Self {
-        let available = (width - 36.).max(1.);
-        let chosen = chosen_cover_width(cover_width);
-        let basis = chosen.unwrap_or(DEFAULT_COVER_WIDTH);
-        let columns = ((available + 12.) / (basis + 12.)).floor().max(1.) as usize;
-        let filled = (available - (columns - 1) as f32 * 12.) / columns as f32;
-        // The filled width is never narrower than the chosen one: the column
-        // count is derived from it. `min` only guards rounding at the boundary.
-        let unit = chosen.map_or(filled, |chosen| filled.min(chosen));
-        let inset = ((available - columns as f32 * unit - (columns - 1) as f32 * 12.) / 2.).max(0.);
+        let available = shelf_available(width);
+        let columns = match chosen_cover_width(cover_width) {
+            Some(desired) => cover_columns(available, desired),
+            None => ((available + SHELF_GAP) / (DEFAULT_COVER_WIDTH + SHELF_GAP))
+                .floor()
+                .max(1.) as usize,
+        };
+        let unit = (available - (columns - 1) as f32 * SHELF_GAP) / columns as f32;
         let card_height = unit * 1.5;
         let spans: Vec<u32> = indices
             .iter()
@@ -80,9 +122,9 @@ impl LibraryLayout {
                 cards.push((
                     indices[index],
                     CardRect {
-                        x: 18. + inset + column as f32 * (unit + 12.),
-                        y: 18. + row_index as f32 * (card_height + 12.),
-                        width: unit * span as f32 + 12. * (span - 1) as f32,
+                        x: SHELF_MARGIN + column as f32 * (unit + SHELF_GAP),
+                        y: SHELF_MARGIN + row_index as f32 * (card_height + SHELF_GAP),
+                        width: unit * span as f32 + SHELF_GAP * (span - 1) as f32,
                         height: card_height,
                     },
                 ));
@@ -91,8 +133,8 @@ impl LibraryLayout {
         }
         Self {
             cards,
-            height: 36. + rows.len() as f32 * (card_height + 12.)
-                - if rows.is_empty() { 0. } else { 12. },
+            height: SHELF_MARGIN * 2. + rows.len() as f32 * (card_height + SHELF_GAP)
+                - if rows.is_empty() { 0. } else { SHELF_GAP },
             cover_width: unit,
         }
     }
@@ -393,34 +435,53 @@ mod tests {
     }
 
     #[test]
-    fn chosen_cover_width_holds_its_size_and_centres_the_row() {
+    fn cover_levels_divide_the_row_exactly() {
+        for width in [200., 500., 700., 1000., 1600., 2400.] {
+            let available = shelf_available(width);
+            let levels = cover_levels(available);
+            assert!(!levels.is_empty());
+            for pair in levels.windows(2) {
+                assert!(pair[0] < pair[1]);
+            }
+            for &level in &levels {
+                let columns = ((available + SHELF_GAP) / (level + SHELF_GAP)).round();
+                let filled = columns * level + (columns - 1.) * SHELF_GAP;
+                assert!((filled - available).abs() < 0.01);
+                assert!(level >= MIN_COVER_WIDTH - 0.01 && level <= MAX_COVER_WIDTH + 0.01);
+            }
+        }
+    }
+
+    #[test]
+    fn chosen_cover_width_snaps_to_the_nearest_flush_level() {
+        // 964 usable: five columns fill at 183.2, the level nearest 180.
         let layout = LibraryLayout::shelf_with_width(&[0, 1, 2, 3, 4], 1000., 180., |_| false);
-        assert_eq!(layout.cover_width, 180.);
+        let unit = 976. / 5. - 12.;
+        assert!((layout.cover_width - unit).abs() < 0.01);
         assert_eq!(layout.cards.len(), 5);
-        // 964 usable, five 180 covers and four 12 gaps leave 8 on each side.
-        assert!((layout.cards[0].1.x - 26.).abs() < 0.01);
-        assert!((layout.cards[0].1.height - 270.).abs() < 0.01);
+        // Flush on both edges: first card at the margin, last card at the far margin.
+        assert!((layout.cards[0].1.x - 18.).abs() < 0.01);
+        assert!((layout.cards[0].1.height - unit * 1.5).abs() < 0.01);
         assert!(
-            (layout.cards[4].1.x + layout.cards[4].1.width - (18. + 964. - 8.)).abs() < 0.01
+            (layout.cards[4].1.x + layout.cards[4].1.width - (1000. - 18.)).abs() < 0.01
         );
     }
 
     #[test]
-    fn chosen_cover_width_moves_one_point_at_a_time() {
-        // The filled geometry can only step between column counts; holding the
-        // width is what lets the control change the covers continuously.
+    fn chosen_cover_width_only_lands_on_flush_levels() {
+        // Every chosen size snaps to a level the row divides exactly, so a full
+        // row always reaches both edges no matter where the control lands.
         for width in [700., 1000., 1600.] {
-            let mut previous = 0.;
+            let levels = cover_levels(shelf_available(width));
             for step in 0 ..= 105 {
                 let chosen = 110. + step as f32 * 2.;
                 let layout =
-                    LibraryLayout::shelf_with_width(&[0, 1, 2, 3], width, chosen, |_| false);
-                assert!((layout.cover_width - chosen).abs() < 0.01);
-                assert!(layout.cover_width >= previous);
+                    LibraryLayout::shelf_with_width(&(0..24).collect::<Vec<_>>(), width, chosen, |_| false);
+                assert!(levels.iter().any(|level| (layout.cover_width - level).abs() < 0.01));
+                assert!((layout.cards[0].1.x - 18.).abs() < 0.01);
                 for (_, card) in &layout.cards {
                     assert!(card.x + card.width <= width - 18. + 0.01);
                 }
-                previous = layout.cover_width;
             }
         }
     }

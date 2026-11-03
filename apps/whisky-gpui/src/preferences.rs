@@ -18,8 +18,16 @@
 //! GPUI-only, and the bridge stores it as a number so both backends round-trip
 //! it unchanged.
 
-/// The three presentations, in `LibraryDisplayMode` declaration order.
-pub(crate) const MODE_VALUES: [&str; 3] = ["covers", "timeline", "classic"];
+/// The presentations, in `LibraryDisplayMode` declaration order plus the
+/// GPUI-only "immersive" mode, which the SwiftUI enum has no case for (the
+/// bridge stores any string and SwiftUI falls back to covers for it).
+pub(crate) const MODE_VALUES: [&str; 5] = ["covers", "timeline", "classic", "immersive", "gallery"];
+pub(crate) const VISIBLE_MODES: [(usize, &str, &str, &str); 4] = [
+    (0, "library-big", "网格", "紧凑排列，快速浏览全部封面"),
+    (1, "rows-3", "列表", "按行查看游戏与游玩记录"),
+    (3, "tv-minimal-play", "沉浸", "大幅精选画面与分类游戏架"),
+    (4, "panel-left", "画廊", "封面墙与游戏详情并排呈现"),
+];
 /// `LibrarySort` raw values (`WhiskyCore/LibraryOrdering.swift:21`).
 pub(crate) const SORT_VALUES: [&str; 3] = ["recent", "name", "bottle"];
 /// `TerminalApp` raw values (`WhiskyKit/Utils/TerminalApp.swift`).
@@ -97,6 +105,7 @@ pub(crate) fn mode_index(raw: &str) -> Option<usize> {
 }
 
 /// Classic remains a shared SwiftUI preference, but is hidden in GPUI.
+/// "immersive" is GPUI-only and stays visible.
 pub(crate) fn visible_mode_index(raw: &str) -> Option<usize> {
     mode_index(raw).map(|index| if index == 2 { 0 } else { index })
 }
@@ -167,8 +176,11 @@ mod tests {
 
     #[test]
     fn value_sets_match_the_swift_enums() {
-        // LibraryDisplayMode, LibraryView.swift:26.
-        assert_eq!(MODE_VALUES, ["covers", "timeline", "classic"]);
+        // LibraryDisplayMode, LibraryView.swift:26, plus GPUI-only "immersive".
+        assert_eq!(
+            MODE_VALUES,
+            ["covers", "timeline", "classic", "immersive", "gallery"]
+        );
         // LibrarySort, WhiskyCore/LibraryOrdering.swift:21.
         assert_eq!(SORT_VALUES, ["recent", "name", "bottle"]);
         // TerminalApp, WhiskyKit/Utils/TerminalApp.swift.
@@ -182,10 +194,23 @@ mod tests {
         assert_eq!(COVER_FILL_VALUES, ["blurred", "theme"]);
         assert_eq!(DETAIL_LAYOUT_VALUES, ["hero", "split"]);
         assert_eq!(mode_index("timeline"), Some(1));
+        assert_eq!(mode_index("immersive"), Some(3));
         assert_eq!(visible_mode_index("covers"), Some(0));
         assert_eq!(visible_mode_index("timeline"), Some(1));
         assert_eq!(visible_mode_index("classic"), Some(0));
+        assert_eq!(visible_mode_index("immersive"), Some(3));
         assert_eq!(visible_mode_index("unknown"), None);
+        assert_eq!(mode_index("gallery"), Some(4));
+        assert_eq!(mode_value(4), "gallery");
+        assert_eq!(visible_mode_index(mode_value(4)), Some(4));
+        assert_eq!(visible_mode_index("gallery"), Some(4));
+        assert_eq!(
+            VISIBLE_MODES
+                .iter()
+                .map(|(index, ..)| *index)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 3, 4]
+        );
         assert_eq!(sort_index("bottle"), Some(2));
         assert_eq!(mode_index("grid"), None);
         assert_eq!(mode_value(9), DEFAULT_MODE);

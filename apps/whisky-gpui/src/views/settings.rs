@@ -324,6 +324,7 @@ impl WhiskyApp {
                     "library-prefs",
                     "游戏库",
                     vec![
+                        self.library_mode_cards(cx),
                         self.toggle(
                             "refresh",
                             "退出游戏后刷新游戏库",
@@ -377,6 +378,12 @@ impl WhiskyApp {
                             "motion",
                             "界面动画",
                             "滚动回弹、卡片弹簧重排、悬停与详情页过渡。",
+                            cx,
+                        ),
+                        self.toggle(
+                            "lively",
+                            "明显弹性动画",
+                            "卡片重排使用更明显的弹性曲线（默认：柔和）。",
                             cx,
                         ),
                     ],

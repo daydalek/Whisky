@@ -16,6 +16,8 @@ mod host;
 mod controls;
 mod create_bottle;
 mod container_import;
+mod gallery;
+mod immersive;
 mod library_layout;
 mod library_view;
 mod model;
@@ -286,6 +288,8 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
             "metadata-editor",
             "statistics",
             "statistics-compact",
+            "immersive",
+            "immersive-compact",
         ];
         for (stage, name) in names.into_iter().enumerate() {
             if std::env::var_os("WHISKY_STATISTICS_CAPTURE").is_some() && stage < 16 {
@@ -382,6 +386,14 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
                                 });
                                 this.preview.page = PreviewPage::Statistics;
                                 this.preview.scroll_handles.borrow_mut().remove("statistics-scroll");
+                            }
+                            18 | 19 => {
+                                window.resize(if stage == 18 {
+                                    size(px(1280.), px(820.))
+                                } else {
+                                    size(px(900.), px(650.))
+                                });
+                                this.mode = 3;
                             }
                             _ => {
                                 window.resize(size(px(800.), px(580.)));

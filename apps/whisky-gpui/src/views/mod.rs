@@ -2,11 +2,14 @@
 
 pub(crate) mod bottle;
 pub(crate) mod dialogs;
+pub(crate) mod gallery;
+pub(crate) mod immersive;
 pub(crate) mod import_bottles;
 pub(crate) mod library;
 pub(crate) mod settings;
 pub(crate) mod statistics;
 pub(crate) mod onboarding;
+pub(crate) mod view_picker;
 pub(crate) mod walkthrough;
 pub(crate) mod walkthrough_routes;
 pub(crate) mod walkthrough_tree;
@@ -150,66 +153,26 @@ impl WhiskyApp {
         let is_library = self.preview.page == PreviewPage::Library && !self.settings;
         let mut items = vec![];
         if is_library {
-            items.push(
-                self.menu_item("退出游戏后刷新游戏库", Command::Toggle("refresh"), cx)
-                    .checked(self.flag("refresh")),
-            );
-            items.push(MenuEntry::separator(cx.entity().downgrade()));
-            items.push(
-                self.menu_item(crate::platform::MOTION_MENU, Command::Toggle("motion"), cx)
-                    .checked(self.motion),
-            );
-            items.push(
-                self.menu_item("明显弹性（默认：柔和）", Command::Toggle("lively"), cx)
-                    .checked(self.lively),
-            );
-            items.push(MenuEntry::separator(cx.entity().downgrade()));
-            {
-                // Mirrors `LibrarySort` (recent, name, bottle); the labels are
-                // the GPUI app's existing Chinese copy.
-                for (i, label) in ["最近游玩", "名称", "容器"].into_iter().enumerate()
-                {
-                    items.push(
-                        self.menu_item(label, Command::Sort(i), cx)
-                            .checked(self.preview.sort == i),
-                    );
-                }
-            }
-            if self.mode == 0 {
+            // Library view actions only; appearance, motion and layout
+            // preferences live in the settings page's 游戏库 section, and
+            // hidden-program filtering stays on its toolbar pill.
+            for (i, label) in ["最近游玩", "名称", "容器"].into_iter().enumerate() {
                 items.push(
-                    self.menu_item("混合封面布局", Command::Toggle("mixed"), cx)
-                        .checked(self.mixed),
+                    self.menu_item(label, Command::Sort(i), cx)
+                        .checked(self.preview.sort == i),
                 );
-                items.push(
-                    self.menu_item("单行显示标题", Command::Toggle("single-title"), cx)
-                        .checked(self.flag("single-title")),
-                );
-                if self.cover_width > f32::EPSILON {
-                    items.push(self.menu_item(
-                        "封面大小：恢复自动（双击滑块同效）",
-                        Command::CoverSize(crate::library_layout::AUTOMATIC_COVER_WIDTH),
-                        cx,
-                    ));
-                }
             }
             items.push(MenuEntry::separator(cx.entity().downgrade()));
+            if self.mode == 0 && self.cover_width > f32::EPSILON {
+                items.push(self.menu_item(
+                    "封面大小：恢复自动（双击滑块同效）",
+                    Command::CoverSize(crate::library_layout::AUTOMATIC_COVER_WIDTH),
+                    cx,
+                ));
+                items.push(MenuEntry::separator(cx.entity().downgrade()));
+            }
             items.push(self.menu_item("扫描并同步游戏信息", Command::SyncMetadata, cx));
             items.push(self.menu_item("管理扫描文件夹…", Command::Sheet(PreviewSheet::Scan), cx));
-            items.push(
-                self.menu_item("显示隐藏的游戏", Command::Toggle("show-hidden"), cx)
-                    .checked(self.flag("show-hidden")),
-            );
-            items.push(MenuEntry::separator(cx.entity().downgrade()));
-            for (label, value) in crate::theme::APPEARANCE_OPTIONS {
-                items.push(
-                    self.menu_item(
-                        format!("外观：{label}"),
-                        Command::Choose("appearance", value),
-                        cx,
-                    )
-                    .checked(self.appearance.wire() == value),
-                );
-            }
             items.push(MenuEntry::separator(cx.entity().downgrade()));
             items.push(self.menu_item("刷新", Command::RefreshLibrary, cx));
         } else {
@@ -223,17 +186,6 @@ impl WhiskyApp {
             items.push(MenuEntry::separator(cx.entity().downgrade()));
             items.push(self.menu_item("Winetricks…", Command::Sheet(PreviewSheet::Winetricks), cx));
             items.push(self.menu_item("复制容器…", Command::Sheet(PreviewSheet::CreateBottle), cx));
-            items.push(MenuEntry::separator(cx.entity().downgrade()));
-            for (label, value) in crate::theme::APPEARANCE_OPTIONS {
-                items.push(
-                    self.menu_item(
-                        format!("外观：{label}"),
-                        Command::Choose("appearance", value),
-                        cx,
-                    )
-                    .checked(self.appearance.wire() == value),
-                );
-            }
         }
         Button::new("options-menu")
             .label("•••")
