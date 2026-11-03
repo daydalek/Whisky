@@ -648,7 +648,7 @@ impl WhiskyApp {
                 && let Some(path) = self.ambient_art(i)
             {
                 layers = layers.child(
-                    img(path)
+                    self.artwork_image(path)
                         .absolute()
                         .size_full()
                         .object_fit(ObjectFit::Cover)
@@ -677,9 +677,7 @@ impl WhiskyApp {
         // Frame stays fixed; only artwork expands, avoiding shelf reflow.
         let iw = width * (1. + amount * 0.025);
         let ih = height * (1. + amount * 0.025);
-        let artwork = self
-            .artwork(index)
-            .map(|path| self.cover_file(path, cx));
+        let artwork = self.artwork(index);
         let title = self
             .game(index)
             .map(|game| game.title.clone())
@@ -711,7 +709,7 @@ impl WhiskyApp {
             }))
             .on_click(cx.listener(move |this, _, _, cx| this.open_detail(index, cx)))
             .child(match artwork {
-                Some(path) => img(path)
+                Some(path) => self.cover_image(path, cx)
                     .absolute()
                     .left(px((width - iw) / 2.))
                     .top(px((height - ih) / 2.))
@@ -1135,7 +1133,7 @@ impl WhiskyApp {
                                             this.open_detail(index, cx)
                                         }))
                                         .child(match self.artwork(index) {
-                                            Some(path) => img(path)
+                                            Some(path) => self.artwork_image(path)
                                                 .size_full()
                                                 .object_fit(ObjectFit::Cover)
                                                 .into_any_element(),
@@ -1340,9 +1338,7 @@ impl WhiskyApp {
         };
         let backdrop = self.ambient_art(index);
         // The hero cover is a fixed 190 points wide.
-        let artwork = self
-            .artwork(index)
-            .map(|path| self.cover_file(path, cx));
+        let artwork = self.artwork(index);
         let mut badges = row().gap(px(8.)).mt(px(8.));
         if self.demo {
             badges = badges
@@ -1418,7 +1414,7 @@ impl WhiskyApp {
                             .size_full()
                             .when_some(backdrop, |d, path| {
                                 d.child(
-                                    img(path)
+                                    self.artwork_image(path)
                                         .size_full()
                                         .object_fit(ObjectFit::Cover)
                                         .opacity(if is_dark() { 0.22 } else { 0.12 }),
@@ -1459,7 +1455,7 @@ impl WhiskyApp {
                                             .items_start()
                                             .gap(px(25.))
                                             .child(match artwork {
-                                                Some(path) => img(path)
+                                                Some(path) => self.cover_image(path, cx)
                                                     .w(px(190.))
                                                     .h(px(278.))
                                                     .flex_shrink_0()
@@ -1679,7 +1675,7 @@ impl WhiskyApp {
             .unwrap_or("暂无该角色的详细简介。");
 
         let portrait = match images.get(&character.id) {
-            Some(path) => img(std::path::PathBuf::from(path))
+            Some(path) => self.artwork_image(std::path::PathBuf::from(path))
                 .w_full()
                 .h_full()
                 .object_fit(ObjectFit::Contain)

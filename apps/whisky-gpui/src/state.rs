@@ -47,6 +47,8 @@ const PREFERENCE_DEBOUNCE: Duration = Duration::from_millis(300);
 /// Text and number rows wait this long after the last keystroke; toggles and
 /// pickers commit immediately.
 const CONFIG_DEBOUNCE: Duration = Duration::from_millis(400);
+/// Immersive hero auto-advance cadence.
+const CAROUSEL_SECS: u64 = 8;
 
 /// `configuration.schema` + `configuration.read` for the selected bottle.
 #[derive(Clone)]
@@ -787,6 +789,11 @@ impl WhiskyApp {
             cover_batch_cancel: None,
             hovered: None,
             ambient_index: 0,
+            immersive_slide: 0,
+            immersive_hero_hovered: false,
+            immersive_carousel_epoch: Default::default(),
+            immersive_carousel_running: Default::default(),
+            immersive_row_scrolls: Default::default(),
             detail: None,
             detail_open: false,
             detail_character: None,
@@ -3348,6 +3355,22 @@ impl WhiskyApp {
         if self.cover_batch.take().is_some() {
             self.cover_derivatives.borrow_mut().clear();
         }
+    }
+
+    pub(crate) fn artwork_image(&self, source: std::path::PathBuf) -> crate::artwork::Artwork {
+        crate::artwork::Artwork::new(self.artwork_cache.clone(), source)
+    }
+
+    pub(crate) fn cover_image(
+        &self,
+        source: std::path::PathBuf,
+        cx: &Context<Self>,
+    ) -> crate::artwork::Artwork {
+        let view = cx.entity().downgrade();
+        self.artwork_image(source).with_resolver(move |source, cx| {
+            view.update(cx, |this, cx| this.cover_file(source.to_path_buf(), cx))
+                .unwrap_or_else(|_| source.to_path_buf())
+        })
     }
 
     /// Derives a cover for every entry in the library at the widest card size,

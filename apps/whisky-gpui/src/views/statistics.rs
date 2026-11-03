@@ -158,7 +158,7 @@ impl WhiskyApp {
             let primary = self.primary_action(index);
             let mut entry = row().gap(px(16.)).py(px(10.));
             entry = entry.child(match self.artwork(index) {
-                Some(path) => img(path).w(px(48.)).h(px(62.)).rounded(px(7.))
+                Some(path) => self.artwork_image(path).w(px(48.)).h(px(62.)).rounded(px(7.))
                     .object_fit(ObjectFit::Cover).into_any_element(),
                 None => div().w(px(48.)).h(px(62.)).rounded(px(7.)).bg(rgba(theme::badge_bg()))
                     .flex().items_center().justify_center().child(icon("package", 22.)).into_any_element(),

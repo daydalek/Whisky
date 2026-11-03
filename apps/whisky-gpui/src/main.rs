@@ -8,6 +8,7 @@ use std::time::Duration;
 use gpui_kit::base::{Presence, Spring, spring};
 use gpui_kit::{prelude::*, *};
 
+mod artwork;
 mod bridge;
 mod config;
 mod desktop_open;
@@ -70,6 +71,7 @@ gpui_kit::actions!(
 
 impl Render for WhiskyApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.artwork_cache.update(cx, |cache, cx| cache.begin_frame(cx));
         crate::theme::sync_theme(self.appearance, Some(window), cx);
         self.scroll_needs_measurement.set(false);
         let ww = f32::from(window.viewport_size().width);

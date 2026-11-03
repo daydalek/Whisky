@@ -136,41 +136,45 @@ impl WhiskyApp {
             .filter(|(_, game)| game.bottle == slot)
             .take(5)
             .map(|(i, game)| {
+                let (top, bottom) = theme::placeholder_gradient();
                 col()
                     .w(px(110.))
-                    .gap(px(9.))
                     .items_center()
                     .child(
+                        // Explicit clipped frame: the artwork can never grow
+                        // into the label strip below.
                         div()
                             .id(("pin", i))
                             .cursor_pointer()
+                            .w(px(76.))
+                            .h(px(90.))
+                            .rounded(px(9.))
+                            .overflow_hidden()
                             .on_click(cx.listener(move |this, _, _, cx| this.open_detail(i, cx)))
                             .child(match self.artwork(i) {
-                                Some(path) => img(path)
-                                    .w(px(76.))
-                                    .h(px(90.))
-                                    .rounded(px(9.))
+                                Some(path) => self.artwork_image(path)
+                                    .size_full()
                                     .object_fit(ObjectFit::Cover)
                                     .into_any_element(),
-                                None => {
-                                    let (top, bottom) = theme::placeholder_gradient();
-                                    div()
-                                        .w(px(76.))
-                                        .h(px(90.))
-                                        .rounded(px(9.))
-                                        .bg(gradient(top, bottom))
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .child(icon("package", 22.).text_color(rgb(theme::muted_color())))
-                                        .into_any_element()
-                                }
+                                None => div()
+                                    .size_full()
+                                    .bg(gradient(top, bottom))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(icon("package", 22.).text_color(rgb(theme::muted_color())))
+                                    .into_any_element(),
                             })
                             .context_menu(self.game_menu(i, cx)),
                     )
                     .child(
+                        // Reserved band keeps the two-line label entirely
+                        // below the cover; without it a wrapping title hugs
+                        // the artwork's bottom edge.
                         div()
                             .w_full()
+                            .h(px(32.))
+                            .pt(px(8.))
                             .text_size(px(11.))
                             .text_center()
                             .line_clamp(2)
@@ -976,7 +980,7 @@ impl WhiskyApp {
                     .border_b_1()
                     .border_color(rgba(theme::divider()))
                     .child(match self.artwork(i) {
-                        Some(artwork) => img(artwork)
+                        Some(artwork) => self.artwork_image(artwork)
                             .w(px(32.))
                             .h(px(40.))
                             .rounded(px(4.))

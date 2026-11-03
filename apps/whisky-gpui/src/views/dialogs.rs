@@ -2332,7 +2332,7 @@ impl WhiskyApp {
                             // Narrow fixed-size thumbnail: the row stays
                             // compact, and a placeholder keeps the height
                             // consistent when a provider has no image.
-                            Some(path) => img(path.clone())
+                            Some(path) => self.artwork_image(path.clone())
                                 .w(px(34.))
                                 .h(px(48.))
                                 .flex_shrink_0()
