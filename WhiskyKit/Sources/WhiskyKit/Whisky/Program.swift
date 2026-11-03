@@ -205,6 +205,14 @@ public final class Program: ObservableObject, Equatable, Hashable, Identifiable 
         return (identityURL, legacyURL)
     }
 
+    /// A separate region profile for each executable identity in a bottle.
+    nonisolated public static func upscaleRegionProfileURL(for url: URL, bottleURL: URL) -> URL {
+        bottleURL.appending(path: "Program Settings/Upscale Regions")
+            .appending(path: settingsIdentity(
+                for: url.standardizedFileURL.resolvingSymlinksInPath(), bottleURL: bottleURL))
+            .appendingPathExtension("regions")
+    }
+
     /// The overrides an executable's persisted settings carry, read without
     /// materializing a ``Program``: a missing settings plist yields `nil`
     /// where the initializer would write a default plist to disk.

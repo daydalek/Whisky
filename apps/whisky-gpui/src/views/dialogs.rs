@@ -55,6 +55,20 @@ const SYNC_MODES: &[(&str, &str)] = &[
     #[cfg(not(target_os = "linux"))]
     ("msync", "MSync"),
 ];
+const GDI_UPSCALERS: &[(&str, &str)] = &[
+    ("off", "关闭"),
+    ("metalfx", "MetalFX Spatial"),
+    ("anime4k", "Anime4K (CNN x2 S)"),
+    ("realcugan", "Real-CUGAN (models-se x2)"),
+    ("adaptive", "动态快速缩放／静态 Real-CUGAN"),
+    ("realesrgan", "Real-ESRGAN AnimeVideo-v3 (x2)"),
+    ("adaptive-realesrgan", "动态快速缩放／静态 AnimeVideo-v3"),
+];
+const GDI_CACHES: &[(&str, &str)] = &[
+    ("off", "关闭跨场景缓存"),
+    ("memory", "本次游戏缓存"),
+    ("persistent", "缓存并保存到磁盘"),
+];
 const RESOLUTIONS: &[(&str, &str)] = &[
     ("r1280x720", "1280 × 720"),
     ("r1600x900", "1600 × 900"),
@@ -259,6 +273,31 @@ impl WhiskyApp {
             ));
         }
         sections.push(self.program_config_section(&settings, window, cx));
+        if cfg!(target_os = "macos") {
+            let mode = self.program_settings.region_picker_mode();
+            let status = if mode == "off" { "已关闭此游戏的超分屏蔽" }
+                else if mode == "auto" { "首次启用 GDI 超分时框选" }
+                else { "框选结果自动保存；后续启动沿用已保存选区" };
+            sections.push(self.section("program-upscale-region", "超分屏蔽区域", vec![
+                muted(status).into_any_element(),
+                muted("框选并保存；全屏按同一比例沿用该选区。").into_any_element(),
+                row().gap(px(8.)).flex_wrap()
+                    .child(Button::new("region-auto").label("使用已保存选区")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.program_settings.set_region_picker_mode("auto".into()); cx.notify();
+                        })))
+                    .child(Button::new("region-redraw").label("下次启动重新框选")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            let token = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default().as_nanos().to_string();
+                            this.program_settings.set_region_picker_mode(token); cx.notify();
+                        })))
+                    .child(Button::new("region-off").label("关闭屏蔽")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.program_settings.set_region_picker_mode("off".into()); cx.notify();
+                        }))).into_any_element(),
+            ], cx));
+        }
         sections.push(self.program_env_section(window, cx));
         sections.extend(self.program_override_sections(&settings, window, cx));
         sections.push(self.program_history_section(cx));
@@ -397,7 +436,8 @@ impl WhiskyApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let rows = self.program_settings.env_rows.clone();
+        let rows: Vec<_> = self.program_settings.env_rows.iter()
+            .filter(|row| row.key != "WINE_GDI_UPSCALER_PICK").cloned().collect();
         let mut children: Vec<AnyElement> = vec![self.program_env_presets(cx)];
         if rows.is_empty() {
             children.push(muted("没有程序专属环境变量。").py(px(8.)).into_any_element());
@@ -561,6 +601,7 @@ impl WhiskyApp {
         vec![
             self.program_graphics_section(settings, cx),
             self.program_sync_section(settings, cx),
+            self.program_upscale_section(settings, cx),
             self.program_performance_section(settings, cx),
             self.program_input_section(settings, cx),
             self.program_display_section(settings, window, cx),
@@ -650,6 +691,79 @@ impl WhiskyApp {
             );
         }
         self.section("override-graphics", "图形", children, cx)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn program_upscale_section(
+        &self,
+        settings: &ProgramSettingsDto,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let enabled = settings.upscale_enabled();
+        let overrides = settings.overrides.as_ref();
+        let defaults = &settings.defaults;
+        let mut children = vec![self.program_switch(
+            "ps-override-upscale".into(),
+            "覆盖超分设置",
+            enabled,
+            |this, on| this.set_program_override_group("upscale", on),
+            cx,
+        )];
+        if enabled {
+            let upscaler = overrides
+                .and_then(|value| value.gdi_upscaler.clone())
+                .or_else(|| defaults.gdi_upscaler.clone())
+                .unwrap_or_else(|| "off".into());
+            children.push(self.program_choice_row(
+                "超分算法",
+                self.program_choice(
+                    "ps-gdi-upscaler".into(),
+                    program_settings::upscaler_label(&upscaler).to_owned(),
+                    GDI_UPSCALERS,
+                    "gdiUpscaler",
+                    cx,
+                ),
+            ));
+            let cache = overrides
+                .and_then(|value| value.gdi_upscaler_cache.clone())
+                .or_else(|| defaults.gdi_upscaler_cache.clone())
+                .unwrap_or_else(|| "memory".into());
+            children.push(self.program_choice_row(
+                "超分缓存",
+                self.program_choice(
+                    "ps-gdi-cache".into(),
+                    program_settings::cache_label(&cache).to_owned(),
+                    GDI_CACHES,
+                    "gdiUpscalerCache",
+                    cx,
+                ),
+            ));
+            children.push(muted("更改后需重启游戏生效。").into_any_element());
+        } else {
+            let upscaler = defaults.gdi_upscaler.as_deref().unwrap_or("off");
+            let cache = defaults.gdi_upscaler_cache.as_deref().unwrap_or("memory");
+            children.push(
+                muted(format!(
+                    "继承：{} · {}",
+                    program_settings::upscaler_label(upscaler),
+                    program_settings::cache_label(cache)
+                ))
+                .into_any_element(),
+            );
+        }
+        self.section("override-upscale", "超分", children, cx)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn program_upscale_section(
+        &self,
+        settings: &ProgramSettingsDto,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let _ = settings;
+        self.section("override-upscale", "超分", vec![
+            muted("GDI 超分仅在 macOS 上可用。").into_any_element(),
+        ], cx)
     }
 
     fn program_sync_section(

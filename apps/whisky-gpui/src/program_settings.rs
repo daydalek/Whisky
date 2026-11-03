@@ -41,6 +41,12 @@ impl ProgramSettingsDto {
             || overrides.metal4_enabled.is_some()
     }
 
+    pub(crate) fn upscale_enabled(&self) -> bool {
+        self.overrides.as_ref().is_some_and(|overrides| {
+            overrides.gdi_upscaler.is_some() || overrides.gdi_upscaler_cache.is_some()
+        })
+    }
+
     pub(crate) fn sync_enabled(&self) -> bool {
         self.overrides
             .as_ref()
@@ -92,6 +98,10 @@ pub(crate) struct OverridesDto {
     pub(crate) enhanced_sync: Option<String>,
     #[serde(default)]
     pub(crate) metal4_enabled: Option<bool>,
+    #[serde(default)]
+    pub(crate) gdi_upscaler: Option<String>,
+    #[serde(default)]
+    pub(crate) gdi_upscaler_cache: Option<String>,
     #[serde(default)]
     pub(crate) shader_cache_enabled: Option<bool>,
     #[serde(default)]
@@ -242,6 +252,22 @@ impl ProgramSettingsPage {
         self.error = None;
     }
 
+    pub(crate) fn set_region_picker_mode(&mut self, value: String) {
+        const KEY: &str = "WINE_GDI_UPSCALER_PICK";
+        if let Some(row) = self.env_rows.iter_mut().find(|row| row.key == KEY) {
+            row.value = value;
+        } else {
+            let id = self.next_env_id;
+            self.next_env_id += 1;
+            self.env_rows.push(EnvRow { id, key: KEY.into(), value });
+        }
+    }
+
+    pub(crate) fn region_picker_mode(&self) -> &str {
+        self.env_rows.iter().find(|row| row.key == "WINE_GDI_UPSCALER_PICK")
+            .map(|row| row.value.as_str()).unwrap_or("auto")
+    }
+
     pub(crate) fn fail(&mut self, reason: String) {
         if self.saving {
             self.saving = false;
@@ -322,6 +348,8 @@ pub(crate) fn settings_patch(
             "dxvkHud": overrides.dxvk_hud,
             "enhancedSync": overrides.enhanced_sync,
             "metal4Enabled": overrides.metal4_enabled,
+            "gdiUpscaler": overrides.gdi_upscaler,
+            "gdiUpscalerCache": overrides.gdi_upscaler_cache,
             "shaderCacheEnabled": overrides.shader_cache_enabled,
             "controllerCompatibilityMode": overrides.controller_compatibility_mode,
             "disableHIDAPI": overrides.disable_hidapi,
@@ -343,7 +371,9 @@ pub(crate) fn settings_patch(
     };
     #[cfg(target_os = "linux")]
     if let Some(overrides) = patch["overrides"].as_object_mut() {
-        overrides.remove("metal4Enabled");
+        for key in ["metal4Enabled", "gdiUpscaler", "gdiUpscalerCache"] {
+            overrides.remove(key);
+        }
     }
     patch
 }
@@ -374,6 +404,28 @@ pub(crate) fn graphics_label(raw: &str) -> &str {
         "dxvk" => "DXVK",
         "dxmt" => "DXMT",
         "wined3d" => "WineD3D",
+        other => other,
+    }
+}
+
+pub(crate) fn upscaler_label(raw: &str) -> &str {
+    match raw {
+        "off" => "关闭",
+        "metalfx" => "MetalFX Spatial",
+        "anime4k" => "Anime4K (CNN x2 S)",
+        "realcugan" => "Real-CUGAN (models-se x2)",
+        "adaptive" => "动态快速缩放／静态 Real-CUGAN",
+        "realesrgan" => "Real-ESRGAN AnimeVideo-v3 (x2)",
+        "adaptive-realesrgan" => "动态快速缩放／静态 AnimeVideo-v3",
+        other => other,
+    }
+}
+
+pub(crate) fn cache_label(raw: &str) -> &str {
+    match raw {
+        "off" => "关闭跨场景缓存",
+        "memory" => "本次游戏缓存",
+        "persistent" => "缓存并保存到磁盘",
         other => other,
     }
 }
@@ -473,6 +525,21 @@ mod tests {
 
     fn settings() -> ProgramSettingsDto {
         serde_json::from_str(SETTINGS_FIXTURE).expect("settings")
+    }
+
+    #[test]
+    fn game_region_mode_preserves_environment_and_updates_one_entry() {
+        let mut page = ProgramSettingsPage::default();
+        page.apply_settings(settings());
+        assert_eq!(page.region_picker_mode(), "auto");
+        page.set_region_picker_mode("request123".into());
+        page.set_region_picker_mode("off".into());
+        assert_eq!(page.region_picker_mode(), "off");
+        assert_eq!(page.env_rows.iter().filter(|row| row.key == "WINE_GDI_UPSCALER_PICK").count(), 1);
+        let environment = page.env_rows.iter().map(|row| (row.key.clone(), row.value.clone())).collect();
+        let patch = settings_patch(page.settings.as_ref().unwrap(), "", &environment);
+        assert_eq!(patch["environment"]["WINE_GDI_UPSCALER_PICK"], "off");
+        assert_eq!(patch["environment"]["GAME"], "中文");
     }
 
     #[test]

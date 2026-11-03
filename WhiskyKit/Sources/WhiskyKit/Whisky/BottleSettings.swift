@@ -372,6 +372,11 @@ public struct BottleSettings: Codable, Equatable {
     }
 
     /// Final-presentation upscaler for opaque GDI games on macOS.
+    public var gdiUpscalerExcludedRegions: String {
+        get { graphicsConfig.gdiUpscalerExcludedRegions }
+        set { graphicsConfig.gdiUpscalerExcludedRegions = newValue }
+    }
+
     public var gdiUpscaler: GDIUpscaler {
         get { graphicsConfig.gdiUpscaler }
         set { graphicsConfig.gdiUpscaler = newValue }
@@ -381,6 +386,11 @@ public struct BottleSettings: Codable, Equatable {
     public var metalFXSpatial: Bool {
         get { graphicsConfig.metalFXSpatial }
         set { graphicsConfig.metalFXSpatial = newValue }
+    }
+
+    public var gdiUpscalerCache: GDIUpscalerCacheMode {
+        get { graphicsConfig.gdiUpscalerCache }
+        set { graphicsConfig.gdiUpscalerCache = newValue }
     }
 
     /// Whether Whisky publishes the program this bottle launched to Discord.
@@ -1004,6 +1014,8 @@ public struct BottleSettings: Codable, Equatable {
         // An older runtime ignores WINE_GDI_NEURAL_MODEL and runs Real-CUGAN.
         builder.set("WINE_GDI_NEURAL_MODEL", neuralModel, layer: .bottleManaged)
         builder.set("WINE_METALFX", gdiUpscaler == .metalfx ? "spatial" : "off", layer: .bottleManaged)
+        builder.set("WINE_GDI_UPSCALER_EXCLUDE", gdiUpscalerExcludedRegions, layer: .bottleManaged)
+        builder.set("WINE_GDI_CACHE_MODE", gdiUpscalerCache.rawValue, layer: .bottleManaged)
 
         // Enhanced sync mode
         switch enhancedSync {

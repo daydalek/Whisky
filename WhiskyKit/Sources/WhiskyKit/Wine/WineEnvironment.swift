@@ -104,6 +104,14 @@ extension Wine {
         )
         dllResolver.managed.append(contentsOf: managedOverrides)
 
+        if let targetURL {
+            builder.set(
+                "WINE_GDI_CACHE_GAME",
+                targetURL.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false),
+                layer: .bottleManaged
+            )
+        }
+
         // DXVK reads its config from DXVK_CONFIG_FILE or the process working
         // directory, and the working directory of a launch is never the bottle
         // root the config editor writes to, so without this line the file is
@@ -138,6 +146,15 @@ extension Wine {
         }
 
         // Layer 6: Bottle user (empty for now -- no bottle-level custom env vars UI yet)
+
+        // A persistent profile follows the executable, including fullscreen resizes.
+        if let targetURL {
+            let profile = Program.upscaleRegionProfileURL(for: targetURL, bottleURL: bottle.url)
+            try? FileManager.default.createDirectory(
+                at: profile.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            builder.set("WINE_GDI_UPSCALER_EXCLUDE_PROFILE", profile.path(percentEncoded: false), layer: .bottleManaged)
+        }
 
         // Layer 7: Program user (caller-provided environment dict, typically from Program.generateEnvironment())
         if !environment.isEmpty {
@@ -353,6 +370,30 @@ extension Wine {
             } else {
                 builder.remove("D3DM_MTL4", layer: .programUser)
             }
+        }
+
+        // GDI presentation upscaler override: same env mapping as the bottle
+        // layer, including the adaptive/ESRGAN model aliases.
+        if let gdiUpscaler = overrides.gdiUpscaler {
+            let gdiUpscalerValue: String
+            let neuralModel: String
+            switch gdiUpscaler {
+            case .realesrgan:
+                gdiUpscalerValue = "realcugan"
+                neuralModel = "animevideov3"
+            case .adaptiveRealesrgan:
+                gdiUpscalerValue = "adaptive"
+                neuralModel = "animevideov3"
+            default:
+                gdiUpscalerValue = gdiUpscaler.rawValue
+                neuralModel = "realcugan"
+            }
+            builder.set("WINE_GDI_UPSCALER", gdiUpscalerValue, layer: .programUser)
+            builder.set("WINE_GDI_NEURAL_MODEL", neuralModel, layer: .programUser)
+            builder.set("WINE_METALFX", gdiUpscaler == .metalfx ? "spatial" : "off", layer: .programUser)
+        }
+        if let gdiUpscalerCache = overrides.gdiUpscalerCache {
+            builder.set("WINE_GDI_CACHE_MODE", gdiUpscalerCache.rawValue, layer: .programUser)
         }
 
         // Shader cache override, on the variable DXVK actually reads.

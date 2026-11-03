@@ -131,6 +131,7 @@ fn decode_field(raw: &Value, platform: &str) -> Result<Option<ConfigField>, Stri
             "metalFX"
                 | "metalFXSpatial"
                 | "gdiUpscaler"
+                | "gdiUpscalerExcludedRegions" | "gdiUpscalerCache"
                 | "frameGeneration"
                 | "hostMemoryImport"
                 | "shadowImportedHostMemory"
@@ -391,7 +392,7 @@ pub(crate) fn section_for(field_id: &str) -> &'static SectionSpec {
         | "gpuSpoofing" | "gpuVendor" | "autoEnableDXVK" => "launcher",
         "controllerCompatibilityMode" | "disableHIDAPI" | "allowBackgroundEvents"
         | "disableControllerMapping" | "useButtonLabels" | "commandActsAsControl" => "input",
-        "graphicsBackend" | "metalFX" | "metalFXSpatial" | "gdiUpscaler" | "frameGeneration" | "hostMemoryImport" | "shadowImportedHostMemory" | "metal4Enabled" | "metalHud"
+        "graphicsBackend" | "metalFX" | "metalFXSpatial" | "gdiUpscaler" | "gdiUpscalerExcludedRegions" | "gdiUpscalerCache" | "frameGeneration" | "hostMemoryImport" | "shadowImportedHostMemory" | "metal4Enabled" | "metalHud"
         | "metalTrace" | "dxrEnabled" | "metalValidation" | "dxvkAsync" | "dxvkHud" => "graphics",
         "audioDriver" | "audioLatencyPreset" | "outputDeviceMode" | "pinnedDeviceName" => "audio",
         "discordPresence" | "discordBridge" => "discord",
@@ -465,6 +466,28 @@ mod tests {
         assert_eq!(section_for(&mac[0].id).id, "graphics");
         assert_eq!(mac[0].kind.options().len(), 7);
         assert_eq!(mac[0].kind.options()[6].id, "adaptive-realesrgan");
+        assert!(decode_schema(&schema, "linux").unwrap().is_empty());
+        let mut legacy = schema;
+        legacy[0]["platforms"] = json!([]);
+        assert!(decode_schema(&legacy, "linux").unwrap().is_empty());
+    }
+
+    #[test]
+    fn gdi_upscaler_cache_choice_is_grouped_and_macos_only() {
+        let schema = json!([{
+            "id": "gdiUpscalerCache", "title": "GDI 超分缓存", "input": "choice",
+            "default": "memory", "platforms": ["macos"],
+            "options": [
+                {"id": "off", "title": "关闭跨场景缓存"},
+                {"id": "memory", "title": "本次游戏缓存"},
+                {"id": "persistent", "title": "缓存并保存到磁盘"}
+            ]
+        }]);
+        let mac = decode_schema(&schema, "macos").unwrap();
+        assert_eq!(mac.len(), 1);
+        assert_eq!(section_for(&mac[0].id).id, "graphics");
+        assert_eq!(mac[0].default, json!("memory"));
+        assert_eq!(mac[0].kind.options().len(), 3);
         assert!(decode_schema(&schema, "linux").unwrap().is_empty());
         let mut legacy = schema;
         legacy[0]["platforms"] = json!([]);

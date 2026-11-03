@@ -384,6 +384,11 @@ impl WhiskyApp {
                                     .when(value.as_str() == Some("realesrgan"), |d| {
                                         d.child(muted("以 AnimeVideo-v3 保留静态细节；文字与光标变化即时显示。"))
                                     })
+                            })
+                            .when(field.id == "gdiUpscalerCache", |d| {
+                                d.child(muted("会话内容缓存：跨场景与分辨率变化复用推理结果，重启游戏生效。"))
+                                    .child(muted("持久化默认每个游戏 256 MiB 内存 + 4 GiB 磁盘，LRU 淘汰。"))
+                                    .child(muted("仅作用于 CoreML 神经后端（Real-CUGAN／AnimeVideo-v3），MetalFX／Anime4K 不受影响。"))
                             }),
                     )
                     .child(
@@ -433,6 +438,10 @@ impl WhiskyApp {
                             .when_some(hint, |d, hint| d.child(muted(hint))),
                     )
                     .child(Input::new(&input).disabled(!enabled))
+                    .when(field.id == "gdiUpscalerExcludedRegions", |d| {
+                        d.child(muted("原图左上角起算：x,y,宽,高；多个矩形用英文分号分隔，留空为全部超分。"))
+                            .child(muted("例如 1280×720 画面的底部文字区：0,520,1280,200。区域内普通缩放；重启游戏生效。"))
+                    })
                     .into_any_element()
             }
         }

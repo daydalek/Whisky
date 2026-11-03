@@ -58,6 +58,13 @@ public struct ProgramOverrides: Codable, Equatable, Sendable {
     /// the rest of the bottle keeps it.
     public var metal4Enabled: Bool?
 
+    // MARK: - GDI Upscaling
+
+    /// Final-presentation GDI upscaler for this program. `nil` inherits from bottle.
+    public var gdiUpscaler: GDIUpscaler?
+    /// Cross-scene super-resolution cache mode for this program. `nil` inherits from bottle.
+    public var gdiUpscalerCache: GDIUpscalerCacheMode?
+
     // MARK: - Performance
 
     /// Whether shader caching is enabled. `nil` inherits from bottle.
@@ -112,6 +119,8 @@ public struct ProgramOverrides: Codable, Equatable, Sendable {
             && dxvkHud == nil
             && enhancedSync == nil
             && metal4Enabled == nil
+            && gdiUpscaler == nil
+            && gdiUpscalerCache == nil
             && shaderCacheEnabled == nil
             && controllerCompatibilityMode == nil
             && disableHIDAPI == nil
@@ -136,6 +145,10 @@ public struct ProgramOverrides: Codable, Equatable, Sendable {
         self.dxvkHud = try container.decodeIfPresent(DXVKHUD.self, forKey: .dxvkHud)
         self.enhancedSync = try container.decodeIfPresent(EnhancedSync.self, forKey: .enhancedSync)
         self.metal4Enabled = try container.decodeIfPresent(Bool.self, forKey: .metal4Enabled)
+        self.gdiUpscaler = container.decodeLenientIfPresent(GDIUpscaler.self, forKey: .gdiUpscaler)
+        self.gdiUpscalerCache = container.decodeLenientIfPresent(
+            GDIUpscalerCacheMode.self, forKey: .gdiUpscalerCache
+        )
         self.shaderCacheEnabled = try container.decodeIfPresent(Bool.self, forKey: .shaderCacheEnabled)
         self.controllerCompatibilityMode = try container.decodeIfPresent(
             Bool.self, forKey: .controllerCompatibilityMode

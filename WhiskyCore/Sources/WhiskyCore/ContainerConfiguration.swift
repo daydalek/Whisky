@@ -140,6 +140,23 @@ public enum ContainerConfiguration {
                 ]),
                 defaultValue: .text("off"), platforms: [.macOS]
             ),
+            choice(
+                "gdiUpscalerCache",
+                "GDI 超分缓存",
+                "graphicsConfig.gdiUpscalerCache",
+                "memory",
+                [
+                    ("off", "关闭跨场景缓存"),
+                    ("memory", "本次游戏缓存"),
+                    ("persistent", "缓存并保存到磁盘")
+                ],
+                platforms: [.macOS]
+            ),
+            .init(
+                "gdiUpscalerExcludedRegions", "超分屏蔽区域",
+                path: "graphicsConfig.gdiUpscalerExcludedRegions",
+                input: .text, defaultValue: .text(""), platforms: [.macOS]
+            ),
             toggle("frameGeneration", "帧生成", "graphicsConfig.frameGeneration", false, platforms: [.macOS]),
             toggle(
                 "shadowImportedHostMemory",

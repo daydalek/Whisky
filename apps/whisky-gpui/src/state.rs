@@ -4780,6 +4780,10 @@ impl WhiskyApp {
             .unwrap_or_else(|| settings.arguments.clone());
         let mut environment = BTreeMap::new();
         for row in self.program_settings.env_rows.clone() {
+            if row.key == "WINE_GDI_UPSCALER_PICK" {
+                environment.insert(row.key, row.value);
+                continue;
+            }
             let key = self
                 .preview
                 .program_inputs
@@ -4921,6 +4925,8 @@ impl WhiskyApp {
             "dxvkHud" => overrides.dxvk_hud = Some(raw.to_owned()),
             "enhancedSync" => overrides.enhanced_sync = Some(raw.to_owned()),
             "resolutionPreset" => overrides.resolution_preset = Some(raw.to_owned()),
+            "gdiUpscaler" => overrides.gdi_upscaler = Some(raw.to_owned()),
+            "gdiUpscalerCache" => overrides.gdi_upscaler_cache = Some(raw.to_owned()),
             _ => {}
         }
     }
@@ -4970,6 +4976,15 @@ impl WhiskyApp {
             }
             "sync" => {
                 overrides.enhanced_sync = on.then_some(defaults.enhanced_sync).flatten();
+            }
+            "upscale" if on => {
+                overrides.gdi_upscaler = Some(defaults.gdi_upscaler.unwrap_or_else(|| "off".into()));
+                overrides.gdi_upscaler_cache =
+                    Some(defaults.gdi_upscaler_cache.unwrap_or_else(|| "memory".into()));
+            }
+            "upscale" => {
+                overrides.gdi_upscaler = None;
+                overrides.gdi_upscaler_cache = None;
             }
             "performance" => {
                 overrides.shader_cache_enabled =

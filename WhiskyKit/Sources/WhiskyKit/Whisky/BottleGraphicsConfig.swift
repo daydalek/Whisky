@@ -163,6 +163,10 @@ public struct BottleGraphicsConfig: Codable, Equatable {
 
     /// Final-presentation upscaler for opaque GDI surfaces.
     var gdiUpscaler: GDIUpscaler = .off
+    /// Source-pixel rectangles: x,y,width,height;... measured from the top left.
+    var gdiUpscalerExcludedRegions: String = ""
+
+    var gdiUpscalerCache: GDIUpscalerCacheMode = .memory
 
     /// Compatibility access for callers using the original MetalFX switch.
     var metalFXSpatial: Bool {
@@ -171,7 +175,8 @@ public struct BottleGraphicsConfig: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case backend, metalFX, metalFXSpatial, gdiUpscaler, frameGeneration, hostMemoryImport, shadowImportedHostMemory
+        case backend, metalFX, metalFXSpatial, gdiUpscaler, gdiUpscalerExcludedRegions, gdiUpscalerCache
+        case frameGeneration, hostMemoryImport, shadowImportedHostMemory
     }
 
     /// Whether games in this bottle may turn on DLSS frame generation.
@@ -213,6 +218,9 @@ public struct BottleGraphicsConfig: Codable, Equatable {
             let legacy = (try? container.decodeIfPresent(Bool.self, forKey: .metalFXSpatial)) ?? false
             self.gdiUpscaler = legacy ? .metalfx : .off
         }
+        self.gdiUpscalerExcludedRegions = (try? container.decodeIfPresent(String.self, forKey: .gdiUpscalerExcludedRegions)) ?? ""
+        self.gdiUpscalerCache =
+            container.decodeLenientIfPresent(GDIUpscalerCacheMode.self, forKey: .gdiUpscalerCache) ?? .memory
         // Off for a bottle written before the key existed, which is the same
         // answer the property default gives a new one.
         self.frameGeneration = (try? container.decodeIfPresent(Bool.self, forKey: .frameGeneration)) ?? false
@@ -226,6 +234,8 @@ public struct BottleGraphicsConfig: Codable, Equatable {
         try container.encode(backend, forKey: .backend)
         try container.encode(metalFX, forKey: .metalFX)
         try container.encode(gdiUpscaler, forKey: .gdiUpscaler)
+        try container.encode(gdiUpscalerExcludedRegions, forKey: .gdiUpscalerExcludedRegions)
+        try container.encode(gdiUpscalerCache, forKey: .gdiUpscalerCache)
         try container.encode(metalFXSpatial, forKey: .metalFXSpatial)
         try container.encode(frameGeneration, forKey: .frameGeneration)
         try container.encode(hostMemoryImport, forKey: .hostMemoryImport)
@@ -252,6 +262,20 @@ public enum GDIUpscaler: String, Codable, CaseIterable, Sendable {
         case .adaptive: "动态快速缩放／静态 Real-CUGAN"
         case .realesrgan: "Real-ESRGAN AnimeVideo-v3 (x2)"
         case .adaptiveRealesrgan: "动态快速缩放／静态 AnimeVideo-v3"
+        }
+    }
+}
+
+public enum GDIUpscalerCacheMode: String, Codable, CaseIterable, Sendable {
+    case off
+    case memory
+    case persistent
+
+    public var title: String {
+        switch self {
+        case .off: "关闭跨场景缓存"
+        case .memory: "本次游戏缓存"
+        case .persistent: "缓存并保存到磁盘"
         }
     }
 }

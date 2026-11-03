@@ -102,6 +102,22 @@ struct GraphicsConfigSection: View {
                     .foregroundStyle(.secondary)
             }
 
+            Picker(selection: $bottle.settings.gdiUpscalerCache) {
+                ForEach(GDIUpscalerCacheMode.allCases, id: \.self) { mode in
+                    Text(verbatim: mode.title).tag(mode)
+                }
+            } label: {
+                VStack(alignment: .leading) {
+                    Text(verbatim: "GDI 超分缓存")
+                    Text(verbatim: "会话内容缓存；持久化默认每游戏 256 MiB 内存 + 4 GiB 磁盘，LRU。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(verbatim: "仅 CoreML 神经后端（Real-CUGAN／AnimeVideo-v3）；重启游戏生效。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             // MetalFX rides on D3DMetal's DLSS bridge and Metal 4 is D3DMetal's
             // own command-encoding backend, so both are meaningless under any
             // other backend rather than merely inactive.

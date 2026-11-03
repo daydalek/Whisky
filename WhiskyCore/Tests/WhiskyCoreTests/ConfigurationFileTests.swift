@@ -299,3 +299,30 @@ private struct ConfigurationTestMetadata: Decodable {
     struct Pin: Decodable { let url: URL }
     let info: Info
 }
+
+extension ConfigurationFileTests {
+    @Test func gdiUpscalerCacheSchemaRoundTripsEachMode() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("Metadata.plist")
+        try write(["graphicsConfig": ["future": "retained"]], to: file)
+        let field = try #require(ContainerConfiguration.fields(for: .macOS)
+            .first { $0.id == "gdiUpscalerCache" })
+        #expect(!ContainerConfiguration.fields(for: .linux).contains { $0.id == field.id })
+        #expect(field.defaultValue == .text("memory"))
+        guard case let .choice(options) = field.input else { Issue.record("Expected choice field")
+            return
+        }
+        #expect(options.map(\.id) == ["off", "memory", "persistent"])
+        let store = ConfigurationFile(url: file, locking: Lock())
+        #expect(try await store.values(for: [field])[field.id] == .text("memory"))
+        for mode in ["off", "memory", "persistent"] {
+            try await store.update(field, to: .text(mode))
+            #expect(try await store.values(for: [field])[field.id] == .text(mode))
+            let graphics = try #require(try document(file)["graphicsConfig"] as? [String: Any])
+            #expect(graphics["gdiUpscalerCache"] as? String == mode)
+            #expect(graphics["future"] as? String == "retained")
+        }
+        await #expect(throws: (any Error).self) { try await store.update(field, to: .text("unknown")) }
+    }
+}

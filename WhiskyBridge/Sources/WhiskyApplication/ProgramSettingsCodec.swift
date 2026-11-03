@@ -29,7 +29,8 @@ enum ProgramSettingsCodec {
     ]
     static let choices: [String: Set<String>] = Dictionary(uniqueKeysWithValues:
         ContainerConfiguration.fields.compactMap { field in
-            guard ["graphicsBackend", "dxvkHud", "enhancedSync", "resolutionPreset"].contains(field.id),
+            guard ["graphicsBackend", "dxvkHud", "enhancedSync", "resolutionPreset",
+                   "gdiUpscaler", "gdiUpscalerCache"].contains(field.id),
                   case let .choice(options) = field.input
             else { return nil }
             return (field.id, Set(options.map(\.id)))
@@ -161,7 +162,7 @@ enum ProgramSettingsCodec {
                 }
                 try validate(value, key: key)
                 #if os(Linux)
-                if key == "metal4Enabled" ||
+                if key == "metal4Enabled" || key == "gdiUpscaler" || key == "gdiUpscalerCache" ||
                     (key == "graphicsBackend" && ["d3dMetal", "dxmt"].contains(value.string ?? ""))
                     || (key == "enhancedSync" && value.string == "msync")
                     || (key == "resolutionPreset" && value.string == "matchDisplay") {
