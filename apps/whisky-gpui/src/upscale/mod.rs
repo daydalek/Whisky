@@ -228,35 +228,38 @@ pub(crate) fn upscaled_cover_with_cancel(
         let _worker = WORKER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         return linux::upscaled_cover(source, passes, engine, cancel);
     }
-    let (width, height) = dimensions(source)?;
-    if width == 0 || height == 0 {
-        return None;
-    }
-    let passes = capped_passes(passes, width, height);
-    if passes == 0 {
-        return None;
-    }
-    let derived = cache::location(source, passes, &cache_key(engine)?)?;
-    let expected = (width << passes, height << passes);
-    if cached(&derived, engine, expected) {
-        return Some(derived);
-    }
-    // One cover at a time: a four-times derivation holds hundreds of megabytes
-    // of float buffers, and the worker pool would otherwise run several.
-    let _worker = WORKER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-        return None;
-    }
-    if cached(&derived, engine, expected) {
-        return Some(derived);
-    }
-    match engine {
-        Engine::RealCugan | Engine::RealCuganCpu if engine.ncnn() => {
-            ncnn_cover(source, passes, engine, &derived, expected, cancel)
+    #[cfg(not(target_os = "linux"))]
+    {
+        let (width, height) = dimensions(source)?;
+        if width == 0 || height == 0 {
+            return None;
         }
-        Engine::Anime4K => anime4k_cover(source, passes, &derived),
-        Engine::RealCugan => realcugan_cover(source, passes, &derived),
-        Engine::RealCuganCpu => None,
+        let passes = capped_passes(passes, width, height);
+        if passes == 0 {
+            return None;
+        }
+        let derived = cache::location(source, passes, &cache_key(engine)?)?;
+        let expected = (width << passes, height << passes);
+        if cached(&derived, engine, expected) {
+            return Some(derived);
+        }
+        // One cover at a time: a four-times derivation holds hundreds of megabytes
+        // of float buffers, and the worker pool would otherwise run several.
+        let _worker = WORKER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+        if cached(&derived, engine, expected) {
+            return Some(derived);
+        }
+        match engine {
+            Engine::RealCugan | Engine::RealCuganCpu if engine.ncnn() => {
+                ncnn_cover(source, passes, engine, &derived, expected, cancel)
+            }
+            Engine::Anime4K => anime4k_cover(source, passes, &derived),
+            Engine::RealCugan => realcugan_cover(source, passes, &derived),
+            Engine::RealCuganCpu => None,
+        }
     }
 }
 
