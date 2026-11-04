@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Linux (GPUI): show client-side window controls, including a close button that preserves the existing graceful shutdown and Wine cleanup policy; retain native controls when the desktop supplies server-side decorations.
 - Robustness: replaced release-build `fatalError` crash paths in the bundled GameDB and diagnostics-pattern loaders with `assertionFailure` + logged graceful degradation.
 - Robustness (GPUI): removed panic-prone `.unwrap()`/`unreachable!()` in metadata-update handling, the game-info sheet and bottle preview routing so transient state desyncs degrade instead of crashing.
 - Correctness: `isWineserverRunning` now uses a bounded `WineProcessQuery.run` (5 s timeout) so a wedged `wineserver -k0` can no longer leak the continuation/process on the per-bottle 60 s probe.

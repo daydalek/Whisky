@@ -78,6 +78,15 @@ impl Render for WhiskyApp {
         self.scroll_needs_measurement.set(false);
         let ww = f32::from(window.viewport_size().width);
         let wh = f32::from(window.viewport_size().height);
+        #[cfg(target_os = "linux")]
+        let client_titlebar = matches!(window.window_decorations(), Decorations::Client { .. });
+        #[cfg(target_os = "linux")]
+        let wh = wh
+            - if client_titlebar {
+                f32::from(gpui_kit::component::TITLE_BAR_HEIGHT)
+            } else {
+                0.
+            };
         let sw = spring(
             "sidebar-width",
             if self.sidebar { 200_f32 } else { 0. },
@@ -261,6 +270,22 @@ impl Render for WhiskyApp {
         if self.scroll_needs_measurement.get() {
             window.request_animation_frame();
         }
+        #[cfg(target_os = "linux")]
+        {
+            col()
+                .size_full()
+                .when(client_titlebar, |column| {
+                    column.child(
+                        gpui_kit::component::TitleBar::new()
+                            .child("Whisky")
+                            .on_close_window(cx.listener(|this, _, window, cx| {
+                                this.request_quit(window, cx);
+                            })),
+                    )
+                })
+                .child(div().relative().flex_1().min_h_0().child(root))
+        }
+        #[cfg(not(target_os = "linux"))]
         root
     }
 }
@@ -654,6 +679,8 @@ fn main() {
                 WindowOptions {
                     #[cfg(target_os = "linux")]
                     app_id: Some("com.franke.Whisky".into()),
+                    #[cfg(target_os = "linux")]
+                    window_decorations: Some(WindowDecorations::Client),
                     titlebar: Some(TitlebarOptions {
                         title: Some("Whisky".into()),
                         appears_transparent: true,
