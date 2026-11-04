@@ -36,6 +36,18 @@ macOS 签名类型、Wine 的 Rosetta 要求和产品最低系统版本分别以
 原生构建使用 Ubuntu 24.04 amd64、Swift 6.4 和 Rust 1.99.1，开发依赖入口为
 `apps/whisky-gpui/tools/install-linux-deps.sh`（管理员单独安装）。
 
+Linux 发行包会随应用携带 Real-CUGAN helper 和 `models-se` 无降噪权重；普通用户无需单独安装或下载超分组件。开发者可从固定上游源码构建该 payload：
+
+```bash
+python3 apps/whisky-gpui/tools/build-linux-upscaler.py \
+  --output /tmp/whisky-upscaler --cache "$HOME/.cache/whisky-upscaler" --jobs 4
+```
+
+离线构建可复用该缓存中的已校验源码归档。开发调试时可用绝对路径设置
+`WHISKY_REALCUGAN_HELPER` 与 `WHISKY_REALCUGAN_MODELS`；模型目录名必须为 `models-se`。
+自动模式优先尝试 Vulkan，失败时本次任务最多回退 CPU 一次；CPU 模式通常更慢。
+图形驱动、Vulkan 实现和输入图像会影响速度与观感；打包验收不代表所有 GPU 上的画质一致。
+
 ```bash
 ./build.sh doctor whisky-linux-amd64
 ./build.sh run whisky-linux-amd64 --jobs 4

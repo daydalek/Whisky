@@ -56,7 +56,7 @@ impl WhiskyApp {
             ),
             None => (
                 "全部超分".to_owned(),
-                "按 320 点卡片所需的像素处理整个游戏库，已缓存的会跳过。".to_owned(),
+                "按所选倍率处理整个游戏库，已缓存的会跳过；过大图片会降低倍率。".to_owned(),
             ),
         };
         let disabled = running.is_none()
@@ -85,7 +85,7 @@ impl WhiskyApp {
     #[cfg(target_os = "linux")]
     fn cover_upscale_status(&self) -> AnyElement {
         let text = if crate::upscale::ready() {
-            "已找到 realcugan-ncnn-vulkan；Vulkan GPU 是否可用将在首次推理时检测，失败时保留原图。CPU 模式不需要 GPU 设备，但仍要求该二进制能在本机运行（含 Vulkan 加载器），且明显更慢。"
+            "已找到 realcugan-ncnn-vulkan；自动模式先使用 Vulkan，失败后尝试 CPU。CPU 模式仍需要 Vulkan 加载器，处理速度较慢。"
         } else {
             "未找到 realcugan-ncnn-vulkan 或 models-se 模型目录；安装后可设置 WHISKY_REALCUGAN_HELPER 与 WHISKY_REALCUGAN_MODELS 指定路径，重启应用后生效。"
         };

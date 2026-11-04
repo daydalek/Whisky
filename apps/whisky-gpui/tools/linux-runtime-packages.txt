@@ -3,6 +3,7 @@ ca-certificates
 python3
 libc6
 libgcc-s1
+libgomp1
 libstdc++6
 libcurl4t64
 libssl3t64
@@ -24,6 +25,7 @@ libegl1
 libgl1
 libgles2
 libvulkan1
+libwebp7
 mesa-vulkan-drivers
 fonts-noto-cjk
 xdg-utils

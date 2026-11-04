@@ -1,0 +1,25 @@
+{
+  "realcugan": {
+    "version": "20220728",
+    "url": "https://codeload.github.com/nihui/realcugan-ncnn-vulkan/tar.gz/refs/tags/20220728",
+    "sha256": "9f261f43a8457d8f40d18149942358bcdb0fb3c3793c6dc84bd63139c743bb9e",
+    "root": "realcugan-ncnn-vulkan-20220728"
+  },
+  "ncnn": {
+    "version": "20240410",
+    "url": "https://github.com/Tencent/ncnn/releases/download/20240410/ncnn-20240410-full-source.zip",
+    "sha256": "bc0a4493cd507a76b8d994877fa78576f5bb1e8e973c2ea10f4da7e41a5fe3b1",
+    "root": ""
+  },
+  "models": {
+    "family": "models-se",
+    "files": {
+      "up2x-no-denoise.param": {
+        "sha256": "4b3b5c5710ad1d00503c8243417aa75f13fe497723e8b4952e8b1abfc08f9b84"
+      },
+      "up2x-no-denoise.bin": {
+        "sha256": "7f135a712830b16678cb8247b9517308c5f3858fca9b10e1c3ad5ef6e261de0c"
+      }
+    }
+  }
+}

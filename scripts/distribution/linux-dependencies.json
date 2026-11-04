@@ -5,6 +5,7 @@
     "python3 (>= 3.12)",
     "libc6 (>= 2.39)",
     "libgcc-s1",
+    "libgomp1",
     "libstdc++6",
     "libcurl4t64",
     "libssl3t64",
@@ -26,6 +27,7 @@
     "libgl1",
     "libgles2",
     "libvulkan1",
+    "libwebp7",
     "xdg-utils",
     "desktop-file-utils"
   ],
@@ -48,6 +50,7 @@
     "ld-linux",
     "libc.so",
     "libm.so",
+    "libmvec.so.",
     "libdl.so",
     "libpthread.so",
     "librt.so",

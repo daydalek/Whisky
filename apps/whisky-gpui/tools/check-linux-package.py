@@ -32,6 +32,15 @@ def verify(bundle):
         assert stat.S_IMODE(path.stat().st_mode) == expected['mode'], relative
     for product in PRODUCTS:
         assert os.access(bundle / 'bin' / product, os.X_OK), product
+    helper = bundle / 'bin/realcugan-ncnn-vulkan'
+    assert helper.is_file() and os.access(helper, os.X_OK), 'Bundled upscaler helper is required'
+    upscaler = json.loads((bundle / 'share/whisky/upscalers/manifest.json').read_text())
+    assert upscaler['modelFamily'] == 'models-se'
+    assert upscaler['architecture'] == manifest['architecture']
+    for relative, expected in upscaler['files'].items():
+        path = bundle / relative
+        assert not path.is_symlink() and digest(path) == expected['sha256']
+        assert path.stat().st_size == expected['size']
     assert os.access(bundle / 'Whisky', os.X_OK)
     assert 'libswiftCore.so' in manifest['swiftLibraries']
     assert (bundle / 'bin/WhiskyBridge_WhiskyApplication.resources/linux-wine-archive.py').is_file()

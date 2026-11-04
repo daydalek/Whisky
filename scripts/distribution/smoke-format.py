@@ -145,6 +145,14 @@ def main():
         for relative, expected in manifest['files'].items():
             with (bundle / relative).open('rb') as stream:
                 assert hashlib.file_digest(stream, 'sha256').hexdigest() == expected['sha256'], relative
+        helper = bundle / 'bin/realcugan-ncnn-vulkan'
+        upscaler = json.loads((bundle / 'share/whisky/upscalers/manifest.json').read_text())
+        assert helper.is_file() and os.access(helper, os.X_OK)
+        for relative, expected in upscaler['files'].items():
+            path = bundle / relative
+            with path.open('rb') as stream:
+                assert hashlib.file_digest(stream, 'sha256').hexdigest() == expected['sha256'], relative
+            assert path.stat().st_size == expected['size']
         report['checks'].append('installed-payload-hashes')
         subprocess.run(['python3', '/tests/check-linux-wine-update.py', '--helper',
                         str(bundle / 'bin/whisky-bridge'), '--output', str(output / 'wine-update')],

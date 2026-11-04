@@ -223,6 +223,11 @@ pub(crate) fn upscaled_cover_with_cancel(
     if cancel.load(std::sync::atomic::Ordering::Relaxed) {
         return None;
     }
+    #[cfg(target_os = "linux")]
+    {
+        let _worker = WORKER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        return linux::upscaled_cover(source, passes, engine, cancel);
+    }
     let (width, height) = dimensions(source)?;
     if width == 0 || height == 0 {
         return None;
@@ -281,7 +286,7 @@ fn ncnn_cover(
     expected: (u32, u32),
     cancel: &AtomicBool,
 ) -> Option<PathBuf> {
-    linux::derive(linux::config()?, source, passes, engine, derived, expected, cancel)
+    linux::derive(&linux::config()?, source, passes, engine, derived, expected, cancel)
 }
 
 #[cfg(not(any(target_os = "linux", test)))]
@@ -297,6 +302,7 @@ fn ncnn_cover(
 }
 
 /// Runs the in-process Metal network for each pass.
+#[cfg(not(target_os = "linux"))]
 fn anime4k_cover(source: &Path, passes: u8, derived: &Path) -> Option<PathBuf> {
     let mut image = image::load_from_memory(&std::fs::read(source).ok()?)
         .ok()?
@@ -314,6 +320,7 @@ fn anime4k_cover(source: &Path, passes: u8, derived: &Path) -> Option<PathBuf> {
 }
 
 /// Hands the cover to the Core ML helper, which writes the PNG itself.
+#[cfg(not(target_os = "linux"))]
 fn realcugan_cover(source: &Path, passes: u8, derived: &Path) -> Option<PathBuf> {
     let helper = resource("realcugan-helper")?;
     let model = resource("coreml/realcugan-384x384.mlmodelc")?;
@@ -338,6 +345,7 @@ fn realcugan_cover(source: &Path, passes: u8, derived: &Path) -> Option<PathBuf>
 }
 
 /// A file shipped in the bundle's `Resources`, next to the executable.
+#[cfg(not(target_os = "linux"))]
 fn resource(name: &str) -> Option<PathBuf> {
     let resources = std::env::current_exe()
         .ok()?
@@ -354,7 +362,7 @@ fn wide(rgba: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     anime4k::upscale_x2(rgba, width, height)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn wide(_rgba: &[u8], _width: u32, _height: u32) -> Option<Vec<u8>> {
     None
 }
@@ -402,6 +410,7 @@ mod tests {
     /// `WHISKY_COVER_TEST` points at one. Kept because the engines depend on
     /// files beside the executable that a plain unit test cannot fabricate.
     #[test]
+    #[cfg(target_os = "macos")]
     fn a_real_cover_goes_through_both_engines() {
         let Ok(path) = std::env::var("WHISKY_COVER_TEST") else { return };
         let cover = PathBuf::from(path);

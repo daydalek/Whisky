@@ -35,6 +35,23 @@ class PackageTests(unittest.TestCase):
             path = self.bundle / 'bin' / name
             path.write_bytes(header)
             path.chmod(0o755)
+        helper = self.bundle / 'bin/realcugan-ncnn-vulkan'
+        helper.write_bytes(header)
+        helper.chmod(0o755)
+        models = self.bundle / 'share/realcugan-ncnn-vulkan/models-se'
+        models.mkdir(parents=True)
+        upscaler_files = {}
+        for name, content in [('up2x-no-denoise.param', b'param'), ('up2x-no-denoise.bin', b'model')]:
+            path = models / name
+            path.write_bytes(content)
+            relative = str(path.relative_to(self.bundle))
+            upscaler_files[relative] = dict(sha256=hashlib.sha256(content).hexdigest(), size=len(content))
+        upscaler_manifest = self.bundle / 'share/whisky/upscalers/manifest.json'
+        upscaler_manifest.parent.mkdir(parents=True)
+        upscaler_files['bin/realcugan-ncnn-vulkan'] = dict(
+            sha256=hashlib.sha256(header).hexdigest(), size=len(header))
+        upscaler_manifest.write_text(json.dumps(dict(
+            schemaVersion=1, architecture=self.arch, modelFamily='models-se', files=upscaler_files)))
         (self.bundle / 'Whisky').write_text('#!/bin/sh\nexit 0\n')
         (self.bundle / 'Whisky').chmod(0o755)
         files = {str(p.relative_to(self.bundle)): dict(sha256=hashlib.sha256(p.read_bytes()).hexdigest(),
@@ -90,6 +107,10 @@ class PackageTests(unittest.TestCase):
         (self.bundle / 'lib/swift').mkdir(parents=True)
         for name in formats.PRODUCTS:
             shutil.copyfile('/bin/true', self.bundle / 'bin' / name)
+        helper = self.bundle / 'bin/realcugan-ncnn-vulkan'
+        shutil.copyfile('/bin/true', helper)
+        helper.chmod(0o755)
+        formats.refresh_upscaler_manifest(self.bundle)
         self.manifest['files'] = {str(p.relative_to(self.bundle)): dict(sha256=formats.digest(p),
             bytes=p.stat().st_size, mode=p.stat().st_mode & 0o777)
             for p in self.bundle.rglob('*') if p.is_file() and p.name != 'manifest.json'}
