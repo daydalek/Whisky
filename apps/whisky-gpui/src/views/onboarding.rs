@@ -10,7 +10,7 @@ use serde_json::json;
 use crate::controls::{col, muted, row};
 use crate::onboarding::{CATEGORIES, COMPLETED, Onboarding, SOURCES};
 use crate::state::WhiskyApp;
-use crate::theme::{SURFACE, SURFACE_BORDER};
+use crate::theme::{surface, surface_border};
 
 impl WhiskyApp {
     pub(crate) fn open_onboarding(&mut self, welcome: bool, cx: &mut Context<Self>) {
@@ -135,7 +135,7 @@ impl WhiskyApp {
                         .gap(px(8.))
                         .p(px(16.))
                         .rounded(px(12.))
-                        .bg(rgba(0xffffff08))
+                        .bg(rgba(crate::theme::card_bg()))
                         .child("① 创建或导入容器")
                         .child(muted("容器是游戏独立的 Windows 环境，运行时可稍后安装。"))
                         .child("② 添加游戏，再选择启动程序")
@@ -286,7 +286,7 @@ impl WhiskyApp {
             .absolute()
             .inset_0()
             .size_full()
-            .bg(rgba(0x00000088))
+            .bg(rgba(crate::theme::overlay()))
             .flex()
             .items_center()
             .justify_center()
@@ -295,10 +295,10 @@ impl WhiskyApp {
                 col()
                     .w(px(560_f32.min(width - 32.)))
                     .max_h(px(height - 32.))
-                    .bg(rgb(SURFACE))
+                    .bg(rgb(surface()))
                     .rounded(px(18.))
                     .border_1()
-                    .border_color(rgba(SURFACE_BORDER))
+                    .border_color(rgba(surface_border()))
                     .shadow_xl()
                     .child(
                         div()
@@ -312,7 +312,7 @@ impl WhiskyApp {
                         footer
                             .p(px(16.))
                             .border_t_1()
-                            .border_color(rgba(SURFACE_BORDER)),
+                            .border_color(rgba(surface_border())),
                     ),
             )
             .into_any_element()

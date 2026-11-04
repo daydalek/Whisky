@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Robustness: replaced release-build `fatalError` crash paths in the bundled GameDB and diagnostics-pattern loaders with `assertionFailure` + logged graceful degradation.
+- Robustness (GPUI): removed panic-prone `.unwrap()`/`unreachable!()` in metadata-update handling, the game-info sheet and bottle preview routing so transient state desyncs degrade instead of crashing.
+- Correctness: `isWineserverRunning` now uses a bounded `WineProcessQuery.run` (5 s timeout) so a wedged `wineserver -k0` can no longer leak the continuation/process on the per-bottle 60 s probe.
+- Correctness: `RosettaView` setup now performs its check on the main actor instead of a detached task that mutated `@State` off-actor.
+- CI: `WhiskyCore` and `WhiskyMetadata` unit tests are now actually run in CI (previously their targets existed but no step invoked them).
+- Docs/hygiene: fixed `.gitignore` `/dist/` contradiction (kept `dist/pages/`), added `/.delta/`, corrected GameDB/toolchain pointers, repaired doc links, and clarified frontend roles.
+
 ## [0.4.3] - 2026-10-26 (GPUI prerelease)
 
 ### Added

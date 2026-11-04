@@ -46,7 +46,8 @@ public enum GameDBLoader {
     /// Loads the default bundled game database.
     ///
     /// Returns an empty array if the resource is missing or cannot be
-    /// decoded. In debug builds, a missing resource triggers a fatal error.
+    /// decoded. In debug builds a failure raises an assertion to surface
+    /// issues early; release builds always degrade gracefully.
     public static func loadDefaults() -> [GameDBEntry] {
         do {
             let data = try GameDatabaseResource.data()
@@ -54,11 +55,11 @@ public enum GameDBLoader {
             decoder.dateDecodingStrategy = .iso8601
             return try decoder.decode(GameDBFile.self, from: data).entries
         } catch {
-            #if DEBUG
-            fatalError("Failed to load GameDB: \(error)")
-            #else
+            // Surface the problem in debug builds without crashing; release
+            // builds degrade to an empty database so a corrupted bundled
+            // resource can't take the whole app down.
+            assertionFailure("Failed to load GameDB: \(error)")
             return []
-            #endif
         }
     }
 }

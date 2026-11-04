@@ -5,6 +5,7 @@
 //! frontend and sends one patch when the user saves.
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
@@ -191,6 +192,15 @@ pub(crate) struct ProgramSettingsPage {
     pub(crate) close_after_save: bool,
     pub(crate) shortcut_path: Option<String>,
     pub(crate) shortcut_error: Option<String>,
+    /// Last measured size of the GDI upscaler disk cache for this program.
+    pub(crate) cache_bytes: Option<u64>,
+    /// A background walk of the cache directory is in flight.
+    pub(crate) cache_pending: bool,
+    /// A background clear of the cache directory is in flight.
+    pub(crate) cache_clearing: bool,
+    /// Bumped whenever the target or a measurement starts; stale workers drop
+    /// their result when it no longer matches.
+    pub(crate) cache_generation: u64,
 }
 
 impl ProgramSettingsPage {
@@ -216,6 +226,10 @@ impl ProgramSettingsPage {
         self.close_after_save = false;
         self.shortcut_path = None;
         self.shortcut_error = None;
+        self.cache_bytes = None;
+        self.cache_pending = false;
+        self.cache_clearing = false;
+        self.cache_generation += 1;
     }
 
     pub(crate) fn apply_settings(&mut self, settings: ProgramSettingsDto) {
@@ -268,6 +282,50 @@ impl ProgramSettingsPage {
             .map(|row| row.value.as_str()).unwrap_or("auto")
     }
 
+    fn env_value(&self, key: &str) -> Option<&str> {
+        self.env_rows
+            .iter()
+            .find(|row| row.key == key)
+            .map(|row| row.value.trim())
+            .filter(|value| !value.is_empty())
+    }
+
+    /// The directory this program's disk cache lives in, mirroring
+    /// `content_cache_from_environment` in the Wine library: an absolute
+    /// `WINE_GDI_CACHE_DIRECTORY` overrides the default Caches root, and the
+    /// leaf is a hash of `WINEPREFIX` + `WINE_GDI_CACHE_GAME` (the resolved
+    /// executable path, unless the env draft overrides it).
+    pub(crate) fn gdi_cache_dir(&self) -> Option<PathBuf> {
+        let prefix = self.container.as_deref().filter(|value| !value.is_empty())?;
+        let root = self
+            .env_value("WINE_GDI_CACHE_DIRECTORY")
+            .filter(|dir| dir.starts_with('/'))
+            .map(PathBuf::from)
+            .unwrap_or_else(default_gdi_cache_root);
+        let game = match self.env_value("WINE_GDI_CACHE_GAME") {
+            Some(game) => game.to_owned(),
+            None => {
+                let exe = self.executable.as_deref()?;
+                std::fs::canonicalize(exe)
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| exe.to_owned())
+            }
+        };
+        Some(root.join(cache_namespace(prefix, &game)))
+    }
+
+    /// Cache written by older Wine launches without HOME. The namespace is
+    /// identical even when the program uses a custom root for future launches.
+    pub(crate) fn legacy_gdi_cache_dir(&self) -> Option<PathBuf> {
+        let leaf = self.gdi_cache_dir()?.file_name()?.to_owned();
+        let legacy = PathBuf::from("/tmp/Library/Caches/com.isaacmarovitz.Whisky/GDIUpscaler").join(leaf);
+        (self.gdi_cache_dir()? != legacy).then_some(legacy)
+    }
+
+    pub(crate) fn gdi_cache_dirs(&self) -> Vec<PathBuf> {
+        self.gdi_cache_dir().into_iter().chain(self.legacy_gdi_cache_dir()).collect()
+    }
+
     pub(crate) fn fail(&mut self, reason: String) {
         if self.saving {
             self.saving = false;
@@ -285,6 +343,98 @@ impl ProgramSettingsPage {
 
     pub(crate) fn history_entries_newest_first(&self) -> Vec<&RunEntryDto> {
         self.history.iter().rev().collect()
+    }
+}
+
+fn default_gdi_cache_root() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("Library/Caches/com.isaacmarovitz.Whisky/GDIUpscaler")
+}
+
+/// Must match `wgdi::cache_namespace` in content-cache.h: SHA-256 over a tagged
+/// (prefix, game) pair with u64 separators; the tag is hashed with an explicit
+/// 15-byte length, so the "1" of "v1" is intentionally absent. The leaf name is
+/// the first 12 digest bytes hex-encoded.
+fn cache_namespace(prefix: &str, game: &str) -> String {
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(b"wgdi-cache-ns-v");
+    hasher.update(0u64.to_le_bytes());
+    hasher.update(prefix.as_bytes());
+    hasher.update(0u64.to_le_bytes());
+    hasher.update(game.as_bytes());
+    let digest = hasher.finalize();
+    digest[..12].iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Recursive size of `path`, following directories only (symlinks count as
+/// their own link entry and are never traversed).
+pub(crate) fn dir_size(path: &Path) -> u64 {
+    fn walk(path: &Path, total: &mut u64) {
+        let Ok(entries) = std::fs::read_dir(path) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if entry.file_name() == ".lock" { continue; }
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
+                walk(&entry.path(), total);
+            } else if kind.is_file() {
+                *total = total
+                    .saturating_add(entry.metadata().map(|meta| meta.len()).unwrap_or(0));
+            }
+        }
+    }
+    let mut total = 0;
+    walk(path, &mut total);
+    total
+}
+
+/// Coordinate with Wine's lock and generation counter while clearing records.
+pub(crate) fn clear_dir(path: &Path) -> std::io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    use std::io::{Read, Seek, SeekFrom, Write};
+    if std::fs::symlink_metadata(path.join(".lock"))
+        .is_ok_and(|metadata| !metadata.file_type().is_file()) {
+        return Err(std::io::Error::other("invalid cache lock file"));
+    }
+    let mut lock = std::fs::OpenOptions::new().read(true).write(true).create(true)
+        .truncate(false).open(path.join(".lock"))?;
+    lock.lock()?;
+    let mut generation = [0u8; 8];
+    let _ = lock.read(&mut generation)?;
+    lock.seek(SeekFrom::Start(0))?;
+    lock.write_all(&u64::from_le_bytes(generation).wrapping_add(1).to_le_bytes())?;
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        if entry.file_name() == ".lock" { continue; }
+        if entry.file_type()?.is_dir() {
+            std::fs::remove_dir_all(entry.path())?;
+        } else {
+            std::fs::remove_file(entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn format_size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024. && unit < UNITS.len() - 1 {
+        value /= 1024.;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
     }
 }
 
@@ -540,6 +690,29 @@ mod tests {
         let patch = settings_patch(page.settings.as_ref().unwrap(), "", &environment);
         assert_eq!(patch["environment"]["WINE_GDI_UPSCALER_PICK"], "off");
         assert_eq!(patch["environment"]["GAME"], "中文");
+    }
+
+    #[test]
+    fn cache_namespace_matches_wine_layout() {
+        // SHA-256("wgdi-cache-ns-v" || 0u64 || "/bottle" || 0u64 || exe)[..12]
+        // as produced by wgdi::cache_namespace in content-cache.h.
+        assert_eq!(
+            cache_namespace("/bottle", "/bottle/drive_c/Game/game.exe"),
+            "29a56daf9987e9a5d0372612"
+        );
+    }
+
+    #[test]
+    fn clear_cache_preserves_lock_and_advances_generation() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("whisky-cache-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".lock"), 7u64.to_le_bytes()).unwrap();
+        std::fs::File::create(dir.join("entry.bin")).unwrap().write_all(b"cached").unwrap();
+        clear_dir(&dir).unwrap();
+        assert_eq!(std::fs::read(dir.join(".lock")).unwrap(), 8u64.to_le_bytes());
+        assert!(!dir.join("entry.bin").exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

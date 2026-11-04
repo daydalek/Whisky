@@ -1,8 +1,11 @@
 # whisky-gpui
 
-Tracked GPUI app for the Whisky desktop UI. This is the M0 seed: the sources were
-copied mechanically from the local design demo at `demos/gpui-demo/`, which is
-gitignored and not part of the repository. The demo remains the visual reference.
+Tracked GPUI app for the Whisky desktop UI — the primary macOS frontend and the
+basis of the Linux port (see [`docs/gpui-port/PLAN.md`](../../docs/gpui-port/PLAN.md)
+and [`docs/gpui-port/LINUX.md`](../../docs/gpui-port/LINUX.md)). The original
+sources were seeded from the local design demo at `demos/gpui-demo/` (gitignored);
+the app has since grown well past that seed — library, bottle, metadata, winetricks
+and diagnostics surfaces are all live against the Swift `whisky-bridge` helper.
 
 The sidebar comes from `workspace.containers` and the grid from
 `library.entries`. Every bottle is read once and cached; the whole-library view

@@ -204,6 +204,8 @@ final class GDIUpscalerSettingsTests: XCTestCase {
         try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: game)
 
         let direct = Wine.constructWineEnvironment(for: bottle, targetURL: game)
+        XCTAssertEqual(direct["WINE_GDI_CACHE_DIRECTORY"], FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: "Library/Caches/com.isaacmarovitz.Whisky/GDIUpscaler").path)
         XCTAssertEqual(
             direct["WINE_GDI_CACHE_GAME"],
             game.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false)
@@ -216,6 +218,10 @@ final class GDIUpscalerSettingsTests: XCTestCase {
             for: bottle, environment: ["WINE_GDI_CACHE_GAME": "explicit"], targetURL: game
         )
         XCTAssertEqual(overridden["WINE_GDI_CACHE_GAME"], "explicit")
+        let customRoot = Wine.constructWineEnvironment(
+            for: bottle, environment: ["WINE_GDI_CACHE_DIRECTORY": "/tmp/custom-cache"], targetURL: game
+        )
+        XCTAssertEqual(customRoot["WINE_GDI_CACHE_DIRECTORY"], "/tmp/custom-cache")
     }
 
     func testRegionProfilesAreIsolatedByGameAndBottle() {

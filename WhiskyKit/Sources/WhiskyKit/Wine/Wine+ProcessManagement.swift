@@ -41,23 +41,17 @@ public extension Wine {
         // only needs WINEPREFIX, while the full path builds the entire launch
         // environment and creates + retention-scans a log file per call — the
         // sidebar repeats this probe every 60 seconds for every visible bottle.
-        let running: Bool = await withCheckedContinuation { continuation in
-            let process = Process()
-            process.executableURL = WhiskyWineInstaller.binFolder.appending(path: "wineserver")
-            process.arguments = ["-k0"]
-            process.environment = ["WINEPREFIX": bottle.url.path]
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            process.terminationHandler = { probe in
-                continuation.resume(returning: probe.terminationStatus == 0)
-            }
-
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                continuation.resume(returning: false)
-            }
+        // WineProcessQuery.run gives the same lean spawn WITH a timeout, so a
+        // wedged wineserver can't leak the continuation + process forever.
+        let running: Bool
+        do {
+            let result = try await WineProcessQuery.run(
+                executable: WhiskyWineInstaller.binFolder.appending(path: "wineserver"),
+                arguments: ["-k0"], environment: ["WINEPREFIX": bottle.url.path], timeout: 5
+            )
+            running = result.exitCode == 0
+        } catch {
+            running = false
         }
 
         processLogger.debug(

@@ -21,7 +21,7 @@
 
 源码事实：[`LibraryView.swift`](../Whisky/Views/Library/LibraryView.swift) 的 `mixedCoverGrid` 在视图求值时创建 `LibraryCoverGrid`。卡片加载回调逐项更新父视图的 `coverAspectRatios`。元数据读取虽然已经分批发布，图片加载回调仍保留单项写回路径。
 
-[`LibraryCoverGrid.swift`](../WhiskyKit/Sources/WhiskyKit/Library/LibraryCoverGrid.swift) 使用有界动态规划选择每行成员。行成员仅取决于条目顺序、横竖分类与列数；同列数内的宽度变化只影响列宽、封面宽度和高度。
+[`LibraryCoverGrid.swift`](../WhiskyCore/Sources/WhiskyCore/LibraryCoverGrid.swift) 使用有界动态规划选择每行成员。行成员仅取决于条目顺序、横竖分类与列数；同列数内的宽度变化只影响列宽、封面宽度和高度。
 
 建议：
 

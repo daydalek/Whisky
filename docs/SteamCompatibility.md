@@ -495,7 +495,7 @@ Before reporting Steam issues, verify:
 ### Whisky Resources:
 - Issue Tracking: frankea/Whisky#41
 - Troubleshooting: [LauncherTroubleshooting.md](LauncherTroubleshooting.md)
-- Security Notes: [LAUNCHER_SECURITY_NOTES.md](../LAUNCHER_SECURITY_NOTES.md)
+- Security Notes: [LauncherSecurityNotes.md](LauncherSecurityNotes.md)
 
 ### Community:
 - GitHub Discussions: frankea/Whisky

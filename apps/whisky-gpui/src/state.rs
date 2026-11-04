@@ -1873,6 +1873,7 @@ impl WhiskyApp {
                     let close = self.program_settings.close_after_save;
                     self.program_settings.apply_settings(settings);
                     self.preview.program_inputs.clear();
+                    self.refresh_program_cache(cx);
                     if close {
                         self.preview.sheet = None;
                         self.preview.sheet_history.clear();
@@ -2208,10 +2209,9 @@ impl WhiskyApp {
                             generation,
                             request,
                         } => {
-                            if self.game_info.as_ref().is_some_and(|page| {
+                            if let Some(page) = self.game_info.as_mut().filter(|page| {
                                 page.accepts_search(&container, &entry_id, generation, request)
                             }) {
-                                let page = self.game_info.as_mut().unwrap();
                                 page.searching = true;
                                 page.error = None;
                                 page.groups.clear();
@@ -2224,11 +2224,12 @@ impl WhiskyApp {
                             request,
                             results,
                         } => {
-                            if self.game_info.as_ref().is_some_and(|page| {
+                            let matches_source = self.game_info.as_ref().is_some_and(|page| {
                                 page.accepts_search(&container, &entry_id, generation, request)
                                     && results.iter().all(|group| group.source == if page.walkthrough_only { "nextmoe" } else { page.editor.search_source.as_str() })
-                            }) {
-                                let page = self.game_info.as_mut().unwrap();
+                            });
+                            if matches_source {
+                                if let Some(page) = self.game_info.as_mut() {
                                 page.searching = false;
                                 page.error = None;
                                 page.groups = results
@@ -2244,6 +2245,7 @@ impl WhiskyApp {
                                         }
                                     })
                                     .collect();
+                                }
                             }
                         }
                         MetadataUpdate::SearchFailed {
@@ -2281,10 +2283,9 @@ impl WhiskyApp {
                             entry_id,
                             matches,
                         } => {
-                            if self.game_info.as_ref().is_some_and(|page| {
+                            if let Some(page) = self.game_info.as_mut().filter(|page| {
                                 page.container == container && page.entry_id == entry_id
                             }) {
-                                let page = self.game_info.as_mut().unwrap();
                                 page.matches = Some(matches);
                                 page.config_error = None;
                             }
@@ -2300,10 +2301,9 @@ impl WhiskyApp {
                             changes,
                             pending_verbs,
                         } => {
-                            if self.game_info.as_ref().is_some_and(|page| {
+                            if let Some(page) = self.game_info.as_mut().filter(|page| {
                                 page.container == container && page.entry_id == entry_id
                             }) {
-                                let page = self.game_info.as_mut().unwrap();
                                 page.applying = false;
                                 page.config_message = Some(if pending_verbs.is_empty() {
                                     format!("已应用 {} 项推荐设置。", changes.len())
@@ -4378,9 +4378,10 @@ impl WhiskyApp {
         let Ok(mut raw) = serde_json::to_value(metadata) else { return };
         raw["refreshCharacters"] = serde_json::Value::Bool(true);
         self.bridge.apply_metadata(&page.container, &page.entry_id, raw);
-        let page = self.game_info.as_mut().unwrap();
-        page.applying = true;
-        page.error = None;
+        if let Some(page) = self.game_info.as_mut() {
+            page.applying = true;
+            page.error = None;
+        }
         cx.notify();
     }
 
@@ -4834,6 +4835,97 @@ impl WhiskyApp {
         self.bridge.load_program_settings(&container, &executable);
         self.bridge.load_program_history(&container, &executable);
         cx.notify();
+    }
+
+    /// Measure the GDI upscaler disk cache for the program whose settings are
+    /// open. The recursive walk runs on a background thread; a generation tag
+    /// keeps results from a previous target or measurement out of the sheet.
+    pub(crate) fn refresh_program_cache(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            return;
+        }
+        let dirs = self.program_settings.gdi_cache_dirs();
+        if dirs.is_empty() {
+            self.program_settings.cache_bytes = None;
+            self.program_settings.cache_pending = false;
+            return;
+        }
+        self.program_settings.cache_generation += 1;
+        let generation = self.program_settings.cache_generation;
+        self.program_settings.cache_pending = true;
+        cx.spawn(async move |this, cx| {
+            let bytes = cx
+                .background_spawn(async move {
+                    dirs.iter().map(|dir| crate::program_settings::dir_size(dir)).fold(0u64, u64::saturating_add)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.program_settings.cache_generation == generation {
+                    this.program_settings.cache_bytes = Some(bytes);
+                    this.program_settings.cache_pending = false;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Empty the program's cache directory (the directory itself stays so a
+    /// running game keeps its handle), then re-measure what remains.
+    pub(crate) fn clear_program_cache(&mut self, cx: &mut Context<Self>) {
+        let dirs = self.program_settings.gdi_cache_dirs();
+        if dirs.is_empty() {
+            return;
+        }
+        if self.program_settings.cache_clearing {
+            return;
+        }
+        self.program_settings.cache_generation += 1;
+        let generation = self.program_settings.cache_generation;
+        self.program_settings.cache_clearing = true;
+        self.program_settings.cache_pending = true;
+        cx.spawn(async move |this, cx| {
+            let (cleared, bytes) = cx
+                .background_spawn(async move {
+                    let cleared = dirs.iter().try_for_each(|dir| crate::program_settings::clear_dir(dir));
+                    let bytes = dirs.iter().map(|dir| crate::program_settings::dir_size(dir)).fold(0u64, u64::saturating_add);
+                    (cleared, bytes)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.program_settings.cache_generation == generation {
+                    this.program_settings.cache_clearing = false;
+                    this.program_settings.cache_pending = false;
+                    this.program_settings.cache_bytes = Some(bytes);
+                    match cleared {
+                        Ok(()) => this.show_notice("磁盘缓存已清除", cx),
+                        Err(error) => this.show_notice(format!("清除缓存失败：{error}"), cx),
+                    }
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Open the program's cache directory in Finder, creating it when the game
+    /// has not written any cache yet.
+    pub(crate) fn open_program_cache_dir(&mut self) {
+        let Some(dir) = self.program_settings.gdi_cache_dir() else {
+            return;
+        };
+        let _ = std::fs::create_dir_all(&dir);
+        let container = self.program_settings.container.clone().unwrap_or_default();
+        self.bridge.open(&container, &dir.to_string_lossy());
+    }
+
+    pub(crate) fn open_legacy_program_cache_dir(&mut self) {
+        if let Some(dir) = self.program_settings.legacy_gdi_cache_dir().filter(|dir| dir.is_dir()) {
+            let container = self.program_settings.container.clone().unwrap_or_default();
+            self.bridge.open(&container, &dir.to_string_lossy());
+        }
     }
 
     /// Read the text inputs, build one patch and save on the current target.

@@ -290,6 +290,40 @@ pub(crate) fn pill_selected_text() -> u32 {
     if is_dark() { 0xffffff } else { 0x1c1c1e }
 }
 
+// Frosted controls drawn over cover artwork (status badges, play circles,
+// hero navigation). Dark values match the M0 baseline verbatim.
+pub(crate) fn art_chip_bg() -> u32 {
+    if is_dark() { 0x000000a8 } else { 0xffffffc8 }
+}
+
+pub(crate) fn play_circle_bg() -> u32 {
+    if is_dark() { 0x141416bb } else { 0xffffffd0 }
+}
+
+pub(crate) fn hero_nav_bg() -> u32 {
+    if is_dark() { 0x14141699 } else { 0xffffffb0 }
+}
+
+pub(crate) fn art_control_fg() -> u32 {
+    if is_dark() { 0xffffff } else { 0x1c1c1e }
+}
+
+pub(crate) fn art_control_border() -> u32 {
+    if is_dark() { 0xffffff22 } else { 0x00000020 }
+}
+
+pub(crate) fn role_chip_bg() -> u32 {
+    if is_dark() { 0x141416cc } else { 0xffffffcc }
+}
+
+pub(crate) fn role_chip_text() -> u32 {
+    if is_dark() { 0xffa347 } else { 0xd05c00 }
+}
+
+pub(crate) fn live_dot() -> u32 {
+    if is_dark() { SUCCESS } else { 0x1d9d63 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

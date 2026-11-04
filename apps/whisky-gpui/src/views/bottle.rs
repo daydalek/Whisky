@@ -74,8 +74,10 @@ impl WhiskyApp {
             PreviewPage::Programs => self.programs(cx),
             PreviewPage::Processes => self.processes(cx),
             PreviewPage::GameConfigs => self.game_configs(cx),
-            PreviewPage::Library => unreachable!(),
-            PreviewPage::Statistics => unreachable!(),
+            // Library/Statistics are rendered by a different surface; if state
+            // desyncs and we land here, degrade to the bottle home rather than
+            // panic — a transient wrong page is recoverable, a crash isn't.
+            PreviewPage::Library | PreviewPage::Statistics => self.bottle_home(cx),
         };
         col()
             .size_full()

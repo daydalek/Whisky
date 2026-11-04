@@ -139,8 +139,15 @@ WhiskyKit/Sources/WhiskyKit/Discord/Local/client-id.txt
 # Screenshots produced by local UI runs; never committed.
 /apps/whisky-gpui/screenshots/
 
-# Packaged app bundle (build output; never committed).
-/dist/
+# Packaged app bundle (build output; never committed), except dist/pages/
+# which holds the published website/appcast/Wine-version manifest that
+# DEPENDENCIES.md and the release channel rely on.
+/dist/*
+!/dist/pages/
+!/dist/pages/**
+
+# Local delta worktrees/clones scratch dir.
+/.delta/
 
 # Local Wine runtime probes and deployment notes; canonical patches live in the Wine repository.
 /scripts/fullscreen/

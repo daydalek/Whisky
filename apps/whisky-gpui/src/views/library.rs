@@ -834,7 +834,7 @@ impl WhiskyApp {
             .justify_center()
             .size(px(30.))
             .rounded_full()
-            .bg(rgba(0x141416bb))
+            .bg(rgba(play_circle_bg()))
             .opacity(amount)
             .child(icon("play", 15.));
         if let Some(action) = action {
@@ -2001,10 +2001,10 @@ impl WhiskyApp {
                             .px(px(7.))
                             .py(px(2.))
                             .rounded_full()
-                            .bg(rgba(0x141416cc))
+                            .bg(rgba(role_chip_bg()))
                             .text_size(px(10.))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(0xffa347))
+                            .text_color(rgb(role_chip_text()))
                             .child(r.to_owned()),
                     )
                 });

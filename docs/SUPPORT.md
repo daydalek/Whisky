@@ -12,7 +12,7 @@ Most problems already have an answer:
 2. **Search [existing issues](https://github.com/daydalek/Whisky/issues?q=is%3Aissue).**
 3. **Check the troubleshooting docs:**
    [Launcher](LauncherTroubleshooting.md) · [Steam](SteamCompatibility.md) · [Stability](StabilityTroubleshooting.md).
-4. **For a specific game**, check the [bundled Game Database](../WhiskyKit/Sources/WhiskyKit/GameDatabase/Resources/GameDB.json)
+4. **For a specific game**, check the [bundled Game Database](../WhiskyCore/Sources/WhiskyCore/Resources/GameDB.json)
    and use the **Game Compatibility Report** template.
 
 ## Where to go

@@ -65,6 +65,11 @@ extension Wine {
 
         // Layer 1: Base -- WINEPREFIX, default WINEDEBUG, GST_DEBUG
         builder.set("WINEPREFIX", bottle.url.path, layer: .base)
+        // Wine's environment is constructed independently of the host environment.
+        // Set an explicit root so the native helper never falls back to /tmp.
+        let cacheRoot = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: "Library/Caches/com.isaacmarovitz.Whisky/GDIUpscaler")
+        builder.set("WINE_GDI_CACHE_DIRECTORY", cacheRoot.path, layer: .base)
         builder.set("WINEDEBUG", "fixme-all", layer: .base)
         builder.set("GST_DEBUG", "1", layer: .base)
         builder.set("WINELOADER", wineBinary.path, layer: .base)

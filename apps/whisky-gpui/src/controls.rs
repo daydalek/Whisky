@@ -5,9 +5,7 @@ use gpui_kit::component::Sizable;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::{prelude::*, *};
 
-use crate::theme::{
-    self, SUCCESS, TEXT,
-};
+use crate::theme;
 
 pub(crate) fn row() -> Div {
     div().flex().items_center()
@@ -69,13 +67,13 @@ pub(crate) fn live_badge(text: impl Into<SharedString>) -> Div {
         .px(px(8.))
         .py(px(3.))
         .rounded_full()
-        .bg(rgba(0x000000a8))
-        .child(div().size(px(6.)).rounded_full().bg(rgb(SUCCESS)))
+        .bg(rgba(theme::art_chip_bg()))
+        .child(div().size(px(6.)).rounded_full().bg(rgb(theme::live_dot())))
         .child(
             div()
                 .text_size(px(10.))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(SUCCESS))
+                .text_color(rgb(theme::live_dot()))
                 .child(text.into()),
         )
 }
@@ -88,12 +86,12 @@ pub(crate) fn phase_badge(label: impl Into<SharedString>) -> Div {
         .px(px(8.))
         .py(px(3.))
         .rounded_full()
-        .bg(rgba(0x000000a8))
+        .bg(rgba(theme::art_chip_bg()))
         .child(Spinner::new().with_size(px(10.)))
         .child(
             div()
                 .text_size(px(10.))
-                .text_color(rgb(TEXT))
+                .text_color(rgb(theme::text()))
                 .child(label.into()),
         )
 }

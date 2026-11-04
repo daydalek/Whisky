@@ -4,7 +4,15 @@ Thanks for your interest! First, make a fork of Whisky, create a new branch for 
 
 ## Build Environment
 
-Whisky is built using **Xcode 16** on **macOS Sequoia 15.0** or later. All external dependencies are handled through the Swift Package Manager.
+CI builds on `macos-26` runners using the runner's `latest-stable` Xcode (see `XCODE_VERSION` in `.github/workflows/CI.yml`). The bundled Wine runtime requires **macOS 27 or later** at run time (see [README](README.md#系统要求-system-requirements)). To build:
+
+- **Swift toolchain** — the one shipped with the CI Xcode release; all Swift dependencies come through Swift Package Manager.
+- **Rust ≥ 1.89** — `apps/whisky-gpui` uses file locking from the Rust standard library. Install via [rustup](https://rustup.rs/).
+- **Python 3.9+** — `build.sh` and the packaging scripts under `scripts/distribution/` are Python.
+- **SwiftLint** — enforced with `--strict` in CI (`norio-nomura/action-swiftlint`).
+- **SwiftFormat 0.58.7** — see below for the pin.
+
+Run `./build.sh list` for the full target menu and [docs/BUILDING.md](docs/BUILDING.md) (中文) for the detailed build guide.
 
 ## Code Style
 
@@ -102,7 +110,7 @@ fork's own issue numbers.
 
 For per-game compatibility fixes that are config-only, add or update the
 matching entry in
-`WhiskyKit/Sources/WhiskyKit/GameDatabase/Resources/GameDB.json` and
+`WhiskyCore/Sources/WhiskyCore/Resources/GameDB.json` and
 include the upstream issue URL in the entry's `provenance.referenceURL`
 field — the audit picks up that URL form too.
 
@@ -135,11 +143,13 @@ through a coordinated rewrite.
 
 Whisky has two test layers:
 
-**WhiskyKit unit tests** — the framework's pure-Swift logic, runnable
-without launching the app:
+**Swift package unit tests** — WhiskyKit, WhiskyCore and WhiskyMetadata pure-Swift
+logic, runnable without launching the app:
 
 ```bash
 swift test --package-path WhiskyKit
+swift test --package-path WhiskyCore
+swift test --package-path WhiskyMetadata
 ```
 
 **WhiskyBridge and GPUI tests** — exercise the shared application service and macOS frontend:
@@ -149,6 +159,12 @@ swift test --package-path WhiskyBridge
 cargo test --locked --manifest-path apps/whisky-gpui/Cargo.toml
 ./build.sh run whisky-macos-gpui-arm64
 ```
+
+> **Note:** the `Whisky/` SwiftUI app target and `WhiskyUITests/` UI suite are
+> not yet covered in CI. The Python
+> end-to-end suite under `tests/` (tier1–tier4) is currently developer-local
+> only; it hardcodes a sample bottle path in `tests/common.py` and is not wired
+> into any workflow.
 
 All tests must pass before your PR can be merged.
 
@@ -168,8 +184,10 @@ If your changes affect launcher compatibility (Issue #41), please perform the fo
 Before submitting a PR, verify no regressions:
 
 ```bash
-# Run full test suite
+# Run full Swift test suite
 swift test --package-path WhiskyKit
+swift test --package-path WhiskyCore
+swift test --package-path WhiskyMetadata
 
 # Test and package the GPUI application
 swift test --package-path WhiskyBridge
@@ -186,7 +204,7 @@ Once your pull request passes CI checks (SwiftLint, SwiftFormat, and builds), it
 
 ### Review Checklist
 
-- [ ] All tests pass (`swift test --package-path WhiskyKit`)
+- [ ] All tests pass (`swift test --package-path WhiskyKit`, `WhiskyCore`, `WhiskyMetadata`, `WhiskyBridge`)
 - [ ] GPUI packaging succeeds (`./build.sh run whisky-macos-gpui-arm64`)
 - [ ] SwiftFormat clean (`swiftformat --lint .`)
 - [ ] SwiftLint clean (`swiftlint lint --strict`)

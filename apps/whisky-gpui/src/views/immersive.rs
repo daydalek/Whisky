@@ -221,10 +221,10 @@ impl WhiskyApp {
             .justify_center()
             .size(px(34.))
             .rounded_full()
-            .bg(rgba(0x14141699))
+            .bg(rgba(hero_nav_bg()))
             .border_1()
-            .border_color(rgba(0xffffff22))
-            .text_color(rgb(0xffffff))
+            .border_color(rgba(art_control_border()))
+            .text_color(rgb(art_control_fg()))
             .cursor_pointer()
             .opacity(opacity)
             .on_click(cx.listener(move |this, _, _, cx| {

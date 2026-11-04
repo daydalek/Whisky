@@ -3,7 +3,12 @@
 这个应用直接依赖 `WhiskyCore`，通过 SwiftCrossUI 的 AppKit / Gtk 后端显示游戏库。
 当前主窗口包括容器侧栏、书架、时间线、经典卡片和游戏详情，读取原版元数据、封面与游玩记录。
 评分和隐藏操作写入原版文件格式。完整页面迁移范围及状态见 [逐页验收表](../../docs/swiftcrossui-parity.md)。
-容器概览、程序列表、九组基础配置、程序参数/语言/环境变量和进程页面已经接入；其余范围继续按验收表推进。
+容器概览、程序列表、九组基础配置、程序参数/语言/环境变量和进程页面已经接入。
+
+> **状态说明**：本原型处于**实验/冻结**状态——它不属于默认构建、不被任何 target
+> 链接、也不在迁移路径上。上面那份验收表是历史快照，**不会按表继续推进**。
+> 当前方向：macOS 主路径是 GPUI（`apps/whisky-gpui`），Linux 同样走 GPUI；
+> SwiftCrossUI 仅作参考保留。详见验收表顶部的冻结声明。
 
 macOS 默认读取原版容器注册表并连接 WhiskyKit 运行时；`--browse-only` 提供浏览检查入口。
 Linux 默认使用 `$XDG_CONFIG_HOME/whisky/BottleVM.plist`，也可以通过 `--registry` 或 `--bottle` 指定数据。
