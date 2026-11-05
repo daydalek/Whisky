@@ -1309,8 +1309,14 @@ impl WhiskyApp {
     /// Rating control for the detail panel: five stars with half-star steps,
     /// which maps onto the 1–10 stored value. Re-clicking the current value
     /// writes `null`, matching "unrated" in the SwiftUI menu.
-    fn rating_row(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
-        const STAR: f32 = 20.;
+    /// The five interactive stars alone, sized by `star`; callers add their
+    /// own label and numeric value around it.
+    pub(crate) fn rating_stars(
+        &self,
+        index: usize,
+        star: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let current = self.game(index).and_then(|game| game.rating);
         let value = current.map_or(0, |rating| rating.min(10));
         let mut stars = row().gap(px(2.));
@@ -1323,36 +1329,41 @@ impl WhiskyApp {
                     .absolute()
                     .left(px(left))
                     .top(px(0.))
-                    .w(px(STAR / 2.))
-                    .h(px(STAR))
+                    .w(px(star / 2.))
+                    .h(px(star))
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| this.set_rating(index, points, cx)))
             };
             stars = stars.child(
                 div()
                     .relative()
-                    .w(px(STAR))
-                    .h(px(STAR))
-                    .child(icon("star", STAR).text_color(rgba(star_empty())))
+                    .w(px(star))
+                    .h(px(star))
+                    .child(icon("star", star).text_color(rgba(star_empty())))
                     .child(
                         div()
                             .absolute()
                             .top(px(0.))
                             .left(px(0.))
-                            .h(px(STAR))
-                            .w(px(STAR * f32::from(covered) / 2.))
+                            .h(px(star))
+                            .w(px(star * f32::from(covered) / 2.))
                             .overflow_hidden()
-                            .child(div().w(px(STAR)).h(px(STAR)).child(icon("star", STAR).text_color(rgb(ACCENT)))),
+                            .child(div().w(px(star)).h(px(star)).child(icon("star", star).text_color(rgb(ACCENT)))),
                     )
                     .child(half(usize::from(slot) * 2, slot * 2 + 1, 0.))
-                    .child(half(usize::from(slot) * 2 + 1, slot * 2 + 2, STAR / 2.)),
+                    .child(half(usize::from(slot) * 2 + 1, slot * 2 + 2, star / 2.)),
             );
         }
+        stars.into_any_element()
+    }
+
+    pub(crate) fn rating_row(&self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+        let current = self.game(index).and_then(|game| game.rating);
         row()
             .gap(px(10.))
             .items_center()
             .child(muted("评分"))
-            .child(stars)
+            .child(self.rating_stars(index, 20., cx))
             .child(
                 muted(current.map_or_else(|| "未评分".to_owned(), |rating| format!("{rating} / 10")))
                     .text_size(px(12.)),
