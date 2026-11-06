@@ -34,7 +34,11 @@ extension FileManager {
             // uninstalled.
             guard fileURL.pathExtension == "dll" else { continue }
             let originalURL = destinationDirectory.appending(path: fileURL.lastPathComponent)
-            try FileManager.default.replaceFile(at: originalURL, with: fileURL, makeOriginalCopy: makeOriginalCopy)
+            if makeOriginalCopy, fileExists(atPath: originalURL.path(percentEncoded: false)) {
+                try FileManager.default.replaceFile(at: originalURL, with: fileURL, makeOriginalCopy: true)
+            } else {
+                try installFile(at: originalURL, from: fileURL)
+            }
         }
     }
 
