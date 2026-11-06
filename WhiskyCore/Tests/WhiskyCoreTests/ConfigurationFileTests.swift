@@ -21,7 +21,8 @@ import Testing
 @testable import WhiskyCore
 
 private let gdiUpscalerChoices = ["off", "metalfx", "anime4k", "realcugan", "adaptive",
-                                  "realesrgan", "adaptive-realesrgan"]
+                                  "realesrgan", "adaptive-realesrgan", "adaptive-anime4k",
+                                  "adaptive-anime4k-realesrgan"]
 
 @Suite("Portable configuration transactions")
 struct ConfigurationFileTests {
@@ -143,7 +144,8 @@ struct ConfigurationFileTests {
         let store = ConfigurationFile(url: file, locking: Lock())
         #expect(try await store.values(for: [field])[field.id] == .text("metalfx"))
         #expect(try Data(contentsOf: file) == original)
-        for option in ["off", "anime4k", "realcugan", "adaptive", "metalfx", "realesrgan", "adaptive-realesrgan"] {
+        for option in ["off", "anime4k", "realcugan", "adaptive", "metalfx", "realesrgan",
+                       "adaptive-realesrgan", "adaptive-anime4k", "adaptive-anime4k-realesrgan"] {
             try await store.update(field, to: .text(option))
             #expect(try await store.values(for: [field])[field.id] == .text(option))
             let graphics = try #require(try document(file)["graphicsConfig"] as? [String: Any])

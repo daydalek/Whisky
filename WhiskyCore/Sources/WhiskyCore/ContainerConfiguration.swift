@@ -60,6 +60,7 @@ public enum ContainerConfiguration {
                 input: .choice([
                     .init("none", "关闭"),
                     .init("esync", "ESync"),
+                    .init("fsync", "FSync", platforms: [.linux]),
                     .init("msync", "MSync", platforms: [.macOS])
                 ]),
                 defaultValue: .text("msync"),
@@ -102,7 +103,6 @@ public enum ContainerConfiguration {
             toggle("controllerCompatibilityMode", "控制器兼容模式", "inputConfig.controllerCompatibilityMode", false),
             toggle("disableHIDAPI", "停用 HIDAPI", "inputConfig.disableHIDAPI", false),
             toggle("allowBackgroundEvents", "允许后台输入", "inputConfig.allowBackgroundEvents", false),
-            toggle("disableControllerMapping", "停用控制器映射", "inputConfig.disableControllerMapping", false),
             toggle("useButtonLabels", "使用原生按钮标签", "inputConfig.useButtonLabels", false),
             toggle(
                 "commandActsAsControl",
@@ -125,37 +125,6 @@ public enum ContainerConfiguration {
                     .init("wined3d", "WineD3D")
                 ]),
                 defaultValue: .text("recommended")
-            ),
-            toggle("metalFX", "MetalFX 超分辨率", "graphicsConfig.metalFX", true, platforms: [.macOS]),
-            ConfigurationField(
-                "gdiUpscaler", "游戏超分算法", path: "graphicsConfig.gdiUpscaler",
-                input: .choice([
-                    .init("off", "关闭"),
-                    .init("metalfx", "MetalFX Spatial"),
-                    .init("anime4k", "Anime4K (CNN x2 S)"),
-                    .init("realcugan", "Real-CUGAN (models-se x2)"),
-                    .init("adaptive", "动态快速缩放／静态 Real-CUGAN"),
-                    .init("realesrgan", "Real-ESRGAN AnimeVideo-v3 (x2)"),
-                    .init("adaptive-realesrgan", "动态快速缩放／静态 AnimeVideo-v3")
-                ]),
-                defaultValue: .text("off"), platforms: [.macOS]
-            ),
-            choice(
-                "gdiUpscalerCache",
-                "GDI 超分缓存",
-                "graphicsConfig.gdiUpscalerCache",
-                "memory",
-                [
-                    ("off", "关闭跨场景缓存"),
-                    ("memory", "本次游戏缓存"),
-                    ("persistent", "缓存并保存到磁盘")
-                ],
-                platforms: [.macOS]
-            ),
-            .init(
-                "gdiUpscalerExcludedRegions", "超分屏蔽区域",
-                path: "graphicsConfig.gdiUpscalerExcludedRegions",
-                input: .text, defaultValue: .text(""), platforms: [.macOS]
             ),
             toggle("frameGeneration", "帧生成", "graphicsConfig.frameGeneration", false, platforms: [.macOS]),
             toggle(
@@ -180,6 +149,41 @@ public enum ContainerConfiguration {
                 tagged: true
             )
         ]),
+        .init(id: "upscaling", title: "超分", fields: [
+            ConfigurationField(
+                "gdiUpscaler", "游戏超分算法", path: "graphicsConfig.gdiUpscaler",
+                input: .choice([
+                    .init("off", "关闭"),
+                    .init("metalfx", "MetalFX Spatial"),
+                    .init("anime4k", "Anime4K (CNN x2 S)"),
+                    .init("realcugan", "Real-CUGAN (models-se x2)"),
+                    .init("adaptive", "动态 MetalFX／静态 Real-CUGAN"),
+                    .init("realesrgan", "Real-ESRGAN AnimeVideo-v3 (x2)"),
+                    .init("adaptive-realesrgan", "动态 MetalFX／静态 AnimeVideo-v3"),
+                    .init("adaptive-anime4k", "动态 Anime4K／静态 Real-CUGAN"),
+                    .init("adaptive-anime4k-realesrgan", "动态 Anime4K／静态 AnimeVideo-v3")
+                ]),
+                defaultValue: .text("off"), platforms: [.macOS]
+            ),
+            choice(
+                "gdiUpscalerCache",
+                "GDI 超分缓存",
+                "graphicsConfig.gdiUpscalerCache",
+                "memory",
+                [
+                    ("off", "关闭跨场景缓存"),
+                    ("memory", "本次游戏缓存"),
+                    ("persistent", "缓存并保存到磁盘")
+                ],
+                platforms: [.macOS]
+            ),
+            .init(
+                "gdiUpscalerExcludedRegions", "超分屏蔽区域",
+                path: "graphicsConfig.gdiUpscalerExcludedRegions",
+                input: .text, defaultValue: .text(""), platforms: [.macOS]
+            ),
+            toggle("metalFX", "DLSS→MetalFX 桥（仅 D3DMetal）", "graphicsConfig.metalFX", true, platforms: [.macOS])
+        ]),
         .init(id: "audio", title: "音频", fields: [
             ConfigurationField(
                 "audioDriver",
@@ -194,22 +198,7 @@ public enum ContainerConfiguration {
             ),
             choice("audioLatencyPreset", "延迟预设", "audioConfig.latencyPreset", "defaultPreset", [
                 ("defaultPreset", "默认"), ("lowLatency", "低延迟"), ("stable", "稳定")
-            ]),
-            choice(
-                "outputDeviceMode",
-                "输出设备",
-                "audioConfig.outputDeviceMode",
-                "followSystem",
-                [("followSystem", "跟随系统"), ("pinned", "指定设备")]
-            ),
-            ConfigurationField(
-                "pinnedDeviceName",
-                "指定设备名称",
-                path: "audioConfig.pinnedDeviceName",
-                input: .text,
-                defaultValue: .text(""),
-                removesEmptyText: true
-            )
+            ])
         ]),
         .init(id: "discord", title: "Discord", fields: [
             toggle("discordPresence", "发布当前游戏状态", "discordConfig.presence", false),
@@ -258,9 +247,6 @@ public enum ContainerConfiguration {
             number("clipboardThreshold", "剪贴板大小阈值（字节）", "cleanupConfig.clipboardThreshold", 10_240, 0 ... 16_777_216),
             choice("killOnQuit", "退出时结束进程", "cleanupConfig.killOnQuit", "inherit", [
                 ("inherit", "跟随应用设置"), ("always", "始终结束"), ("never", "保留进程")
-            ]),
-            choice("closeWithProcessesPolicy", "关闭容器时的进程处理", "cleanupConfig.closeWithProcessesPolicy", "ask", [
-                ("ask", "询问"), ("keepRunning", "继续运行"), ("stop", "结束进程")
             ])
         ])
     ]

@@ -35,8 +35,8 @@ extension ContainerConfiguration {
     /// Keep their stored values intact when opening an imported bottle on Linux.
     public static let linuxUnavailableFields: Set<String> = [
         "avxEnabled", "launcherMode", "detectedLauncher", "autoEnableDXVK",
-        "outputDeviceMode", "pinnedDeviceName", "discordPresence", "discordBridge",
-        "clipboardPolicy", "clipboardThreshold", "closeWithProcessesPolicy"
+        "discordPresence", "discordBridge",
+        "clipboardPolicy", "clipboardThreshold"
     ]
 
     public static func fields(for platform: ConfigurationPlatform) -> [ConfigurationField] {
