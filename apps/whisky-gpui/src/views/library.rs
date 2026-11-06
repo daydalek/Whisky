@@ -430,14 +430,15 @@ impl WhiskyApp {
             )
             .into_any_element()
     }
-    pub(crate) fn toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn toolbar(&self, left_padding: f32, cx: &mut Context<Self>) -> impl IntoElement {
         // Classic stays hidden in GPUI; immersive is GPUI-only. Labelled
         // segments read better than bare icons: each mode names its layout.
         let modes = self.library_mode_menu(cx);
         row()
             .h(px(52.))
             .flex_shrink_0()
-            .px(px(18.))
+            .pl(px(left_padding))
+            .pr(px(18.))
             .gap(px(9.))
             .bg(rgba(toolbar_bg()))
             .border_b_1()

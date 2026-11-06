@@ -447,7 +447,11 @@ impl WhiskyApp {
         (body, tools)
     }
 
-    pub(crate) fn walkthrough_tree_overlay(&self, cx: &Context<Self>) -> AnyElement {
+    pub(crate) fn walkthrough_tree_overlay(
+        &self,
+        fullscreen: bool,
+        cx: &Context<Self>,
+    ) -> AnyElement {
         let Some(game) = self.detail.and_then(|i| self.game(i)) else {
             return div().into_any_element();
         };
@@ -476,6 +480,7 @@ impl WhiskyApp {
             .inset_0()
             .occlude()
             .p(px(24.))
+            .pl(px(crate::platform::traffic_light_padding(0., 24., fullscreen)))
             .gap(px(16.))
             .bg(rgb(crate::theme::bg()))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

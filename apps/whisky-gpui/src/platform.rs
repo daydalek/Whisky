@@ -40,6 +40,29 @@ pub(crate) const REVEAL_LABEL: &str = "在访达中显示";
 #[cfg(not(target_os = "macos"))]
 pub(crate) const REVEAL_LABEL: &str = "在文件管理器中显示";
 
+/// The macOS traffic light cluster starts at x=15 (`traffic_light_position`)
+/// and ends near x=73; 80 leaves a small margin after the zoom button.
+#[cfg(target_os = "macos")]
+const TRAFFIC_LIGHT_CLEARANCE: f32 = 80.;
+
+/// Leading padding that keeps content clear of the macOS traffic lights, which
+/// overlay the content region while the sidebar is narrower than the cluster.
+/// Fullscreen windows hide the lights, and other platforms draw their window
+/// controls in a separate title bar — both keep the regular `base` padding.
+#[cfg(target_os = "macos")]
+pub(crate) fn traffic_light_padding(sidebar_width: f32, base: f32, fullscreen: bool) -> f32 {
+    if fullscreen {
+        base
+    } else {
+        (TRAFFIC_LIGHT_CLEARANCE - sidebar_width).max(base)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn traffic_light_padding(_sidebar_width: f32, base: f32, _fullscreen: bool) -> f32 {
+    base
+}
+
 /// Desktop entries need the persistent AppImage path across mount generations.
 pub(crate) fn desktop_launcher() -> std::io::Result<std::path::PathBuf> {
     let current = std::env::current_exe()?;

@@ -97,6 +97,9 @@ impl Render for WhiskyApp {
             cx,
         );
         let width = ww - sw;
+        // Native fullscreen auto-hides the lights; simple (borderless)
+        // fullscreen removes them entirely. Either way content hugs the edge.
+        let fullscreen = window.is_fullscreen() || window.is_simple_fullscreen();
         let backdrop = self.backdrop(window, cx);
         let body = if self.settings {
             self.application_settings(cx)
@@ -211,7 +214,14 @@ impl Render for WhiskyApp {
                     .min_w_0()
                     .h_full()
                     .child(backdrop)
-                    .child(div().relative().child(self.toolbar(cx)))
+                    .child(
+                        div().relative().child(
+                            self.toolbar(
+                                platform::traffic_light_padding(sw, 18., fullscreen),
+                                cx,
+                            ),
+                        ),
+                    )
                     .child(div().relative().flex_1().min_h_0().w_full().child(body)),
             );
         if presence.should_render() {
@@ -220,7 +230,7 @@ impl Render for WhiskyApp {
             }
         }
         if self.walkthrough_view.fullscreen {
-            root = root.child(self.walkthrough_tree_overlay(cx));
+            root = root.child(self.walkthrough_tree_overlay(fullscreen, cx));
         }
         if let Some(sheet) = self.preview.sheet {
             root = root.child(self.preview_sheet(sheet, ww, wh, window, cx));
