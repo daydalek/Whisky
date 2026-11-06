@@ -47,6 +47,9 @@ public final class AudioTroubleshootingEngine: ObservableObject {
         /// A specific fix is being offered to the user.
         case offeringFix(fixDescription: String, actionId: String)
 
+        /// A fix is currently being applied.
+        case applyingFix(fixDescription: String, actionId: String)
+
         /// Asking the user whether the last fix resolved the issue.
         case askingDidItWork
 
@@ -77,6 +80,9 @@ public final class AudioTroubleshootingEngine: ObservableObject {
     /// Whether probes are currently executing.
     @Published public var isRunningProbe: Bool = false
 
+    /// Records the last execution error message, if any.
+    @Published public var lastFixError: String?
+
     // MARK: - Private State
 
     /// Injected probes for testability.
@@ -84,6 +90,14 @@ public final class AudioTroubleshootingEngine: ObservableObject {
 
     /// Maximum fix attempts before escalation.
     private let maxFixAttempts = 3
+
+    /// Executes the corrective action behind a fix action ID.
+    ///
+    /// The app layer supplies this so ``applyFix`` performs the real
+    /// mutation (registry write, driver switch, latency change, opening
+    /// System Settings). When `nil`, ``applyFix`` only records the
+    /// attempt, which is reserved for tests and demos.
+    public var fixExecutor: ((String) async throws -> Void)?
 
     private let logger = Logger(
         subsystem: "com.franke.Whisky",
@@ -193,20 +207,46 @@ public final class AudioTroubleshootingEngine: ObservableObject {
         wizardState = .offeringFix(fixDescription: description, actionId: nextActionId)
     }
 
-    /// Records a fix attempt and transitions to `.askingDidItWork`.
+    /// Performs a fix, records the attempt, and transitions to `.askingDidItWork`.
+    ///
+    /// When ``fixExecutor`` is set, the corrective action runs first and the
+    /// attempt is only recorded once it completes. Without an executor the
+    /// attempt is recorded immediately, preserving the old stub behavior for
+    /// tests and demos.
     ///
     /// - Parameters:
     ///   - actionId: The fix action identifier.
     ///   - beforeValue: The setting value before the fix, if applicable.
     ///   - afterValue: The setting value after the fix, if applicable.
     public func applyFix(actionId: String, beforeValue: String? = nil, afterValue: String? = nil) {
+        guard case let .offeringFix(desc, _) = wizardState else {
+            return
+        }
         let attempt = TroubleshootingFixAttempt(
             actionId: actionId,
             beforeValue: beforeValue,
             afterValue: afterValue
         )
-        attemptedFixes.append(attempt)
-        wizardState = .askingDidItWork
+        wizardState = .applyingFix(fixDescription: desc, actionId: actionId)
+        lastFixError = nil
+
+        guard let fixExecutor else {
+            attemptedFixes.append(attempt)
+            wizardState = .askingDidItWork
+            return
+        }
+        Task {
+            do {
+                try await fixExecutor(actionId)
+                attemptedFixes.append(attempt)
+                wizardState = .askingDidItWork
+            } catch {
+                logger.error("Fix '\(actionId)' failed: \(error.localizedDescription)")
+                lastFixError = error.localizedDescription
+                attemptedFixes.append(attempt)
+                wizardState = .askingDidItWork
+            }
+        }
     }
 
     /// Called when the user reports the problem is fixed.

@@ -150,7 +150,15 @@ extension Wine {
             }
         }
 
-        // Layer 6: Bottle user (empty for now -- no bottle-level custom env vars UI yet)
+        // Layer 6: Bottle user -- bottle-level custom env vars persisted in
+        // Metadata.plist by the bridge `environment.set` handler.
+        for (key, value) in bottle.settings.userEnvironment {
+            if isValidEnvKey(key) {
+                builder.set(key, value, layer: .bottleUser)
+            } else {
+                envLogger.debug("Skipping invalid bottle environment key '\(key)' in constructWineEnvironment")
+            }
+        }
 
         // A persistent profile follows the executable, including fullscreen resizes.
         if let targetURL {
@@ -348,14 +356,10 @@ extension Wine {
         if let enhancedSync = overrides.enhancedSync {
             switch enhancedSync {
             case .none:
-                if MacOSVersion.current < .sequoia15_4 {
-                    builder.remove("WINEESYNC", layer: .programUser)
-                    builder.remove("WINEMSYNC", layer: .programUser)
-                } else {
-                    // On 15.4+ ESYNC is required for stability
-                    builder.set("WINEESYNC", "1", layer: .programUser)
-                    builder.remove("WINEMSYNC", layer: .programUser)
-                }
+                // Explicit "none" choice is strictly honored across all macOS versions:
+                // neither variable is set, preventing silent forced injection of ESYNC on 15.4+.
+                builder.remove("WINEESYNC", layer: .programUser)
+                builder.remove("WINEMSYNC", layer: .programUser)
             case .esync:
                 builder.set("WINEESYNC", "1", layer: .programUser)
                 builder.remove("WINEMSYNC", layer: .programUser)
@@ -382,19 +386,32 @@ extension Wine {
         if let gdiUpscaler = overrides.gdiUpscaler {
             let gdiUpscalerValue: String
             let neuralModel: String
+            let adaptiveFast: String
             switch gdiUpscaler {
             case .realesrgan:
                 gdiUpscalerValue = "realcugan"
                 neuralModel = "animevideov3"
+                adaptiveFast = "metalfx"
             case .adaptiveRealesrgan:
                 gdiUpscalerValue = "adaptive"
                 neuralModel = "animevideov3"
+                adaptiveFast = "metalfx"
+            case .adaptiveAnime4k:
+                gdiUpscalerValue = "adaptive"
+                neuralModel = "realcugan"
+                adaptiveFast = "anime4k"
+            case .adaptiveAnime4kRealesrgan:
+                gdiUpscalerValue = "adaptive"
+                neuralModel = "animevideov3"
+                adaptiveFast = "anime4k"
             default:
                 gdiUpscalerValue = gdiUpscaler.rawValue
                 neuralModel = "realcugan"
+                adaptiveFast = "metalfx"
             }
             builder.set("WINE_GDI_UPSCALER", gdiUpscalerValue, layer: .programUser)
             builder.set("WINE_GDI_NEURAL_MODEL", neuralModel, layer: .programUser)
+            builder.set("WINE_GDI_ADAPTIVE_FAST", adaptiveFast, layer: .programUser)
             builder.set("WINE_METALFX", gdiUpscaler == .metalfx ? "spatial" : "off", layer: .programUser)
         }
         if let gdiUpscalerCache = overrides.gdiUpscalerCache {

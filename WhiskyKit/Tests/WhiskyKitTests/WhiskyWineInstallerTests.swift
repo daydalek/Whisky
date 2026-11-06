@@ -198,6 +198,48 @@ final class WhiskyWineInstallerTests: XCTestCase {
         XCTAssertFalse(WhiskyWineInstaller.isD3DMetalPresent(inLibraryFolder: tempDir))
     }
 
+    // MARK: - isGDICoreMLPresent (Core ML payload)
+
+    private func makeCoreMLPayload(in folder: URL, manifest: Bool, helper: Bool) throws {
+        let upscalers = folder.appending(path: "Wine").appending(path: "lib")
+            .appending(path: "wine").appending(path: "x86_64-unix").appending(path: "gdi-upscalers")
+        if manifest {
+            let coreml = upscalers.appending(path: "coreml")
+            try FileManager.default.createDirectory(at: coreml, withIntermediateDirectories: true)
+            try Data("{}".utf8).write(to: coreml.appending(path: "manifest.json"))
+        }
+        if helper {
+            try FileManager.default.createDirectory(at: upscalers, withIntermediateDirectories: true)
+            try Data("#!/bin/sh\n".utf8).write(to: upscalers.appending(path: "winegdi-coreml-helper"))
+        }
+    }
+
+    func testGDICoreMLNotPresentWhenNeitherExists() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try makeRuntime(in: tempDir, plist: true, wine64: true)
+
+        XCTAssertFalse(WhiskyWineInstaller.isGDICoreMLPresent(inLibraryFolder: tempDir))
+    }
+
+    func testGDICoreMLNotPresentWhenOnlyOnePieceExists() throws {
+        for (manifest, helper) in [(true, false), (false, true)] {
+            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+            try makeCoreMLPayload(in: tempDir, manifest: manifest, helper: helper)
+
+            XCTAssertFalse(WhiskyWineInstaller.isGDICoreMLPresent(inLibraryFolder: tempDir))
+        }
+    }
+
+    func testGDICoreMLPresentWhenBothExist() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try makeCoreMLPayload(in: tempDir, manifest: true, helper: true)
+
+        XCTAssertTrue(WhiskyWineInstaller.isGDICoreMLPresent(inLibraryFolder: tempDir))
+    }
+
     // MARK: - backendAvailability (issue #146)
 
     func testD3DMetalUnavailableWithoutPayload() {

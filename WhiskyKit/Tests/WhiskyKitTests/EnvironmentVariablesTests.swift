@@ -138,13 +138,10 @@ final class EnvironmentVariablesTests: XCTestCase {
         var env: [String: String] = [:]
         settings.environmentVariables(wineEnv: &env)
 
-        if MacOSVersion.current >= .sequoia15_4 {
-            XCTAssertEqual(env["WINEESYNC"], "1")
-            XCTAssertNil(env["WINEMSYNC"])
-        } else {
-            XCTAssertNil(env["WINEESYNC"])
-            XCTAssertNil(env["WINEMSYNC"])
-        }
+        // .none must be honored: no silent ESYNC is injected on any macOS
+        // version, so both variables stay unset.
+        XCTAssertNil(env["WINEESYNC"])
+        XCTAssertNil(env["WINEMSYNC"])
     }
 
     // MARK: - Metal Environment Variables
@@ -255,6 +252,26 @@ final class EnvironmentVariablesTests: XCTestCase {
         XCTAssertEqual(env["MTL_DEBUG_LAYER"], "0")
         XCTAssertNil(env["D3DM_VALIDATION"])
         XCTAssertEqual(env["WINEFSYNC"], "0")
+    }
+
+    @MainActor
+    func testBottleUserEnvironmentReachesLaunchAndYieldsToProgramUser() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let bottle = Bottle(bottleUrl: tempDir, inFlight: false, isAvailable: true)
+        bottle.settings.userEnvironment = ["MY_BOTTLE_VAR": "bottle", "SHARED_VAR": "bottle",
+                                           "9INVALID-KEY": "nope"]
+
+        let env = Wine.constructWineEnvironment(
+            for: bottle,
+            environment: ["SHARED_VAR": "program"]
+        )
+        XCTAssertEqual(env["MY_BOTTLE_VAR"], "bottle")
+        // Program user (Layer 7) beats bottle user (Layer 6) for the same key.
+        XCTAssertEqual(env["SHARED_VAR"], "program")
+        // Invalid keys are skipped before reaching the launch environment.
+        XCTAssertNil(env["9INVALID-KEY"])
     }
 
     @MainActor
@@ -809,5 +826,31 @@ final class EnvironmentVariablesTests: XCTestCase {
 
         let (resolved, _) = builder.resolve()
         XCTAssertEqual(resolved["CX_ACTIVE_GRAPHICS_BACKEND"], "d3dmetal")
+    }
+
+    func testProgramOverridesEnhancedSyncNoneLeavesVariablesUnsetAcrossAllMacOSVersions() {
+        var settings = BottleSettings()
+        // Bottle default is msync
+        settings.enhancedSync = .msync
+
+        var overrides = ProgramOverrides()
+        // User explicitly sets override to EnhancedSync.none (not Optional.none)
+        overrides.enhancedSync = EnhancedSync.none
+
+        var builder = EnvironmentBuilder()
+        var dllResolver = DLLOverrideResolver(managed: [], bottleCustom: [], programCustom: [])
+        dllResolver.managed.append(contentsOf: settings.populateBottleManagedLayer(builder: &builder))
+
+        Wine.applyProgramOverrides(
+            overrides,
+            frameGeneration: false,
+            builder: &builder,
+            dllResolver: &dllResolver
+        )
+
+        let (resolved, _) = builder.resolve()
+        // Must strictly be nil: no silent ESYNC injection allowed
+        XCTAssertNil(resolved["WINEESYNC"], "WINEESYNC must not be set when override is .none")
+        XCTAssertNil(resolved["WINEMSYNC"], "WINEMSYNC must not be set when override is .none")
     }
 }

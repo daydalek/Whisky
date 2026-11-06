@@ -27,7 +27,9 @@ import WhiskyCore
 /// Pinned programs appear in a prominent location in the UI for fast access.
 /// The pin tracks whether the program is on a removable volume so it can
 /// handle disconnected drives gracefully.
-public struct PinnedProgram: Codable, Hashable, Equatable, Sendable {
+public struct PinnedProgram: Codable, Hashable, Equatable, Sendable, Identifiable {
+    /// Stable unique identifier for this pin.
+    public var id: UUID
     /// The display name for the pinned program.
     public var name: String
     /// The URL to the program's executable file.
@@ -37,12 +39,18 @@ public struct PinnedProgram: Codable, Hashable, Equatable, Sendable {
     /// When `true`, the pin remains valid even if the volume is disconnected.
     public var removable: Bool
 
+    private enum CodingKeys: String, CodingKey {
+        case id, name, url, removable
+    }
+
     /// Creates a new pinned program entry.
     ///
     /// - Parameters:
     ///   - name: The display name for the pin.
     ///   - url: The URL to the program's executable.
-    public init(name: String, url: URL) {
+    ///   - id: Optional stable identifier, defaults to a newly generated UUID.
+    public init(name: String, url: URL, id: UUID = UUID()) {
+        self.id = id
         self.name = name
         self.url = url
         do {
@@ -55,9 +63,34 @@ public struct PinnedProgram: Codable, Hashable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
-        self.url = try container.decodeIfPresent(URL.self, forKey: .url)
+        if let url = try? container.decodeIfPresent(URL.self, forKey: .url) {
+            self.url = url
+        } else if let urlString = try? container.decodeIfPresent(String.self, forKey: .url) {
+            self.url = URL(string: urlString)
+        } else {
+            self.url = nil
+        }
         self.removable = try container.decodeIfPresent(Bool.self, forKey: .removable) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(url, forKey: .url)
+        try container.encode(removable, forKey: .removable)
+    }
+
+    public static func == (lhs: PinnedProgram, rhs: PinnedProgram) -> Bool {
+        lhs.name == rhs.name && lhs.url == rhs.url && lhs.removable == rhs.removable
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(url)
+        hasher.combine(removable)
     }
 }
 
@@ -169,6 +202,8 @@ public struct BottleSettings: Codable, Equatable {
     private var discordConfig: BottleDiscordConfig
     /// User-defined DLL overrides at the bottle level.
     private var customDLLOverrides: [DLLOverrideEntry] = []
+    /// User-defined environment variables at the bottle level.
+    private var environment: [String: String] = [:]
 
     /// Creates a new BottleSettings instance with default values.
     public init() {
@@ -185,6 +220,7 @@ public struct BottleSettings: Codable, Equatable {
         self.audioConfig = BottleAudioConfig()
         self.discordConfig = BottleDiscordConfig()
         self.customDLLOverrides = []
+        self.environment = [:]
     }
 
     public init(from decoder: Decoder) throws {
@@ -239,6 +275,12 @@ public struct BottleSettings: Codable, Equatable {
             [DLLOverrideEntry].self,
             forKey: .customDLLOverrides
         ) ?? []
+        // The bridge writes `environment` from `environment.set`; a malformed
+        // value must not take the whole settings file down with it.
+        self.environment = (try? container.decodeIfPresent(
+            [String: String].self,
+            forKey: .environment
+        )) ?? [:]
     }
 
     /// The display name of this bottle.
@@ -491,24 +533,6 @@ public struct BottleSettings: Codable, Equatable {
         set { audioConfig.latencyPreset = newValue }
     }
 
-    /// The output device routing mode for this bottle.
-    ///
-    /// Controls whether Wine follows the macOS default output device
-    /// or is pinned to a specific device by name.
-    public var outputDeviceMode: OutputDeviceMode {
-        get { audioConfig.outputDeviceMode }
-        set { audioConfig.outputDeviceMode = newValue }
-    }
-
-    /// The name of the pinned audio output device, if any.
-    ///
-    /// Only meaningful when ``outputDeviceMode`` is `.pinned`.
-    /// Set to `nil` to clear the pin and follow the system default.
-    public var pinnedDeviceName: String? {
-        get { audioConfig.pinnedDeviceName }
-        set { audioConfig.pinnedDeviceName = newValue }
-    }
-
     // MARK: - Display settings
 
     /// Whether Wine's virtual desktop mode is enabled for this bottle.
@@ -564,6 +588,23 @@ public struct BottleSettings: Codable, Equatable {
     public var vcRedistInstalled: Bool {
         get { performanceConfig.vcRedistInstalled }
         set { performanceConfig.vcRedistInstalled = newValue }
+    }
+
+    /// Synchronizes the `vcRedistInstalled` flag with the provided winetricks verb cache.
+    ///
+    /// If the cache contains any recognized Visual C++ runtime verb (`vcrun2019` or `vcrun2022`),
+    /// `vcRedistInstalled` is updated to `true`.
+    ///
+    /// - Parameter cache: An optional winetricks verb cache to evaluate.
+    /// - Returns: `true` if Visual C++ runtime is installed after synchronization; otherwise `false`.
+    @discardableResult
+    public mutating func synchronizeVCRedistStatus(with cache: WinetricksVerbCache?) -> Bool {
+        guard let cache else { return vcRedistInstalled }
+        if cache.hasVCRedist {
+            vcRedistInstalled = true
+            return true
+        }
+        return vcRedistInstalled
     }
 
     /// Whether App Nap should be disabled for Wine processes.
@@ -737,6 +778,16 @@ public struct BottleSettings: Codable, Equatable {
         set { customDLLOverrides = newValue }
     }
 
+    /// User-defined environment variables for this bottle.
+    ///
+    /// Written by the bridge `environment.set` handler and applied to every
+    /// launch at the ``EnvironmentLayer/bottleUser`` layer, below per-program
+    /// overrides.
+    public var userEnvironment: [String: String] {
+        get { environment }
+        set { environment = newValue }
+    }
+
     // MARK: - Cleanup and clipboard settings
 
     /// The clipboard handling policy for this bottle.
@@ -764,16 +815,6 @@ public struct BottleSettings: Codable, Equatable {
     public var killOnQuit: KillOnQuitPolicy {
         get { cleanupConfig.killOnQuit }
         set { cleanupConfig.killOnQuit = newValue }
-    }
-
-    /// The policy for handling running processes when navigating away from this bottle.
-    ///
-    /// Controls whether a confirmation dialog is shown when the user switches
-    /// to a different bottle while Wine processes are still running.
-    /// See ``CloseWithProcessesPolicy`` for available options.
-    public var closeWithProcessesPolicy: CloseWithProcessesPolicy {
-        get { cleanupConfig.closeWithProcessesPolicy }
-        set { cleanupConfig.closeWithProcessesPolicy = newValue }
     }
 
     /// Loads bottle settings from a metadata plist file.
@@ -999,20 +1040,33 @@ public struct BottleSettings: Codable, Equatable {
         // independently of the bottle's Direct3D translation backend.
         let gdiUpscalerValue: String
         let neuralModel: String
+        let adaptiveFast: String
         switch gdiUpscaler {
         case .realesrgan:
             gdiUpscalerValue = "realcugan"
             neuralModel = "animevideov3"
+            adaptiveFast = "metalfx"
         case .adaptiveRealesrgan:
             gdiUpscalerValue = "adaptive"
             neuralModel = "animevideov3"
+            adaptiveFast = "metalfx"
+        case .adaptiveAnime4k:
+            gdiUpscalerValue = "adaptive"
+            neuralModel = "realcugan"
+            adaptiveFast = "anime4k"
+        case .adaptiveAnime4kRealesrgan:
+            gdiUpscalerValue = "adaptive"
+            neuralModel = "animevideov3"
+            adaptiveFast = "anime4k"
         default:
             gdiUpscalerValue = gdiUpscaler.rawValue
             neuralModel = "realcugan"
+            adaptiveFast = "metalfx"
         }
         builder.set("WINE_GDI_UPSCALER", gdiUpscalerValue, layer: .bottleManaged)
         // An older runtime ignores WINE_GDI_NEURAL_MODEL and runs Real-CUGAN.
         builder.set("WINE_GDI_NEURAL_MODEL", neuralModel, layer: .bottleManaged)
+        builder.set("WINE_GDI_ADAPTIVE_FAST", adaptiveFast, layer: .bottleManaged)
         builder.set("WINE_METALFX", gdiUpscaler == .metalfx ? "spatial" : "off", layer: .bottleManaged)
         builder.set("WINE_GDI_UPSCALER_EXCLUDE", gdiUpscalerExcludedRegions, layer: .bottleManaged)
         builder.set("WINE_GDI_CACHE_MODE", gdiUpscalerCache.rawValue, layer: .bottleManaged)
@@ -1020,16 +1074,11 @@ public struct BottleSettings: Codable, Equatable {
         // Enhanced sync mode
         switch enhancedSync {
         case .none:
-            // On macOS 15.4+, WINEESYNC is required for stability
-            if MacOSVersion.current < .sequoia15_4 {
-                builder.remove("WINEESYNC", layer: .bottleManaged)
-                builder.remove("WINEMSYNC", layer: .bottleManaged)
-            } else {
-                // Ensure a stable default on newer macOS versions:
-                // enable ESYNC and clear any conflicting MSYNC setting.
-                builder.set("WINEESYNC", "1", layer: .bottleManaged)
-                builder.remove("WINEMSYNC", layer: .bottleManaged)
-            }
+            // Honor the explicit "none" choice: neither variable is set, so
+            // Wine's own defaults decide. Setting WINEESYNC=1 here silently
+            // turned "none" into "esync" on macOS 15.4+.
+            builder.remove("WINEESYNC", layer: .bottleManaged)
+            builder.remove("WINEMSYNC", layer: .bottleManaged)
         case .esync:
             builder.set("WINEESYNC", "1", layer: .bottleManaged)
         case .msync:
@@ -1209,8 +1258,9 @@ public struct BottleSettings: Codable, Equatable {
 
         // Disable SDL to XInput mapping conversion
         // PlayStation/Switch controllers may show correct button mappings without this
-        // Both disableControllerMapping (legacy) and useButtonLabels (controller panel) control this hint.
-        if disableControllerMapping || useButtonLabels {
+        // useButtonLabels is the only surviving control; legacy
+        // disableControllerMapping values are folded into it on decode.
+        if useButtonLabels {
             builder.set("SDL_GAMECONTROLLER_USE_BUTTON_LABELS", "1", layer: .bottleManaged)
         } else {
             builder.set("SDL_GAMECONTROLLER_USE_BUTTON_LABELS", "0", layer: .bottleManaged)
@@ -1219,23 +1269,6 @@ public struct BottleSettings: Codable, Equatable {
 
     /// Populates the audio layer of the environment builder.
     ///
-    /// Audio configuration in Wine is **registry-backed**, not environment-variable-backed.
-    /// The audio driver (`HKCU\Software\Wine\Drivers\Audio`) and DirectSound buffer size
-    /// (`HKCU\Software\Wine\DirectSound\HelBuflen`) are applied via ``WineAudioRegistry``
-    /// methods, not through this layer populator.
-    ///
-    /// This method exists as the EnvironmentBuilder integration point for audio settings,
-    /// following the pattern of ``populateInputCompatibilityLayer(builder:)``. It is reserved
-    /// for future audio-related environment variables (e.g., `WINEDEBUG` channels for audio
-    /// debugging).
-    ///
-    /// - Parameter builder: The environment builder to populate.
-    public func populateAudioLayer(builder: inout EnvironmentBuilder) {
-        // Audio settings are applied via Wine registry (WineAudioRegistry), not env vars.
-        // This placeholder ensures the EnvironmentBuilder cascade has an audio integration
-        // point for future audio-related environment variables.
-    }
-
     // MARK: - Deprecated Environment Variable API
 
     /// Populates a Wine environment dictionary based on these settings.
@@ -1256,7 +1289,7 @@ public struct BottleSettings: Codable, Equatable {
 
         // Handle explicit key removals that the builder encoded as nil entries.
         // Since resolve() omits removed keys, we must also remove them from the caller's dict.
-        if enhancedSync == .none, MacOSVersion.current < .sequoia15_4 {
+        if enhancedSync == .none {
             wineEnv.removeValue(forKey: "WINEESYNC")
             wineEnv.removeValue(forKey: "WINEMSYNC")
         }
@@ -1278,3 +1311,15 @@ public struct BottleSettings: Codable, Equatable {
 }
 
 // swiftlint:enable type_body_length
+
+// MARK: - Visual C++ Runtime Detection Extension
+
+extension WinetricksVerbCache {
+    /// Known winetricks verbs that provide the Visual C++ Redistributable runtime.
+    public static let vcRedistVerbs: Set<String> = ["vcrun2019", "vcrun2022"]
+
+    /// Whether this cache contains any Visual C++ Redistributable runtime verb.
+    public var hasVCRedist: Bool {
+        !installedVerbs.isDisjoint(with: Self.vcRedistVerbs)
+    }
+}

@@ -73,7 +73,7 @@ public enum BottleOperations {
     ///   - destination: The directory the bottle should move to.
     ///   - registry: The registry that owns the bottle list.
     @MainActor
-    public static func move(bottleAt url: URL, to destination: URL, registry: BottleRegistry) {
+    public static func move(bottleAt url: URL, to destination: URL, registry: BottleRegistry) throws {
         SettingsPersistence.shared.flush()
         let bottle = registry.bottle(for: url)
         // The URL rewrite must happen before the move so the persisted settings
@@ -123,7 +123,18 @@ public enum BottleOperations {
             }
             SettingsPersistence.shared.flush()
             Logger.wineKit.error("Failed to move bottle: \(error.localizedDescription)")
+            throw error
         }
+    }
+
+    /// Synonym for ``move(bottleAt:to:registry:)``.
+    @MainActor
+    public static func moveBottle(
+        bottleAt url: URL,
+        to destination: URL,
+        registry: BottleRegistry
+    ) throws {
+        try move(bottleAt: url, to: destination, registry: registry)
     }
 
     // MARK: - Export
@@ -299,13 +310,17 @@ public enum BottleOperations {
         deleteFiles: Bool,
         registry: BottleRegistry,
         routing: GameRouting = GameRouting()
-    ) {
-        do {
-            if let bottle = registry.bottle(for: url) {
-                SettingsPersistence.shared.flush()
-                bottle.inFlight = true
-            }
+    ) throws {
+        let bottle = registry.bottle(for: url)
+        if let bottle {
+            SettingsPersistence.shared.flush()
+            bottle.inFlight = true
+        }
+        defer {
+            bottle?.inFlight = false
+        }
 
+        do {
             if deleteFiles {
                 try FileManager.default.removeItem(at: url)
                 routing.removeRoutes(toBottle: url)
@@ -317,7 +332,19 @@ public enum BottleOperations {
             registry.loadBottles()
         } catch {
             Logger.wineKit.error("Failed to remove bottle: \(error.localizedDescription)")
+            throw error
         }
+    }
+
+    /// Synonym for ``remove(bottleAt:deleteFiles:registry:routing:)``.
+    @MainActor
+    public static func removeBottle(
+        bottleAt url: URL,
+        deleteFiles: Bool,
+        registry: BottleRegistry,
+        routing: GameRouting = GameRouting()
+    ) throws {
+        try remove(bottleAt: url, deleteFiles: deleteFiles, registry: registry, routing: routing)
     }
 
     // MARK: - Helpers

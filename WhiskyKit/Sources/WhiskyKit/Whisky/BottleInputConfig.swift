@@ -63,12 +63,16 @@ public struct BottleInputConfig: Codable, Equatable {
     /// input even when Wine/game window doesn't have focus.
     var allowBackgroundEvents: Bool = false
 
-    /// Whether to disable SDL to XInput mapping conversion.
+    /// Legacy alias for ``useButtonLabels``.
     ///
-    /// Some controllers (PlayStation, Switch) show wrong button mappings
-    /// because SDL converts them to XInput format. Disabling this may
-    /// preserve native button layouts.
-    var disableControllerMapping: Bool = false
+    /// This flag used to drive the same `SDL_GAMECONTROLLER_USE_BUTTON_LABELS`
+    /// hint through a duplicate toggle. It now forwards to the authoritative
+    /// setting so stored state, reporting, and programmatic writes stay in
+    /// sync, and it is no longer serialized as its own key.
+    var disableControllerMapping: Bool {
+        get { useButtonLabels }
+        set { useButtonLabels = newValue }
+    }
 
     /// Whether to use native button labels instead of XInput layout.
     ///
@@ -87,6 +91,11 @@ public struct BottleInputConfig: Codable, Equatable {
     /// Applied at bottle init / on toggle via `winetricks` registry writes.
     var commandActsAsControl: Bool = false
 
+    private enum CodingKeys: String, CodingKey {
+        case controllerCompatibilityMode, disableHIDAPI, allowBackgroundEvents
+        case disableControllerMapping, useButtonLabels, commandActsAsControl
+    }
+
     public init() {}
 
     public init(from decoder: Decoder) throws {
@@ -100,17 +109,28 @@ public struct BottleInputConfig: Codable, Equatable {
             Bool.self,
             forKey: .allowBackgroundEvents
         ) ?? false
-        self.disableControllerMapping = try container.decodeIfPresent(
+        // Legacy bottles may carry disableControllerMapping; it drove the same
+        // SDL hint as useButtonLabels, so fold it in once and drop the stored value.
+        let legacyMapping = try container.decodeIfPresent(
             Bool.self,
             forKey: .disableControllerMapping
         ) ?? false
-        self.useButtonLabels = try container.decodeIfPresent(
+        self.useButtonLabels = (try container.decodeIfPresent(
             Bool.self,
             forKey: .useButtonLabels
-        ) ?? false
+        ) ?? false) || legacyMapping
         self.commandActsAsControl = try container.decodeIfPresent(
             Bool.self,
             forKey: .commandActsAsControl
         ) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(controllerCompatibilityMode, forKey: .controllerCompatibilityMode)
+        try container.encode(disableHIDAPI, forKey: .disableHIDAPI)
+        try container.encode(allowBackgroundEvents, forKey: .allowBackgroundEvents)
+        try container.encode(useButtonLabels, forKey: .useButtonLabels)
+        try container.encode(commandActsAsControl, forKey: .commandActsAsControl)
     }
 }

@@ -218,7 +218,9 @@ final class BottleMetalConfigTests: XCTestCase {
         XCTAssertTrue(decoded.metalTrace)
         XCTAssertTrue(decoded.dxrEnabled)
         XCTAssertTrue(decoded.metalValidation)
-        XCTAssertFalse(decoded.sequoiaCompatMode)
+        // sequoiaCompatMode is decode-only legacy state and is not re-saved,
+        // so it decodes back to the default.
+        XCTAssertTrue(decoded.sequoiaCompatMode)
     }
 
     func testDecodeWithMissingValuesUsesDefaults() throws {
@@ -258,7 +260,8 @@ final class BottleDXVKConfigTests: XCTestCase {
 
         let decoded = try PropertyListDecoder().decode(BottleDXVKConfig.self, from: data)
 
-        XCTAssertTrue(decoded.dxvk)
+        // R-13: dxvk is omitted from serialization, so decoded defaults to false.
+        XCTAssertFalse(decoded.dxvk)
         XCTAssertFalse(decoded.dxvkAsync)
         XCTAssertEqual(decoded.dxvkHud, .full)
     }

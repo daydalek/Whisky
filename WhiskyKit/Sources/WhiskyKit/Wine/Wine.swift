@@ -470,11 +470,13 @@ public class Wine {
         let launcher = LauncherType.detect(from: url)
         let steeredLauncher = overridesApplyToDescendants ? nil : launcher
         let effectiveBackendChoice = programOverrides?.graphicsBackend ?? bottle.settings.graphicsBackend
-        let effectiveBackend = if effectiveBackendChoice == .recommended {
-            steeredLauncher.map { GraphicsBackendResolver.resolve(for: $0) } ?? recommendedBackend
-        } else {
-            effectiveBackendChoice
-        }
+        // The shared resolution ``EffectiveBackend`` predicts for launch
+        // replies: steering and the D3DMetal-without-payload fallback must
+        // agree or the reported backend would name one the launch never uses.
+        let effectiveBackend = EffectiveBackend.resolve(
+            effectiveBackendChoice, steeredLauncher: steeredLauncher,
+            recommendedBackend: recommendedBackend, d3dMetalDeployed: builtinD3D12IsD3DMetal
+        )
 
         // The bottle composes its overrides from its own resolution, which does
         // not know what is being launched, so pin the decision here or a
@@ -496,8 +498,10 @@ public class Wine {
         // answers it. A launcher's own launch says nothing about them, so it is
         // keyed on what they resolve to: keyed on the launcher's DXVK, every
         // Steam start took away the placeholder its games need (#276).
-        let gamesBackend = bottle.settings.graphicsBackend == .recommended
-            ? recommendedBackend : bottle.settings.graphicsBackend
+        let gamesBackend = EffectiveBackend.resolve(
+            bottle.settings.graphicsBackend,
+            recommendedBackend: recommendedBackend, d3dMetalDeployed: builtinD3D12IsD3DMetal
+        )
         applyMetalFX(bottle: bottle, backend: steeredLauncher == nil ? effectiveBackend : gamesBackend)
 
         // Enable DXVK if needed: effective backend, the legacy program-level
@@ -713,7 +717,11 @@ public class Wine {
 
     /// Run a `wineserver` command with the given arguments and return the output result
     @MainActor
-    private static func runWineserver(_ args: [String], bottle: Bottle) async throws -> String {
+    internal static func runWineserver(_ args: [String], bottle: Bottle) async throws -> String {
+        if let asyncRunner = wineserverAsyncRunner {
+            return try await asyncRunner(args, bottle)
+        }
+
         var result: [ProcessOutput] = []
 
         for await output in try Self.runWineserverProcess(args: args, bottle: bottle, environment: [:]) {
@@ -876,30 +884,71 @@ public class Wine {
         }
     }
 
-    /// Kills a bottle's wineserver and blocks until the kill command returns.
+    /// Kills a bottle's wineserver and blocks until the server and child processes fully exit.
     ///
     /// For `applicationWillTerminate`: a `Task` queued there never runs
     /// because the process exits as soon as the delegate returns, so the
     /// asynchronous ``killBottle(bottle:)`` left every Wine process alive
-    /// on quit whatever the kill-on-quit setting said.
+    /// on quit whatever the kill-on-quit setting said. Running `wineserver -k`
+    /// sends the kill signal, and `wineserver -w` waits for all processes to exit.
     @MainActor
     public static func killBottleAndWait(bottle: Bottle, timeout: TimeInterval = 5) {
-        let process = Process()
-        process.executableURL = wineserverBinary
-        process.arguments = ["-k"]
-        process.currentDirectoryURL = wineserverBinary.deletingLastPathComponent()
-        process.environment = constructWineEnvironment(for: bottle, environment: [:])
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        let env = constructWineEnvironment(for: bottle, environment: [:])
+        let dir = wineserverBinary.deletingLastPathComponent()
+
+        if let syncRunner = wineserverSyncRunner {
+            do {
+                try syncRunner(["-k"], env, timeout)
+                try syncRunner(["-w"], env, timeout)
+            } catch {
+                Logger.wineKit.error("Failed to kill bottle '\(bottle.settings.name)': \(error.localizedDescription)")
+            }
+            return
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+
+        // 1. Send kill signal (-k) to wineserver
+        let killProcess = Process()
+        killProcess.executableURL = wineserverBinary
+        killProcess.arguments = ["-k"]
+        killProcess.currentDirectoryURL = dir
+        killProcess.environment = env
+        killProcess.standardOutput = FileHandle.nullDevice
+        killProcess.standardError = FileHandle.nullDevice
         do {
-            try process.run()
+            try killProcess.run()
         } catch {
             Logger.wineKit.error("Failed to kill bottle '\(bottle.settings.name)': \(error.localizedDescription)")
             return
         }
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning, Date() < deadline {
+        while killProcess.isRunning, Date() < deadline {
             Thread.sleep(forTimeInterval: 0.05)
+        }
+        if killProcess.isRunning {
+            killProcess.terminate()
+        }
+
+        // 2. Wait for wineserver and child processes to fully terminate (-w)
+        guard Date() < deadline else { return }
+        let waitProcess = Process()
+        waitProcess.executableURL = wineserverBinary
+        waitProcess.arguments = ["-w"]
+        waitProcess.currentDirectoryURL = dir
+        waitProcess.environment = env
+        waitProcess.standardOutput = FileHandle.nullDevice
+        waitProcess.standardError = FileHandle.nullDevice
+        do {
+            try waitProcess.run()
+        } catch {
+            Logger.wineKit.error("Failed to wait on bottle '\(bottle.settings.name)': \(error.localizedDescription)")
+            return
+        }
+        while waitProcess.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        if waitProcess.isRunning {
+            waitProcess.terminate()
         }
     }
 
@@ -1493,6 +1542,9 @@ public extension Wine {
     /// helper runs they make never write under `~/Library/Logs`, and test processes
     /// running in parallel never share a logs folder.
     @TaskLocal internal static var logsFolderOverride: URL?
+
+    @TaskLocal internal static var wineserverSyncRunner: (@Sendable (_ args: [String], _ environment: [String: String], _ timeout: TimeInterval) throws -> Void)?
+    @TaskLocal internal static var wineserverAsyncRunner: (@MainActor @Sendable (_ args: [String], _ bottle: Bottle) async throws -> String)?
 
     /// Creates a new log file in `folder`, named for `date`, and opens it for writing.
     ///

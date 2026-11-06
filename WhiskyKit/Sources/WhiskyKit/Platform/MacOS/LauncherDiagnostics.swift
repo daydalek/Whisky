@@ -222,8 +222,11 @@ public enum LauncherDiagnostics {
 
         // Check GPU spoofing environment
         if bottle.settings.gpuSpoofing {
-            var testEnv: [String: String] = [:]
-            bottle.settings.environmentVariables(wineEnv: &testEnv)
+            var builder = EnvironmentBuilder()
+            _ = bottle.settings.populateBottleManagedLayer(builder: &builder)
+            _ = bottle.settings.populateLauncherManagedLayer(builder: &builder)
+            bottle.settings.populateInputCompatibilityLayer(builder: &builder)
+            let (testEnv, _) = builder.resolve()
 
             if GPUDetection.validateSpoofingEnvironment(testEnv) {
                 validation += "✅ GPU spoofing environment is properly configured\n"

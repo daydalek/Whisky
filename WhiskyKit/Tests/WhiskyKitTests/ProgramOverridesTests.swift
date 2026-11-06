@@ -174,4 +174,40 @@ final class ProgramOverridesTests: XCTestCase {
         XCTAssertEqual(decoded.locale, .auto)
         XCTAssertEqual(decoded.arguments, "-windowed")
     }
+
+    // MARK: - R-14 TaggedVerbs Decoupling Tests
+
+    func testTaggedVerbsDecoupledFromFunctionalOverrides() {
+        var settings = ProgramSettings()
+        var overrides = ProgramOverrides()
+        overrides.dxvk = true
+        overrides.enhancedSync = .esync
+        overrides.taggedVerbs = ["vcrun2019", "d3dcompiler_47"]
+        settings.overrides = overrides
+
+        XCTAssertTrue(settings.hasFunctionalOverrides)
+        XCTAssertFalse(settings.overrides!.isEmpty)
+
+        // Reset functional overrides
+        settings.resetFunctionalOverrides()
+
+        // Functional overrides must be nil
+        XCTAssertFalse(settings.hasFunctionalOverrides)
+        XCTAssertNil(settings.overrides?.dxvk)
+        XCTAssertNil(settings.overrides?.enhancedSync)
+
+        // User tagged verbs must be preserved!
+        XCTAssertEqual(settings.overrides?.taggedVerbs, ["vcrun2019", "d3dcompiler_47"])
+        XCTAssertTrue(settings.overrides!.isEmpty, "taggedVerbs must not make overrides.isEmpty false")
+    }
+
+    func testDiagnosticExporterReportsNoOverridesWhenOnlyTaggedVerbsPresent() {
+        var programSettings = ProgramSettings()
+        var overrides = ProgramOverrides()
+        overrides.taggedVerbs = ["vcrun2019"]
+        programSettings.overrides = overrides
+
+        // With only taggedVerbs, hasFunctionalOverrides must be false
+        XCTAssertFalse(programSettings.hasFunctionalOverrides)
+    }
 }

@@ -153,6 +153,30 @@ public class WhiskyWineInstaller {
         return candidates.contains { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }
     }
 
+    /// Checks whether the installed runtime ships the Core ML neural bundle.
+    ///
+    /// The GDI upscaler runs its temporal neural refinement through the arm64
+    /// `winegdi-coreml-helper` plus compiled `coreml/*.mlmodelc` models under
+    /// `gdi-upscalers/`. Runtimes built without Core ML fall back to ncnn CPU
+    /// inference (seconds per frame), which is effectively unusable.
+    ///
+    /// - Returns: `true` only if both the model manifest and the helper exist.
+    public static func isGDICoreMLInstalled() -> Bool {
+        isGDICoreMLPresent(inLibraryFolder: libraryFolder)
+    }
+
+    /// Whether the Core ML payload exists under `folder`. Factored out of
+    /// ``isGDICoreMLInstalled()`` so it can be tested against a temp directory.
+    static func isGDICoreMLPresent(inLibraryFolder folder: URL) -> Bool {
+        let upscalers = folder.appending(path: "Wine").appending(path: "lib")
+            .appending(path: "wine").appending(path: "x86_64-unix").appending(path: "gdi-upscalers")
+        let manifest = upscalers.appending(path: "coreml").appending(path: "manifest.json")
+        let helper = upscalers.appending(path: "winegdi-coreml-helper")
+        return [manifest, helper].allSatisfy {
+            FileManager.default.fileExists(atPath: $0.path(percentEncoded: false))
+        }
+    }
+
     /// Installs WhiskyWine from a downloaded tarball.
     ///
     /// This method extracts the WhiskyWine tarball to the application support

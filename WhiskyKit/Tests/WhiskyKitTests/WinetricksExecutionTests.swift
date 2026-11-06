@@ -46,3 +46,42 @@ import Testing
         #expect(!process.isRunning)
     }
 }
+
+@Test @MainActor func vcRedistInstalledSynchronizesFromWinetricksVerbCache() throws {
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let bottle = Bottle(bottleUrl: tempDir, inFlight: false, isAvailable: true, cleanInvalidPins: false)
+    #expect(!bottle.settings.vcRedistInstalled)
+
+    // Fresh bottle with no cache returns false
+    #expect(!bottle.synchronizeVCRedistStatus())
+    #expect(!bottle.settings.vcRedistInstalled)
+
+    // Cache without VC++ runtime verbs does not mark vcRedistInstalled
+    let unrelatedCache = WinetricksVerbCache(installedVerbs: ["d3dx9", "dotnet40"], lastChecked: Date())
+    try WinetricksVerbCache.save(unrelatedCache, to: tempDir)
+    #expect(!bottle.synchronizeVCRedistStatus())
+    #expect(!bottle.settings.vcRedistInstalled)
+
+    // Simulate winetricks verb cache with vcrun2019 installed
+    let cache2019 = WinetricksVerbCache(installedVerbs: ["vcrun2019", "d3dx9"], lastChecked: Date())
+    try WinetricksVerbCache.save(cache2019, to: tempDir)
+
+    // Execute synchronization logic via production Bottle method
+    let synchronized = bottle.synchronizeVCRedistStatus()
+    #expect(synchronized)
+    #expect(bottle.settings.vcRedistInstalled)
+
+    // Subsequent call is idempotent
+    #expect(bottle.synchronizeVCRedistStatus())
+
+    // Verify BottleSettings direct synchronization with vcrun2022
+    var testSettings = BottleSettings()
+    #expect(!testSettings.vcRedistInstalled)
+    let cache2022 = WinetricksVerbCache(installedVerbs: ["vcrun2022"], lastChecked: Date())
+    let settingsSynchronized = testSettings.synchronizeVCRedistStatus(with: cache2022)
+    #expect(settingsSynchronized)
+    #expect(testSettings.vcRedistInstalled)
+}

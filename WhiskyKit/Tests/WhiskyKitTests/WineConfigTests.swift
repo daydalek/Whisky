@@ -201,7 +201,8 @@ final class BottleLauncherConfigDetailedTests: XCTestCase {
         XCTAssertEqual(decoded.launcherLocale, .english)
         XCTAssertTrue(decoded.gpuSpoofing)
         XCTAssertEqual(decoded.gpuVendor, .amd)
-        XCTAssertEqual(decoded.networkTimeout, 30_000)
+        // networkTimeout is decode-only legacy state and is not re-saved.
+        XCTAssertEqual(decoded.networkTimeout, 60_000)
         XCTAssertFalse(decoded.autoEnableDXVK)
     }
 }

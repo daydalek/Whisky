@@ -39,17 +39,24 @@ public struct AudioFinding: Sendable, Identifiable, Equatable {
     /// Brief remediation hint, if available.
     public let suggestedAction: String?
 
+    /// The fix action identifier this finding maps to, if a real corrective
+    /// action exists. The Fix button is only shown when this is set, and it
+    /// dispatches this ID -- never ``id`` -- to the fix handler.
+    public let fixActionId: String?
+
     public init(
         id: String,
         description: String,
         confidence: ConfidenceTier,
         evidence: String,
-        suggestedAction: String? = nil
+        suggestedAction: String? = nil,
+        fixActionId: String? = nil
     ) {
         self.id = id
         self.description = description
         self.confidence = confidence
         self.evidence = evidence
         self.suggestedAction = suggestedAction
+        self.fixActionId = fixActionId
     }
 }

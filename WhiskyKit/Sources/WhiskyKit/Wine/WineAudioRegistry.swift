@@ -210,8 +210,20 @@ public extension Wine {
             logger.info("MMDevices registry subtree not present, nothing to clear")
         }
 
-        // Kill wineserver to force a fresh restart with re-enumerated devices
-        Wine.killBottle(bottle: bottle)
+        // Two-stage wineserver termination to eliminate process termination race condition:
+        // 1. Send kill signal to wineserver and all running Wine processes
+        _ = try? await runWineserver(["-k"], bottle: bottle)
+        // 2. Wait until wineserver and all child processes have completely exited
+        _ = try? await runWineserver(["-w"], bottle: bottle)
+
+        // Stamp factory default state so subsequent launches recognize that prefix audio state has been reset
+        do {
+            try AudioRegistryState.factoryDefault.save(to: bottle.url)
+            logger.info("Stamped factory default audio registry state marker")
+        } catch {
+            logger.error("Failed to save audio registry state marker for '\(bottle.settings.name)': \(error.localizedDescription)")
+        }
+
         logger.info("Audio state reset complete for bottle '\(bottle.settings.name)'")
     }
 }

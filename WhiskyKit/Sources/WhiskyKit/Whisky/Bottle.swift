@@ -131,7 +131,7 @@ public final class Bottle: ObservableObject, Equatable, Hashable, Identifiable, 
         settings.pins.compactMap { pin in
             let exists = FileManager.default.fileExists(atPath: pin.url?.path(percentEncoded: false) ?? "")
             guard let program = programs.first(where: { $0.url == pin.url && exists }) else { return nil }
-            return (pin, program, "\(pin.name)//\(program.url)")
+            return (pin, program, pin.id.uuidString)
         }
     }
 
@@ -230,6 +230,27 @@ public final class Bottle: ObservableObject, Equatable, Hashable, Identifiable, 
                 "Failed to encode settings for bottle `\(self.metadataURL.path(percentEncoded: false))`: \(error)"
             )
         }
+    }
+
+    // MARK: - Winetricks Cache Synchronization
+
+    /// Synchronizes `vcRedistInstalled` status with the bottle's Winetricks verb cache.
+    ///
+    /// Loads the cached verbs from the bottle directory (or uses the supplied cache) and updates
+    /// `settings.vcRedistInstalled` if a Visual C++ redistributable verb is present.
+    ///
+    /// - Parameter cache: An optional in-memory verb cache. If nil, loads the cache from disk.
+    /// - Returns: `true` if Visual C++ runtime is installed; otherwise `false`.
+    @discardableResult
+    public func synchronizeVCRedistStatus(with cache: WinetricksVerbCache? = nil) -> Bool {
+        if settings.vcRedistInstalled {
+            return true
+        }
+        guard let effectiveCache = cache ?? WinetricksVerbCache.load(from: url),
+              effectiveCache.hasVCRedist else {
+            return false
+        }
+        return settings.synchronizeVCRedistStatus(with: effectiveCache)
     }
 
     // MARK: - Program discovery

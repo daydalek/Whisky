@@ -17,6 +17,9 @@
 //
 
 import Foundation
+import os.log
+
+private let logger = Logger(subsystem: Bundle.whiskyBundleIdentifier, category: "WineRegistry")
 
 public enum RegistryType: String {
     case binary = "REG_BINARY"
@@ -280,6 +283,12 @@ public extension Wine {
 
     @discardableResult
     @MainActor
+    static func taskmgr(bottle: Bottle) async throws -> String {
+        try await Wine.runWine(["taskmgr"], bottle: bottle)
+    }
+
+    @discardableResult
+    @MainActor
     static func cfg(bottle: Bottle) async throws -> String {
         try await Wine.runWine(["winecfg"], bottle: bottle)
     }
@@ -356,5 +365,78 @@ public extension Wine {
             name: "Default",
             type: .string
         )
+    }
+
+    /// Brings the bottle's Mac Driver input registry values in line with its
+    /// input settings.
+    ///
+    /// The settings UI only mutates ``BottleSettings``; the `LeftCommandIsCtrl`
+    /// and `RightCommandIsCtrl` values Wine actually reads are written here,
+    /// from the launch path, and only when the marker file shows they changed.
+    /// A missing marker on factory settings is stamped without booting
+    /// wineserver, since a fresh prefix already behaves that way.
+    @MainActor
+    static func syncInputRegistry(bottle: Bottle) async {
+        let desired = InputRegistryState.desired(for: bottle)
+        let applied = InputRegistryState.load(from: bottle.url)
+        guard desired != applied else { return }
+
+        if applied == nil, desired == .factoryDefault {
+            try? desired.save(to: bottle.url)
+            return
+        }
+
+        do {
+            let value = desired.commandActsAsControl ? "Y" : "N"
+            try await addRegistryKey(
+                bottle: bottle,
+                key: RegistryKey.macDriver.rawValue,
+                name: "LeftCommandIsCtrl",
+                data: value,
+                type: .string
+            )
+            try await addRegistryKey(
+                bottle: bottle,
+                key: RegistryKey.macDriver.rawValue,
+                name: "RightCommandIsCtrl",
+                data: value,
+                type: .string
+            )
+            try desired.save(to: bottle.url)
+        } catch {
+            logger.error(
+                "Input registry sync failed for '\(bottle.settings.name)': \(error.localizedDescription)"
+            )
+        }
+    }
+}
+
+/// The Mac Driver input registry values Whisky last wrote into a bottle, kept
+/// as a marker file so launches only spawn `wine reg` when the settings changed.
+struct InputRegistryState: Codable, Equatable {
+    var commandActsAsControl: Bool
+
+    /// What the bottle's current settings ask the registry to contain.
+    @MainActor
+    static func desired(for bottle: Bottle) -> InputRegistryState {
+        InputRegistryState(commandActsAsControl: bottle.settings.commandActsAsControl)
+    }
+
+    /// Wine's own default: Command is not remapped to Control.
+    static let factoryDefault = InputRegistryState(commandActsAsControl: false)
+
+    static func markerURL(in bottleURL: URL) -> URL {
+        bottleURL.appending(path: ".input-registry-state.plist")
+    }
+
+    static func load(from bottleURL: URL) -> InputRegistryState? {
+        guard let data = try? Data(contentsOf: markerURL(in: bottleURL)) else { return nil }
+        return try? PropertyListDecoder().decode(InputRegistryState.self, from: data)
+    }
+
+    func save(to bottleURL: URL) throws {
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .xml
+        try encoder.encode(self).write(to: Self.markerURL(in: bottleURL))
     }
 }

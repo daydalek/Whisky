@@ -87,23 +87,12 @@ public enum SteamLauncher {
             GameRouting().record(appId: appId, bottleURL: bottle.url)
         }
 
-        let installURL = installURL ?? SteamLibrary.enumerate(bottleURL: bottle.url)
-            .first { $0.appId == appId }?.installURL
-        let selectedURL = try installURL.flatMap {
-            try SteamGameProgram.selectedURL(appID: appId, installURL: $0, bottleURL: bottle.url)
-        }
-        let selectedOverrides = selectedURL.map { url in
-            bottle.programs.first(where: { $0.url == url })?.settings.overrides
-                ?? Program.persistedOverrides(for: url, bottleURL: bottle.url)
-                ?? ProgramOverrides()
-        }
-        let plan = LaunchResolver.plan(
-            steamAppId: appId,
-            userOverrides: selectedOverrides
-                ?? installURL.flatMap { userOverrides(forInstallURL: $0, bottle: bottle) }
-        )
+        let inputs = try launchInputs(appId: appId, bottle: bottle, installURL: installURL)
+        let plan = inputs.plan
         let steamExe = steamRoot.appending(path: "steam.exe")
-        let gameExecutables = gameExecutables(installURL: installURL, selectedURL: selectedURL, plan: plan)
+        let gameExecutables = gameExecutables(
+            installURL: inputs.installURL, selectedURL: inputs.selectedURL, plan: plan
+        )
 
         return Task {
             let clientStartup = SteamClientStartup()
@@ -111,6 +100,7 @@ public enum SteamLauncher {
             try Task.checkCancellation()
             try await Wine.prepareBottlePrefix(bottle: bottle)
             await Wine.syncAudioRegistry(bottle: bottle)
+            await Wine.syncInputRegistry(bottle: bottle)
             await Wine.syncGPURegistry(bottle: bottle)
             try Task.checkCancellation()
             if !clientIsRunning {
@@ -194,6 +184,8 @@ public enum SteamLauncher {
                 try await preparePrefix(bottle)
                 try Task.checkCancellation()
                 await Wine.syncAudioRegistry(bottle: bottle)
+                try Task.checkCancellation()
+                await Wine.syncInputRegistry(bottle: bottle)
                 try Task.checkCancellation()
                 try await Wine.syncGPURegistry(bottle: bottle, importer: gpuImporter)
                 try Task.checkCancellation()
@@ -307,6 +299,42 @@ public enum SteamLauncher {
             let image = fields[1].replacingOccurrences(of: "\\", with: "/").split(separator: "/").last ?? fields[1]
             return image.lowercased() == "steam.exe" ? pid : nil
         })
+    }
+
+    /// What a launch of `appId` resolves before the client starts: the
+    /// install folder, the player's selected program, and the launch plan
+    /// built from the GameDB under their own overrides.
+    ///
+    /// `launch` builds these to run the game; ``EffectiveBackend`` builds
+    /// them to name the backend the launch will use, so the label cannot
+    /// drift from the launch.
+    struct LaunchInputs {
+        let installURL: URL?
+        let selectedURL: URL?
+        let plan: LaunchPlan
+    }
+
+    /// The install folder, selected program and plan `launch` resolves for
+    /// `appId`. Read-only: no `Program` is materialized for the executables
+    /// that don't win.
+    @MainActor
+    static func launchInputs(appId: Int, bottle: Bottle, installURL: URL?) throws -> LaunchInputs {
+        let installURL = installURL ?? SteamLibrary.enumerate(bottleURL: bottle.url)
+            .first { $0.appId == appId }?.installURL
+        let selectedURL = try installURL.flatMap {
+            try SteamGameProgram.selectedURL(appID: appId, installURL: $0, bottleURL: bottle.url)
+        }
+        let selectedOverrides = selectedURL.map { url in
+            bottle.programs.first(where: { $0.url == url })?.settings.overrides
+                ?? Program.persistedOverrides(for: url, bottleURL: bottle.url)
+                ?? ProgramOverrides()
+        }
+        let plan = LaunchResolver.plan(
+            steamAppId: appId,
+            userOverrides: selectedOverrides
+                ?? installURL.flatMap { userOverrides(forInstallURL: $0, bottle: bottle) }
+        )
+        return LaunchInputs(installURL: installURL, selectedURL: selectedURL, plan: plan)
     }
 
     /// The user's persisted overrides for a game's executables, so settings

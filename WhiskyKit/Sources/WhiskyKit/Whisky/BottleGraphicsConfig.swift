@@ -252,6 +252,8 @@ public enum GDIUpscaler: String, Codable, CaseIterable, Sendable {
     case adaptive
     case realesrgan
     case adaptiveRealesrgan = "adaptive-realesrgan"
+    case adaptiveAnime4k = "adaptive-anime4k"
+    case adaptiveAnime4kRealesrgan = "adaptive-anime4k-realesrgan"
 
     public var title: String {
         switch self {
@@ -259,9 +261,11 @@ public enum GDIUpscaler: String, Codable, CaseIterable, Sendable {
         case .metalfx: "MetalFX Spatial"
         case .anime4k: "Anime4K (CNN x2 S)"
         case .realcugan: "Real-CUGAN (models-se x2)"
-        case .adaptive: "动态快速缩放／静态 Real-CUGAN"
+        case .adaptive: "动态 MetalFX／静态 Real-CUGAN"
         case .realesrgan: "Real-ESRGAN AnimeVideo-v3 (x2)"
-        case .adaptiveRealesrgan: "动态快速缩放／静态 AnimeVideo-v3"
+        case .adaptiveRealesrgan: "动态 MetalFX／静态 AnimeVideo-v3"
+        case .adaptiveAnime4k: "动态 Anime4K／静态 Real-CUGAN"
+        case .adaptiveAnime4kRealesrgan: "动态 Anime4K／静态 AnimeVideo-v3"
         }
     }
 }

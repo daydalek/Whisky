@@ -66,7 +66,8 @@ public struct CoreAudioDeviceProbe: AudioProbe {
                         description: "No default output device found",
                         confidence: .high,
                         evidence: "System has no configured default audio output device",
-                        suggestedAction: "Check macOS Sound settings and ensure an output device is selected"
+                        suggestedAction: "Check macOS Sound settings and ensure an output device is selected",
+                        fixActionId: "check-system-settings"
                     )
                 ]
             )
@@ -101,7 +102,8 @@ public struct CoreAudioDeviceProbe: AudioProbe {
                 description: "Bluetooth audio device detected",
                 confidence: .medium,
                 evidence: "\(device.name) connected via Bluetooth",
-                suggestedAction: "Consider using wired headphones for lower latency"
+                suggestedAction: "Consider using wired headphones for lower latency",
+                fixActionId: "check-system-settings"
             ))
         }
 
@@ -111,7 +113,8 @@ public struct CoreAudioDeviceProbe: AudioProbe {
                 description: "Low sample rate detected: \(Int(device.sampleRate)) Hz",
                 confidence: .high,
                 evidence: "Sample rate \(Int(device.sampleRate)) Hz is unusually low (expected >= 44100 Hz)",
-                suggestedAction: "Check if Bluetooth Hands-Free mode is active; switch to A2DP for better quality"
+                suggestedAction: "Check if Bluetooth Hands-Free mode is active; switch to A2DP for better quality",
+                fixActionId: "check-system-settings"
             ))
         } else if device.sampleRate < 44_100, device.sampleRate > 0 {
             findings.append(AudioFinding(
@@ -119,7 +122,8 @@ public struct CoreAudioDeviceProbe: AudioProbe {
                 description: "Low sample rate detected: \(Int(device.sampleRate)) Hz",
                 confidence: .medium,
                 evidence: "Sample rate \(Int(device.sampleRate)) Hz is below the standard 44100 Hz",
-                suggestedAction: "Consider adjusting sample rate in Audio MIDI Setup"
+                suggestedAction: "Consider adjusting sample rate in Audio MIDI Setup",
+                fixActionId: "check-system-settings"
             ))
         }
 
@@ -129,7 +133,8 @@ public struct CoreAudioDeviceProbe: AudioProbe {
                 description: "No output channels",
                 confidence: .high,
                 evidence: "Device \(device.name) reports 0 output channels",
-                suggestedAction: "The device may not support audio output; select a different device"
+                suggestedAction: "The device may not support audio output; select a different device",
+                fixActionId: "check-system-settings"
             ))
         }
 
@@ -209,7 +214,8 @@ public final class WineRegistryAudioProbe: AudioProbe, @unchecked Sendable {
                     description: "Audio is disabled in Wine",
                     confidence: .high,
                     evidence: "Wine audio driver is set to empty string (disabled)",
-                    suggestedAction: "Set audio driver to Auto or CoreAudio to enable audio"
+                    suggestedAction: "Set audio driver to Auto or CoreAudio to enable audio",
+                    fixActionId: "set-coreaudio-driver"
                 ))
             }
         } else {
@@ -237,7 +243,8 @@ public final class WineRegistryAudioProbe: AudioProbe, @unchecked Sendable {
                     description: "Very low audio buffer may cause issues",
                     confidence: .medium,
                     evidence: "HelBuflen = \(bufSize) (< 256 bytes)",
-                    suggestedAction: "Increase audio buffer size or switch to Default latency preset"
+                    suggestedAction: "Increase audio buffer size or switch to Default latency preset",
+                    fixActionId: "set-stable-latency"
                 ))
             }
         } else if bufferSize == nil {

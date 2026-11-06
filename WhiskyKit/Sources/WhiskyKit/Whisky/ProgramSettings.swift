@@ -195,6 +195,25 @@ public struct ProgramSettings: Codable, Equatable, Sendable {
     /// bottle settings while leaving others inherited.
     public var overrides: ProgramOverrides?
 
+    /// Whether this program has active functional settings overrides,
+    /// explicitly excluding organizational metadata (`taggedVerbs`).
+    public var hasFunctionalOverrides: Bool {
+        guard let overrides else { return false }
+        return !overrides.isEmpty
+    }
+
+    /// Resets all functional overrides to `nil` (inherit from bottle) while
+    /// preserving user organizational metadata (`taggedVerbs`).
+    public mutating func resetFunctionalOverrides() {
+        if let existingTags = overrides?.taggedVerbs, !existingTags.isEmpty {
+            var preserved = ProgramOverrides()
+            preserved.taggedVerbs = existingTags
+            self.overrides = preserved
+        } else {
+            self.overrides = nil
+        }
+    }
+
     // MARK: - Diagnostics
 
     /// The active WINEDEBUG preset for this program.

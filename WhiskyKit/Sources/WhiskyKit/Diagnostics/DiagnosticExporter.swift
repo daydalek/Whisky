@@ -280,7 +280,7 @@ public enum DiagnosticExporter {
         info["arguments"] = options.includeSensitiveDetails
             ? program.settings.arguments
             : Redactor.redactLogText(program.settings.arguments)
-        info["hasOverrides"] = "\(program.settings.overrides != nil)"
+        info["hasOverrides"] = "\(program.settings.hasFunctionalOverrides)"
 
         return dictionaryToJSON(info)
     }

@@ -175,4 +175,61 @@ final class BottleInputConfigTests: XCTestCase {
         config2.disableHIDAPI = true
         XCTAssertNotEqual(config1, config2)
     }
+
+    // MARK: - R-06 Consolidation & Legacy Migration Tests
+
+    func testLegacyDisableControllerMappingDecodesIntoUseButtonLabels() throws {
+        // Simulates an older bottle settings plist containing disableControllerMapping: true
+        let legacyDict: [String: Any] = [
+            "disableControllerMapping": true,
+            "controllerCompatibilityMode": true
+        ]
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: legacyDict,
+            format: .xml,
+            options: 0
+        )
+        let decoded = try PropertyListDecoder().decode(BottleInputConfig.self, from: data)
+
+        XCTAssertTrue(decoded.useButtonLabels, "Legacy disableControllerMapping should migrate to useButtonLabels")
+        XCTAssertTrue(decoded.disableControllerMapping, "Computed alias should return useButtonLabels value")
+    }
+
+    func testEncodingOmitLegacyDisableControllerMappingKey() throws {
+        var config = BottleInputConfig()
+        config.useButtonLabels = true
+
+        let data = try PropertyListEncoder().encode(config)
+        let plistObj = try PropertyListSerialization.propertyList(
+            from: data,
+            options: [],
+            format: nil
+        ) as? [String: Any]
+
+        XCTAssertNotNil(plistObj?["useButtonLabels"])
+        XCTAssertNil(plistObj?["disableControllerMapping"], "disableControllerMapping must never be serialized")
+    }
+
+    func testDisableControllerMappingAndUseButtonLabelsAreBidirectionallySynchronized() {
+        var config = BottleInputConfig()
+        XCTAssertFalse(config.useButtonLabels)
+        XCTAssertFalse(config.disableControllerMapping)
+
+        config.disableControllerMapping = true
+        XCTAssertTrue(config.useButtonLabels)
+
+        config.useButtonLabels = false
+        XCTAssertFalse(config.disableControllerMapping)
+    }
+
+    func testBottleSettingsExposesSynchronizedInputProperties() {
+        var settings = BottleSettings()
+        settings.disableControllerMapping = true
+        XCTAssertTrue(settings.useButtonLabels)
+        XCTAssertTrue(settings.disableControllerMapping)
+
+        settings.useButtonLabels = false
+        XCTAssertFalse(settings.disableControllerMapping)
+        XCTAssertFalse(settings.useButtonLabels)
+    }
 }

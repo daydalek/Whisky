@@ -55,7 +55,8 @@ final class BottleLauncherConfigTests: XCTestCase {
         XCTAssertEqual(decoded.detectedLauncher, .steam)
         XCTAssertEqual(decoded.launcherLocale, .english)
         XCTAssertEqual(decoded.gpuVendor, .amd)
-        XCTAssertEqual(decoded.networkTimeout, 90_000)
+        // networkTimeout is decode-only legacy state and is not re-saved.
+        XCTAssertEqual(decoded.networkTimeout, 60_000)
     }
 
     func testLauncherModeEnum() {

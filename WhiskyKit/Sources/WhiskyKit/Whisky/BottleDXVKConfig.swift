@@ -27,6 +27,11 @@ public struct BottleDXVKConfig: Codable, Equatable {
     var dxvkAsync: Bool = true
     var dxvkHud: DXVKHUD = .off
 
+    private enum CodingKeys: String, CodingKey {
+        case dxvkAsync, dxvkHud
+        case dxvk // Kept for legacy decode migration into graphicsConfig
+    }
+
     public init() {}
 
     public init(from decoder: Decoder) throws {
@@ -34,5 +39,16 @@ public struct BottleDXVKConfig: Codable, Equatable {
         self.dxvk = try container.decodeIfPresent(Bool.self, forKey: .dxvk) ?? false
         self.dxvkAsync = try container.decodeIfPresent(Bool.self, forKey: .dxvkAsync) ?? true
         self.dxvkHud = try container.decodeIfPresent(DXVKHUD.self, forKey: .dxvkHud) ?? .off
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        // dxvk is purged from serialization: authoritative backend is stored in graphicsConfig.backend
+        try container.encode(dxvkAsync, forKey: .dxvkAsync)
+        try container.encode(dxvkHud, forKey: .dxvkHud)
+    }
+
+    public static func == (lhs: BottleDXVKConfig, rhs: BottleDXVKConfig) -> Bool {
+        lhs.dxvkAsync == rhs.dxvkAsync && lhs.dxvkHud == rhs.dxvkHud
     }
 }

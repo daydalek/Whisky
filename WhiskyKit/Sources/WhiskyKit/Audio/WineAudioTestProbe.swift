@@ -209,7 +209,8 @@ public final class WineAudioTestProbe: AudioProbe, @unchecked Sendable {
             description: "Wine audio test failed via \(result.api)",
             confidence: .high,
             evidence: "Error code: \(codeStr)",
-            suggestedAction: "Check Wine audio driver configuration"
+            suggestedAction: "Check Wine audio driver configuration",
+            fixActionId: "reset-audio-state"
         ))
         evidence.append("Error code: \(codeStr)")
 

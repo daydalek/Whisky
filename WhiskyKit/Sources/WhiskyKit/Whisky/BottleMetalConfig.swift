@@ -27,6 +27,11 @@ public struct BottleMetalConfig: Codable, Equatable {
     var sequoiaCompatMode: Bool = true // Enable Sequoia compatibility by default
     var metal4Enabled: Bool = true // Metal 4 command encoding, D3DMetal ignores it on older systems
 
+    private enum CodingKeys: String, CodingKey {
+        case metalHud, metalTrace, dxrEnabled, metalValidation
+        case forceGPUFamily, sequoiaCompatMode, metal4Enabled
+    }
+
     public init() {}
 
     public init(from decoder: Decoder) throws {
@@ -40,5 +45,16 @@ public struct BottleMetalConfig: Codable, Equatable {
         // Defaults to true for bottles written before this key existed, so an
         // upgrade turns it on rather than silently leaving it off.
         self.metal4Enabled = try container.decodeIfPresent(Bool.self, forKey: .metal4Enabled) ?? true
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(metalHud, forKey: .metalHud)
+        try container.encode(metalTrace, forKey: .metalTrace)
+        try container.encode(dxrEnabled, forKey: .dxrEnabled)
+        try container.encode(metalValidation, forKey: .metalValidation)
+        try container.encodeIfPresent(forceGPUFamily, forKey: .forceGPUFamily)
+        // sequoiaCompatMode is a legacy placeholder; decode it but do not re-save.
+        try container.encode(metal4Enabled, forKey: .metal4Enabled)
     }
 }

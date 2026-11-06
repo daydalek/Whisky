@@ -20,23 +20,73 @@ import Foundation
 
 /// Wraps the Wine audio test probe for in-bottle audio playback verification.
 ///
-/// Since the MinGW-compiled audio test executable is not available,
-/// this check returns `.unknown` with evidence noting the test is
-/// unavailable. When the test executable becomes available in a
-/// future release, it will delegate to ``WineAudioTestProbe``.
+/// Delegates to ``WineAudioTestProbe`` running the bundled
+/// `WhiskyAudioTest.exe` inside the bottle. If the executable is absent from
+/// the host app's bundle (e.g. when running from a different host), the probe
+/// reports `.skipped`, which maps to `.unknown`.
 public struct AudioTestCheck: TroubleshootingCheck {
     public let checkId = "audio.test_play"
 
-    public init() {}
+    /// Closure type for executing an audio probe against a test executable URL.
+    public typealias ProbeRunner = @Sendable (URL?) async -> AudioProbeResult
+
+    private let probeRunner: ProbeRunner?
+
+    public init(probeRunner: ProbeRunner? = nil) {
+        self.probeRunner = probeRunner
+    }
+
+    /// Maps a probe outcome status to a normalized flow check outcome.
+    public static func outcome(for status: ProbeStatus) -> CheckOutcome {
+        switch status {
+        case .passed: .pass
+        case .warning: .fail
+        case .error: .error
+        case .skipped: .unknown
+        }
+    }
+
+    /// Transforms an `AudioProbeResult` into a normalized `CheckResult`.
+    public static func checkResult(from result: AudioProbeResult) -> CheckResult {
+        let outcome = outcome(for: result.status)
+
+        var evidence = ["status": result.status.rawValue]
+        if !result.evidence.isEmpty {
+            evidence["detail"] = result.evidence.joined(separator: "\n")
+        }
+        if !result.findings.isEmpty {
+            evidence["findings"] = result.findings.map(\.description).joined(separator: "\n")
+        }
+
+        return CheckResult(
+            outcome: outcome,
+            evidence: evidence,
+            summary: result.summary,
+            confidence: outcome == .unknown ? .low : .high
+        )
+    }
+
+    /// Instance helper to transform an `AudioProbeResult` into a normalized `CheckResult`.
+    public func checkResult(from result: AudioProbeResult) -> CheckResult {
+        Self.checkResult(from: result)
+    }
 
     public func run(params: [String: String], context: CheckContext) async -> CheckResult {
-        // MinGW is not available; WhiskyAudioTest.exe is not compiled.
-        // The probe would return .skipped gracefully.
-        CheckResult(
-            outcome: .unknown,
-            evidence: ["reason": "Audio test executable not available"],
-            summary: "Audio playback test is not available (MinGW not compiled)",
-            confidence: .low
-        )
+        let exeURL = params["testExePath"].map { URL(fileURLWithPath: $0) }
+            ?? Bundle.main.url(forResource: "WhiskyAudioTest", withExtension: "exe")
+
+        let result: AudioProbeResult
+        if let probeRunner {
+            result = await probeRunner(exeURL)
+        } else {
+            let bottle = await Bottle(bottleUrl: context.bottleURL, cleanInvalidPins: false)
+            let probe = WineAudioTestProbe(
+                bottle: bottle,
+                testExeURL: exeURL
+            )
+            result = await probe.run()
+        }
+
+        return checkResult(from: result)
     }
 }

@@ -104,6 +104,12 @@ public struct BottleLauncherConfig: Codable, Equatable {
     /// Steam keeps DXVK per executable. Any other change of backend clears it.
     var backendSwitchedByLauncher: Bool = false
 
+    private enum CodingKeys: String, CodingKey {
+        case compatibilityMode, launcherMode, detectedLauncher, launcherLocale
+        case gpuSpoofing, gpuVendor, networkTimeout, autoEnableDXVK
+        case backendMigration, backendResetNotice, backendSwitchedByLauncher
+    }
+
     public init() {}
 
     public init(from decoder: Decoder) throws {
@@ -121,6 +127,21 @@ public struct BottleLauncherConfig: Codable, Equatable {
         self.backendSwitchedByLauncher = try container.decodeIfPresent(
             Bool.self, forKey: .backendSwitchedByLauncher
         ) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(compatibilityMode, forKey: .compatibilityMode)
+        try container.encode(launcherMode, forKey: .launcherMode)
+        try container.encodeIfPresent(detectedLauncher, forKey: .detectedLauncher)
+        try container.encode(launcherLocale, forKey: .launcherLocale)
+        try container.encode(gpuSpoofing, forKey: .gpuSpoofing)
+        try container.encode(gpuVendor, forKey: .gpuVendor)
+        // networkTimeout has no consumer; legacy values decode but are not re-saved.
+        try container.encode(autoEnableDXVK, forKey: .autoEnableDXVK)
+        try container.encode(backendMigration, forKey: .backendMigration)
+        try container.encode(backendResetNotice, forKey: .backendResetNotice)
+        try container.encode(backendSwitchedByLauncher, forKey: .backendSwitchedByLauncher)
     }
 }
 

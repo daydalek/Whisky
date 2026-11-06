@@ -76,6 +76,78 @@ final class WineProcessManagementTests: XCTestCase {
         XCTAssertEqual(logFiles(in: logsFolder).count, 1)
     }
 
+    // MARK: - V-01: killBottleAndWait Shutdown Race Tests
+
+    private final class WineserverCallRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var args: [[String]] = []
+        private var envs: [[String: String]] = []
+
+        func record(args: [String], env: [String: String]) {
+            lock.lock()
+            defer { lock.unlock() }
+            self.args.append(args)
+            self.envs.append(env)
+        }
+
+        var recordedArgs: [[String]] {
+            lock.lock()
+            defer { lock.unlock() }
+            return args
+        }
+
+        var recordedEnvs: [[String: String]] {
+            lock.lock()
+            defer { lock.unlock() }
+            return envs
+        }
+    }
+
+    /// Verifies that killBottleAndWait invokes wineserver with -k to signal termination,
+    /// followed by wineserver with -w to wait until processes exit, and injects the bottle's WINEPREFIX.
+    @MainActor
+    func testKillBottleAndWaitExecutesKillThenWait() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("test-shutdown-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bottle = Bottle(bottleUrl: tempDir, inFlight: false, isAvailable: true)
+
+        let recorder = WineserverCallRecorder()
+
+        Wine.$wineserverSyncRunner.withValue({ args, env, timeout in
+            recorder.record(args: args, env: env)
+        }) {
+            Wine.killBottleAndWait(bottle: bottle, timeout: 5)
+        }
+
+        let executedArgs = recorder.recordedArgs
+        let executedEnvs = recorder.recordedEnvs
+
+        // Must execute ["-k"] first, then ["-w"]
+        XCTAssertEqual(executedArgs.count, 2, "Expected exactly two wineserver invocations")
+        XCTAssertEqual(executedArgs.first, ["-k"], "First wineserver invocation must be -k (kill signal)")
+        XCTAssertEqual(executedArgs.last, ["-w"], "Second wineserver invocation must be -w (wait for exit)")
+
+        // Must inject the correct WINEPREFIX environment
+        for env in executedEnvs {
+            XCTAssertEqual(env["WINEPREFIX"], tempDir.path(percentEncoded: false))
+        }
+    }
+
+    /// Verifies that Wine.taskmgr creates a process run with ["taskmgr"] arguments.
+    @MainActor
+    func testWineTaskmgrInvocation() async throws {
+        let (bottle, logsFolder) = try makeBottleWithoutRuntime()
+
+        await Wine.$logsFolderOverride.withValue(logsFolder) {
+            _ = try? await Wine.taskmgr(bottle: bottle)
+        }
+
+        // Verifies helper run created a log entry for taskmgr launch
+        XCTAssertEqual(logFiles(in: logsFolder).count, 1)
+    }
+
     // MARK: - Helpers
 
     /// A bottle in a temporary folder, and a logs folder next to it for the test

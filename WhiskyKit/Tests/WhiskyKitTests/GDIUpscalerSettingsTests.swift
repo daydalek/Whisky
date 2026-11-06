@@ -29,6 +29,8 @@ final class GDIUpscalerSettingsTests: XCTestCase {
             (["gdiUpscaler": "realcugan"], .realcugan),
             (["gdiUpscaler": "realesrgan"], .realesrgan),
             (["gdiUpscaler": "adaptive-realesrgan"], .adaptiveRealesrgan),
+            (["gdiUpscaler": "adaptive-anime4k"], .adaptiveAnime4k),
+            (["gdiUpscaler": "adaptive-anime4k-realesrgan"], .adaptiveAnime4kRealesrgan),
             (["gdiUpscaler": "future-algorithm"], .off),
             (["gdiUpscaler": 42], .off)
         ]
@@ -60,7 +62,9 @@ final class GDIUpscalerSettingsTests: XCTestCase {
         // Real-ESRGAN selections ride the neural-model variable instead.
         let upscalerValue: [GDIUpscaler: String] = [
             .realesrgan: "realcugan",
-            .adaptiveRealesrgan: "adaptive"
+            .adaptiveRealesrgan: "adaptive",
+            .adaptiveAnime4k: "adaptive",
+            .adaptiveAnime4kRealesrgan: "adaptive"
         ]
         for backend in [GraphicsBackend.d3dMetal, .dxvk, .dxmt, .wined3d] {
             var settings = BottleSettings()
@@ -72,8 +76,11 @@ final class GDIUpscalerSettingsTests: XCTestCase {
                 XCTAssertEqual(builder.resolve().environment["WINE_GDI_UPSCALER"],
                                upscalerValue[algorithm] ?? algorithm.rawValue)
                 XCTAssertEqual(builder.resolve().environment["WINE_GDI_NEURAL_MODEL"],
-                               [.realesrgan, .adaptiveRealesrgan].contains(algorithm)
+                               [.realesrgan, .adaptiveRealesrgan, .adaptiveAnime4kRealesrgan].contains(algorithm)
                                ? "animevideov3" : "realcugan")
+                XCTAssertEqual(builder.resolve().environment["WINE_GDI_ADAPTIVE_FAST"],
+                               [.adaptiveAnime4k, .adaptiveAnime4kRealesrgan].contains(algorithm)
+                               ? "anime4k" : "metalfx")
                 XCTAssertEqual(builder.resolve().environment["WINE_METALFX"], algorithm == .metalfx ? "spatial" : "off")
                 XCTAssertEqual(settings.graphicsBackend, backend)
                 XCTAssertFalse(settings.frameGeneration)
@@ -119,7 +126,9 @@ final class GDIUpscalerSettingsTests: XCTestCase {
 
         let upscalerValue: [GDIUpscaler: String] = [
             .realesrgan: "realcugan",
-            .adaptiveRealesrgan: "adaptive"
+            .adaptiveRealesrgan: "adaptive",
+            .adaptiveAnime4k: "adaptive",
+            .adaptiveAnime4kRealesrgan: "adaptive"
         ]
         for algorithm in GDIUpscaler.allCases {
             var overrides = ProgramOverrides()
@@ -134,8 +143,11 @@ final class GDIUpscalerSettingsTests: XCTestCase {
             let env = trial.resolve().environment
             XCTAssertEqual(env["WINE_GDI_UPSCALER"], upscalerValue[algorithm] ?? algorithm.rawValue)
             XCTAssertEqual(env["WINE_GDI_NEURAL_MODEL"],
-                           [.realesrgan, .adaptiveRealesrgan].contains(algorithm)
+                           [.realesrgan, .adaptiveRealesrgan, .adaptiveAnime4kRealesrgan].contains(algorithm)
                            ? "animevideov3" : "realcugan")
+            XCTAssertEqual(env["WINE_GDI_ADAPTIVE_FAST"],
+                           [.adaptiveAnime4k, .adaptiveAnime4kRealesrgan].contains(algorithm)
+                           ? "anime4k" : "metalfx")
             XCTAssertEqual(env["WINE_METALFX"], algorithm == .metalfx ? "spatial" : "off")
             XCTAssertEqual(env["WINE_GDI_CACHE_MODE"], "off")
         }

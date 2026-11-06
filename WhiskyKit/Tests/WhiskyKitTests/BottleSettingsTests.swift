@@ -96,7 +96,9 @@ final class BottleSettingsTests: XCTestCase {
 
         XCTAssertEqual(decoded.name, "JSON Test")
         XCTAssertEqual(decoded.windowsVersion, .win7)
-        XCTAssertFalse(decoded.sequoiaCompatMode)
+        // sequoiaCompatMode is decode-only legacy state and is not re-saved,
+        // so it decodes back to the default.
+        XCTAssertTrue(decoded.sequoiaCompatMode)
     }
 
     // MARK: - WinVersion Tests
@@ -320,6 +322,43 @@ final class BottleSettingsTests: XCTestCase {
 
         XCTAssertEqual(loadedSettings.name, "CustomBottle")
         XCTAssertTrue(loadedSettings.metalHud)
+    }
+
+    // MARK: - Bottle User Environment
+
+    func testBottleUserEnvironmentDecodesFromBridgeMetadata() throws {
+        // The bridge `environment.set` handler writes this key directly.
+        let bytes = try PropertyListSerialization.data(
+            fromPropertyList: ["environment": ["MY_VAR": "hello", "OTHER_VAR": "42"]],
+            format: .xml,
+            options: 0
+        )
+        let settings = try PropertyListDecoder().decode(BottleSettings.self, from: bytes)
+        XCTAssertEqual(settings.userEnvironment, ["MY_VAR": "hello", "OTHER_VAR": "42"])
+    }
+
+    func testBottleUserEnvironmentRoundTrips() throws {
+        var settings = BottleSettings()
+        settings.userEnvironment = ["MY_VAR": "hello", "PATH_LIKE": "/opt/bin"]
+        let data = try PropertyListEncoder().encode(settings)
+        let decoded = try PropertyListDecoder().decode(BottleSettings.self, from: data)
+        XCTAssertEqual(decoded.userEnvironment, settings.userEnvironment)
+    }
+
+    func testMalformedBottleEnvironmentDecodesToEmpty() throws {
+        // A non-dictionary `environment` value must not fail the whole decode.
+        let malformed: [[String: Any]] = [["environment": 42], ["environment": ["A", "B"]],
+                                        ["environment": ["K": 7]]]
+        for document in malformed {
+            let bytes = try PropertyListSerialization.data(
+                fromPropertyList: document,
+                format: .xml,
+                options: 0
+            )
+            let settings = try PropertyListDecoder().decode(BottleSettings.self, from: bytes)
+            XCTAssertEqual(settings.userEnvironment, [:])
+            XCTAssertEqual(settings.name, "Bottle")
+        }
     }
 
     // MARK: - Graphics Backend Forward Compatibility
@@ -640,5 +679,112 @@ final class BottleSettingsTests: XCTestCase {
             siblings.contains { $0.contains(".corrupt-") },
             "a healthy file must not be quarantined when only the stamp write fails"
         )
+    }
+
+    // MARK: - R-12 & R-13 Remediation Tests
+
+    func testPinnedProgramStableIDAndDuplicateURLRename() throws {
+        let exeURL = URL(filePath: "/Volumes/External/Game/launch.exe")
+        var pin1 = PinnedProgram(name: "Game Normal", url: exeURL)
+        var pin2 = PinnedProgram(name: "Game Debug", url: exeURL)
+
+        // Different pins with identical URLs must have distinct IDs
+        XCTAssertNotEqual(pin1.id, pin2.id)
+
+        var settings = BottleSettings()
+        settings.pins = [pin1, pin2]
+
+        // Simulate renaming pin2 by ID
+        let targetID = pin2.id
+        if let index = settings.pins.firstIndex(where: { $0.id == targetID }) {
+            settings.pins[index].name = "Game Debug Mode"
+            pin2.name = "Game Debug Mode"
+        }
+
+        XCTAssertEqual(settings.pins[0].name, "Game Normal")
+        XCTAssertEqual(settings.pins[1].name, "Game Debug Mode")
+        XCTAssertEqual(pin2.name, "Game Debug Mode")
+    }
+
+    func testPinnedProgramDecodesLegacyPlistWithoutID() throws {
+        let legacyXML = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>name</key>
+            <string>Old Game</string>
+            <key>url</key>
+            <string>file:///drive_c/game.exe</string>
+            <key>removable</key>
+            <true/>
+        </dict>
+        </plist>
+        """
+
+        let decoder = PropertyListDecoder()
+        let decoded = try decoder.decode(PinnedProgram.self, from: Data(legacyXML.utf8))
+
+        XCTAssertEqual(decoded.name, "Old Game")
+        XCTAssertEqual(decoded.url, URL(string: "file:///drive_c/game.exe"))
+        XCTAssertTrue(decoded.removable)
+        XCTAssertFalse(decoded.id.uuidString.isEmpty)
+    }
+
+    func testPurgedModelFieldsAreOmittedFromReEncoding() throws {
+        // Legacy plist containing dxvk in dxvkConfig, gpuMemoryLimit & disableShaderOptimizations in performanceConfig
+        let legacyPlist = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>dxvkConfig</key>
+            <dict>
+                <key>dxvk</key>
+                <true/>
+                <key>dxvkAsync</key>
+                <true/>
+                <key>dxvkHud</key>
+                <dict>
+                    <key>off</key>
+                    <dict/>
+                </dict>
+            </dict>
+            <key>performanceConfig</key>
+            <dict>
+                <key>shaderCacheEnabled</key>
+                <true/>
+                <key>gpuMemoryLimit</key>
+                <integer>4096</integer>
+                <key>disableShaderOptimizations</key>
+                <true/>
+                <key>vcRedistInstalled</key>
+                <false/>
+                <key>disableAppNap</key>
+                <false/>
+            </dict>
+        </dict>
+        </plist>
+        """
+
+        let decoder = PropertyListDecoder()
+        let decoded = try decoder.decode(BottleSettings.self, from: Data(legacyPlist.utf8))
+
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .xml
+        let resaved = try XCTUnwrap(String(data: encoder.encode(decoded), encoding: .utf8))
+
+        // Re-saved plist must NOT contain dead fields
+        XCTAssertFalse(resaved.contains("<key>gpuMemoryLimit</key>"), "Dead field gpuMemoryLimit must not be encoded")
+        XCTAssertFalse(resaved.contains("<key>disableShaderOptimizations</key>"), "Dead field disableShaderOptimizations must not be encoded")
+        XCTAssertFalse(resaved.contains("<key>networkTimeout</key>"), "Dead field networkTimeout must not be encoded")
+        // In dxvkConfig dict, dxvk key must be absent
+        if let dxvkConfigRange = resaved.range(of: "<key>dxvkConfig</key>") {
+            let substring = String(resaved[dxvkConfigRange.lowerBound...])
+            if let dictEndRange = substring.range(of: "</dict>") {
+                let dxvkDictContent = String(substring[..<dictEndRange.upperBound])
+                XCTAssertFalse(dxvkDictContent.contains("<key>dxvk</key>"), "Dead field dxvk in dxvkConfig must not be encoded")
+            }
+        }
     }
 }

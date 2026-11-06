@@ -96,4 +96,84 @@ struct AudioRegistrySyncTests {
         let after = try Data(contentsOf: AudioRegistryState.markerURL(in: dir))
         #expect(before == after)
     }
+
+    // MARK: - Reset Audio State & Two-Stage Termination Tests
+
+    private final class AsyncWineserverRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var args: [[String]] = []
+        private var bottles: [Bottle] = []
+
+        func record(args: [String], bottle: Bottle) {
+            lock.lock()
+            defer { lock.unlock() }
+            self.args.append(args)
+            self.bottles.append(bottle)
+        }
+
+        var recordedArgs: [[String]] {
+            lock.lock()
+            defer { lock.unlock() }
+            return args
+        }
+
+        var recordedBottles: [Bottle] {
+            lock.lock()
+            defer { lock.unlock() }
+            return bottles
+        }
+    }
+
+    @Test("resetAudioState executes two-stage wineserver termination (-k then -w) and stamps factoryDefault")
+    @MainActor
+    func resetAudioStateTwoStageTerminationAndMarkerStamp() async throws {
+        let (dir, cleanup) = makeBottleDir()
+        defer { cleanup() }
+
+        let bottle = Bottle(bottleUrl: dir, inFlight: false, isAvailable: true)
+
+        // 1. Pre-condition: establish custom non-default state marker
+        let customState = AudioRegistryState(driver: "coreaudio", helBuflen: 131_072)
+        try customState.save(to: dir)
+        #expect(AudioRegistryState.load(from: dir) == customState)
+
+        let recorder = AsyncWineserverRecorder()
+
+        await Wine.$wineserverAsyncRunner.withValue({ args, bottle in
+            recorder.record(args: args, bottle: bottle)
+            return ""
+        }) {
+            try? await Wine.resetAudioState(bottle: bottle)
+        }
+
+        // 2. Verify two-stage wineserver termination: ["-k"] followed immediately by ["-w"]
+        #expect(recorder.recordedArgs.count == 2, "Expected exactly two wineserver invocations")
+        #expect(recorder.recordedArgs.first == ["-k"], "First wineserver call must be -k (kill signal)")
+        #expect(recorder.recordedArgs.last == ["-w"], "Second wineserver call must be -w (wait for exit)")
+        #expect(recorder.recordedBottles.first?.url == dir, "Wineserver call must target the bottle directory")
+
+        // 3. Verify marker was stamped to factoryDefault
+        #expect(AudioRegistryState.load(from: dir) == .factoryDefault, "Audio registry state marker must be factoryDefault")
+    }
+
+    @Test("Subsequent syncAudioRegistry detects divergence and re-applies settings after resetAudioState")
+    @MainActor
+    func syncAudioRegistryDetectsDivergenceAfterReset() async throws {
+        let (dir, cleanup) = makeBottleDir()
+        defer { cleanup() }
+
+        let bottle = Bottle(bottleUrl: dir, inFlight: false, isAvailable: true)
+        bottle.settings.audioDriver = .coreaudio
+
+        // Simulate reset stamping factoryDefault
+        await Wine.$wineserverAsyncRunner.withValue({ _, _ in "" }) {
+            try? await Wine.resetAudioState(bottle: bottle)
+        }
+        #expect(AudioRegistryState.load(from: dir) == .factoryDefault)
+
+        // Verify that desired settings (.coreaudio) diverge from applied (.factoryDefault)
+        let desired = AudioRegistryState.desired(for: bottle)
+        let applied = AudioRegistryState.load(from: dir)
+        #expect(desired != applied, "Desired settings must diverge from factoryDefault so sync applies them on launch")
+    }
 }

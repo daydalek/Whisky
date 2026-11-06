@@ -26,6 +26,11 @@ extension FileManager {
             at: sourceDirectory, includingPropertiesForKeys: [.isRegularFileKey]
         )
 
+        // The destination may not exist yet (a prefix wineboot never finished,
+        // or a stub system tree): copyItem cannot create missing parents, and
+        // its failure would surface as the misleading "source doesn't exist".
+        try createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+
         while let fileURL = enumerator?.nextObject() as? URL {
             // Skip non-DLL entries and keep scanning. The enumerator is
             // recursive, so it also yields subdirectory URLs and stray files

@@ -188,14 +188,16 @@ final class LauncherDiagnosticsTests: XCTestCase {
         // Load settings from disk into new bottle instance
         let bottle2 = Bottle(bottleUrl: tempURL, inFlight: false, isAvailable: true)
 
-        // Verify all launcher settings persisted correctly
+        // Verify all launcher settings persisted correctly. networkTimeout is
+        // decode-only legacy state: it is read from old files but never
+        // re-saved, so the reload falls back to the default.
         XCTAssertTrue(bottle2.settings.launcherCompatibilityMode)
         XCTAssertEqual(bottle2.settings.launcherMode, .manual)
         XCTAssertEqual(bottle2.settings.detectedLauncher, .rockstar)
         XCTAssertEqual(bottle2.settings.launcherLocale, .english)
         XCTAssertTrue(bottle2.settings.gpuSpoofing)
         XCTAssertEqual(bottle2.settings.gpuVendor, .nvidia)
-        XCTAssertEqual(bottle2.settings.networkTimeout, 90_000)
+        XCTAssertEqual(bottle2.settings.networkTimeout, 60_000)
         XCTAssertTrue(bottle2.settings.autoEnableDXVK)
     }
 
@@ -462,14 +464,15 @@ final class LauncherDiagnosticsTests: XCTestCase {
         let decoder = PropertyListDecoder()
         let decoded = try decoder.decode(BottleLauncherConfig.self, from: data)
 
-        // Verify all fields decoded correctly
+        // Verify all fields decoded correctly. networkTimeout has no consumer
+        // and is not re-saved, so it decodes back to the default.
         XCTAssertEqual(decoded.compatibilityMode, true)
         XCTAssertEqual(decoded.launcherMode, .manual)
         XCTAssertEqual(decoded.detectedLauncher, .steam)
         XCTAssertEqual(decoded.launcherLocale, .english)
         XCTAssertEqual(decoded.gpuSpoofing, true)
         XCTAssertEqual(decoded.gpuVendor, .amd)
-        XCTAssertEqual(decoded.networkTimeout, 90_000)
+        XCTAssertEqual(decoded.networkTimeout, 60_000)
         XCTAssertEqual(decoded.autoEnableDXVK, false)
     }
 
