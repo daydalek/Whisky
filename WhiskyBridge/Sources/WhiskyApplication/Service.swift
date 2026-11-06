@@ -34,10 +34,15 @@ public protocol NativeApplicationServices: AnyObject {
     ) async throws
     func shutdown(applyExitPolicy: Bool) async
     func prepareShutdown(applyExitPolicy: Bool) async throws
+    /// Stops any runtime state bound to `container` before the portable
+    /// lifecycle moves or erases it. Host adapters that keep Wine processes
+    /// (the Linux adapter) terminate them here; file-only adapters do nothing.
+    func prepareContainerRemoval(_ container: URL) async throws
 }
 
 public extension NativeApplicationServices {
     func prepareShutdown(applyExitPolicy: Bool) async throws {}
+    func prepareContainerRemoval(_ container: URL) async throws {}
 }
 
 @MainActor

@@ -103,8 +103,10 @@ public final class LinuxApplicationServices: NativeApplicationServices {
     }
 
     public var methods: [String] {
-        var values = ["system.reveal", "system.open", "system.resources", "system.terminals", "bottle.tools"]
-            + LinuxFilePicker.methods + LinuxDesktopService.methods
+        var values = [
+            "system.reveal", "system.open", "system.resources", "system.terminals",
+            "bottle.tools", "bottle.cleanCache"
+        ] + LinuxFilePicker.methods + LinuxDesktopService.methods
         values += wineSetup?.methods ?? []
         if wineHost != nil {
             values += winetricks.methods
@@ -184,6 +186,9 @@ public final class LinuxApplicationServices: NativeApplicationServices {
                 }
                 return try bottleCreation.create(params: params, workspace: workspace)
             }
+            if method == "bottle.cleanCache" {
+                return try cleanShaderCaches(container: workspace.resolve(params))
+            }
             return try bottleTool(params: params, workspace: workspace)
         case "programs":
             guard method == "programs.run" else {
@@ -222,7 +227,7 @@ public final class LinuxApplicationServices: NativeApplicationServices {
                 "path": .string(bottleCreation.runtimeURL.path),
                 "canExecute": .bool(host.canExecute),
                 "translation": .string(host.translationDescription),
-                "rosettaInstalled": .bool(true),
+                "rosettaInstalled": .bool(false),
                 "appleSilicon": .bool(false)
             ])
         case "runtime":
@@ -233,6 +238,15 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         default:
             throw BridgeFailure("method_unavailable", "Native method is unavailable")
         }
+    }
+
+    /// Mirrors the macOS adapter's `Wine.killBottle`: deleting (or detaching)
+    /// a container must not leave its Wine processes running against a prefix
+    /// that no longer exists.
+    public func prepareContainerRemoval(_ container: URL) async throws {
+        guard let host = wineHost, host.canExecute else { return }
+        guard try await host.probeServer(prefix: container) else { return }
+        try await LinuxWineProcessHost(host: host).terminateAllProcesses(in: container)
     }
 
     public func shutdown(applyExitPolicy: Bool) async {
@@ -270,7 +284,7 @@ public final class LinuxApplicationServices: NativeApplicationServices {
                 preferred: terminalPreference(),
                 wineEnvironment: wineEnv
             )
-        case "winecfg", "regedit", "control":
+        case "winecfg", "regedit", "control", "taskmgr":
             guard let host = wineHost else {
                 throw BridgeFailure("method_unavailable", "This tool requires the Wine host adapter")
             }
@@ -295,6 +309,29 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         default:
             throw BridgeFailure("invalid_params", "Unknown Wine tool: \(tool)")
         }
+    }
+
+    /// Wipes shader caches scoped to the container: every `*.dxvk-cache`
+    /// file inside the prefix. Mesa's own shader cache is per-user global
+    /// state shared by every process on the host, so it is deliberately not
+    /// touched — deleting it would evict the shader cache of unrelated games
+    /// running outside this container.
+    private func cleanShaderCaches(container: URL) throws -> JSONValue {
+        let manager = FileManager.default
+        var removed = 0
+        let files = manager.enumerator(
+            at: container,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )?.allObjects.compactMap { $0 as? URL } ?? []
+        for file in files where file.lastPathComponent.hasSuffix(".dxvk-cache") {
+            try manager.removeItem(at: file)
+            removed += 1
+        }
+        return .object([
+            "removed": .bool(removed > 0),
+            "removedCount": .integer(Int64(removed))
+        ])
     }
 
     private func runProgram(params: [String: JSONValue], workspace: ApplicationWorkspace) throws -> JSONValue {

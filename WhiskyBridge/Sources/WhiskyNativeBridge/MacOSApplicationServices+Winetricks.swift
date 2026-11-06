@@ -144,8 +144,12 @@ extension MacOSApplicationServices {
     ///
     /// In wow64 mode winetricks exits nonzero on verbs that actually
     /// installed (the terminal flow never checks the exit code, which is why
-    /// it "works" there), so any nonzero exit is verified against what
-    /// `winetricks list-installed` reports before being called a failure.
+    /// it "works" there), so any nonzero exit is verified against the
+    /// winetricks.log growth attributable to *that verb's own run* before
+    /// being called a failure. A verb is rescued only when it appears in the
+    /// log afterwards, or when the log grew during its run (metaverbs like
+    /// cjkfonts only write their sub-verbs) — never by progress a different
+    /// verb in the batch made.
     private func install(
         _ verbs: [String],
         for bottle: Bottle,
@@ -153,17 +157,15 @@ extension MacOSApplicationServices {
         emit: @escaping BridgeJobStore.Progress
     ) async throws -> JSONValue {
         let total = verbs.count
-        // Cheap file-read snapshot: winetricks only appends a verb to
-        // winetricks.log after that verb's loader succeeds, so growth means
-        // progress even when the process exited nonzero.
-        let before = await WinetricksService.parseWinetricksLog(for: bottle)
         var succeeded: [String] = []
-        var unresolved: [(verb: String, exitCode: Int32)] = []
         var failures: [(verb: String, reason: String)] = []
         var exitCodes: [String: JSONValue] = [:]
 
         for (offset, verb) in verbs.enumerated() {
             try Task.checkCancellation()
+            // Cheap file-read snapshot scoped to this verb's run: winetricks
+            // only appends to winetricks.log after a verb's loader succeeds.
+            let before = await WinetricksService.parseWinetricksLog(for: bottle)
             let outcome = try await installVerb(
                 verb,
                 offset: offset,
@@ -176,34 +178,30 @@ extension MacOSApplicationServices {
             }
             if outcome.succeeded {
                 succeeded.append(verb)
-            } else {
-                let reason = outcome.failure ?? "winetricks ended without reporting a result"
-                failures.append((verb: verb, reason: reason))
-                if let exitCode = outcome.exitCode {
-                    unresolved.append((verb: verb, exitCode: exitCode))
+                continue
+            }
+
+            let reason = outcome.failure ?? "winetricks ended without reporting a result"
+            var rescued = false
+            if outcome.exitCode != nil {
+                emit(.object(["stage": .string("verifying"), "verb": .string(verb)]))
+                let after = await WinetricksService.parseWinetricksLog(for: bottle)
+                if after.contains(verb) || after.count > before.count {
+                    rescued = true
+                    emit(progress(
+                        stage: "installed",
+                        verb: verb,
+                        offset: offset,
+                        total: total,
+                        line: "winetricks exited with code \(outcome.exitCode ?? -1), "
+                            + "but the verb is installed"
+                    ))
                 }
             }
-        }
-
-        // Verify-and-rescue: trust the installed set, not the exit code.
-        // Metaverbs (e.g. cjkfonts) never appear in winetricks.log
-        // themselves — only their sub-verbs do — so growth of the log
-        // counts as installed too, matching what the user observes.
-        if !unresolved.isEmpty {
-            emit(.object(["stage": .string("verifying")]))
-            let after = await WinetricksService.listInstalledVerbs(for: bottle) ?? []
-            let madeProgress = after.count > before.count
-            for candidate in unresolved
-                where after.contains(candidate.verb) || madeProgress {
-                failures.removeAll { $0.verb == candidate.verb }
-                succeeded.append(candidate.verb)
-                emit(progress(
-                    stage: "installed",
-                    verb: candidate.verb,
-                    offset: verbs.firstIndex(of: candidate.verb) ?? 0,
-                    total: total,
-                    line: "winetricks exited with code \(candidate.exitCode), but the verb is installed"
-                ))
+            if rescued {
+                succeeded.append(verb)
+            } else {
+                failures.append((verb: verb, reason: reason))
             }
         }
 

@@ -44,7 +44,11 @@ public final class RuntimeService {
     private let clipboard: (@MainActor () -> (any ClipboardAccess)?)?
     private let policyLoader: (@MainActor (URL) throws -> ClipboardPolicySnapshot)?
     private let beforeLaunch: (@MainActor (LibraryEntry) -> Void)?
-    private let backendResolver: (@MainActor (LibraryEntry, URL?) -> String?)?
+    /// Names the backend a launch resolves to for an entry and, when the
+    /// resolution had to fall back (D3DMetal without its payload), the
+    /// backend it fell back from.
+    private let backendResolver:
+        (@MainActor (LibraryEntry, URL?) -> (backend: String, fallbackFrom: String?)?)?
     private var configured: [String: LibraryEntry] = [:]
     public var containerURLs: Set<URL> {
         Set(configured.values.map(\.bottleURL))
@@ -60,7 +64,8 @@ public final class RuntimeService {
         clipboard: (@MainActor () -> (any ClipboardAccess)?)? = nil,
         policyLoader: (@MainActor (URL) throws -> ClipboardPolicySnapshot)? = nil,
         beforeLaunch: (@MainActor (LibraryEntry) -> Void)? = nil,
-        backendResolver: (@MainActor (LibraryEntry, URL?) -> String?)? = nil
+        backendResolver:
+            (@MainActor (LibraryEntry, URL?) -> (backend: String, fallbackFrom: String?)?)? = nil
     ) {
         runtime = LibraryRuntimeController(driver: driver, launchTimeout: launchTimeout)
         self.clipboard = clipboard
@@ -209,8 +214,11 @@ public final class RuntimeService {
             "accepted": .bool(true),
             "entryID": .string(entry.id)
         ]
-        if let backend = backendResolver?(entry, executable) {
-            reply["backend"] = .string(backend)
+        if let resolved = backendResolver?(entry, executable) {
+            reply["backend"] = .string(resolved.backend)
+            if let fallbackFrom = resolved.fallbackFrom {
+                reply["backendFrom"] = .string(fallbackFrom)
+            }
         }
         return .object(reply)
     }

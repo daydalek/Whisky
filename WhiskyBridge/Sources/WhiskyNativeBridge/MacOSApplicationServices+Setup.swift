@@ -35,7 +35,13 @@ extension MacOSApplicationServices {
         case "setup.status":
             return Self.setupStatus()
         case "setup.gptk.status":
-            return Self.gptkStatus()
+            return await Task.detached(priority: .utility) {
+                // Status reads stand in for the old settings page's task:
+                // a runtime install clears Libraries and takes a deployed
+                // payload with it, so the store redeploys here.
+                GPTKImporter.deployStoredPayloadIfCapable()
+                return Self.gptkStatus()
+            }.value
         case "setup.gptk.import":
             let url = try params.path("path")
             return try await Task.detached(priority: .userInitiated) {
@@ -102,20 +108,39 @@ extension MacOSApplicationServices {
                 } ?? false
                 if !force, WhiskyWineInstaller.isWhiskyWineInstalled(),
                    let local = WhiskyWineInstaller.whiskyWineVersion(), !(local < manifest.version) {
+                    // A current runtime can still hold no GPTK payload when
+                    // Libraries was replaced outside this path.
+                    await Task.detached(priority: .utility) {
+                        _ = GPTKImporter.deployStoredPayloadIfCapable()
+                    }.value
                     return Self.setupStatus()
                 }
 
-                progress(.object(["stage": .string("downloading")]))
-                let archive = try await Self.downloadArchive(from: url) { received, total in
-                    progress(.object([
-                        "stage": .string("downloading"),
-                        "received": .integer(received),
-                        "total": .integer(total)
-                    ]))
+                // A previously fetched archive whose hash still verifies
+                // skips the download entirely.
+                var archive = await Self.reusableArchive(sha256: manifest.sha256)
+                if archive == nil {
+                    progress(.object(["stage": .string("downloading")]))
+                    archive = try await Self.downloadArchive(from: url) { received, total in
+                        progress(.object([
+                            "stage": .string("downloading"),
+                            "received": .integer(received),
+                            "total": .integer(total)
+                        ]))
+                    }
+                }
+                guard let archive else {
+                    throw BridgeFailure("download_failed", "Wine runtime download produced no archive")
                 }
                 if let expected = manifest.sha256 {
                     progress(.object(["stage": .string("verifying")]))
-                    guard WhiskyWineInstaller.sha256(ofFileAt: archive) == expected else {
+                    // Hashed off the main actor — the archive is well over a
+                    // hundred megabytes.
+                    let matches = await Task.detached(priority: .userInitiated) {
+                        WhiskyWineInstaller.sha256(ofFileAt: archive) == expected
+                    }.value
+                    guard matches else {
+                        ResumableDownloader.discardArtifacts(at: archive)
                         throw BridgeFailure(
                             "checksum_mismatch",
                             "Downloaded Wine runtime failed its SHA-256 check"
@@ -129,7 +154,14 @@ extension MacOSApplicationServices {
                 let installed = try await Task.detached(priority: .userInitiated) {
                     try WhiskyWineInstaller.install(from: archive)
                     WhiskyWineInstaller.cleanupTarball(at: archive)
-                    return WhiskyWineInstaller.isWhiskyWineInstalled()
+                    let installed = WhiskyWineInstaller.isWhiskyWineInstalled()
+                    if installed {
+                        // The install replaced Libraries, so any deployed GPTK
+                        // payload went with it; the store outlives it and
+                        // redeploys here.
+                        GPTKImporter.deployStoredPayloadIfCapable()
+                    }
+                    return installed
                 }.value
                 guard installed else {
                     throw BridgeFailure(
@@ -144,47 +176,56 @@ extension MacOSApplicationServices {
         }
     }
 
-    /// Streams the archive to a temporary file, reporting byte progress at
-    /// most a few times per second.
-    private static func downloadArchive(
+    /// Where the runtime archive is cached. A stable location lets
+    /// interrupted downloads resume across retries and relaunches.
+    private nonisolated static var archiveDestination: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appending(path: Bundle.whiskyBundleIdentifier)
+            .appending(path: "RuntimeDownload")
+            .appending(path: "Libraries.tar.gz")
+    }
+
+    /// Returns the cached archive when its SHA-256 still matches the manifest;
+    /// clears a stale one so the next download starts clean.
+    private nonisolated static func reusableArchive(sha256 expected: String?) async -> URL? {
+        let archive = archiveDestination
+        guard let expected,
+              FileManager.default.fileExists(atPath: archive.path(percentEncoded: false))
+        else { return nil }
+        let matches = await Task.detached(priority: .userInitiated) {
+            WhiskyWineInstaller.sha256(ofFileAt: archive) == expected
+        }.value
+        if matches { return archive }
+        ResumableDownloader.discardArtifacts(at: archive)
+        return nil
+    }
+
+    /// Downloads the archive to disk, resuming interrupted transfers and
+    /// retrying transient failures. Runs off the main actor so a saturated
+    /// connection can't starve other requests; byte progress hops onto the
+    /// main actor at most a few times per second.
+    private nonisolated static func downloadArchive(
         from url: URL,
         progress: @escaping @MainActor @Sendable (Int64, Int64) -> Void
     ) async throws -> URL {
-        let (bytes, response) = try await URLSession.shared.bytes(from: url)
-        if let http = response as? HTTPURLResponse, !(200 ..< 300).contains(http.statusCode) {
-            throw BridgeFailure("download_failed", "Wine runtime download returned HTTP \(http.statusCode)")
-        }
-        let total = max(response.expectedContentLength, 0)
-        let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("WhiskyWine-\(UUID().uuidString).tar.gz")
-        FileManager.default.createFile(atPath: destination.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: destination)
-        defer { try? handle.close() }
-        var buffer = Data()
-        buffer.reserveCapacity(1 << 20)
-        var received: Int64 = 0
-        var lastReport = Date.distantPast
+        let destination = archiveDestination
+        let config = URLSessionConfiguration.ephemeral
+        config.waitsForConnectivity = true
+        config.timeoutIntervalForRequest = 60
+        let downloader = ResumableDownloader(sessionConfiguration: config)
+        let gate = ProgressReportGate()
         do {
-            for try await byte in bytes {
-                buffer.append(byte)
-                if buffer.count >= 1 << 20 {
-                    try handle.write(contentsOf: buffer)
-                    received += Int64(buffer.count)
-                    buffer.removeAll(keepingCapacity: true)
-                    try Task.checkCancellation()
-                    if Date().timeIntervalSince(lastReport) > 0.25 {
-                        lastReport = Date()
-                        await progress(received, total)
-                    }
-                }
-            }
-            try handle.write(contentsOf: buffer)
-            received += Int64(buffer.count)
-            await progress(received, total)
-        } catch {
-            try? FileManager.default.removeItem(at: destination)
-            throw error
+            try await downloader.download(from: url, to: destination, progress: { update in
+                guard gate.shouldReport() else { return }
+                let received = update.bytesOnDisk
+                let total = update.expectedBytes ?? 0
+                Task { @MainActor in progress(received, total) }
+            })
+        } catch ResumableDownloadError.httpStatus(let code) {
+            throw BridgeFailure("download_failed", "Wine runtime download returned HTTP \(code)")
         }
+        let size = Int64((try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        await progress(size, size)
         return destination
     }
 
@@ -223,5 +264,20 @@ extension MacOSApplicationServices {
             "unverified": .bool(unverified),
             "error": failureReason.map(JSONValue.string) ?? .null
         ])
+    }
+}
+
+/// Rate-limits download progress hops onto the main actor: `shouldReport()`
+/// returns `true` at most four times per second.
+private final class ProgressReportGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastReport = Date.distantPast
+
+    func shouldReport(now: Date = Date()) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard now.timeIntervalSince(lastReport) > 0.25 else { return false }
+        lastReport = now
+        return true
     }
 }

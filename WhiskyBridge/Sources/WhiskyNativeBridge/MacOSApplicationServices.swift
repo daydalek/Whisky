@@ -53,22 +53,12 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         },
         backendResolver: { [weak self] entry, executable in
             guard let bottle = self?.bottle(entry.bottleURL) else { return nil }
-            let targetURL = executable ?? {
-                if case let .program(url) = entry.launch {
-                    return url
-                }
-                return nil
-            }()
-            let program = targetURL.flatMap { exe in bottle.programs.first { $0.url == exe } }
-            let overrideBackend = program?.settings.overrides?.graphicsBackend
-            let choice = overrideBackend ?? bottle.settings.graphicsBackend
-            let resolved = if choice == .recommended {
-                GraphicsBackendResolver
-                    .resolve(for: targetURL.flatMap { LauncherType.detect(from: $0) } ?? entry.launcher)
-            } else {
-                choice
-            }
-            return resolved.displayName
+            // The backend the launch resolves to, not the configured one:
+            // per-program overrides, GameDB plans, launcher steering and the
+            // D3DMetal-without-payload fallback all apply.
+            return EffectiveBackend
+                .forLaunch(of: entry, executable: executable, bottle: bottle)
+                .map { ($0.backend.displayName, $0.unavailable?.displayName) }
         }
     )
 
@@ -95,7 +85,8 @@ public final class MacOSApplicationServices: NativeApplicationServices {
                 "programs.launch",
                 "winetricks.verbs",
                 "winetricks.install"
-            ] + RuntimeService.capabilities : [])
+            ] + (WhiskyWineInstaller.isGDICoreMLInstalled() ? ["gdi.coreml"] : [])
+            + RuntimeService.capabilities : [])
     }
 
     public var methods: [String] {

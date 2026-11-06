@@ -62,7 +62,7 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
 
     public func capabilities(for entry: LibraryEntry) -> LibraryRuntimeCapabilities {
         guard case .program = entry.launch else { return [] }
-        return [.launch, .cancelLaunch]
+        return [.launch, .cancelLaunch, .stop]
     }
 
     public func retainContainers(_ urls: Set<URL>) {
@@ -215,7 +215,29 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
     public func cancelSteamLaunch(_ entry: LibraryEntry) {}
 
     public func stop(_ entry: LibraryEntry) async {
-        channel.send(.failure("Use the Processes page to select the Windows process to terminate"))
+        do {
+            let probe = LinuxWineProcessHost(host: host)
+            let wanted = names[entry.id] ?? executableNames(for: entry)
+            let targets = try await probe.listProcesses(in: entry.bottleURL)
+                .filter { $0.kind == "app" && wanted.contains($0.name.lowercased()) }
+            for target in targets {
+                try await probe.terminateProcess(in: entry.bottleURL, pid: target.pid, force: true)
+            }
+            if let process = processes[entry.id], process.isRunning {
+                process.terminate()
+            }
+            if targets.isEmpty, processes[entry.id]?.isRunning != true {
+                channel.send(.failure("No running Windows process matches \(entry.name)"))
+            }
+            await poll()
+        } catch {
+            channel.send(.failure(error.localizedDescription))
+        }
+    }
+
+    private func executableNames(for entry: LibraryEntry) -> Set<String> {
+        guard case let .program(url) = entry.launch else { return [] }
+        return [url.lastPathComponent.lowercased()]
     }
 
     public func stopTracking() {

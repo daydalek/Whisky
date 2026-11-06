@@ -25,6 +25,10 @@ struct LinuxTerminalService {
         let id: String
         let name: String
         let executable: URL
+        /// Arguments placed before the shell command for this emulator.
+        /// `-e` is the xterm convention; GNOME emulators take `--`; kitty,
+        /// foot and WezTerm (`start --`) run the command positionally.
+        let argumentPrefix: [String]
         var payload: JSONValue {
             .object(["id": .string(id), "name": .string(name), "path": .string(executable.path)])
         }
@@ -34,33 +38,90 @@ struct LinuxTerminalService {
     let searchPaths: [URL]
     let environment: [String: String]
     var launch: Launcher = Self.launchProcess
-    static let choices = [
-        ("x-terminal-emulator", "系统终端"), ("gnome-terminal", "GNOME Terminal"), ("xterm", "XTerm"), ("foot", "Foot")
+    static let choices: [(id: String, name: String, prefix: [String])] = [
+        ("x-terminal-emulator", "系统终端", ["-e"]),
+        ("gnome-terminal", "GNOME Terminal", ["--"]),
+        ("kgx", "GNOME Console", ["--"]),
+        ("konsole", "Konsole", ["-e"]),
+        ("xfce4-terminal", "Xfce Terminal", ["-e"]),
+        ("mate-terminal", "MATE Terminal", ["-e"]),
+        ("lxterminal", "LXTerminal", ["-e"]),
+        ("tilix", "Tilix", ["-e"]),
+        ("alacritty", "Alacritty", ["-e"]),
+        ("ghostty", "Ghostty", ["-e"]),
+        ("kitty", "kitty", []),
+        ("wezterm", "WezTerm", ["start", "--"]),
+        ("foot", "Foot", []),
+        ("xterm", "XTerm", ["-e"]),
+        ("urxvt", "rxvt-unicode", ["-e"])
     ]
+    /// Emulators that cannot connect to a Wayland-only desktop.
+    private static let x11Only: Set<String> = ["xterm", "uxterm", "urxvt"]
     var displayAvailable: Bool {
         ["DISPLAY", "WAYLAND_DISPLAY"].contains { environment[$0]?.isEmpty == false }
     }
 
     func available() -> [Terminal] {
         let choices = waylandOnly
-            ? Self.choices.sorted { ($0.0 == "foot" ? 0 : $0.0 == "gnome-terminal" ? 1 : 2)
-                < ($1.0 == "foot" ? 0 : $1.0 == "gnome-terminal" ? 1 : 2)
-            }
+            ? Self.choices.sorted { Self.waylandRank($0.id) < Self.waylandRank($1.id) }
             : Self.choices
-        return choices.compactMap { id, name in
-            guard let executable = searchPaths.map({ $0.appendingPathComponent(id) })
+        var terminals: [Terminal] = choices.compactMap { choice in
+            guard let executable = searchPaths.map({ $0.appendingPathComponent(choice.id) })
                 .first(where: { Self.isExecutable($0) })
             else { return nil }
             let resolved = executable.resolvingSymlinksInPath().lastPathComponent
             if displayAvailable {
-                if ["xterm", "uxterm"].contains(resolved), environment["DISPLAY"]?.isEmpty != false {
+                if Self.x11Only.contains(resolved), environment["DISPLAY"]?.isEmpty != false {
                     return nil
                 }
                 if resolved == "foot", environment["WAYLAND_DISPLAY"]?.isEmpty != false {
                     return nil
                 }
             }
-            return Terminal(id: id, name: name, executable: executable)
+            return Terminal(
+                id: choice.id,
+                name: choice.name,
+                executable: executable,
+                argumentPrefix: choice.prefix
+            )
+        }
+        if let preferred = preferredTerminal() {
+            // $TERMINAL is the explicit user choice; it outranks every
+            // discovered emulator without duplicating a listed one.
+            let resolved = preferred.executable.resolvingSymlinksInPath()
+            terminals.removeAll { $0.executable.resolvingSymlinksInPath() == resolved }
+            terminals.insert(preferred, at: 0)
+        }
+        return terminals
+    }
+
+    /// The emulator named by `$TERMINAL` (first word), when it resolves to an
+    /// executable on `searchPaths` or an absolute path.
+    private func preferredTerminal() -> Terminal? {
+        guard let raw = environment["TERMINAL"], !raw.isEmpty,
+              let name = raw.split(whereSeparator: \.isWhitespace).first.map(String.init)
+        else { return nil }
+        let executable: URL? = if name.hasPrefix("/") {
+            Self.isExecutable(URL(fileURLWithPath: name)) ? URL(fileURLWithPath: name) : nil
+        } else {
+            searchPaths.map { $0.appendingPathComponent(name) }.first(where: { Self.isExecutable($0) })
+        }
+        guard let executable else { return nil }
+        let resolved = executable.resolvingSymlinksInPath().lastPathComponent
+        let prefix = Self.choices.first { $0.id == resolved }?.prefix ?? ["-e"]
+        return Terminal(
+            id: "$TERMINAL",
+            name: "$TERMINAL (\(resolved))",
+            executable: executable,
+            argumentPrefix: prefix
+        )
+    }
+
+    private static func waylandRank(_ id: String) -> Int {
+        switch id {
+        case "foot": 0
+        case "gnome-terminal", "kgx": 1
+        default: 2
         }
     }
 
@@ -101,8 +162,7 @@ struct LinuxTerminalService {
         } ?? "/bin/sh"
         // Positional arguments retain literal prefix/shell paths across terminal server processes.
         let script = "cd -- \"$1\" && export WINEPREFIX=\"$1\" && exec \"$2\" -i"
-        let arguments = [
-            terminal.id == "gnome-terminal" ? "--" : "-e",
+        let arguments = terminal.argumentPrefix + [
             "/bin/sh",
             "-c",
             script,

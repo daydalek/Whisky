@@ -58,20 +58,37 @@ public struct LinuxLaunchConfiguration: Sendable, Equatable {
                 ? locations.identity : locations.legacy
             program = try ProgramSettingsService.load(source)
         }
-        let configuration = compose(
+        var configuration = compose(
             values: values,
             bottleEnvironment: bottleEnvironment,
             bottleDLLOverrides: dllOverrides(metadata["customDLLOverrides"]),
             program: program
         )
+        // A dxvk.conf beside Metadata.plist tunes DXVK the same way it does
+        // on macOS (`WineEnvironment`); the variable exists so the file is
+        // actually read. DXVK's PE build opens the path through Win32, so it
+        // needs the Z: drive mapping rather than a bare POSIX path.
+        let dxvkConfig = container.appendingPathComponent("dxvk.conf")
+        if FileManager.default.fileExists(atPath: dxvkConfig.path) {
+            configuration.environment["DXVK_CONFIG_FILE"] = "Z:\(dxvkConfig.path)"
+        }
         if configuration.requiresDXVK {
-            for directory in ["system32", "syswow64"] {
+            // 64-bit prefixes carry both system directories; a 32-bit-only
+            // prefix has just system32, and requiring syswow64 there would
+            // fail a perfectly valid DXVK install.
+            let windows = container.appendingPathComponent("drive_c/windows")
+            var directories = ["system32"]
+            if FileManager.default.fileExists(atPath: windows.appendingPathComponent("syswow64").path) {
+                directories.append("syswow64")
+            }
+            for directory in directories {
                 for dll in ["dxgi.dll", "d3d11.dll"] {
-                    let url = container.appendingPathComponent("drive_c/windows/\(directory)/\(dll)")
+                    let url = windows.appendingPathComponent("\(directory)/\(dll)")
                     guard let data = try? Data(contentsOf: url), data.range(of: Data("DXVK".utf8)) != nil else {
                         throw BridgeFailure(
                             "component_missing",
-                            "Install DXVK with Winetricks before selecting DXVK (\(directory)/\(dll))"
+                            "DXVK is not installed in this container; install it with the 'dxvk' "
+                                + "winetricks verb before selecting DXVK (\(directory)/\(dll))"
                         )
                     }
                 }
@@ -115,10 +132,12 @@ public struct LinuxLaunchConfiguration: Sendable, Equatable {
         }
 
         // Synchronization. MSync is the macOS Mach-port primitive; on Linux
-        // the closest supported primitive is ESync.
-        let sync = overrideText("enhancedSync") ?? text("enhancedSync") ?? "none"
-        if sync == "esync" || sync == "msync" {
-            environment["WINEESYNC"] = "1"
+        // the supported primitives are ESync and FSync. An imported `msync`
+        // value degrades to ESync, the closest Linux equivalent.
+        switch overrideText("enhancedSync") ?? text("enhancedSync") ?? "none" {
+        case "esync", "msync": environment["WINEESYNC"] = "1"
+        case "fsync": environment["WINEFSYNC"] = "1"
+        default: break
         }
 
         // Graphics backend. The Linux runtime ships WineD3D and VKD3D;

@@ -120,8 +120,9 @@ private func terminalExecutable(_ url: URL) throws {
     let wayland = LinuxTerminalService(
         searchPaths: [fixture.root], environment: ["WAYLAND_DISPLAY": "wayland-1"]
     ) { executable, args, _ in
-        #expect(executable.lastPathComponent == "foot" && args.first == "-e")
-        #expect(args[5] == fixture.source.path)
+        // foot takes the command positionally — no -e flag.
+        #expect(executable.lastPathComponent == "foot" && args.first == "/bin/sh")
+        #expect(args[4] == fixture.source.path)
     }
     #expect(wayland.available().map(\.id) == ["foot"])
     #expect(try wayland.open(container: fixture.source, preferred: "auto").object?["terminal"] == .string("foot"))

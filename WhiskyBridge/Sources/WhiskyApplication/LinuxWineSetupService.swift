@@ -154,7 +154,7 @@ public final class LinuxWineSetupService {
             "canExecute": .bool(host?.canExecute == true),
             "translation": host.map { .string($0.translationDescription) } ?? .null,
             "runtimeArchitecture": host.map { .string($0.architecture) } ?? .null,
-            "rosettaInstalled": .bool(true), "appleSilicon": .bool(false)
+            "rosettaInstalled": .bool(false), "appleSilicon": .bool(false)
         ])
     }
 

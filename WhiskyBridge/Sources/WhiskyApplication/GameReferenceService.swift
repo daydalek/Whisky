@@ -96,7 +96,18 @@ import WhiskyCore
             "avxEnabled": "AVX",
             "sequoiaCompatMode": "Sequoia 兼容模式"
         ]
+        // GameDB variants were authored for macOS; drop recommendations this
+        // platform's schema cannot express (sequoiaCompatMode, msync, D3DMetal…).
+        let fields = Dictionary(
+            uniqueKeysWithValues: ContainerConfiguration.fields(for: .current).map { ($0.id, $0) }
+        )
         for (key, value) in (variant["settings"]?.object ?? [:]).sorted(by: { $0.key < $1.key }) {
+            guard let field = fields[key] else { continue }
+            if case let .choice(options) = field.input,
+               let raw = value.string,
+               !options.contains(where: { $0.id == raw }) {
+                continue
+            }
             result.append(reference("参考设置", titles[key] ?? key, display(value)))
         }
         for (key, value) in (variant["environmentVariables"]?.object ?? [:]).sorted(by: { $0.key < $1.key }) {

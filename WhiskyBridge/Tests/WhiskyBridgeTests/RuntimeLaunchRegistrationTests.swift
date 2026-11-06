@@ -132,7 +132,10 @@ struct RuntimeLaunchRegistrationTests {
         let fixture = try RegistrationFixture()
         defer { fixture.remove() }
         let driver = RegistrationDriver()
-        let runtime = RuntimeService(driver: driver, backendResolver: { _, _ in "DXMT" })
+        let runtime = RuntimeService(
+            driver: driver,
+            backendResolver: { _, _ in (backend: "DXMT", fallbackFrom: nil) }
+        )
         let service = ApplicationService(workspace: fixture.workspace, runtime: runtime)
         defer { runtime.stopTracking() }
         let container: [String: JSONValue] = ["container": .string(fixture.container.path)]

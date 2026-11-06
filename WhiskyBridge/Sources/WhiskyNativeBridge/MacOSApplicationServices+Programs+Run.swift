@@ -38,15 +38,20 @@ extension MacOSApplicationServices {
         guard FileManager.default.fileExists(atPath: executable.path) else {
             throw BridgeFailure("file_missing", "Selected file is unavailable")
         }
-        let program = bottle.programs.first { $0.url == executable }
-        let choice = program?.settings.overrides?.graphicsBackend ?? bottle.settings.graphicsBackend
-        let resolved = if choice == .recommended {
-            GraphicsBackendResolver.resolve(for: LauncherType.detect(from: executable))
+        let resolution = if executable.pathExtension.lowercased() == "bat" {
+            // A batch file runs the bottle's environment alone: no per-program
+            // overrides and no steering on the script's own name.
+            EffectiveBackend.resolveDetailed(bottle.settings.graphicsBackend)
         } else {
-            choice
+            // Program(url:bottle:) loads persisted overrides itself, so predict
+            // with them whether or not the bottle scan has reached the file.
+            EffectiveBackend.forProgram(executable: executable, bottle: bottle)
         }
-        let backend = resolved.displayName
-        return try jobs.start(name: "programs.run", extra: ["backend": .string(backend)]) { _ in
+        var extra: [String: JSONValue] = ["backend": .string(resolution.backend.displayName)]
+        if let unavailable = resolution.unavailable {
+            extra["backendFrom"] = .string(unavailable.displayName)
+        }
+        return try jobs.start(name: "programs.run", extra: extra) { _ in
             if executable.pathExtension.lowercased() == "bat" {
                 _ = try await Wine.runBatchFile(url: executable, bottle: bottle)
             } else {

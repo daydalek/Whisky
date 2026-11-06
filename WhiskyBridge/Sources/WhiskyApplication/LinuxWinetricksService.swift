@@ -171,7 +171,6 @@ public final class LinuxWinetricksService {
                 "index": .integer(index),
                 "total": .integer(Int64(total))
             ]))
-            let before = installedVerbs(in: container)
             let result = try await runVerb(verb, container: container, script: script, host: host)
             exitCodes[verb] = .integer(Int64(result.status))
             if let lastLine = result.output.split(whereSeparator: \.isNewline).last {
@@ -184,9 +183,11 @@ public final class LinuxWinetricksService {
                 ]))
             }
             let after = installedVerbs(in: container)
-            // In wow64 prefixes winetricks often exits nonzero after a verb or
-            // its sub-verbs were recorded in winetricks.log; match macOS.
-            let installed = result.status == 0 || after.contains(verb) || after.count > before.count
+            // In wow64 prefixes winetricks often exits nonzero after the verb
+            // itself was recorded in winetricks.log; a clean exit also counts.
+            // Anything else is a failure — unrelated log growth must not
+            // whitewash it.
+            let installed = result.status == 0 || after.contains(verb)
             if installed {
                 succeeded.append(verb)
                 emit(.object([

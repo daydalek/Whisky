@@ -49,7 +49,7 @@ extension MacOSApplicationServices {
         case "bottle.repair":
             return try repairBottle(container: container)
         case "bottle.cleanCache":
-            return try cleanShaderCaches()
+            return try cleanShaderCaches(container: container)
         case "bottle.tools":
             return try bottleTool(container: container, params: params)
         default:
@@ -163,7 +163,7 @@ extension MacOSApplicationServices {
             let registry = WorkspaceBottleRegistry(registryURL: workspace.registry) { [weak self] url in
                 self?.bottle(url)
             }
-            BottleOperations.move(bottleAt: container, to: destination, registry: registry)
+            try BottleOperations.move(bottleAt: container, to: destination, registry: registry)
             guard FileManager.default.fileExists(atPath: destination.path),
                   !FileManager.default.fileExists(atPath: container.path)
             else {
@@ -242,10 +242,47 @@ extension MacOSApplicationServices {
         }
     }
 
+    /// Wipes shader caches scoped to the container: every `*.dxvk-cache`
+    /// file inside the prefix, plus the shared per-user D3DMetal cache only
+    /// when the bottle actually runs D3DMetal. The deletion itself is a job:
+    /// a large cache tree can take seconds to unlink.
+    private func cleanShaderCaches(container: URL) throws -> JSONValue {
+        let usesD3DMetal = bottle(container).map {
+            $0.settings.graphicsBackend == .d3dMetal
+                || ($0.settings.graphicsBackend == .recommended && GPTKImporter.isDeployed())
+        } ?? true
+
+        let d3dmPath: URL? = try usesD3DMetal ? resolveUserCacheD3DM() : nil
+        return try jobs.start(name: "bottle.cleanCache") { _ in
+            let removed = try await Task.detached(priority: .utility) {
+                let manager = FileManager.default
+                var removed = 0
+                let files = manager.enumerator(
+                    at: container,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                )?.allObjects.compactMap { $0 as? URL } ?? []
+                for file in files where file.lastPathComponent.hasSuffix(".dxvk-cache") {
+                    try manager.removeItem(at: file)
+                    removed += 1
+                }
+                if let d3dmPath, manager.fileExists(atPath: d3dmPath.path) {
+                    try manager.removeItem(at: d3dmPath)
+                    removed += 1
+                }
+                return removed
+            }.value
+            return .object([
+                "removed": .bool(removed > 0),
+                "removedCount": .integer(Int64(removed)),
+                "path": .string(d3dmPath?.path ?? "")
+            ])
+        }
+    }
+
     /// Wine's shared D3DMetal/shader cache lives in the per-user cache
-    /// directory, exactly where the SwiftUI menu item wipes it. The deletion
-    /// itself is a job: a large shader cache can take seconds to unlink.
-    private func cleanShaderCaches() throws -> JSONValue {
+    /// directory, exactly where the SwiftUI menu item wipes it.
+    private func resolveUserCacheD3DM() throws -> URL {
         let getconf = Process()
         getconf.executableURL = URL(fileURLWithPath: "/usr/bin/getconf")
         getconf.arguments = ["DARWIN_USER_CACHE_DIR"]
@@ -261,16 +298,8 @@ extension MacOSApplicationServices {
         guard let raw = String(data: output, encoding: .utf8) else {
             throw BridgeFailure("host_failed", "Could not resolve the user cache directory")
         }
-        let path = URL(fileURLWithPath: raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        return URL(fileURLWithPath: raw.trimmingCharacters(in: .whitespacesAndNewlines))
             .appendingPathComponent("d3dm")
-        return try jobs.start(name: "bottle.cleanCache") { _ in
-            let removed = try await Task.detached(priority: .utility) {
-                guard FileManager.default.fileExists(atPath: path.path) else { return false }
-                try FileManager.default.removeItem(at: path)
-                return true
-            }.value
-            return .object(["removed": .bool(removed), "path": .string(path.path)])
-        }
     }
 
     private func bottleTool(container: URL, params: [String: JSONValue]) throws -> JSONValue {
@@ -279,8 +308,8 @@ extension MacOSApplicationServices {
         }
         let tool = try params.text("tool")
         switch tool {
-        case "winecfg", "regedit", "control":
-            launchWineTool(tool, bottle: bottle)
+        case "winecfg", "regedit", "control", "taskmgr":
+            try launchWineTool(tool, bottle: bottle)
         case "terminal":
             try openTerminal(bottle: bottle)
         default:
@@ -289,18 +318,18 @@ extension MacOSApplicationServices {
         return .object(["accepted": .bool(true), "tool": .string(tool)])
     }
 
-    /// The tool windows stay open until the user closes them, so the caller is
-    /// answered at once and the process runs to completion in the background.
-    private func launchWineTool(_ tool: String, bottle: Bottle) {
-        Task { @MainActor in
-            do {
-                switch tool {
-                case "winecfg": try await Wine.cfg(bottle: bottle)
-                case "regedit": try await Wine.regedit(bottle: bottle)
-                default: try await Wine.control(bottle: bottle)
+    /// The tool windows stay open until the user closes them, so only process
+    /// *startup* is verified: `runWineProcess` throws when the Wine runtime
+    /// cannot spawn the tool, which surfaces to the caller instead of a log
+    /// line. The stream is drained in the background so the pipe never
+    /// stalls the tool, and a nonzero exit still reaches the log.
+    private func launchWineTool(_ tool: String, bottle: Bottle) throws {
+        let stream = try Wine.runWineProcess(name: tool, args: [tool], bottle: bottle)
+        Task.detached {
+            for await output in stream {
+                if case let .terminated(code) = output, code != 0 {
+                    NSLog("Whisky: %@ exited with code %d", tool, code)
                 }
-            } catch {
-                NSLog("Whisky: failed to launch %@: %@", tool, error.localizedDescription)
             }
         }
     }

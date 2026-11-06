@@ -210,7 +210,7 @@ struct LinuxParityTests {
         driver.stopTracking()
         await driver.poll()
         #expect(driver.snapshot.observation.runningEntryIDs == [gameB.id])
-        #expect(!driver.capabilities(for: gameA).contains(.stop))
+        #expect(driver.capabilities(for: gameA).contains(.stop))
         try fixture.write("tasklist.csv", "")
         await driver.poll()
         #expect(driver.snapshot.observation.runningEntryIDs.isEmpty)
@@ -351,6 +351,64 @@ struct LinuxParityTests {
         }
         let config = try await LinuxLaunchConfiguration.load(container: fixture.bottle, executable: nil)
         #expect(config.environment["WINEDLLOVERRIDES"]?.contains("d3d11=n,b") == true)
+    }
+
+    /// A 32-bit prefix carries no `syswow64`; requiring it would fail a valid
+    /// DXVK install. `system32` remains mandatory: a prefix without it is
+    /// malformed and still has to report the missing component.
+    @Test func dxvkValidationToleratesPure32BitPrefixes() async throws {
+        let fixture = try ParityFixture()
+        defer { fixture.cleanup() }
+        try fixture.metadata(["graphicsConfig": ["backend": "dxvk"]])
+        await #expect(throws: BridgeFailure.self) {
+            try await LinuxLaunchConfiguration.load(container: fixture.bottle, executable: nil)
+        }
+        // The fixture prefix only has system32 — a pure 32-bit layout.
+        let system32 = fixture.bottle.appendingPathComponent("drive_c/windows/system32")
+        for name in ["d3d11.dll", "dxgi.dll"] {
+            try Data("MZ-DXVK-fixture".utf8).write(to: system32.appendingPathComponent(name))
+        }
+        #expect(!FileManager.default.fileExists(
+            atPath: fixture.bottle.appendingPathComponent("drive_c/windows/syswow64").path
+        ))
+        let config = try await LinuxLaunchConfiguration.load(container: fixture.bottle, executable: nil)
+        #expect(config.environment["WINEDLLOVERRIDES"]?.contains("d3d11=n,b") == true)
+    }
+
+    /// DXVK_CONFIG_FILE must reach the PE-side config loader through the Z:
+    /// drive mapping; a bare POSIX path cannot be opened by Win32 calls.
+    @Test func dxvkConfExportsWindowsDrivePath() async throws {
+        let fixture = try ParityFixture()
+        defer { fixture.cleanup() }
+        try Data("dxvk.enableAsync = True\n".utf8)
+            .write(to: fixture.bottle.appendingPathComponent("dxvk.conf"))
+        let config = try await LinuxLaunchConfiguration.load(container: fixture.bottle, executable: nil)
+        #expect(config.environment["DXVK_CONFIG_FILE"] ==
+            "Z:\(fixture.bottle.appendingPathComponent("dxvk.conf").path)")
+    }
+
+    /// `bottle.cleanCache` deletes shader caches inside the container without
+    /// touching files outside it or non-cache files inside it.
+    @Test func cleanCacheIsScopedToTheContainer() async throws {
+        let fixture = try ParityFixture()
+        defer { fixture.cleanup() }
+        let cache = fixture.bottle.appendingPathComponent("drive_c/game.dxvk-cache")
+        try Data("cache".utf8).write(to: cache)
+        let keep = fixture.bottle.appendingPathComponent("drive_c/game.exe")
+        try Data("MZ".utf8).write(to: keep)
+        let foreign = fixture.root.appendingPathComponent("other.dxvk-cache")
+        try Data("cache".utf8).write(to: foreign)
+        let service = LinuxApplicationServices()
+        let workspace = ApplicationWorkspace(containers: [fixture.bottle])
+        let reply = try await service.call(
+            "bottle.cleanCache",
+            params: ["container": .string(fixture.bottle.path)],
+            workspace: workspace
+        )
+        #expect(reply.object?["removedCount"] == .integer(1))
+        #expect(!FileManager.default.fileExists(atPath: cache.path))
+        #expect(FileManager.default.fileExists(atPath: keep.path))
+        #expect(FileManager.default.fileExists(atPath: foreign.path))
     }
 
     @Test func linuxSchemaOnlyOffersImplementedOptions() throws {

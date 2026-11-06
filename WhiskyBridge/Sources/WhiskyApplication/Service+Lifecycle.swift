@@ -43,6 +43,11 @@ extension ApplicationService {
         if native?.methods.contains(method) == true || !portableLifecycleMethods.contains(method) {
             return try await nativeCall(method, params: params)
         }
+        if method == "bottle.remove" {
+            // The file-only lifecycle erases the prefix; give the runtime
+            // adapter a chance to kill its Wine processes first.
+            try await native?.prepareContainerRemoval(workspace.resolve(params))
+        }
         return try await lifecycleService.call(method, params: params, workspace: workspace)
     }
 
