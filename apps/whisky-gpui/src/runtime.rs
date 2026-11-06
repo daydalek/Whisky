@@ -157,8 +157,9 @@ pub(crate) fn primary_action_for(state: RuntimeState, capabilities: i64) -> Prim
                 }
             }
         }
-        // Programs carry no `stop` capability, so a running program reads as
-        // "Running" rather than offering a control that the helper rejects.
+        // Entries the driver cannot stop carry no `stop` capability, so a
+        // running entry reads as "Running" rather than offering a control
+        // the helper rejects.
         RuntimeState::Running if !can_stop => PrimaryAction {
             label: "Running",
             action: None,

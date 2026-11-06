@@ -389,6 +389,7 @@ impl PreviewState {
             collapsed: [
                 "launcher",
                 "input",
+                "upscaling",
                 "dll",
                 "cleanup",
                 "overrides",
@@ -1168,11 +1169,16 @@ impl WhiskyApp {
                 container: _,
                 entry_id,
                 backend,
+                backend_from,
             } => {
                 if !self.demo {
-                    let backend_label = backend.unwrap_or_else(|| "按启动配置".to_owned());
-                    self.active_backends
-                        .insert(entry_id.clone(), backend_label.clone());
+                    // The badge keeps the effective backend alone; the toast
+                    // spells out a fallback when one was taken.
+                    self.active_backends.insert(
+                        entry_id.clone(),
+                        backend.clone().unwrap_or_else(|| "按启动配置".to_owned()),
+                    );
+                    let backend_label = backend_label(backend, backend_from);
                     let title = self
                         .entries
                         .iter()
@@ -1182,9 +1188,13 @@ impl WhiskyApp {
                     self.show_notice(format!("正在启动 {title} · 图形后端：{backend_label}"), cx);
                 }
             }
-            BridgeEvent::ProgramRunStarted { name, backend } => {
+            BridgeEvent::ProgramRunStarted {
+                name,
+                backend,
+                backend_from,
+            } => {
                 if !self.demo {
-                    let backend_label = backend.unwrap_or_else(|| "按启动配置".to_owned());
+                    let backend_label = backend_label(backend, backend_from);
                     self.show_notice(format!("正在启动 {name} · 图形后端：{backend_label}"), cx);
                 }
             }
@@ -6065,6 +6075,15 @@ impl WhiskyApp {
             return primary_action_for(entry.state, entry.capabilities);
         }
         if !self.demo && self.bottle_path(index).is_some() {
+            // Linux has no Steam launch adapter: a `steam:` entry's optimistic
+            // Play would configure the bottle, then fail inside the helper.
+            #[cfg(target_os = "linux")]
+            if self
+                .game(index)
+                .is_some_and(|game| game.id.starts_with("steam:"))
+            {
+                return PrimaryAction::unavailable();
+            }
             return PrimaryAction {
                 label: "Play",
                 action: Some(RuntimeAction::Launch),
@@ -6317,6 +6336,18 @@ impl WhiskyApp {
 /// Internal identity: the same bridge id in two bottles is two records.
 fn entry_key(container: &str, entry_id: &str) -> String {
     format!("{container}\u{1}{entry_id}")
+}
+
+/// The backend a launch reply reports, annotated when the resolution fell
+/// back: `backend` is always the backend the launch resolves to — configured
+/// choice, per-program override, GameDB plan, steering and availability all
+/// applied — and `backend_from` names the one that could not run.
+fn backend_label(backend: Option<String>, backend_from: Option<String>) -> String {
+    match (backend, backend_from) {
+        (Some(effective), Some(from)) => format!("{effective}（{from} 不可用，已回退）"),
+        (Some(effective), None) => effective,
+        (None, _) => "按启动配置".to_owned(),
+    }
 }
 
 /// Finder's duplicate naming: "Name Copy", then "Name Copy 2", …

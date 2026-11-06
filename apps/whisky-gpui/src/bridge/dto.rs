@@ -170,6 +170,10 @@ pub(crate) struct LaunchReplyDto {
     pub(crate) accepted: bool,
     #[serde(default)]
     pub(crate) backend: Option<String>,
+    /// The backend the launch resolved before availability applied, present
+    /// only when it cannot run — `backend` is the fallback it landed on.
+    #[serde(default, rename = "backendFrom")]
+    pub(crate) backend_from: Option<String>,
     #[serde(default)]
     pub(crate) interaction: Option<ClipboardInteractionDto>,
 }
@@ -399,6 +403,10 @@ pub(crate) struct JobStartDto {
     pub(crate) job_id: String,
     #[serde(default)]
     pub(crate) backend: Option<String>,
+    /// The backend the launch resolved before availability applied, present
+    /// only when it cannot run — `backend` is the fallback it landed on.
+    #[serde(default, rename = "backendFrom")]
+    pub(crate) backend_from: Option<String>,
 }
 
 /// `system.choosePath`: the caller's purpose echoed back plus the selection.

@@ -373,6 +373,7 @@ pub(crate) const SECTIONS: &[SectionSpec] = &[
     SectionSpec { id: "launcher", title: "启动器兼容性" },
     SectionSpec { id: "input", title: "输入与控制器" },
     SectionSpec { id: "graphics", title: "图形" },
+    SectionSpec { id: "upscaling", title: "超分" },
     SectionSpec { id: "audio", title: "音频" },
     SectionSpec { id: "discord", title: "Discord" },
     SectionSpec { id: "display", title: "显示" },
@@ -391,17 +392,18 @@ pub(crate) fn section_for(field_id: &str) -> &'static SectionSpec {
         "launcherCompatibilityMode" | "launcherMode" | "detectedLauncher" | "launcherLocale"
         | "gpuSpoofing" | "gpuVendor" | "autoEnableDXVK" => "launcher",
         "controllerCompatibilityMode" | "disableHIDAPI" | "allowBackgroundEvents"
-        | "disableControllerMapping" | "useButtonLabels" | "commandActsAsControl" => "input",
-        "graphicsBackend" | "metalFX" | "metalFXSpatial" | "gdiUpscaler" | "gdiUpscalerExcludedRegions" | "gdiUpscalerCache" | "frameGeneration" | "hostMemoryImport" | "shadowImportedHostMemory" | "metal4Enabled" | "metalHud"
-        | "metalTrace" | "dxrEnabled" | "metalValidation" | "dxvkAsync" | "dxvkHud" => "graphics",
-        "audioDriver" | "audioLatencyPreset" | "outputDeviceMode" | "pinnedDeviceName" => "audio",
+        | "useButtonLabels" | "commandActsAsControl" => "input",
+        "graphicsBackend" | "frameGeneration" | "hostMemoryImport" | "shadowImportedHostMemory"
+        | "metal4Enabled" | "metalHud" | "metalTrace" | "dxrEnabled" | "metalValidation"
+        | "dxvkAsync" | "dxvkHud" => "graphics",
+        "metalFX" | "metalFXSpatial" | "gdiUpscaler" | "gdiUpscalerExcludedRegions"
+        | "gdiUpscalerCache" => "upscaling",
+        "audioDriver" | "audioLatencyPreset" => "audio",
         "discordPresence" | "discordBridge" => "discord",
         "virtualDesktopEnabled" | "resolutionPreset" | "customResolutionWidth"
         | "customResolutionHeight" => "display",
         "shaderCacheEnabled" | "disableAppNap" => "performance",
-        "clipboardPolicy" | "clipboardThreshold" | "killOnQuit" | "closeWithProcessesPolicy" => {
-            "cleanup"
-        }
+        "clipboardPolicy" | "clipboardThreshold" | "killOnQuit" => "cleanup",
         "programLocale" | "arguments" => "program",
         _ => return OTHER,
     };
@@ -456,16 +458,18 @@ mod tests {
                 {"id": "metalfx", "title": "MetalFX Spatial"},
                 {"id": "anime4k", "title": "Anime4K"},
                 {"id": "realcugan", "title": "Real-CUGAN"},
-                {"id": "adaptive", "title": "动态快速缩放／静态 Real-CUGAN"},
+                {"id": "adaptive", "title": "动态 MetalFX／静态 Real-CUGAN"},
                 {"id": "realesrgan", "title": "Real-ESRGAN AnimeVideo-v3"},
-                {"id": "adaptive-realesrgan", "title": "动态快速缩放／静态 AnimeVideo-v3"}
+                {"id": "adaptive-realesrgan", "title": "动态 MetalFX／静态 AnimeVideo-v3"},
+                {"id": "adaptive-anime4k", "title": "动态 Anime4K／静态 Real-CUGAN"},
+                {"id": "adaptive-anime4k-realesrgan", "title": "动态 Anime4K／静态 AnimeVideo-v3"}
             ]
         }]);
         let mac = decode_schema(&schema, "macos").unwrap();
         assert_eq!(mac.len(), 1);
-        assert_eq!(section_for(&mac[0].id).id, "graphics");
-        assert_eq!(mac[0].kind.options().len(), 7);
-        assert_eq!(mac[0].kind.options()[6].id, "adaptive-realesrgan");
+        assert_eq!(section_for(&mac[0].id).id, "upscaling");
+        assert_eq!(mac[0].kind.options().len(), 9);
+        assert_eq!(mac[0].kind.options()[8].id, "adaptive-anime4k-realesrgan");
         assert!(decode_schema(&schema, "linux").unwrap().is_empty());
         let mut legacy = schema;
         legacy[0]["platforms"] = json!([]);
@@ -485,7 +489,7 @@ mod tests {
         }]);
         let mac = decode_schema(&schema, "macos").unwrap();
         assert_eq!(mac.len(), 1);
-        assert_eq!(section_for(&mac[0].id).id, "graphics");
+        assert_eq!(section_for(&mac[0].id).id, "upscaling");
         assert_eq!(mac[0].default, json!("memory"));
         assert_eq!(mac[0].kind.options().len(), 3);
         assert!(decode_schema(&schema, "linux").unwrap().is_empty());
@@ -512,7 +516,7 @@ mod tests {
     }
 
     /// Recorded from `WhiskyBridge/.build/release/whisky-bridge`, macOS, the
-    /// `galgame` bottle. 42 fields: 23 toggles, 15 choices, 3 numbers, 1 text.
+    /// `galgame` bottle. 46 fields: 24 toggles, 17 choices, 3 numbers, 2 texts.
     const RECORDED: &str = include_str!("../tests/fixtures/configuration-schema.json");
 
     fn recorded() -> Vec<ConfigField> {
@@ -560,9 +564,9 @@ mod tests {
         assert_eq!(avx.kind, FieldKind::Toggle);
         assert_eq!(avx.default, json!(false));
 
-        let pinned = field(&fields, "pinnedDeviceName");
-        assert_eq!(pinned.kind, FieldKind::Text);
-        assert_eq!(pinned.default, json!(""));
+        let excluded = field(&fields, "gdiUpscalerExcludedRegions");
+        assert_eq!(excluded.kind, FieldKind::Text);
+        assert_eq!(excluded.default, json!(""));
 
         let width = field(&fields, "customResolutionWidth");
         assert_eq!(width.kind, FieldKind::Number { min: 640, max: 7_680 });
@@ -621,6 +625,7 @@ mod tests {
         let sync = field(&linux, "enhancedSync");
         let sync_ids: Vec<&str> = sync.kind.options().iter().map(|o| o.id.as_str()).collect();
         assert!(!sync_ids.contains(&"msync"));
+        assert!(sync_ids.contains(&"fsync"));
     }
 
     #[test]
@@ -662,13 +667,17 @@ mod tests {
                 "value": 2048
             })
         );
-        let pinned = field(&fields, "pinnedDeviceName");
+        let excluded = field(&fields, "gdiUpscalerExcludedRegions");
         assert_eq!(
-            set_payload("/bottles/galgame", &pinned.id, &encode_edit(pinned, "MacBook Pro").unwrap()),
+            set_payload(
+                "/bottles/galgame",
+                &excluded.id,
+                &encode_edit(excluded, "960,540,100,100").unwrap()
+            ),
             json!({
                 "container": "/bottles/galgame",
-                "field": "pinnedDeviceName",
-                "value": "MacBook Pro"
+                "field": "gdiUpscalerExcludedRegions",
+                "value": "960,540,100,100"
             })
         );
         // Toggles and choices never go through the text encoder.
@@ -720,10 +729,10 @@ mod tests {
         assert_eq!(display_value(field(&fields, "avxEnabled"), &json!(true)), None);
         let width = field(&fields, "customResolutionWidth");
         assert_eq!(display_value(width, &json!(1920)).as_deref(), Some("1920"));
-        let pinned = field(&fields, "pinnedDeviceName");
+        let excluded = field(&fields, "gdiUpscalerExcludedRegions");
         assert_eq!(
-            display_value(pinned, &json!("Speakers")).as_deref(),
-            Some("Speakers")
+            display_value(excluded, &json!("0,0,100,100")).as_deref(),
+            Some("0,0,100,100")
         );
     }
 
@@ -757,11 +766,11 @@ mod tests {
         assert_eq!(previous, json!(1920));
 
         // A confirmed write leaves nothing to roll back.
-        writes.begin("pinnedDeviceName", json!(""));
-        values.insert("pinnedDeviceName".to_owned(), json!("Speakers"));
-        writes.succeed("pinnedDeviceName");
-        assert_eq!(writes.fail("pinnedDeviceName"), None);
-        assert_eq!(values["pinnedDeviceName"], json!("Speakers"));
+        writes.begin("gdiUpscalerExcludedRegions", json!(""));
+        values.insert("gdiUpscalerExcludedRegions".to_owned(), json!("0,0,10,10"));
+        writes.succeed("gdiUpscalerExcludedRegions");
+        assert_eq!(writes.fail("gdiUpscalerExcludedRegions"), None);
+        assert_eq!(values["gdiUpscalerExcludedRegions"], json!("0,0,10,10"));
     }
 
     #[test]

@@ -564,9 +564,11 @@ pub(crate) fn upscaler_label(raw: &str) -> &str {
         "metalfx" => "MetalFX Spatial",
         "anime4k" => "Anime4K (CNN x2 S)",
         "realcugan" => "Real-CUGAN (models-se x2)",
-        "adaptive" => "动态快速缩放／静态 Real-CUGAN",
+        "adaptive" => "动态 MetalFX／静态 Real-CUGAN",
         "realesrgan" => "Real-ESRGAN AnimeVideo-v3 (x2)",
-        "adaptive-realesrgan" => "动态快速缩放／静态 AnimeVideo-v3",
+        "adaptive-realesrgan" => "动态 MetalFX／静态 AnimeVideo-v3",
+        "adaptive-anime4k" => "动态 Anime4K／静态 Real-CUGAN",
+        "adaptive-anime4k-realesrgan" => "动态 Anime4K／静态 AnimeVideo-v3",
         other => other,
     }
 }
@@ -594,6 +596,7 @@ pub(crate) fn sync_label(raw: &str) -> &str {
     match raw {
         "none" => "关闭",
         "esync" => "ESync",
+        "fsync" => "FSync",
         "msync" => "MSync",
         other => other,
     }

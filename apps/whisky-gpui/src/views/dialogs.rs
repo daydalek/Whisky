@@ -52,6 +52,8 @@ const DXVK_HUDS: &[(&str, &str)] = &[
 const SYNC_MODES: &[(&str, &str)] = &[
     ("none", "关闭"),
     ("esync", "ESync"),
+    #[cfg(target_os = "linux")]
+    ("fsync", "FSync"),
     #[cfg(not(target_os = "linux"))]
     ("msync", "MSync"),
 ];
@@ -60,9 +62,11 @@ const GDI_UPSCALERS: &[(&str, &str)] = &[
     ("metalfx", "MetalFX Spatial"),
     ("anime4k", "Anime4K (CNN x2 S)"),
     ("realcugan", "Real-CUGAN (models-se x2)"),
-    ("adaptive", "动态快速缩放／静态 Real-CUGAN"),
+    ("adaptive", "动态 MetalFX／静态 Real-CUGAN"),
     ("realesrgan", "Real-ESRGAN AnimeVideo-v3 (x2)"),
-    ("adaptive-realesrgan", "动态快速缩放／静态 AnimeVideo-v3"),
+    ("adaptive-realesrgan", "动态 MetalFX／静态 AnimeVideo-v3"),
+    ("adaptive-anime4k", "动态 Anime4K／静态 Real-CUGAN"),
+    ("adaptive-anime4k-realesrgan", "动态 Anime4K／静态 AnimeVideo-v3"),
 ];
 const GDI_CACHES: &[(&str, &str)] = &[
     ("off", "关闭跨场景缓存"),
@@ -928,7 +932,6 @@ impl WhiskyApp {
                 ("ps-controller-compat", "控制器兼容模式", "controllerCompatibilityMode"),
                 ("ps-disable-hidapi", "禁用 HIDAPI", "disableHIDAPI"),
                 ("ps-background-events", "后台允许手柄事件", "allowBackgroundEvents"),
-                ("ps-disable-mapping", "禁用 SDL 映射", "disableControllerMapping"),
                 ("ps-button-labels", "使用原生按键标签", "useButtonLabels"),
             ] {
                 let checked = match field {
@@ -943,10 +946,6 @@ impl WhiskyApp {
                     "allowBackgroundEvents" => overrides
                         .and_then(|value| value.allow_background_events)
                         .or(defaults.allow_background_events)
-                        .unwrap_or(false),
-                    "disableControllerMapping" => overrides
-                        .and_then(|value| value.disable_controller_mapping)
-                        .or(defaults.disable_controller_mapping)
                         .unwrap_or(false),
                     _ => overrides
                         .and_then(|value| value.use_button_labels)

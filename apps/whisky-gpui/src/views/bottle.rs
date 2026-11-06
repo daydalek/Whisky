@@ -269,7 +269,8 @@ impl WhiskyApp {
                     .cloned()
                     .unwrap_or_else(|| field.default.clone());
                 let enabled = field.enabled(&page.capabilities);
-                rows.push(self.config_row(field, &value, enabled, window, cx));
+                let has_coreml = page.capabilities.iter().any(|cap| cap == "gdi.coreml");
+                rows.push(self.config_row(field, &value, enabled, has_coreml, window, cx));
             }
             sections.push(self.section(group.spec.id, group.spec.title, rows, cx));
         }
@@ -325,6 +326,7 @@ impl WhiskyApp {
         field: &ConfigField,
         value: &serde_json::Value,
         enabled: bool,
+        has_coreml: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -343,6 +345,9 @@ impl WhiskyApp {
                             .child(field.title.clone())
                             .when(field.id == "metalFXSpatial", |d| {
                                 d.child(muted("GDI / WineD3D OpenGL · Retina 超分；重启游戏后生效。"))
+                            })
+                            .when(field.id == "metalFX", |d| {
+                                d.child(muted("仅 D3DMetal 后端；仅对游戏内开启 DLSS 的标题生效。"))
                             })
                             .when(!enabled, |d| {
                                 d.child(muted("需要 Wine 主机适配器").line_height(relative(1.4)))
@@ -387,9 +392,30 @@ impl WhiskyApp {
                                     .when(value.as_str() == Some("adaptive-realesrgan"), |d| {
                                         d.child(muted("局部变化即时显示；静止约 200 毫秒后异步补充 AnimeVideo-v3 细节。"))
                                     })
+                                    .when(value.as_str() == Some("adaptive-anime4k"), |d| {
+                                        d.child(muted("局部变化由 Anime4K 即时超分；静止约 200 毫秒后异步补充 Real-CUGAN 细节。"))
+                                    })
+                                    .when(value.as_str() == Some("adaptive-anime4k-realesrgan"), |d| {
+                                        d.child(muted("局部变化由 Anime4K 即时超分；静止约 200 毫秒后异步补充 AnimeVideo-v3 细节。"))
+                                    })
                                     .when(value.as_str() == Some("realesrgan"), |d| {
                                         d.child(muted("以 AnimeVideo-v3 保留静态细节；文字与光标变化即时显示。"))
                                     })
+                                    .when(
+                                        !has_coreml
+                                            && matches!(
+                                                value.as_str(),
+                                                Some("realcugan")
+                                                    | Some("realesrgan")
+                                                    | Some("adaptive")
+                                                    | Some("adaptive-realesrgan")
+                                                    | Some("adaptive-anime4k")
+                                                    | Some("adaptive-anime4k-realesrgan")
+                                            ),
+                                        |d| {
+                                            d.child(muted("当前运行时缺少 Core ML 模型：神经网络超分只能在 CPU 上运行（每帧数秒），画面需静止较长时间才会切换。"))
+                                        },
+                                    )
                             })
                             .when(field.id == "gdiUpscalerCache", |d| {
                                 d.child(muted("会话内容缓存：跨场景与分辨率变化复用推理结果，重启游戏生效。"))
@@ -607,7 +633,7 @@ impl WhiskyApp {
                             cx,
                         ),
                         self.field("build", "内部版本号"),
-                        self.choice("sync", "增强同步", &["ESync", "关闭"], cx),
+                        self.choice("sync", "增强同步", &["FSync", "ESync", "关闭"], cx),
                         self.field("dpi", "屏幕分辨率（DPI）"),
                     ],
                     cx,
@@ -615,6 +641,7 @@ impl WhiskyApp {
                 self.section(
                     "launcher",
                     "启动器兼容性",
+                    #[cfg(not(target_os = "linux"))]
                     vec![
                         self.toggle(
                             "launcher-mode",
@@ -623,6 +650,16 @@ impl WhiskyApp {
                             cx,
                         ),
                         self.choice("launcher-type", "检测模式", &["自动", "手动"], cx),
+                        self.toggle("gpu-spoof", "GPU 伪装", "", cx),
+                    ],
+                    #[cfg(target_os = "linux")]
+                    vec![
+                        self.toggle(
+                            "launcher-mode",
+                            "启动器兼容模式",
+                            "为常见游戏启动器使用兼容设置。",
+                            cx,
+                        ),
                         self.toggle("gpu-spoof", "GPU 伪装", "", cx),
                     ],
                     cx,
@@ -649,7 +686,7 @@ impl WhiskyApp {
                             &["推荐（自动）", "D3DMetal", "DXVK", "WineD3D"],
                             cx,
                         ),
-                        self.toggle("metalfx", "MetalFX 超分辨率", "", cx),
+                        self.toggle("metalfx", "DLSS→MetalFX 桥（仅 D3DMetal）", "", cx),
                         self.choice(
                             "gdi-upscaler",
                             "游戏超分算法",
@@ -694,6 +731,7 @@ impl WhiskyApp {
                 self.section(
                     "audio",
                     "音频",
+                    #[cfg(not(target_os = "linux"))]
                     vec![
                         self.info("默认输出设备", "系统默认输出 · 48,000 Hz · 立体声"),
                         self.choice("audio-mode", "设置模式", &["简单", "高级"], cx),
@@ -713,6 +751,17 @@ impl WhiskyApp {
                             "audio-diagnosis",
                             "音频故障排查…",
                             Command::Sheet(PreviewSheet::Audio),
+                            cx,
+                        ),
+                    ],
+                    #[cfg(target_os = "linux")]
+                    vec![
+                        self.info("默认输出设备", "系统默认输出 · 48,000 Hz · 立体声"),
+                        self.choice("audio-mode", "设置模式", &["简单", "高级"], cx),
+                        self.choice(
+                            "audio-driver",
+                            "音频驱动",
+                            &["自动", "PulseAudio", "ALSA", "禁用"],
                             cx,
                         ),
                     ],
@@ -737,6 +786,7 @@ impl WhiskyApp {
                 self.section(
                     "performance",
                     "性能",
+                    #[cfg(not(target_os = "linux"))]
                     vec![
                         self.toggle(
                             "shader",
@@ -748,6 +798,21 @@ impl WhiskyApp {
                             "appnap",
                             "禁用 App Nap",
                             "游戏运行期间防止应用被系统暂停。",
+                            cx,
+                        ),
+                        self.action(
+                            "vcredist",
+                            "安装 Visual C++ 运行库…",
+                            Command::Sheet(PreviewSheet::Winetricks),
+                            cx,
+                        ),
+                    ],
+                    #[cfg(target_os = "linux")]
+                    vec![
+                        self.toggle(
+                            "shader",
+                            "着色器缓存",
+                            "缓存编译后的着色器，减少重复编译。",
                             cx,
                         ),
                         self.action(
@@ -790,6 +855,7 @@ impl WhiskyApp {
                 self.section(
                     "diagnostics",
                     "诊断",
+                    #[cfg(not(target_os = "linux"))]
                     vec![
                         self.action(
                             "guided",
@@ -800,11 +866,16 @@ impl WhiskyApp {
                         self.action("export", "导出诊断报告…", Command::ExportDiagnostics, cx),
                         self.action("repair", "修复容器…", Command::BottleRepair, cx),
                     ],
+                    #[cfg(target_os = "linux")]
+                    vec![
+                        self.action("export", "导出诊断报告…", Command::ExportDiagnostics, cx),
+                    ],
                     cx,
                 ),
                 self.section(
                     "cleanup",
                     "存储与清理",
+                    #[cfg(not(target_os = "linux"))]
                     vec![
                         self.info("容器大小", "2.4 GB"),
                         self.action(
@@ -814,6 +885,8 @@ impl WhiskyApp {
                             cx,
                         ),
                     ],
+                    #[cfg(target_os = "linux")]
+                    vec![self.info("容器大小", "2.4 GB")],
                     cx,
                 ),
             ],

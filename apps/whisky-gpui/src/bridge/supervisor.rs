@@ -383,11 +383,17 @@ pub(crate) enum BridgeEvent {
         container: String,
         entry_id: String,
         backend: Option<String>,
+        /// The backend resolved before availability applied — set only when
+        /// the launch fell back onto `backend` because it cannot run.
+        backend_from: Option<String>,
     },
     /// A Windows program run job started with the resolved graphics backend.
     ProgramRunStarted {
         name: String,
         backend: Option<String>,
+        /// The backend resolved before availability applied — set only when
+        /// the launch fell back onto `backend` because it cannot run.
+        backend_from: Option<String>,
     },
     /// The helper stopped before launching and needs a clipboard decision.
     ClipboardPrompt(ClipboardPrompt),
@@ -3409,6 +3415,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                     BridgeEvent::ProgramRunStarted {
                                         name: name.clone(),
                                         backend: start.backend,
+                                        backend_from: start.backend_from,
                                     },
                                 );
                                 let now = Instant::now();
@@ -5991,6 +5998,7 @@ fn runtime_launch(
     let reply: LaunchReplyDto = serde_json::from_value(value)
         .map_err(|error| CallFailure::Remote(format!("invalid launch payload: {error}")))?;
     let backend = reply.backend.clone();
+    let backend_from = reply.backend_from.clone();
     match interpret_launch_reply(container, entry_id, executable, reply) {
         LaunchOutcome::Accepted => {
             emit_event(
@@ -5999,6 +6007,7 @@ fn runtime_launch(
                     container: container.to_owned(),
                     entry_id: entry_id.to_owned(),
                     backend,
+                    backend_from,
                 },
             );
             Ok(())

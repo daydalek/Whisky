@@ -589,8 +589,10 @@ proc = subprocess.run(
 )
 replies = {r["id"]: r for r in (json.loads(line) for line in proc.stdout.splitlines() if line.strip())}
 setup = replies["1"].get("result") or {}
-if not setup.get("installed") or not setup.get("rosettaInstalled"):
+if not setup.get("installed"):
     raise SystemExit(f"setup.status reported unavailable runtime: {replies['1']}")
+if setup.get("rosettaInstalled"):
+    raise SystemExit(f"setup.status claims Rosetta on Linux: {replies['1']}")
 catalog = (replies["2"].get("result") or {}).get("categories") or []
 if not catalog:
     raise SystemExit(f"winetricks.catalog returned empty catalog: {replies['2']}")
