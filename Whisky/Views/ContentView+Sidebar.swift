@@ -164,43 +164,6 @@ extension ContentView {
     }
 }
 
-// MARK: - Process Close Confirmation
-
-@MainActor
-extension ContentView {
-    func showProcessCloseAlert(for bottle: Bottle) {
-        let checkbox = NSButton(
-            checkboxWithTitle: String(localized: "bottle.close.remember"),
-            target: nil,
-            action: nil
-        )
-        let alert = NSAlert()
-        alert.messageText = String(localized: "bottle.close.confirm.title")
-        alert.informativeText = String(localized: "bottle.close.confirm.message")
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: String(localized: "bottle.close.keepRunning"))
-        let stopButton = alert.addButton(withTitle: String(localized: "bottle.close.stopBottle"))
-        stopButton.hasDestructiveAction = true
-        alert.accessoryView = checkbox
-
-        let response = alert.runModal()
-
-        if response == .alertFirstButtonReturn {
-            // Keep Running (default)
-            if checkbox.state == .on {
-                bottle.settings.closeWithProcessesPolicy = .alwaysKeepRunning
-            }
-        } else if response == .alertSecondButtonReturn {
-            // Stop Bottle
-            if checkbox.state == .on {
-                bottle.settings.closeWithProcessesPolicy = .alwaysStop
-            }
-            Wine.killBottle(bottle: bottle)
-            ProcessRegistry.shared.clearRegistry(for: bottle.url)
-        }
-    }
-}
-
 #Preview {
     ContentView(showSetup: .constant(false))
         .environmentObject(BottleVM.shared)

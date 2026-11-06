@@ -18,10 +18,12 @@
 
 import Sparkle
 import SwiftUI
+import WhiskyKit
 
 struct SparkleView: View {
     @ObservedObject private var checkForUpdatesViewModel: CheckForUpdatesViewModel
     @ObservedObject private var updaterDelegate = SparkleUpdaterDelegate.shared
+    @AppStorage(NetworkSettings.offlineModeKey) private var offlineMode = false
     private let updater: SPUUpdater
 
     init(updater: SPUUpdater) {
@@ -36,7 +38,7 @@ struct SparkleView: View {
             updaterDelegate.updateAvailable ? "check.updates.available" : "check.updates",
             action: updater.checkForUpdates
         )
-        .disabled(!checkForUpdatesViewModel.canCheckForUpdates)
+        .disabled(!checkForUpdatesViewModel.canCheckForUpdates || offlineMode)
     }
 }
 

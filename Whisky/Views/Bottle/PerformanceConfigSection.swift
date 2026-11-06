@@ -23,6 +23,9 @@ struct PerformanceConfigSection: View {
     @ObservedObject var bottle: Bottle
     @Binding var isExpanded: Bool
 
+    @State private var isInstallingVCRedist = false
+    @State private var vcRedistInstallFailed = false
+
     var body: some View {
         Section("config.title.performance", isExpanded: $isExpanded) {
             Toggle(isOn: $bottle.settings.shaderCacheEnabled) {
@@ -44,27 +47,57 @@ struct PerformanceConfigSection: View {
             // Install VC++ Runtime button (needed for Unity IL2CPP and other C++ games)
             if !bottle.settings.vcRedistInstalled {
                 Button {
+                    vcRedistInstallFailed = false
+                    isInstallingVCRedist = true
                     Task {
-                        await Winetricks.runCommand(command: "vcrun2019", bottle: bottle)
-                        bottle.settings.vcRedistInstalled = true
+                        var succeeded = false
+                        for await progress in Winetricks.installVerb("vcrun2019", for: bottle) {
+                            if case let .completed(exitCode) = progress {
+                                succeeded = exitCode == 0
+                            }
+                        }
+                        isInstallingVCRedist = false
+                        if succeeded {
+                            bottle.settings.vcRedistInstalled = true
+                        } else {
+                            vcRedistInstallFailed = true
+                        }
                     }
                 } label: {
                     HStack {
-                        Image(systemName: "wrench.and.screwdriver")
+                        if isInstallingVCRedist {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "wrench.and.screwdriver")
+                        }
                         VStack(alignment: .leading) {
                             Text("config.installVcRedist")
                             Text("config.installVcRedist.info")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+                            if vcRedistInstallFailed {
+                                Text("config.installVcRedist.failed")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
                         }
                     }
                 }
+                .disabled(isInstallingVCRedist)
             } else {
                 HStack {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
                     Text("config.vcRedistInstalled")
                 }
+            }
+        }
+        .task(id: bottle.id) {
+            isInstallingVCRedist = false
+            vcRedistInstallFailed = false
+            if !bottle.settings.vcRedistInstalled {
+                bottle.synchronizeVCRedistStatus()
             }
         }
     }

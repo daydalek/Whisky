@@ -180,8 +180,17 @@ struct BottleListEntry: View {
                             let newBottePath = url
                                 .appending(path: bottle.url.lastPathComponent)
 
-                            bottle.move(destination: newBottePath)
-                            selected = newBottePath
+                            do {
+                                try bottle.move(destination: newBottePath)
+                                selected = newBottePath
+                            } catch {
+                                let alert = NSAlert()
+                                alert.messageText = String(localized: "alert.moveFailed.title", defaultValue: "Failed to Move Bottle")
+                                alert.informativeText = error.localizedDescription
+                                alert.alertStyle = .critical
+                                alert.addButton(withTitle: String(localized: "button.ok", defaultValue: "OK"))
+                                alert.runModal()
+                            }
                         }
                     }
                 }
@@ -340,11 +349,24 @@ extension BottleListEntry {
 
         if response == .alertFirstButtonReturn {
             Task(priority: .userInitiated) {
+                let previousSelected = selected
                 if selected == bottle.url {
                     selected = nil
                 }
 
-                await bottle.remove(delete: checkbox.state == .on)
+                do {
+                    try await bottle.remove(delete: checkbox.state == .on)
+                } catch {
+                    if previousSelected == bottle.url {
+                        selected = previousSelected
+                    }
+                    let alert = NSAlert()
+                    alert.messageText = String(localized: "alert.removeFailed.title", defaultValue: "Failed to Remove Bottle")
+                    alert.informativeText = error.localizedDescription
+                    alert.alertStyle = .critical
+                    alert.addButton(withTitle: String(localized: "button.ok", defaultValue: "OK"))
+                    alert.runModal()
+                }
             }
         }
     }

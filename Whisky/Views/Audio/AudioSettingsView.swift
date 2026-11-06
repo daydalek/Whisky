@@ -22,8 +22,7 @@ import WhiskyKit
 /// Audio settings controls with Simple/Advanced mode toggle.
 ///
 /// Simple mode shows at most 2 controls (Audio Driver and Latency Preset).
-/// Advanced mode adds all controls including output device pinning and
-/// a destructive Reset Audio State button.
+/// Advanced mode adds a destructive Reset Audio State button.
 struct AudioSettingsView: View {
     @ObservedObject var bottle: Bottle
     let advancedMode: Bool
@@ -32,6 +31,7 @@ struct AudioSettingsView: View {
     @State private var isWritingLatency: Bool = false
     @State private var isResettingAudioState: Bool = false
     @State private var showResetConfirmation: Bool = false
+    @State private var errorMessage: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -40,6 +40,14 @@ struct AudioSettingsView: View {
             if advancedMode {
                 advancedControls
             }
+        }
+        .alert("Audio Setting Failed", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
         }
     }
 
@@ -65,7 +73,12 @@ struct AudioSettingsView: View {
         .onChange(of: bottle.settings.audioDriver) { _, newValue in
             isWritingDriver = true
             Task { @MainActor in
-                try? await Wine.setAudioDriver(bottle: bottle, driver: newValue)
+                do {
+                    try await Wine.setAudioDriver(bottle: bottle, driver: newValue)
+                    try? AudioRegistryState.desired(for: bottle).save(to: bottle.url)
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
                 isWritingDriver = false
             }
         }
@@ -95,7 +108,12 @@ struct AudioSettingsView: View {
         .onChange(of: bottle.settings.audioLatencyPreset) { _, newValue in
             isWritingLatency = true
             Task { @MainActor in
-                try? await Wine.setDirectSoundBuffer(bottle: bottle, helBuflen: newValue.helBuflenValue)
+                do {
+                    try await Wine.setDirectSoundBuffer(bottle: bottle, helBuflen: newValue.helBuflenValue)
+                    try? AudioRegistryState.desired(for: bottle).save(to: bottle.url)
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
                 isWritingLatency = false
             }
         }
@@ -105,30 +123,7 @@ struct AudioSettingsView: View {
 
     private var advancedControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            outputDeviceModePicker
             resetAudioStateButton
-        }
-    }
-
-    // MARK: - Output Device Mode Picker
-
-    private var outputDeviceModePicker: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Picker("Output Device", selection: $bottle.settings.outputDeviceMode) {
-                ForEach(OutputDeviceMode.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-            if bottle.settings.outputDeviceMode == .pinned {
-                HStack {
-                    Text("Pinned device:")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(bottle.settings.pinnedDeviceName ?? "Not set")
-                        .font(.caption)
-                        .foregroundStyle(bottle.settings.pinnedDeviceName != nil ? .primary : .tertiary)
-                }
-            }
         }
     }
 
@@ -161,7 +156,11 @@ struct AudioSettingsView: View {
     private func performReset() {
         isResettingAudioState = true
         Task { @MainActor in
-            try? await Wine.resetAudioState(bottle: bottle)
+            do {
+                try await Wine.resetAudioState(bottle: bottle)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
             isResettingAudioState = false
         }
     }

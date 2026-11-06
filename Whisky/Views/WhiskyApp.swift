@@ -60,8 +60,10 @@ struct WhiskyApp: App {
 
     init() {
         SettingsPersistence.shared.enableBackgroundWrites()
+        // UI tests skip the updater entirely: a scheduled check would race
+        // toolbar interactions the same way the first-launch sheet does.
         updaterController = SPUStandardUpdaterController(
-            startingUpdater: false,
+            startingUpdater: !Self.isUITesting,
             updaterDelegate: nil,
             userDriverDelegate: SparkleUpdaterDelegate.shared
         )
@@ -160,6 +162,9 @@ struct WhiskyApp: App {
         }
         .handlesExternalEvents(matching: ["*"])
         .commands {
+            CommandGroup(after: .appInfo) {
+                SparkleView(updater: updaterController.updater)
+            }
             CommandGroup(before: .systemServices) {
                 Divider()
                 Button("open.setup") {

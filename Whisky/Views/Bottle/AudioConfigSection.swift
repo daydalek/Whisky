@@ -16,6 +16,7 @@
 //  If not, see https://www.gnu.org/licenses/.
 //
 
+import AppKit
 import SwiftUI
 import WhiskyKit
 
@@ -33,6 +34,8 @@ struct AudioConfigSection: View {
     @State private var probeResults: [AudioProbeResult] = []
     @State private var lastTestedDate: Date?
     @State private var deviceHistory = AudioDeviceHistory()
+    @State private var fixError: String? = nil
+    @State private var applyingFixActionId: String? = nil
 
     /// Debounce timer for Bluetooth device change events.
     @State private var debounceTask: Task<Void, Never>?
@@ -86,7 +89,11 @@ struct AudioConfigSection: View {
 
             // 6. Findings (if any from last test)
             if !currentFindings.isEmpty {
-                AudioFindingsView(findings: currentFindings, onApplyFix: handleApplyFix)
+                AudioFindingsView(
+                    findings: currentFindings,
+                    applyingActionId: applyingFixActionId,
+                    onApplyFix: handleApplyFix
+                )
             }
 
             // 7. Advanced device views
@@ -98,6 +105,14 @@ struct AudioConfigSection: View {
             Button("Audio Troubleshooting\u{2026}") {
                 openTroubleshootingWizard()
             }
+        }
+        .alert("Fix Application Failed", isPresented: Binding(
+            get: { fixError != nil },
+            set: { if !$0 { fixError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(fixError ?? "")
         }
         .animation(.default, value: advancedMode)
         .onAppear {
@@ -127,7 +142,6 @@ extension AudioConfigSection {
     private var hasAdvancedAudioOverrides: Bool {
         bottle.settings.audioDriver != .auto
             || bottle.settings.audioLatencyPreset != .defaultPreset
-            || bottle.settings.outputDeviceMode != .followSystem
     }
 
     /// Aggregated findings from the most recent probe results.
@@ -175,23 +189,59 @@ extension AudioConfigSection {
 
 extension AudioConfigSection {
     private func handleApplyFix(_ actionId: String) {
+        applyingFixActionId = actionId
         Task { @MainActor in
-            switch actionId {
-            case "check-audio-driver", "set-coreaudio-driver":
-                bottle.settings.audioDriver = .coreaudio
-                try? await Wine.setAudioDriver(bottle: bottle, driver: .coreaudio)
-            case "set-stable-latency":
-                bottle.settings.audioLatencyPreset = .stable
-                try? await Wine.setDirectSoundBuffer(
-                    bottle: bottle,
-                    helBuflen: AudioLatencyPreset.stable.helBuflenValue
-                )
-            case "reset-audio-state":
-                try? await Wine.resetAudioState(bottle: bottle)
-            default:
-                break
+            defer { applyingFixActionId = nil }
+            do {
+                try await performFix(actionId)
+            } catch {
+                fixError = error.localizedDescription
             }
         }
+    }
+
+    /// Performs the corrective action behind a fix action ID.
+    ///
+    /// Called from the findings list Fix buttons and supplied to the
+    /// troubleshooting wizard as ``AudioTroubleshootingEngine/fixExecutor``.
+    @MainActor
+    private func performFix(_ actionId: String) async throws {
+        switch actionId {
+        case "check-audio-driver":
+            // Ensure a usable driver: a disabled driver gets set back to Auto.
+            if bottle.settings.audioDriver == .disabled {
+                bottle.settings.audioDriver = .auto
+            }
+            try await Wine.setAudioDriver(bottle: bottle, driver: bottle.settings.audioDriver)
+            try? AudioRegistryState.desired(for: bottle).save(to: bottle.url)
+        case "set-coreaudio-driver":
+            bottle.settings.audioDriver = .coreaudio
+            try await Wine.setAudioDriver(bottle: bottle, driver: .coreaudio)
+            try? AudioRegistryState.desired(for: bottle).save(to: bottle.url)
+        case "set-stable-latency":
+            bottle.settings.audioLatencyPreset = .stable
+            try await Wine.setDirectSoundBuffer(
+                bottle: bottle,
+                helBuflen: AudioLatencyPreset.stable.helBuflenValue
+            )
+            try? AudioRegistryState.desired(for: bottle).save(to: bottle.url)
+        case "check-dsound":
+            // Re-applies the configured DirectSound buffer to the registry.
+            await Wine.syncAudioRegistry(bottle: bottle)
+        case "reset-audio-state":
+            try await Wine.resetAudioState(bottle: bottle)
+        case "check-system-settings":
+            openSystemSoundSettings()
+        default:
+            break
+        }
+    }
+
+    private func openSystemSoundSettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.Sound-Settings.extension"
+        ) else { return }
+        NSWorkspace.shared.open(url)
     }
 }
 
@@ -207,7 +257,11 @@ extension AudioConfigSection {
                 testExeURL: Bundle.main.url(forResource: "WhiskyAudioTest", withExtension: "exe")
             )
         ]
-        wizardPresentation = AudioWizardPresentation(engine: AudioTroubleshootingEngine(probes: probes))
+        let engine = AudioTroubleshootingEngine(probes: probes)
+        engine.fixExecutor = { actionId in
+            try await performFix(actionId)
+        }
+        wizardPresentation = AudioWizardPresentation(engine: engine)
     }
 }
 

@@ -233,8 +233,8 @@ extension Bottle {
     /// rewrite-before-move and rollback-on-failure semantics for pins and
     /// blocklist URLs.
     @MainActor
-    func move(destination: URL) {
-        BottleOperations.move(bottleAt: url, to: destination, registry: BottleVM.shared)
+    func move(destination: URL) throws {
+        try BottleOperations.move(bottleAt: url, to: destination, registry: BottleVM.shared)
     }
 
     /// Exports the bottle as a gzip-compressed tar archive.
@@ -271,7 +271,7 @@ extension Bottle {
     }
 
     @MainActor
-    func remove(delete: Bool) async {
+    func remove(delete: Bool) async throws {
         // Check for running processes before deletion
         let isRunning = await Wine.isWineserverRunning(for: self)
         let trackedCount = ProcessRegistry.shared.getProcessCount(for: self)
@@ -295,7 +295,7 @@ extension Bottle {
             ProcessRegistry.shared.clearRegistry(for: url)
         }
 
-        BottleOperations.remove(bottleAt: url, deleteFiles: delete, registry: BottleVM.shared)
+        try BottleOperations.remove(bottleAt: url, deleteFiles: delete, registry: BottleVM.shared)
     }
 
     @MainActor

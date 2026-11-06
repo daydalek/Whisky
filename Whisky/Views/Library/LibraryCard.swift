@@ -60,6 +60,13 @@ struct LibraryCard: View {
     @State private var palette: IconPalette = .neutral
     @State private var isHovering = false
     @FocusState private var isFocused: Bool
+    @AppStorage("libraryCenterWideCoverText") private var centerWideCoverText = false
+
+    /// Centered titles only apply to cards with artwork (the "wide cover");
+    /// the icon-only layout keeps leading alignment.
+    private var centeredText: Bool {
+        centerWideCoverText && artwork != nil
+    }
 
     /// Both stops are opaque. A gradient that fades towards transparent
     /// composites against the window, which is near-white in light mode, and
@@ -149,7 +156,7 @@ struct LibraryCard: View {
                     }
             }
 
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: centeredText ? .center : .leading, spacing: 0) {
                 HStack(alignment: .top) {
                     // The icon tile is the identity when there is no artwork.
                     // With artwork it would sit on top of the thing it stands in
@@ -168,10 +175,14 @@ struct LibraryCard: View {
                     // start, and "The Elder Scro...Special Edition" reads worse
                     // than losing the edition suffix.
                     .truncationMode(.tail)
+                    .multilineTextAlignment(centeredText ? .center : .leading)
+                    .frame(maxWidth: .infinity, alignment: centeredText ? .center : .leading)
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(foreground.opacity(0.7))
                     .lineLimit(1)
+                    .multilineTextAlignment(centeredText ? .center : .leading)
+                    .frame(maxWidth: .infinity, alignment: centeredText ? .center : .leading)
             }
             .padding(14)
         }

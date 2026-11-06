@@ -92,11 +92,14 @@ struct PinView: View {
             self.image = Image(nsImage: icon)
         }
         .onChange(of: name) {
-            if let index = bottle.settings.pins.firstIndex(where: {
-                let exists = FileManager.default.fileExists(atPath: pin.url?.path(percentEncoded: false) ?? "")
-                return $0.url == pin.url && exists
-            }) {
+            // Match by pin ID/UUID first to prevent collisions with duplicate or nil URLs;
+            // fall back to non-nil URL match for legacy pins decoded in-memory.
+            if let index = bottle.settings.pins.firstIndex(where: { $0.id == pin.id }) {
                 bottle.settings.pins[index].name = name
+                pin.name = name
+            } else if let index = bottle.settings.pins.firstIndex(where: { $0.url == pin.url && pin.url != nil }) {
+                bottle.settings.pins[index].name = name
+                pin.name = name
             }
         }
     }

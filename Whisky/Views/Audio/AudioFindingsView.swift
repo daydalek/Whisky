@@ -25,6 +25,7 @@ import WhiskyKit
 /// and optional fix action buttons.
 struct AudioFindingsView: View {
     let findings: [AudioFinding]
+    var applyingActionId: String? = nil
     var onApplyFix: ((String) -> Void)?
 
     @State private var showAllFindings: Bool = false
@@ -87,12 +88,20 @@ struct AudioFindingsView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
 
-            // Fix button
-            if finding.suggestedAction != nil {
-                Button("Fix") {
-                    onApplyFix?(finding.id)
+            // Fix button -- only when the finding maps to a real corrective action.
+            if let fixActionId = finding.fixActionId {
+                HStack(spacing: 6) {
+                    Button("Fix") {
+                        onApplyFix?(fixActionId)
+                    }
+                    .controlSize(.small)
+                    .disabled(applyingActionId != nil)
+
+                    if applyingActionId == fixActionId {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
                 }
-                .controlSize(.small)
             }
         }
         .padding(10)

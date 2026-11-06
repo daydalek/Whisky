@@ -381,7 +381,6 @@ struct ProgramOverrideSettingsView: View {
         Toggle("config.controllerCompat", isOn: controllerCompatBinding)
         Toggle("config.disableHIDAPI", isOn: disableHIDAPIBinding)
         Toggle("config.allowBackgroundEvents", isOn: allowBackgroundBinding)
-        Toggle("config.disableControllerMapping", isOn: disableControllerMappingBinding)
         Toggle("config.useButtonLabels", isOn: useButtonLabelsBinding)
     }
 
@@ -517,12 +516,13 @@ struct ProgramOverrideSettingsView: View {
         } label: {
             Text("program.overrides.reset")
         }
+        .disabled(!program.settings.hasFunctionalOverrides)
         .alert(
             "program.overrides.reset",
             isPresented: $showResetConfirmation
         ) {
             Button("program.overrides.reset", role: .destructive) {
-                program.settings.overrides = nil
+                program.settings.resetFunctionalOverrides()
             }
             Button("button.cancel", role: .cancel) {}
         } message: {
@@ -676,7 +676,8 @@ struct ProgramOverrideSettingsView: View {
                         bottle.settings.controllerCompatibilityMode
                     program.settings.overrides?.disableHIDAPI = bottle.settings.disableHIDAPI
                     program.settings.overrides?.allowBackgroundEvents = bottle.settings.allowBackgroundEvents
-                    program.settings.overrides?.disableControllerMapping = bottle.settings.disableControllerMapping
+                    // A stored legacy disableControllerMapping is left untouched; it
+                    // still participates in the env merge.
                     program.settings.overrides?.useButtonLabels = bottle.settings.useButtonLabels
                 } else {
                     program.settings.overrides?.controllerCompatibilityMode = nil
@@ -785,13 +786,6 @@ struct ProgramOverrideSettingsView: View {
         Binding(
             get: { program.settings.overrides?.allowBackgroundEvents ?? false },
             set: { program.settings.overrides?.allowBackgroundEvents = $0 }
-        )
-    }
-
-    private var disableControllerMappingBinding: Binding<Bool> {
-        Binding(
-            get: { program.settings.overrides?.disableControllerMapping ?? false },
-            set: { program.settings.overrides?.disableControllerMapping = $0 }
         )
     }
 

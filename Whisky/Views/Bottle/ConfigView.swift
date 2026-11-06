@@ -44,8 +44,15 @@ struct ConfigView: View {
     @State private var showRevertConfirmation: Bool = false
     @State private var showTroubleshootingWizard: Bool = false
     @State private var hasActiveSession: Bool = false
+    @State private var toolErrorAlert: ToolErrorAlert?
 
     private let sessionStore = TroubleshootingSessionStore()
+
+    private struct ToolErrorAlert: Identifiable {
+        let toolName: String
+        let errorMessage: String
+        var id: String { "\(toolName):\(errorMessage)" }
+    }
 
     private enum PrefixRepairResult: Identifiable {
         case success
@@ -239,6 +246,10 @@ struct ConfigView: View {
                             try await Wine.control(bottle: bottle)
                         } catch {
                             logger.error("Failed to launch control: \(error.localizedDescription)")
+                            toolErrorAlert = ToolErrorAlert(
+                                toolName: String(localized: "config.controlPanel", defaultValue: "Control Panel"),
+                                errorMessage: error.localizedDescription
+                            )
                         }
                     }
                 }
@@ -248,6 +259,23 @@ struct ConfigView: View {
                             try await Wine.regedit(bottle: bottle)
                         } catch {
                             logger.error("Failed to launch regedit: \(error.localizedDescription)")
+                            toolErrorAlert = ToolErrorAlert(
+                                toolName: String(localized: "config.regedit", defaultValue: "Registry Editor"),
+                                errorMessage: error.localizedDescription
+                            )
+                        }
+                    }
+                }
+                Button(String(localized: "config.taskmgr", defaultValue: "Task Manager")) {
+                    Task(priority: .userInitiated) {
+                        do {
+                            try await Wine.taskmgr(bottle: bottle)
+                        } catch {
+                            logger.error("Failed to launch taskmgr: \(error.localizedDescription)")
+                            toolErrorAlert = ToolErrorAlert(
+                                toolName: String(localized: "config.taskmgr", defaultValue: "Task Manager"),
+                                errorMessage: error.localizedDescription
+                            )
                         }
                     }
                 }
@@ -257,11 +285,22 @@ struct ConfigView: View {
                             try await Wine.cfg(bottle: bottle)
                         } catch {
                             logger.error("Failed to launch winecfg: \(error.localizedDescription)")
+                            toolErrorAlert = ToolErrorAlert(
+                                toolName: String(localized: "config.winecfg", defaultValue: "Wine Configuration"),
+                                errorMessage: error.localizedDescription
+                            )
                         }
                     }
                 }
             }
             .padding()
+            .alert(item: $toolErrorAlert) { alert in
+                Alert(
+                    title: Text(alert.toolName),
+                    message: Text(alert.errorMessage),
+                    dismissButton: .default(Text("button.ok"))
+                )
+            }
         }
         .navigationTitle("tab.config")
         .onAppear {

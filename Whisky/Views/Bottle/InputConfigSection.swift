@@ -29,6 +29,22 @@ struct InputConfigSection: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 12) {
+                // Map macOS Cmd to Windows Ctrl inside Wine
+                Toggle("Map Command Key to Windows Ctrl", isOn: $bottle.settings.commandActsAsControl)
+                    .help("""
+                    Sets LeftCommandIsCtrl/RightCommandIsCtrl in Wine's Mac \
+                    driver registry so Cmd+A/C/V/S register inside Wine apps \
+                    as Ctrl+A/C/V/S.
+                    """)
+                    .onChange(of: bottle.settings.commandActsAsControl) {
+                        Task { @MainActor in
+                            await Wine.syncInputRegistry(bottle: bottle)
+                        }
+                    }
+                    .accessibilityIdentifier("input.commandActsAsControl")
+
+                Divider()
+
                 // Main toggle for controller compatibility mode
                 Toggle("Controller Compatibility Mode", isOn: $bottle.settings.controllerCompatibilityMode)
                     .help("""
@@ -56,35 +72,12 @@ struct InputConfigSection: View {
                         controller input when the game window doesn't have focus.
                         """)
 
-                    // Button mapping toggle (legacy)
-                    Toggle(
-                        "Disable Controller Mapping",
-                        isOn: $bottle.settings.disableControllerMapping
-                    )
-                    .help("""
-                    Sets SDL_GAMECONTROLLER_USE_BUTTON_LABELS=1 to preserve \
-                    native button layouts for PlayStation and Switch controllers \
-                    instead of converting to XInput format.
-                    """)
-
-                    // Native button labels toggle (new from Plan 02)
+                    // Native button labels toggle
                     Toggle("Use Native Button Labels", isOn: $bottle.settings.useButtonLabels)
                         .help("""
                         Preserves physical button positions (Cross/Circle) for \
                         PlayStation controllers instead of XInput layout (A/B/X/Y).
                         """)
-
-                    // Map macOS Cmd to Windows Ctrl inside Wine
-                    Toggle("Map Command Key to Windows Ctrl", isOn: $bottle.settings.commandActsAsControl)
-                        .help("""
-                        Sets LeftCommandIsCtrl/RightCommandIsCtrl in Wine's Mac \
-                        driver registry so Cmd+A/C/V/S register inside Wine apps \
-                        as Ctrl+A/C/V/S.
-                        """)
-                        .onChange(of: bottle.settings.commandActsAsControl) { _, newValue in
-                            applyCommandKeyMapping(enabled: newValue)
-                        }
-                        .accessibilityIdentifier("input.commandActsAsControl")
 
                     Divider()
 
@@ -376,22 +369,8 @@ struct InputConfigSection: View {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    /// Writes (or removes) the Wine Mac driver registry keys that map macOS
-    /// Command to Windows Ctrl. Runs `wine reg` so the UI stays responsive.
-    @MainActor
-    private func applyCommandKeyMapping(enabled: Bool) {
-        let bottleRef = bottle
-        let value = enabled ? "Y" : "N"
-        Task {
-            let key = #"HKCU\Software\Wine\Mac Driver"#
-            for name in ["LeftCommandIsCtrl", "RightCommandIsCtrl"] {
-                _ = try? await Wine.runWine(
-                    ["reg", "add", key, "/v", name, "/t", "REG_SZ", "/d", value, "/f"],
-                    bottle: bottleRef
-                )
-            }
-        }
-    }
+    /// `LeftCommandIsCtrl`/`RightCommandIsCtrl` are applied through
+    /// ``Wine/syncInputRegistry(bottle:)`` both on toggle and at launch.
 }
 
 // swiftlint:enable type_body_length

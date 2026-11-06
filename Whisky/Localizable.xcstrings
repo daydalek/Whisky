@@ -38639,6 +38639,28 @@
         }
       }
     },
+    "config.installVcRedist.failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installation failed — check the log and try again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装失败——请查看日志后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安裝失敗——請查看日誌後重試。"
+          }
+        }
+      }
+    },
     "config.installVcRedist.info" : {
       "localizations" : {
         "ar" : {
@@ -42719,6 +42741,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wine 向程式回報的 Windows 版本。大多數 App 適合使用 Windows 10。"
+          }
+        }
+      }
+    },
+    "config.taskmgr" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Task Manager"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任务管理器"
           }
         }
       }
@@ -62596,19 +62634,31 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verbs installed in the bottle this program runs in."
+            "value" : "Verbs installed in the bottle this program runs in. Tagging is a note only — it does not install or remove anything."
           }
         },
         "en-GB" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verbs installed in the bottle this program runs in."
+            "value" : "Verbs installed in the bottle this program runs in. Tagging is a note only — it does not install or remove anything."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zlecenia zainstalowane w butelce, w której ten program się uruchamia."
+            "value" : "Zlecenia zainstalowane w butelce, w której ten program się uruchamia. Oznaczanie to tylko notatka — niczego nie instaluje ani nie usuwa."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此程序所在容器已安装的组件。勾选仅为备注——不会安装或移除任何内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此程式所在容器已安裝的元件。勾選僅為備註——不會安裝或移除任何內容。"
           }
         }
       }

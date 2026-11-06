@@ -42,6 +42,8 @@ struct AudioTroubleshootingWizardView: View {
                     showingFindingsView
                 case let .offeringFix(fixDescription, actionId):
                     offeringFixView(fixDescription: fixDescription, actionId: actionId)
+                case let .applyingFix(fixDescription, actionId):
+                    applyingFixView(fixDescription: fixDescription, actionId: actionId)
                 case .askingDidItWork:
                     askingDidItWorkView
                 case .resolved:
@@ -54,10 +56,16 @@ struct AudioTroubleshootingWizardView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { onDismiss() }
+                        .disabled(isApplyingFix)
                 }
             }
         }
         .frame(minWidth: 500, minHeight: 400)
+    }
+
+    private var isApplyingFix: Bool {
+        if case .applyingFix = engine.wizardState { return true }
+        return false
     }
 
     // MARK: - Pick Symptom
@@ -180,6 +188,22 @@ struct AudioTroubleshootingWizardView: View {
                     .buttonStyle(.bordered)
             }
             .padding(.bottom)
+        }
+        .padding()
+    }
+
+    // MARK: - Applying Fix
+
+    private func applyingFixView(fixDescription: String, actionId: String) -> some View {
+        VStack(spacing: 20) {
+            Spacer()
+            ProgressView().controlSize(.large)
+            Text(String(localized: "audio.troubleshoot.applying", defaultValue: "Applying fix\u{2026}"))
+                .font(.title3).fontWeight(.medium)
+            Text(fixDescription)
+                .font(.body).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center).padding(.horizontal, 32)
+            Spacer()
         }
         .padding()
     }
