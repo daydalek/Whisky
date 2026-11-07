@@ -326,4 +326,42 @@ struct SteamLibraryTests {
         #expect(games.contains { $0.appId == 123 })
         #expect(!games.contains { $0.appId == 1_245_620 })
     }
+
+    @Test("A real Steam install yields a Steam client launcher entry")
+    func clientEntryIsSynthesized() throws {
+        let (bottle, tempRoot) = try makeSteamLibraryFixtureBottle()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        let entries = SteamLibrarySource.entries(inBottleAt: bottle)
+        let client = try #require(entries.first { $0.id.hasPrefix("steam-client:") })
+        #expect(client.isLauncher)
+        #expect(client.launcher == .steam)
+        guard case let .program(url) = client.launch else {
+            Issue.record("The Steam client launches its executable, not an app id")
+            return
+        }
+        #expect(url.lastPathComponent == "steam.exe")
+        // Games keep their own entries next to the client.
+        #expect(entries.contains { $0.name == "Casualties: Unknown Demo" && !$0.isLauncher })
+    }
+
+    @Test("A pin on the same steam.exe replaces the synthesized client")
+    func clientEntryDeduplicatesAgainstPinnedTarget() throws {
+        let (bottle, tempRoot) = try makeSteamLibraryFixtureBottle()
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+        let executable = try #require(SteamLibrary.detectInstall(bottleURL: bottle))
+            .appending(path: "steam.exe")
+        let pinned = LibraryEntry(
+            id: "pinned:\(executable.path)", name: "Steam", iconURL: executable,
+            bottleURL: bottle, source: .pinned, launch: .program(executable),
+            launcher: .steam
+        )
+        let discovery = LibraryDiscovery.scan(
+            in: bottle,
+            folders: FolderGameLibrary(),
+            additionalEntries: [pinned] + SteamLibrarySource.entries(inBottleAt: bottle),
+            excluding: SteamLibrary.enumerate(bottleURL: bottle).map(\.installURL)
+        )
+        #expect(!discovery.entries.contains { $0.id.hasPrefix("steam-client:") })
+        #expect(discovery.entries.contains { $0.id == pinned.id && $0.isLauncher })
+    }
 }

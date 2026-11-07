@@ -42,5 +42,5 @@ python3 "$repo_root/apps/whisky-gpui/tools/build-linux-upscaler.py" \
     --jobs "${WHISKY_BUILD_JOBS:-4}"
 python3 "$repo_root/apps/whisky-gpui/tools/package-linux.py" \
     --frontend "$cache/rust-build/release/whisky-gpui" \
-    --products "$(cat "$output/products-path.txt")" --output "$output/Whisky" \
-    --archive "$output/whisky-linux-$(uname -m).tar.gz" --upscaler "$upscaler"
+    --products "$(cat "$output/products-path.txt")" --output "$output/Maltoria" \
+    --archive "$output/maltoria-linux-$(uname -m).tar.gz" --upscaler "$upscaler"

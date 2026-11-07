@@ -528,7 +528,7 @@ Local evidence under `build/portability/gui-linux/` includes
 
 Linux exposes `system.desktop.status`, `system.desktop.install` and
 `programs.shortcut.create`, with `system.desktop` and `programs.shortcut`
-capabilities. The settings button installs `com.franke.Whisky.desktop` under
+capabilities. The settings button installs `com.daydalek.Maltoria.desktop` under
 `$XDG_DATA_HOME/applications` and refreshes the MIME application cache. Its
 MimeType list adds Whisky as an available handler for Windows executables and
 MSI packages. Existing `mimeapps.list` defaults retain their contents and remain
@@ -884,7 +884,7 @@ evidence; hosted x86_64 and Wayland acceptance remain separate gates.
 
 ## Native Wayland and session-aware terminal stage
 
-The production Linux window now publishes `com.franke.Whisky` as its Wayland
+The production Linux window now publishes `com.daydalek.Maltoria` as its Wayland
 application ID, matching the installed desktop entry. Linux terminal discovery
 filters XTerm/UXTerm and Foot by the active display protocol. Pure Wayland
 sessions prefer Foot, followed by GNOME Terminal and other available wrappers;

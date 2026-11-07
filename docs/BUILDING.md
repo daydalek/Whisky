@@ -8,7 +8,7 @@
 ./build.sh doctor whisky-macos-gpui-arm64
 ./build.sh plan whisky-macos-gpui-arm64 --version 0.2.0 --json
 ./build.sh run whisky-macos-gpui-arm64 --version 0.2.0 --build-number 12
-./build.sh run whisky-macos-gpui-arm64 --install  # 构建后替换 /Applications/Whisky.app
+./build.sh run whisky-macos-gpui-arm64 --install  # 构建后替换 /Applications/Maltoria.app
 ```
 
 `plan` 输出完整命令、工作目录、环境变量和产物路径；`run` 执行同一份计划。

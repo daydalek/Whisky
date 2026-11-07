@@ -2,23 +2,23 @@
   {
     "name": "steam",
     "source": "pinned",
-    "container": "/Users/example/Library/Containers/com.franke.Whisky/Bottles/11111111-2222-4333-8444-555555555555",
+    "container": "/Users/example/Library/Containers/com.daydalek.Maltoria/Bottles/11111111-2222-4333-8444-555555555555",
     "activity": {
       "playTime": 0,
       "schemaVersion": 1,
       "ownershipGeneration": 0
     },
-    "icon": "/Users/example/Library/Containers/com.franke.Whisky/Bottles/11111111-2222-4333-8444-555555555555/drive_c/Program Files (x86)/Steam/steam.exe",
+    "icon": "/Users/example/Library/Containers/com.daydalek.Maltoria/Bottles/11111111-2222-4333-8444-555555555555/drive_c/Program Files (x86)/Steam/steam.exe",
     "hidden": true,
-    "executable": "/Users/example/Library/Containers/com.franke.Whisky/Bottles/11111111-2222-4333-8444-555555555555/drive_c/Program Files (x86)/Steam/steam.exe",
-    "id": "pinned:/Users/example/Library/Containers/com.franke.Whisky/Bottles/11111111-2222-4333-8444-555555555555/drive_c/Program Files (x86)/Steam/steam.exe"
+    "executable": "/Users/example/Library/Containers/com.daydalek.Maltoria/Bottles/11111111-2222-4333-8444-555555555555/drive_c/Program Files (x86)/Steam/steam.exe",
+    "id": "pinned:/Users/example/Library/Containers/com.daydalek.Maltoria/Bottles/11111111-2222-4333-8444-555555555555/drive_c/Program Files (x86)/Steam/steam.exe"
   },
   {
     "steamAppID": 1000001,
     "coverAspectRatio": 0.6666666666666666,
     "name": "Northwind Signal",
-    "cover": "/Users/example/Library/Containers/com.franke.Whisky/Bottles/11111111-2222-4333-8444-555555555555/Game Metadata/Covers/aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666aaaa7777bbbb8888",
-    "container": "/Users/example/Library/Containers/com.franke.Whisky/Bottles/11111111-2222-4333-8444-555555555555",
+    "cover": "/Users/example/Library/Containers/com.daydalek.Maltoria/Bottles/11111111-2222-4333-8444-555555555555/Game Metadata/Covers/aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666aaaa7777bbbb8888",
+    "container": "/Users/example/Library/Containers/com.daydalek.Maltoria/Bottles/11111111-2222-4333-8444-555555555555",
     "source": "steam",
     "metadata": {
       "summary": "A quiet coastal town, a radio that only plays at night, and one winter worth staying for.",
@@ -37,7 +37,7 @@
       "titleLanguage": "en",
       "originalTitle": "Northwind Signal"
     },
-    "icon": "/Users/example/Library/Containers/com.franke.Whisky/Bottles/11111111-2222-4333-8444-555555555555/drive_c/Program Files (x86)/Steam/appcache/librarycache/1000001/cccc1111dddd2222eeee3333ffff4444.jpg",
+    "icon": "/Users/example/Library/Containers/com.daydalek.Maltoria/Bottles/11111111-2222-4333-8444-555555555555/drive_c/Program Files (x86)/Steam/appcache/librarycache/1000001/cccc1111dddd2222eeee3333ffff4444.jpg",
     "hidden": false,
     "activity": {
       "schemaVersion": 1,
@@ -51,15 +51,15 @@
       "ownershipGeneration": 7,
       "lastPlayed": 1792492764.4401011
     },
-    "id": "steam:/Users/example/Library/Containers/com.franke.Whisky/Bottles/11111111-2222-4333-8444-555555555555:1000001"
+    "id": "steam:/Users/example/Library/Containers/com.daydalek.Maltoria/Bottles/11111111-2222-4333-8444-555555555555:1000001"
   },
   {
     "steamAppID": 1000002,
     "name": "Saltlight",
     "coverAspectRatio": 0.7339285714285714,
-    "cover": "/Users/example/Library/Containers/com.franke.Whisky/Bottles/11111111-2222-4333-8444-555555555555/Game Metadata/Covers/dddd5555eeee6666ffff7777aaaa8888bbbb9999cccc0000dddd1111eeee2222",
+    "cover": "/Users/example/Library/Containers/com.daydalek.Maltoria/Bottles/11111111-2222-4333-8444-555555555555/Game Metadata/Covers/dddd5555eeee6666ffff7777aaaa8888bbbb9999cccc0000dddd1111eeee2222",
     "source": "steam",
-    "container": "/Users/example/Library/Containers/com.franke.Whisky/Bottles/11111111-2222-4333-8444-555555555555",
+    "container": "/Users/example/Library/Containers/com.daydalek.Maltoria/Bottles/11111111-2222-4333-8444-555555555555",
     "activity": {
       "lastPlayed": 1792496362.732625,
       "playTime": 84.29842149999854,
@@ -73,7 +73,7 @@
         "sequence": 3
       }
     },
-    "icon": "/Users/example/Library/Containers/com.franke.Whisky/Bottles/11111111-2222-4333-8444-555555555555/drive_c/Program Files (x86)/Steam/appcache/librarycache/1000002/library_header.jpg",
+    "icon": "/Users/example/Library/Containers/com.daydalek.Maltoria/Bottles/11111111-2222-4333-8444-555555555555/drive_c/Program Files (x86)/Steam/appcache/librarycache/1000002/library_header.jpg",
     "metadata": {
       "originalTitle": "Saltlight",
       "titleLanguage": "en",
@@ -92,6 +92,6 @@
       "developer": "Hollow Studio"
     },
     "hidden": false,
-    "id": "steam:/Users/example/Library/Containers/com.franke.Whisky/Bottles/11111111-2222-4333-8444-555555555555:1000002"
+    "id": "steam:/Users/example/Library/Containers/com.daydalek.Maltoria/Bottles/11111111-2222-4333-8444-555555555555:1000002"
   }
 ]

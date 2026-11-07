@@ -50,6 +50,8 @@ public final class PreferencesService {
         "libraryMetadataSummarySource": "inherit",
         "libraryMetadataCoverSource": "inherit",
         "libraryMetadataCharactersSource": "inherit",
+        "librarySidebarMode": "expanded",
+        "librarySidebarCollapsedStyle": "icons",
         "telemetryConsent": "undecided"
     ]
     private static let pathKeys = ["defaultBottleLocation"]

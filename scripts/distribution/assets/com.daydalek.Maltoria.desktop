@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=Whisky
+Name=Maltoria
 Comment=Manage Wine containers and Windows games
 Exec=whisky
 TryExec=whisky
-Icon=com.franke.Whisky
+Icon=com.daydalek.Maltoria
 Terminal=false
 Categories=Game;Utility;
-StartupWMClass=com.franke.Whisky
+StartupWMClass=com.daydalek.Maltoria

@@ -24,7 +24,7 @@ import WhiskyKit
 @MainActor
 final class LibrarySidebarCounts: ObservableObject {
     static let shared = LibrarySidebarCounts()
-    static let didChange = Notification.Name("com.franke.Whisky.libraryCatalogueChanged")
+    static let didChange = Notification.Name("com.daydalek.Maltoria.libraryCatalogueChanged")
     @Published private(set) var counts: [URL: Int] = [:]
     private struct Input: Equatable, Sendable {
         let url: URL

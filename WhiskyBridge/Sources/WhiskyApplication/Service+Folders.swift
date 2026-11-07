@@ -99,6 +99,14 @@ extension ApplicationService {
                 if !library.roots.contains(key) {
                     library.roots.append(key)
                 }
+                // Scanning wins over assignment: a container of games is not
+                // itself a game, so the folder stops being a card.
+                library.assignedFolders.removeAll {
+                    FolderGameLibrary.key(
+                        for: FolderGameLibrary.url(for: $0, bottleURL: container),
+                        bottleURL: container
+                    ) == key
+                }
                 let rootPath = target.standardizedFileURL.path
                 library.excludedFolders = library.excludedFolders.filter { excludedKey in
                     FolderGameLibrary.url(for: excludedKey, bottleURL: container)
@@ -134,6 +142,16 @@ extension ApplicationService {
             library.assignedFolders.removeAll { $0 == key }
             if assigned {
                 library.assignedFolders.append(key)
+                // A path can be a scan root or a single game, never both:
+                // assigning one transitions it from container of games into a
+                // game itself, so its children stop being scanned.
+                library.roots.removeAll {
+                    FolderGameLibrary.key(
+                        for: FolderGameLibrary.url(for: $0, bottleURL: container),
+                        bottleURL: container
+                    ) == key
+                }
+                library.initializedRoots.remove(key)
             }
         }
     }
@@ -212,9 +230,23 @@ extension ApplicationService {
             (resolve(key), JSONValue.string(resolve(value)))
         })
         let visibility = try LibraryVisibility.load(bottleURL: container)
+        // Scan treats a path that is both root and assigned as a container
+        // only; the sheet shows the same thing rather than a ghost game row.
+        let rootKeys = Set(library.roots.map {
+            FolderGameLibrary.key(
+                for: FolderGameLibrary.url(for: $0, bottleURL: container),
+                bottleURL: container
+            )
+        })
+        let assigned = library.assignedFolders.filter { key in
+            !rootKeys.contains(FolderGameLibrary.key(
+                for: FolderGameLibrary.url(for: key, bottleURL: container),
+                bottleURL: container
+            ))
+        }
         return .object([
             "roots": .array(library.roots.map { .string(resolve($0)) }),
-            "assignedFolders": .array(library.assignedFolders.map { .string(resolve($0)) }),
+            "assignedFolders": .array(assigned.map { .string(resolve($0)) }),
             "excludedFolders": .array(library.excludedFolders.sorted().map { .string(resolve($0)) }),
             "executables": .object(executables),
             "knownFolders": .array(library.knownFolders.map { .string(resolve($0)) }),

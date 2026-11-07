@@ -102,7 +102,7 @@ struct ShellQuotingTests {
 
     @Test("PATH assignment safely quotes paths containing spaces")
     func pathWithSpaces() throws {
-        let wineBin = "/Users/test/Library/Application Support/com.franke.Whisky/Libraries/Wine/bin"
+        let wineBin = "/Users/test/Library/Application Support/com.daydalek.Maltoria/Libraries/Wine/bin"
         let command = "export PATH=\(ShellQuoting.quoted(wineBin)):\"$PATH\""
 
         let process = Process()

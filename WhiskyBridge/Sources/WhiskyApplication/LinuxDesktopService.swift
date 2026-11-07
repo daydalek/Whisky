@@ -54,9 +54,9 @@ struct LinuxDesktopService {
             }
             return result
         }
-        let target = applications.appendingPathComponent("com.franke.Whisky.desktop")
+        let target = applications.appendingPathComponent("com.daydalek.Maltoria.desktop")
         let contents = LinuxDesktopEntry.contents(
-            name: "Whisky",
+            name: "Maltoria",
             launcher: launcher,
             arguments: [],
             handlesFiles: true
@@ -88,7 +88,7 @@ struct LinuxDesktopService {
         guard (try? canonical.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
               FileManager.default.isExecutableFile(atPath: path.path)
         else {
-            throw BridgeFailure("launcher_unavailable", "Select an installed Whisky frontend executable")
+            throw BridgeFailure("launcher_unavailable", "Select an installed Maltoria frontend executable")
         }
         return path
     }

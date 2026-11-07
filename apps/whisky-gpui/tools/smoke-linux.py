@@ -118,7 +118,7 @@ def main():
         applications = fixture / 'data/applications'
         applications.mkdir(parents=True)
         removed_frontend = fixture / 'Removed frontend'
-        (applications / 'com.franke.Whisky.desktop').write_text(
+        (applications / 'com.daydalek.Maltoria.desktop').write_text(
             desktop_contents('Custom Whisky', removed_frontend, files=True).replace('Icon=applications-games', 'Icon=custom-icon') +
             '# retained desktop comment\nX-User-Setting=keep\n')
         (applications / 'game.desktop').write_text(desktop_contents(

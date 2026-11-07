@@ -18,7 +18,7 @@ class InstallTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.source = self.root / 'source.app'
-        self.target = self.root / 'Whisky.app'
+        self.target = self.root / 'Maltoria.app'
         for app, content in ((self.source, b'new'), (self.target, b'old')):
             for rel in ('Contents/MacOS/whisky-gpui', 'Contents/Resources/whisky-bridge'):
                 path = app / rel

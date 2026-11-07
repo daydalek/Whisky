@@ -99,9 +99,9 @@ public enum StabilityDiagnostics {
         if let whiskyWineVersion = WhiskyWineInstaller.whiskyWineVersion() {
             let whiskyWineVersionString =
                 "\(whiskyWineVersion.major).\(whiskyWineVersion.minor).\(whiskyWineVersion.patch)"
-            info += "WhiskyWine Version: \(whiskyWineVersionString)\n"
+            info += "Wine Version: \(whiskyWineVersionString)\n"
         } else {
-            info += "WhiskyWine Version: Not installed / unknown\n"
+            info += "Wine Version: Not installed / unknown\n"
         }
 
         info += "\n"

@@ -151,7 +151,7 @@ public extension ShortcutCreator {
         }
 
         return """
-        WHISKY_CMD="/Applications/Whisky.app/Contents/Resources/WhiskyCmd"
+        WHISKY_CMD="/Applications/Maltoria.app/Contents/Resources/WhiskyCmd"
         if [ ! -x "$WHISKY_CMD" ]; then
             WHISKY_APP="$(mdfind "kMDItemCFBundleIdentifier == '\(Bundle
             .whiskyBundleIdentifier)'" 2>/dev/null | head -n 1)"

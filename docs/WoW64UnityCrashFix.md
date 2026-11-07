@@ -99,8 +99,8 @@
   - Unix Graphics Module: `dlls/win32u/win32u.so`
   - WineD3D Module: `dlls/wined3d/wined3d.so` and `dlls/wined3d/i386-windows/wined3d.dll`
 - Whisky Runtime Deployment:
-  - Runtime Wine Root: `~/Library/Application Support/com.franke.Whisky/Libraries/Wine`
+  - Runtime Wine Root: `~/Library/Application Support/com.daydalek.Maltoria/Libraries/Wine`
   - Active win32u.so: `.../Libraries/Wine/lib/wine/x86_64-unix/win32u.so`
 - Target Bottle:
-  - Prefix Root: `~/Library/Containers/com.franke.Whisky/Bottles/<bottle-uuid>` (`$WINEPREFIX`)
+  - Prefix Root: `~/Library/Containers/com.daydalek.Maltoria/Bottles/<bottle-uuid>` (`$WINEPREFIX`)
   - Game Executable: `drive_c/Program Files (x86)/Steam/steamapps/common/Aokana/Aokana.exe`

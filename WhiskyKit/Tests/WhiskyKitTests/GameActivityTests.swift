@@ -256,4 +256,50 @@ struct GameActivityTests {
         await tracker.poll()
         #expect(tracker.observation.runningEntryIDs == [second.id])
     }
+
+    @Test @MainActor
+    func wineStartShimDoesNotLightFolderGameWithStartExecutable() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let anemoiFolder = root.appendingPathComponent("drive_c/games/anemoi")
+        let doinakaFolder = root.appendingPathComponent("drive_c/games/doinaka")
+        try FileManager.default.createDirectory(at: anemoiFolder, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: doinakaFolder, withIntermediateDirectories: true)
+        let anemoiExe = anemoiFolder.appendingPathComponent("SiglusEngine_chs.exe")
+        try Data().write(to: anemoiFolder.appendingPathComponent("Start.exe"))
+        try Data().write(to: anemoiExe)
+        let doinakaExe = doinakaFolder.appendingPathComponent("doinaka_brother.exe")
+        try Data().write(to: doinakaExe)
+        let anemoi = LibraryEntry(
+            id: "anemoi", name: "anemoi", iconURL: nil,
+            bottleURL: root, source: .folder, launch: .program(anemoiFolder)
+        )
+        let doinaka = LibraryEntry(
+            id: "doinaka", name: "doinaka", iconURL: nil,
+            bottleURL: root, source: .folder, launch: .program(doinakaFolder)
+        )
+        var library = FolderGameLibrary()
+        library.executables[FolderGameLibrary.key(for: anemoiFolder, bottleURL: root)] =
+            FolderGameLibrary.key(for: anemoiExe, bottleURL: root)
+        library.executables[FolderGameLibrary.key(for: doinakaFolder, bottleURL: root)] =
+            FolderGameLibrary.key(for: doinakaExe, bottleURL: root)
+        try library.save(bottleURL: root)
+        let tracker = GameActivityTracker()
+        tracker.automaticallyPolls = false
+        tracker.wineserverProbe = { _ in true }
+        // Every launch goes through `wine start`, so the bottle reports a
+        // start.exe system process next to the real game process.
+        tracker.processProbe = { _ in
+            [
+                WineProcess(imageName: "start.exe", winePID: 1, memoryUsage: "0 K", kind: .system),
+                WineProcess(imageName: "doinaka_brother.exe", winePID: 2, memoryUsage: "0 K", kind: .app)
+            ]
+        }
+        await tracker.configure(entries: [anemoi, doinaka], bottle: Bottle(bottleUrl: root))
+        // A previous anemoi launch registered its scanned names as preferred
+        // selections, including the start.exe shim sitting in its folder.
+        tracker.select(anemoi)
+        await tracker.poll()
+        #expect(tracker.observation.runningEntryIDs == [doinaka.id])
+    }
 }

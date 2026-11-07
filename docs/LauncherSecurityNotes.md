@@ -253,7 +253,7 @@ Logger.wineKit.debug("""
 
 1. **macOS App Sandbox**
    - Leverage macOS containment features
-   - Limit Whisky.app's own permissions
+   - Limit Maltoria.app's own permissions
    - Additional defense layer
 
 2. **Network Monitoring**

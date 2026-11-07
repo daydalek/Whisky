@@ -27,7 +27,7 @@ public enum SteamLibrarySource: Sendable {
     /// it, which is the one part of building the library that touches disk.
     public static func entries(inBottleAt url: URL) -> [LibraryEntry] {
         let steamRoot = SteamLibrary.detectInstall(bottleURL: url)
-        return SteamLibrary.enumerate(bottleURL: url).map { game in
+        var entries = SteamLibrary.enumerate(bottleURL: url).map { game in
             LibraryEntry(
                 // Scoped to the bottle, because the same game can be installed
                 // in two of them and an id shared by two rows breaks the grid's
@@ -43,6 +43,34 @@ public enum SteamLibrarySource: Sendable {
                 installDirectoryURL: game.installURL
             )
         }
+        if let client = clientEntry(inBottleAt: url, steamRoot: steamRoot) {
+            entries.append(client)
+        }
+        return entries
+    }
+
+    /// The Steam client itself, as a launcher entry rather than a game.
+    ///
+    /// The client is what starts every Steam title above, so a launchers
+    /// surface can list and auto-start it even when nothing was pinned. A pin
+    /// or a folder entry that already targets the same `steam.exe` takes
+    /// precedence; ``LibraryDiscovery`` drops this synthesized copy then.
+    public static func clientEntry(inBottleAt url: URL, steamRoot: URL? = nil) -> LibraryEntry? {
+        let steamRoot = steamRoot ?? SteamLibrary.detectInstall(bottleURL: url)
+        guard let steamRoot else { return nil }
+        let executable = steamRoot.appending(path: "steam.exe")
+        guard FileManager.default.fileExists(atPath: executable.path(percentEncoded: false))
+        else { return nil }
+        return LibraryEntry(
+            id: "steam-client:\(url.path(percentEncoded: false))",
+            name: "Steam",
+            iconURL: executable,
+            bottleURL: url,
+            source: id,
+            launch: .program(executable),
+            launcher: .steam,
+            installDirectoryURL: steamRoot
+        )
     }
 
     /// The best art Steam already cached for `appID`.

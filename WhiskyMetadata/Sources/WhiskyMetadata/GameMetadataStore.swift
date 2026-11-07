@@ -189,7 +189,7 @@ public actor GameMetadataStore {
         let worker = Task {
             let request = {
                 var request = URLRequest(url: url, timeoutInterval: 20)
-                request.setValue("Whisky/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
+                request.setValue("Maltoria/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
                 return request
             }()
             do {

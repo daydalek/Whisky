@@ -1,4 +1,4 @@
-name: Build and release Whisky app
+name: Build and release Maltoria app
 
 on:
   push:
@@ -91,10 +91,10 @@ jobs:
             gh release upload "$RELEASE_TAG" --clobber \
               ./*.zip ./*-sources.tar.gz SHA256SUMS build-info.json RELEASE-NOTES.md
             gh release edit "$RELEASE_TAG" --prerelease \
-              --title "Whisky $RELEASE_TAG — Apple Silicon" --notes-file RELEASE-NOTES.md
+              --title "Maltoria $RELEASE_TAG — Apple Silicon" --notes-file RELEASE-NOTES.md
             exit 0
           fi
           gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease \
-            --title "Whisky $RELEASE_TAG — Apple Silicon" \
+            --title "Maltoria $RELEASE_TAG — Apple Silicon" \
             --notes-file RELEASE-NOTES.md ./*.zip ./*-sources.tar.gz SHA256SUMS build-info.json RELEASE-NOTES.md
           gh release edit "$RELEASE_TAG" --draft=false --prerelease

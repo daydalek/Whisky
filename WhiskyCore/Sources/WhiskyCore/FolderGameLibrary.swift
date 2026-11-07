@@ -94,6 +94,9 @@ public struct FolderGameLibrary: Codable, Sendable {
     ) -> [LibraryEntry] {
         let fileManager = FileManager.default
         var found = Set<String>()
+        let rootKeys = Set(roots.map {
+            Self.key(for: Self.url(for: $0, bottleURL: bottleURL), bottleURL: bottleURL)
+        })
         for rootKey in roots {
             let firstScan = !initializedRoots.contains(rootKey)
             let root = Self.url(for: rootKey, bottleURL: bottleURL)
@@ -138,6 +141,11 @@ public struct FolderGameLibrary: Codable, Sendable {
         for assignedKey in assignedFolders {
             let folder = Self.url(for: assignedKey, bottleURL: bottleURL)
             let normalizedKey = Self.key(for: folder, bottleURL: bottleURL)
+            // A registered root is a container of games, never a game itself:
+            // a folder that ended up both assigned and scanned (toggling the
+            // library switch on a root row did this) keeps scanning children
+            // without producing a card for the container folder.
+            guard !rootKeys.contains(normalizedKey) else { continue }
             guard !isExcluded(folder, key: normalizedKey, bottleURL: bottleURL) else { continue }
             if let values = try? folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) {
                 guard values.isDirectory == true, values.isSymbolicLink != true else { continue }
@@ -154,15 +162,28 @@ public struct FolderGameLibrary: Codable, Sendable {
         knownFolders = found.sorted()
         return knownFolders.map { key in
             let folder = Self.url(for: key, bottleURL: bottleURL)
+            let executable = executables[key].map { Self.url(for: $0, bottleURL: bottleURL) }
             return LibraryEntry(
                 id: "folder:\(bottleURL.path):\(key)", name: folder.lastPathComponent,
-                iconURL: executables[key].map { Self.url(for: $0, bottleURL: bottleURL) },
-                bottleURL: bottleURL, source: .folder, launch: .program(folder)
+                iconURL: executable,
+                bottleURL: bottleURL, source: .folder, launch: .program(folder),
+                launcher: Self.launcherType(forFolderAt: folder, executable: executable)
             )
         }
     }
 
     // swiftlint:enable cyclomatic_complexity function_body_length
+
+    /// A folder entry classifies as a launcher through the executable the user
+    /// picked, or through the folder's name before one is chosen. Probing with
+    /// a synthetic executable lets the path heuristics see the folder as a
+    /// directory component, the way an installed client's real `.exe` would.
+    private static func launcherType(forFolderAt folder: URL, executable: URL?) -> LauncherType? {
+        if let executable, let type = LauncherType.detect(from: executable) {
+            return type
+        }
+        return LauncherType.detect(from: folder.appendingPathComponent("probe.exe"))
+    }
 
     public func executable(for folder: URL, bottleURL: URL) -> URL? {
         executables[Self.key(for: folder, bottleURL: bottleURL)].map { Self.url(for: $0, bottleURL: bottleURL) }

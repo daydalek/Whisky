@@ -29,7 +29,7 @@ import os.log
 /// Follows the caseless enum pattern used by ``PatternLoader`` and ``GameDBLoader``.
 public enum PreflightCollector {
     private static let logger = Logger(
-        subsystem: "com.franke.Whisky",
+        subsystem: "com.daydalek.Maltoria",
         category: "PreflightCollector"
     )
 

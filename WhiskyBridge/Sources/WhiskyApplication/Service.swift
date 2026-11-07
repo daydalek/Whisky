@@ -73,6 +73,8 @@ public final class ApplicationService {
         "folders.exclude",
         "folders.executable",
         "folders.candidates",
+        "launchers.read",
+        "launchers.setAutoStart",
         "entry.rating",
         "entry.hidden",
         "configuration.schema",
@@ -146,6 +148,7 @@ public final class ApplicationService {
         case "bridge": return try await bridgeCall(method, params: params)
         case "library", "workspace": return try await libraryCall(method, params: params)
         case "folders": return try await foldersCall(method, params: params)
+        case "launchers": return try await launchersCall(method, params: params)
         case "runtime": return try await runtimeCall(method, params: params)
         case "bottle": return try await lifecycleCall(method, params: params)
         case "metadata": return try await metadataService.call(method, params: params, workspace: workspace)

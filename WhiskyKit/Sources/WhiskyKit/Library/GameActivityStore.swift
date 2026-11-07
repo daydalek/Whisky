@@ -23,7 +23,7 @@ import WhiskyCore
 /// Serializes read-modify-write operations for ratings and process samples across processes.
 public final class GameActivityStore: Sendable {
     public static let shared = GameActivityStore()
-    public static let didUpdateNotification = Notification.Name("com.franke.Whisky.gameActivityStoreDidUpdate")
+    public static let didUpdateNotification = Notification.Name("com.daydalek.Maltoria.gameActivityStoreDidUpdate")
     public static let entryIDKey = "entryID"
 
     private let locking: any ActivityFileLocking

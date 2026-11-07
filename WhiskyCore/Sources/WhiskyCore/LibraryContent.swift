@@ -38,9 +38,37 @@ public struct LibraryDiscovery: Sendable {
         let entries = scanned.scan(bottleURL: containerURL, steamDirectories: steamDirectories)
         return LibraryDiscovery(
             containerURL: containerURL,
-            entries: LibraryCatalogue.merge([additionalEntries, entries]),
+            entries: dropDuplicateLaunchTargets(
+                LibraryCatalogue.merge([additionalEntries, entries]),
+                folders: scanned, bottleURL: containerURL
+            ),
             folders: scanned
         )
+    }
+
+    /// The synthesized Steam client entry stands in for the real `steam.exe`
+    /// only until a pin or a folder entry names the same executable; a
+    /// user-curated entry wins over the placeholder every time.
+    private static func dropDuplicateLaunchTargets(
+        _ entries: [LibraryEntry], folders: FolderGameLibrary, bottleURL: URL
+    ) -> [LibraryEntry] {
+        var covered = Set<String>()
+        for entry in entries where !entry.id.hasPrefix("steam-client:") {
+            guard case let .program(url) = entry.launch else { continue }
+            if entry.source == .folder {
+                if let executable = folders.executable(for: url, bottleURL: bottleURL) {
+                    covered.insert(executable.standardizedFileURL.path)
+                }
+            } else {
+                covered.insert(url.standardizedFileURL.path)
+            }
+        }
+        return entries.filter { entry in
+            guard entry.id.hasPrefix("steam-client:"),
+                  case let .program(url) = entry.launch
+            else { return true }
+            return !covered.contains(url.standardizedFileURL.path)
+        }
     }
 
     /// Retain settings changed during scanning while publishing derived folder state.

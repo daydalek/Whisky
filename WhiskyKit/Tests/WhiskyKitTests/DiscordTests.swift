@@ -306,7 +306,7 @@ struct DiscordBridgeTests {
 
     @Test("Launching starts the relay detached, with the socket directory passed in")
     func launchArguments() {
-        let executable = URL(fileURLWithPath: "/Applications/Whisky.app/Contents/bridge.exe")
+        let executable = URL(fileURLWithPath: "/Applications/Maltoria.app/Contents/bridge.exe")
         let directory = URL(fileURLWithPath: "/var/folders/49/abc/T", isDirectory: true)
 
         let arguments = DiscordBridge.launchArguments(executableURL: executable, socketDirectory: directory)
@@ -314,7 +314,7 @@ struct DiscordBridgeTests {
         // The relay appends the socket name to whatever it is given, so the
         // trailing separator a directory URL carries is what it wants.
         #expect(arguments == [
-            "start", "/unix", "/Applications/Whisky.app/Contents/bridge.exe",
+            "start", "/unix", "/Applications/Maltoria.app/Contents/bridge.exe",
             "--dir", "/var/folders/49/abc/T/"
         ])
     }

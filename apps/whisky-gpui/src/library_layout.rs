@@ -25,6 +25,64 @@ pub struct LibraryLayout {
     pub cover_width: f32,
 }
 
+/// Which side of the central rail a staggered card sits on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StaggeredSide {
+    Left,
+    Right,
+}
+
+/// One card target in the staggered two-column timeline.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StaggeredCard {
+    /// Index into the library's entry list.
+    pub index: usize,
+    /// Card rect in content space.
+    pub rect: CardRect,
+    /// The column the card occupies; drives the connector direction.
+    pub side: StaggeredSide,
+    /// Content-space rail node centre — the card's vertical middle.
+    pub node_y: f32,
+}
+
+/// Geometry for the staggered two-column timeline (mode index 5).
+#[derive(Debug)]
+pub struct StaggeredLayout {
+    pub cards: Vec<StaggeredCard>,
+    /// Date/group chips centred on the rail: `(center y, text)`.
+    pub markers: Vec<(f32, String)>,
+    /// Content height covering the last card plus the trailing margin.
+    pub height: f32,
+    /// Horizontal centre of the rail in content space.
+    pub rail_x: f32,
+    /// Rail segment bounds: just past the outermost node/marker.
+    pub rail_top: f32,
+    pub rail_bottom: f32,
+    pub card_width: f32,
+    pub card_height: f32,
+    /// The cover column width the card body should draw.
+    pub cover_width: f32,
+    /// Below this column width the card drops its description row.
+    pub compact: bool,
+}
+
+/// Outer margin of the staggered page, matching the other presentations.
+pub const STAGGERED_MARGIN: f32 = 20.;
+/// Content-space gap between a card edge and the rail the connector spans.
+pub const STAGGERED_RAIL_GAP: f32 = 40.;
+/// Vertical gap between two cards in the same column.
+const STAGGERED_GAP: f32 = 26.;
+const STAGGERED_TOP: f32 = 22.;
+const STAGGERED_BOTTOM: f32 = 30.;
+/// Extra rail space a group boundary opens for its date chip.
+const STAGGERED_MARKER_GAP: f32 = 44.;
+/// The rail overshoots the first and last node by this much.
+const STAGGERED_RAIL_OVERHANG: f32 = 16.;
+/// Narrowest column before the card body squeezes instead of giving up.
+const STAGGERED_MIN_COLUMN: f32 = 190.;
+/// Column width below which the card hides its description row.
+const STAGGERED_COMPACT: f32 = 330.;
+
 /// Narrowest and widest cover the size control can ask for.
 pub const MIN_COVER_WIDTH: f32 = 110.;
 pub const MAX_COVER_WIDTH: f32 = 320.;
@@ -142,6 +200,104 @@ impl LibraryLayout {
     pub fn timeline(indices: &[usize], width: f32) -> Self {
         let cover_width = if width > 1000. { 145. } else { 125. };
         Self::grid(indices, width, 1, 24., 12., cover_width * 1.5 + 26.)
+    }
+
+    /// The staggered two-column timeline: cards alternate left/right of a
+    /// centered rail and the right column hangs half a pitch below the left.
+    ///
+    /// `label(index, position)` names the date group a card belongs to
+    /// (`None` marks no group); a boundary inserts [`STAGGERED_MARKER_GAP`] of
+    /// rail space and a centered chip. Every entry keeps the global sort
+    /// order — this is a staggered timeline, not shortest-column-first
+    /// masonry.
+    pub fn staggered(
+        indices: &[usize],
+        width: f32,
+        label: impl Fn(usize, usize) -> Option<String>,
+    ) -> StaggeredLayout {
+        let card_width = ((width - STAGGERED_MARGIN * 2. - STAGGERED_RAIL_GAP * 2.) / 2.)
+            .max(STAGGERED_MIN_COLUMN);
+        let cover_width = (card_width * 0.24).clamp(56., 98.);
+        let card_height = cover_width * 1.5 + 26.;
+        let pitch = card_height + STAGGERED_GAP;
+        // Even positions fill the left column, odd the right; the right column
+        // starts half a pitch down so neighbours never line up.
+        let mut cursor = [STAGGERED_TOP, STAGGERED_TOP + pitch / 2.];
+        let mut previous: Option<String> = None;
+        let mut markers = Vec::new();
+        let mut cards = Vec::with_capacity(indices.len());
+        for (position, &index) in indices.iter().enumerate() {
+            let group = label(index, position);
+            let boundary = if position == 0 {
+                group.is_some()
+            } else {
+                group != previous
+            };
+            previous = group.clone();
+            if boundary {
+                cursor[0] += STAGGERED_MARKER_GAP;
+                cursor[1] += STAGGERED_MARKER_GAP;
+                if let Some(text) = group {
+                    markers.push((cursor[0].min(cursor[1]) - STAGGERED_MARKER_GAP / 2., text));
+                }
+            }
+            let column = position % 2;
+            let y = cursor[column];
+            cursor[column] += pitch;
+            cards.push(StaggeredCard {
+                index,
+                rect: CardRect {
+                    x: if column == 0 {
+                        STAGGERED_MARGIN
+                    } else {
+                        width - STAGGERED_MARGIN - card_width
+                    },
+                    y,
+                    width: card_width,
+                    height: card_height,
+                },
+                side: if column == 0 {
+                    StaggeredSide::Left
+                } else {
+                    StaggeredSide::Right
+                },
+                node_y: y + card_height / 2.,
+            });
+        }
+        let bottom = cards
+            .iter()
+            .map(|card| card.rect.y + card.rect.height)
+            .fold(0_f32, f32::max);
+        let (rail_top, rail_bottom) = match cards.first() {
+            Some(_) => {
+                let first = cards
+                    .iter()
+                    .map(|card| card.node_y)
+                    .fold(f32::MAX, f32::min);
+                let last = cards
+                    .iter()
+                    .map(|card| card.node_y)
+                    .fold(f32::MIN, f32::max);
+                (
+                    first.min(markers.first().map_or(f32::MAX, |marker| marker.0))
+                        - STAGGERED_RAIL_OVERHANG,
+                    last + STAGGERED_RAIL_OVERHANG,
+                )
+            }
+            None => (0., 0.),
+        };
+        StaggeredLayout {
+            cards,
+            markers,
+            height: bottom + STAGGERED_BOTTOM,
+            rail_x: width / 2.,
+            rail_top,
+            rail_bottom,
+            card_width,
+            card_height,
+            cover_width,
+            compact: card_width < STAGGERED_COMPACT,
+        }
     }
 
     pub fn classic(indices: &[usize], width: f32) -> Self {
@@ -371,6 +527,141 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
+    /// The staggered contract: every card stays inside the row, alternates
+    /// left/right in order, aligns its node to its own centre, never overlaps,
+    /// and the columns keep their half-pitch offset.
+    fn check_staggered(layout: &StaggeredLayout, indices: &[usize], width: f32) {
+        assert_eq!(
+            layout
+                .cards
+                .iter()
+                .map(|card| card.index)
+                .collect::<BTreeSet<_>>(),
+            indices.iter().copied().collect()
+        );
+        assert_eq!(layout.cards.len(), indices.len());
+        for (position, card) in layout.cards.iter().enumerate() {
+            let rect = card.rect;
+            assert!(rect.x.is_finite() && rect.y.is_finite());
+            assert!(rect.width > 0. && rect.height > 0.);
+            assert!(rect.x + rect.width <= width - STAGGERED_MARGIN + 0.01);
+            assert!(rect.y + rect.height <= layout.height + 0.01);
+            // Node sits on the rail at the card's vertical centre.
+            assert!((card.node_y - (rect.y + rect.height / 2.)).abs() < 0.01);
+            // The card never reaches the rail: the connector has its band.
+            let edge = match card.side {
+                StaggeredSide::Left => rect.x + rect.width,
+                StaggeredSide::Right => rect.x,
+            };
+            assert!((layout.rail_x - edge).abs() > 4.);
+            assert_eq!(
+                card.side,
+                if position % 2 == 0 {
+                    StaggeredSide::Left
+                } else {
+                    StaggeredSide::Right
+                }
+            );
+            for other in &layout.cards[position + 1..] {
+                let other = other.rect;
+                let overlaps = rect.x < other.x + other.width - 0.01
+                    && rect.x + rect.width > other.x + 0.01
+                    && rect.y < other.y + other.height - 0.01
+                    && rect.y + rect.height > other.y + 0.01;
+                assert!(!overlaps, "overlapping targets: {rect:?}, {other:?}");
+            }
+        }
+        // Same-column neighbours are exactly one pitch apart plus a whole
+        // number of marker gaps opened by group boundaries in between.
+        let pitch = layout.card_height + STAGGERED_GAP;
+        for pair in layout.cards.windows(2) {
+            let dy = pair[1].rect.y - pair[0].rect.y;
+            let gaps = (dy - pitch / 2.) / STAGGERED_MARKER_GAP;
+            assert!(dy >= pitch / 2. - 0.01 && (gaps - gaps.round()).abs() < 0.01);
+        }
+        for pair in layout.cards.windows(3) {
+            let dy = pair[2].rect.y - pair[0].rect.y;
+            let gaps = (dy - pitch) / STAGGERED_MARKER_GAP;
+            assert!(
+                dy >= pitch - 0.01 && (gaps - gaps.round()).abs() < 0.01 && gaps <= 2.01,
+                "same-column spacing must be pitch plus marker gaps: {dy}"
+            );
+        }
+        for (index, (_, _)) in layout.markers.iter().enumerate() {
+            assert!(index < layout.cards.len());
+        }
+    }
+
+    #[test]
+    fn staggered_alternates_columns_and_centres_the_rail() {
+        let indices: Vec<usize> = (0..6).collect();
+        let layout = LibraryLayout::staggered(&indices, 1080., |_, _| None);
+        assert_eq!(layout.rail_x, 540.);
+        for (position, card) in layout.cards.iter().enumerate() {
+            assert_eq!(
+                card.side,
+                if position % 2 == 0 {
+                    StaggeredSide::Left
+                } else {
+                    StaggeredSide::Right
+                }
+            );
+        }
+        // Right column hangs half a pitch below the left.
+        let pitch = layout.card_height + STAGGERED_GAP;
+        assert!((layout.cards[1].rect.y - layout.cards[0].rect.y - pitch / 2.).abs() < 0.01);
+        // Column inner edges keep the rail gap on both sides.
+        let left = layout.cards[0].rect;
+        assert!((left.x + left.width - (layout.rail_x - STAGGERED_RAIL_GAP)).abs() < 0.01);
+        let right = layout.cards[1].rect;
+        assert!((right.x - (layout.rail_x + STAGGERED_RAIL_GAP)).abs() < 0.01);
+        // The rail outlives the outermost nodes but not the content.
+        assert!(layout.rail_top < layout.cards[0].node_y);
+        assert!(layout.rail_bottom > layout.cards[5].node_y);
+        assert!(layout.rail_bottom <= layout.height);
+    }
+
+    #[test]
+    fn staggered_markers_open_rail_space_and_shift_later_cards() {
+        let indices: Vec<usize> = (0..6).collect();
+        let plain = LibraryLayout::staggered(&indices, 1080., |_, _| None);
+        let grouped = LibraryLayout::staggered(&indices, 1080., |i, _| {
+            Some(if i < 3 { "今天" } else { "更早" }.to_owned())
+        });
+        assert_eq!(grouped.markers.len(), 2);
+        assert_eq!(grouped.markers[0].1, "今天");
+        assert_eq!(grouped.markers[1].1, "更早");
+        // Both boundaries (the leading chip and the group change) push the
+        // rest of the timeline down one marker gap each.
+        let shifted = grouped.cards[3].rect.y - plain.cards[3].rect.y;
+        assert!((shifted - 2. * STAGGERED_MARKER_GAP).abs() < 0.01);
+        // Same-column spacing across a boundary gains exactly one marker gap.
+        let pitch = grouped.card_height + STAGGERED_GAP;
+        assert!(
+            (grouped.cards[4].rect.y - grouped.cards[2].rect.y - pitch - STAGGERED_MARKER_GAP)
+                .abs()
+                < 0.01
+        );
+    }
+
+    #[test]
+    fn staggered_handles_empty_and_missing_labels() {
+        let empty = LibraryLayout::staggered(&[], 1080., |_, _| None);
+        assert!(empty.cards.is_empty());
+        assert!(empty.markers.is_empty());
+        assert_eq!(empty.rail_top, empty.rail_bottom);
+        // A mixed run: an unlabeled card joins the previous group.
+        let mixed = LibraryLayout::staggered(&(0..3).collect::<Vec<_>>(), 1080., |i, _| match i {
+            0 => Some("今天".to_owned()),
+            _ => None,
+        });
+        assert_eq!(
+            mixed.markers.len(),
+            1,
+            "only the leading label marks a group"
+        );
+    }
+
     fn check(layout: &LibraryLayout, indices: &[usize], width: f32) {
         assert_eq!(
             layout
@@ -415,6 +706,16 @@ mod tests {
                 );
                 check(&LibraryLayout::classic(&indices, width), &indices, width);
                 check(&LibraryLayout::timeline(&indices, width), &indices, width);
+            }
+        }
+        for width in [560., 640., 800., 1080., 1600.] {
+            for count in [0, 1, 2, 3, 9, 35, 100] {
+                let indices: Vec<_> = (0..count).collect();
+                let layout =
+                    LibraryLayout::staggered(&indices, width, |i, _| {
+                        (i % 5 == 0).then(|| i.to_string())
+                    });
+                check_staggered(&layout, &indices, width);
             }
         }
     }

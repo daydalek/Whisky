@@ -40,12 +40,12 @@ jobs:
               with (root/asset['name']).open('rb') as stream:
                   assert hashlib.file_digest(stream,'sha256').hexdigest() == asset['sha256']
           (root/'RELEASE-NOTES.md').write_text(
-              'Whisky ' + report['version'] + ' for Linux amd64 (prerelease).\n\n'
+              'Maltoria ' + report['version'] + ' for Linux amd64 (prerelease).\n\n'
               '- Baseline: glibc 2.39 or newer; Python 3.12 or newer.\n'
               '- deb: Ubuntu 24.04; install with `sudo apt install ./whisky_*.deb`.\n'
               '- rpm: Fedora 44; install with `sudo dnf install ./whisky-*.rpm`.\n'
               '- AppImage: tested on Ubuntu 24.04 and Fedora 44. Make executable and run. '
-              'For environments without FUSE, use `APPIMAGE_EXTRACT_AND_RUN=1 ./Whisky-*.AppImage`.\n'
+              'For environments without FUSE, use `APPIMAGE_EXTRACT_AND_RUN=1 ./Maltoria-*.AppImage`.\n'
               '- Graphics drivers, OpenGL ES/Vulkan, fonts and host desktop tools use the system installation.\n'
               '- Wine downloads separately; Bottle and game data remain in user data directories.\n'
               '- Sources, dependency records and notices are included in each package.\n'

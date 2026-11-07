@@ -46,7 +46,7 @@ result.with_suffix('.tmp').replace(result)
     applications = root / 'data/applications'
     applications.mkdir(parents=True)
     (applications / 'existing.desktop').write_text('[Desktop Entry]\nType=Application\nName=Existing\nExec=/bin/true\nMimeType=application/x-msi;\n')
-    app_entry = applications / 'com.franke.Whisky.desktop'
+    app_entry = applications / 'com.daydalek.Maltoria.desktop'
     app_entry.write_text(legacy('Custom Whisky', launchers[0], files=True).replace('Icon=applications-games', 'Icon=custom-icon') +
                          '# retained comment\nX-User-Setting=opaque\nActions=Custom;\n[Desktop Action Custom]\nName=Custom\nExec=/bin/true\n')
     app_entry.chmod(0o640)

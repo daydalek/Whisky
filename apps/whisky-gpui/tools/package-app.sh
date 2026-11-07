@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Package dist/Whisky.app from the release builds of whisky-gpui and whisky-bridge.
+# Package dist/Maltoria.app from the release builds of whisky-gpui and whisky-bridge.
 #
 # Layout:
-#   dist/Whisky.app/Contents/MacOS/whisky-gpui
-#   dist/Whisky.app/Contents/Resources/whisky-bridge
-#   dist/Whisky.app/Contents/Resources/AppIcon.icns
-#   dist/Whisky.app/Contents/Info.plist
+#   dist/Maltoria.app/Contents/MacOS/whisky-gpui
+#   dist/Maltoria.app/Contents/Resources/whisky-bridge
+#   dist/Maltoria.app/Contents/Resources/AppIcon.icns
+#   dist/Maltoria.app/Contents/Info.plist
+#   (product branding: Maltoria; binary names keep the whisky-* namespace)
 #
 # The helper lives at Contents/Resources/whisky-bridge because that is where
 # locate_helper() (apps/whisky-gpui/src/bridge/supervisor.rs) looks first,
@@ -15,7 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
-APP_DIR="${WHISKY_GPUI_APP_DIR:-${REPO_ROOT}/dist/Whisky.app}"
+APP_DIR="${WHISKY_GPUI_APP_DIR:-${REPO_ROOT}/dist/Maltoria.app}"
 CONTENTS="${APP_DIR}/Contents"
 ICONSET_SRC="${REPO_ROOT}/Whisky/Assets.xcassets/AppIcon.appiconset"
 
@@ -79,7 +80,7 @@ VERSION="${WHISKY_VERSION:-${WHISKY_DEFAULT_VERSION}}"
 BUILD="${BUILD_NUMBER:-${WHISKY_DEFAULT_BUILD}}"
 : "${VERSION:?Missing default Whisky version}"
 : "${BUILD:?Missing default Whisky build number}"
-BUNDLE_ID="${WHISKY_BUNDLE_ID:-com.franke.Whisky}"
+BUNDLE_ID="${WHISKY_BUNDLE_ID:-com.daydalek.Maltoria}"
 
 cat > "${CONTENTS}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -89,9 +90,9 @@ cat > "${CONTENTS}/Info.plist" <<PLIST
 	<key>CFBundleIdentifier</key>
 	<string>${BUNDLE_ID}</string>
 	<key>CFBundleName</key>
-	<string>Whisky</string>
+	<string>Maltoria</string>
 	<key>CFBundleDisplayName</key>
-	<string>Whisky</string>
+	<string>Maltoria</string>
 	<key>CFBundleExecutable</key>
 	<string>whisky-gpui</string>
 	<key>CFBundleIconFile</key>
@@ -107,7 +108,7 @@ cat > "${CONTENTS}/Info.plist" <<PLIST
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © Whisky</string>
+	<string>Copyright © Maltoria</string>
 </dict>
 </plist>
 PLIST

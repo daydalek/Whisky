@@ -712,6 +712,10 @@ pub(crate) struct LibraryPageDto {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct EntryDto {
     pub(crate) id: String,
+    /// `LibraryEntry.metadataIdentity`: the stable per-bottle key launcher
+    /// auto-start and hidden preferences are stored under.
+    #[serde(default)]
+    pub(crate) identity: Option<String>,
     pub(crate) name: String,
     /// Bottle path; used to confirm which sidebar slot owns the entry.
     #[serde(default)]
@@ -757,6 +761,15 @@ pub(crate) struct EntryDto {
 }
 
 pub(crate) type EntryList = Vec<EntryDto>;
+
+/// `launchers.read` / `launchers.setAutoStart` payload.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LaunchersDto {
+    /// `metadataIdentity` values Whisky launches automatically on startup.
+    #[serde(default)]
+    pub(crate) auto_start: Vec<String>,
+}
 
 /// The subset of `GameMetadata` the library surfaces read.
 #[derive(Debug, Clone, Default, serde::Serialize, Deserialize)]
@@ -924,6 +937,7 @@ impl EntryDto {
             container: self.container.unwrap_or_default(),
             last_session_ended_at: self.activity.last_session_ended_at(),
             is_launcher: self.is_launcher,
+            identity: self.identity.unwrap_or_default(),
         }
     }
 }
@@ -1001,7 +1015,7 @@ mod tests {
             ],
             "capabilities": ["library.read", "workspace.read"],
             "maximumFrameBytes": 1048576,
-            "registry": "/Users/example/Library/Containers/com.franke.Whisky/BottleVM.plist",
+            "registry": "/Users/example/Library/Containers/com.daydalek.Maltoria/BottleVM.plist",
             "dateUnit": "unix_seconds",
             "pathFormat": "absolute_native",
             "futureField": {"ignored": true}
@@ -1367,6 +1381,7 @@ mod tests {
     fn entry_with_cover(cover: &str) -> EntryDto {
         EntryDto {
             id: "pinned:/entry".into(),
+            identity: None,
             name: "Entry".into(),
             container: None,
             executable: None,
@@ -1609,8 +1624,8 @@ mod tests {
     fn system_info_decodes_packaged_metadata_and_labels_missing_versions() {
         let info: SystemInfoDto = serde_json::from_str(
             r#"{
-                "appName": "Whisky", "appVersion": "0.3.0", "build": "42",
-                "bundleIdentifier": "com.franke.Whisky", "osVersion": "Version 27.2",
+                "appName": "Maltoria", "appVersion": "0.3.0", "build": "42",
+                "bundleIdentifier": "com.daydalek.Maltoria", "osVersion": "Version 27.2",
                 "futureField": true
             }"#,
         )

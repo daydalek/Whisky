@@ -6,8 +6,9 @@ use gpui_kit::base::{Spring, spring, transition};
 use gpui_kit::component::{
     Disableable, Sizable,
     button::{Button, ButtonVariants},
-    menu::ContextMenuExt,
+    menu::{ContextMenuExt, PopupMenu, PopupMenuItem},
     spinner::Spinner,
+    tooltip::Tooltip,
 };
 use gpui_kit::{prelude::*, *};
 
@@ -16,8 +17,11 @@ use crate::controls::*;
 use crate::library_layout::{CardRect, LibraryLayout};
 use crate::model::{ambient, art};
 use crate::runtime::{RuntimeAction, RuntimeState};
-use crate::state::{DEMO_NOTICE, PreviewPage, WhiskyApp};
+use crate::state::{DEMO_NOTICE, PreviewPage, SidebarMode, WhiskyApp};
 use crate::theme::*;
+use crate::views::{
+    ConnectorPaint, connector_curve, fade_rgb, mix_rgb, mix_rgba, paint_connectors,
+};
 
 const CHARACTER_CARD_WIDTH: f32 = 164.;
 const CHARACTER_CARD_PADDING: f32 = 10.;
@@ -217,6 +221,30 @@ fn sidebar_row(
         .child(muted(count.to_string()).text_size(px(11.)))
 }
 
+/// One rail button, mirroring a `sidebar_row` icon. The label and count move
+/// into the tooltip so the strip can stay at icon width.
+fn sidebar_icon(id: impl Into<ElementId>, symbol: &str, selected: bool) -> Stateful<Div> {
+    row()
+        .id(id)
+        .size(px(36.))
+        .justify_center()
+        .rounded(px(6.))
+        .bg(if selected {
+            rgba(selected_bg())
+        } else {
+            rgba(0x00000000)
+        })
+        .cursor_pointer()
+        .hover(|s| s.bg(rgba(hover())))
+        .child(icon(symbol, 18.).text_color(rgb(ACCENT)))
+}
+
+/// A plain tooltip closure for the sidebar's collapsed presentations.
+fn text_tip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    let text = text.into();
+    move |_, cx| cx.new(|_| Tooltip::new(text.clone())).into()
+}
+
 impl WhiskyApp {
     /// Existing artwork only; the demo keeps its bundled sample covers.
     pub(crate) fn artwork(&self, index: usize) -> Option<std::path::PathBuf> {
@@ -256,6 +284,7 @@ impl WhiskyApp {
             2 => self.classic(width, window, cx),
             3 => self.immersive(width, window, cx),
             4 => self.gallery(width, window, cx),
+            5 => self.staggered(width, window, cx),
             _ => self.shelf(width, window, cx),
         }
     }
@@ -294,6 +323,210 @@ impl WhiskyApp {
     }
 
     pub(crate) fn sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.sidebar == SidebarMode::Icons {
+            self.sidebar_rail(cx)
+        } else {
+            // `Hidden` keeps the expanded rows: they slide out under the clip.
+            self.sidebar_expanded(cx)
+        }
+    }
+
+    /// Right-click on a sidebar affordance picks the presentation directly;
+    /// the buttons keep their one-click behaviour.
+    fn sidebar_mode_menu(
+        &self,
+        cx: &Context<Self>,
+    ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+        let view = cx.entity().downgrade();
+        let current = self.sidebar;
+        move |mut menu, _, _| {
+            for (label, mode) in [
+                ("展开侧边栏", SidebarMode::Expanded),
+                ("仅显示图标", SidebarMode::Icons),
+                ("完全隐藏", SidebarMode::Hidden),
+            ] {
+                let view = view.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(label)
+                        .checked(current == mode)
+                        .on_click(move |_, _, cx| {
+                            let _ = view.update(cx, |this, cx| {
+                                this.set_sidebar(mode, cx);
+                            });
+                        }),
+                );
+            }
+            menu
+        }
+    }
+
+    /// The rail's container picker: one submenu per bottle — its first item
+    /// selects the container, the rest are the expanded row's bottle actions.
+    fn container_menu(
+        &self,
+        cx: &Context<Self>,
+    ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+        let view = cx.entity().downgrade();
+        let selected = self.selected_bottle;
+        let bottles: Vec<_> = self
+            .bottles
+            .iter()
+            .enumerate()
+            .map(|(index, bottle)| {
+                (index, bottle.name.clone(), self.bottle_menu_entries(index, cx))
+            })
+            .collect();
+        move |mut menu, window, cx| {
+            if bottles.is_empty() {
+                menu = menu.item(PopupMenuItem::new("（无容器）").disabled(true));
+            }
+            for (index, name, items) in &bottles {
+                let (index, name, items) = (*index, name.clone(), items.clone());
+                let view = view.clone();
+                menu = menu.submenu(name, window, cx, move |mut sub, _, _| {
+                    let view = view.clone();
+                    sub = sub
+                        .item(
+                            PopupMenuItem::new("显示")
+                                .checked(selected == Some(index))
+                                .on_click(move |_, _, cx| {
+                                    let _ = view.update(cx, |this, cx| {
+                                        this.select_bottle(Some(index), cx);
+                                    });
+                                }),
+                        )
+                        .separator();
+                    for item in &items {
+                        sub = sub.item(item.build());
+                    }
+                    sub
+                });
+            }
+            menu
+        }
+    }
+
+    /// The collapsed rail: every expanded entry mapped to its icon, with the
+    /// name and count carried by the row's tooltip.
+    fn sidebar_rail(&self, cx: &mut Context<Self>) -> AnyElement {
+        let games = self.games();
+        let mut entries = col().items_center().gap(px(1.)).px(px(10.));
+        entries = entries.child(
+            sidebar_icon("sidebar-expand", "panel-left-open", false)
+                .tooltip(text_tip("展开侧边栏 · 右键选择显示方式"))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.set_sidebar(SidebarMode::Expanded, cx);
+                }))
+                .context_menu(self.sidebar_mode_menu(cx)),
+        );
+        entries = entries.child(
+            sidebar_icon(
+                "library",
+                "layout-grid",
+                !self.settings && self.preview.page == PreviewPage::Library && self.selected_bottle.is_none(),
+            )
+            .tooltip(text_tip(format!(
+                "Library · {}",
+                games.iter().filter(|game| !game.is_launcher).count()
+            )))
+            .on_click(cx.listener(|this, _, _, cx| this.select_bottle(None, cx))),
+        );
+        entries = entries.child(
+            sidebar_icon(
+                "statistics",
+                "rows-3",
+                !self.settings && self.preview.page == PreviewPage::Statistics,
+            )
+            .tooltip(text_tip(format!(
+                "游玩统计 · {}",
+                games
+                    .iter()
+                    .filter(|game| !game.is_launcher && game.play_time.unwrap_or(0) > 0)
+                    .count()
+            )))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.navigate(PreviewPage::Statistics, cx);
+            })),
+        );
+        entries = entries.child(
+            sidebar_icon(
+                "launchers",
+                "store",
+                !self.settings && self.preview.page == PreviewPage::Launchers,
+            )
+            .tooltip(text_tip(format!(
+                "启动器 · {}",
+                games.iter().filter(|game| game.is_launcher).count()
+            )))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.navigate(PreviewPage::Launchers, cx);
+            })),
+        );
+        // The expanded "Bottles" caption becomes a hairline at rail width.
+        entries = entries.child(div().h(px(1.)).w(px(24.)).my(px(5.)).bg(rgba(divider())));
+        // One container affordance: left-click reopens the active bottle,
+        // right-click lists every container so one pick selects it.
+        let container_tip = match self.selected_bottle.and_then(|index| self.bottles.get(index)) {
+            Some(bottle) => format!("{} · 右键选择容器", bottle.name),
+            None => "容器 · 右键选择".to_owned(),
+        };
+        entries = entries.child(
+            sidebar_icon(
+                "containers",
+                "package",
+                !self.settings && self.selected_bottle.is_some(),
+            )
+            .tooltip(text_tip(container_tip))
+            .on_click(cx.listener(|this, _, _, cx| {
+                let target = this
+                    .selected_bottle
+                    .or_else(|| (!this.bottles.is_empty()).then_some(0));
+                if target.is_some() {
+                    this.select_bottle(target, cx);
+                }
+            }))
+            .context_menu(self.container_menu(cx)),
+        );
+        let (grad_start, grad_end) = sidebar_gradient();
+        col()
+            .id("sidebar-rail")
+            .size_full()
+            .items_center()
+            .bg(gradient(grad_start, grad_end))
+            .border_r_1()
+            .border_color(rgba(divider()))
+            // The traffic lights span the rail's full width; the header band
+            // stays empty so they never cover a button.
+            .child(div().w_full().h(px(52.)).flex_shrink_0())
+            .child(entries)
+            .child(div().flex_1())
+            .child(
+                col()
+                    .items_center()
+                    .gap(px(6.))
+                    .pb(px(8.))
+                    .child(self.bridge_dot(cx))
+                    .child(
+                        round_button("appearance-toggle", self.appearance.icon_name())
+                            .size(px(28.))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.cycle_appearance(cx);
+                            })),
+                    )
+                    .child(
+                        round_button("settings", "settings-2")
+                            .size(px(28.))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.settings = !this.settings;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .context_menu(self.sidebar_mode_menu(cx))
+            .into_any_element()
+    }
+
+    fn sidebar_expanded(&self, cx: &mut Context<Self>) -> AnyElement {
         let games = self.games();
         let mut entries = col().gap(px(1.));
         entries = entries.child(
@@ -301,7 +534,7 @@ impl WhiskyApp {
                 "library",
                 "Library",
                 "layout-grid",
-                games.len(),
+                games.iter().filter(|game| !game.is_launcher).count(),
                 !self.settings && self.preview.page == PreviewPage::Library && self.selected_bottle.is_none(),
             )
             .on_click(cx.listener(|this, _, _, cx| this.select_bottle(None, cx))),
@@ -316,6 +549,15 @@ impl WhiskyApp {
             })),
         );
         entries = entries.child(
+            sidebar_row(
+                "launchers", "启动器", "store",
+                games.iter().filter(|game| game.is_launcher).count(),
+                !self.settings && self.preview.page == PreviewPage::Launchers,
+            ).on_click(cx.listener(|this, _, _, cx| {
+                this.navigate(PreviewPage::Launchers, cx);
+            })),
+        );
+        entries = entries.child(
             muted("Bottles")
                 .text_size(px(11.))
                 .font_weight(FontWeight::SEMIBOLD)
@@ -324,7 +566,10 @@ impl WhiskyApp {
                 .px(px(13.)),
         );
         for (index, bottle) in self.bottles.iter().enumerate() {
-            let count = games.iter().filter(|game| game.bottle == index + 1).count();
+            let count = games
+                .iter()
+                .filter(|game| game.bottle == index + 1 && !game.is_launcher)
+                .count();
             entries = entries.child(
                 sidebar_row(
                     ("bottle", index),
@@ -352,12 +597,13 @@ impl WhiskyApp {
                     .px(px(14.))
                     .justify_end()
                     .child(
-                        round_button("sidebar-hide", "panel-left").on_click(cx.listener(
-                            |this, _, _, cx| {
-                                this.sidebar = false;
-                                cx.notify();
-                            },
-                        )),
+                        round_button("sidebar-hide", "panel-left")
+                            .tooltip(text_tip("收起侧边栏 · 右键选择显示方式"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let style = this.sidebar_collapsed_style;
+                                this.set_sidebar(style, cx);
+                            }))
+                            .context_menu(self.sidebar_mode_menu(cx)),
                     ),
             )
             .child(entries.px(px(5.)))
@@ -373,7 +619,7 @@ impl WhiskyApp {
                             .justify_between()
                             .px(px(4.))
                             .py(px(4.))
-                            .child(muted("Whisky").text_size(px(11.)))
+                            .child(muted("Maltoria").text_size(px(11.)))
                             .child(
                                 row()
                                     .gap(px(6.))
@@ -400,13 +646,41 @@ impl WhiskyApp {
             )
             .into_any_element()
     }
-    fn bridge_pill(&self, cx: &mut Context<Self>) -> AnyElement {
-        let (dot, failed) = match &self.bridge_status {
+    /// The bridge indicator's (dot colour, clickable-failure) pair, shared by
+    /// the expanded pill and the rail's dot.
+    fn bridge_status_style(&self) -> (u32, bool) {
+        match &self.bridge_status {
             BridgeStatus::Connected { .. } => (SUCCESS, false),
             BridgeStatus::Failed { .. } => (DANGER, true),
             BridgeStatus::Stopped => (DANGER, false),
             BridgeStatus::Locating | BridgeStatus::Starting => (muted_color(), false),
-        };
+        }
+    }
+    /// The rail's bridge indicator: the pill's dot alone, still opening the
+    /// recovery dialog after a failure.
+    fn bridge_dot(&self, cx: &mut Context<Self>) -> AnyElement {
+        let (dot, failed) = self.bridge_status_style();
+        div()
+            .id("bridge-status")
+            .size(px(28.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .when(failed, |d| {
+                d.cursor_pointer()
+                    .hover(|s| s.bg(rgba(hover())))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.bridge_dialog = true;
+                        cx.notify();
+                    }))
+            })
+            .tooltip(text_tip(self.bridge_status.label()))
+            .child(div().size(px(6.)).rounded_full().bg(rgb(dot)))
+            .into_any_element()
+    }
+    fn bridge_pill(&self, cx: &mut Context<Self>) -> AnyElement {
+        let (dot, failed) = self.bridge_status_style();
         row()
             .id("bridge-status")
             .px(px(10.))
@@ -443,14 +717,14 @@ impl WhiskyApp {
             .bg(rgba(toolbar_bg()))
             .border_b_1()
             .border_color(rgba(divider()))
-            .when(!self.sidebar, |d| {
+            .when(matches!(self.sidebar, SidebarMode::Hidden), |d| {
                 d.child(
-                    round_button("sidebar-show", "panel-left").on_click(cx.listener(
-                        |this, _, _, cx| {
-                            this.sidebar = true;
-                            cx.notify();
-                        },
-                    )),
+                    round_button("sidebar-show", "panel-left")
+                        .tooltip(text_tip("显示侧边栏 · 右键选择显示方式"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.set_sidebar(SidebarMode::Expanded, cx);
+                        }))
+                        .context_menu(self.sidebar_mode_menu(cx)),
                 )
             })
             .child(
@@ -470,6 +744,14 @@ impl WhiskyApp {
                 |d| {
                     d.child(modes)
                 },
+            )
+            .when(
+                // The list owns both timeline layouts; the switch picks
+                // single or staggered columns.
+                self.preview.page == PreviewPage::Library
+                    && !self.settings
+                    && (self.mode == 1 || self.mode == crate::preferences::STAGGERED_MODE),
+                |d| d.child(self.timeline_layout_control(cx)),
             )
             .when(
                 // Only the shelf has a cover size; the timeline and the classic
@@ -505,6 +787,51 @@ impl WhiskyApp {
                     .flex_shrink_0()
                     .child(gpui_kit::component::input::Input::new(&self.search)),
             )
+    }
+
+    /// 单列/双列 segmented switch for the timeline family. The staggered rail
+    /// is a variant of the list rather than its own picker entry, so the
+    /// switch just moves the mode slot between 1 and STAGGERED_MODE.
+    fn timeline_layout_control(&self, cx: &mut Context<Self>) -> AnyElement {
+        let staggered = self.mode == crate::preferences::STAGGERED_MODE;
+        let mut group = row()
+            .p(px(3.))
+            .gap(px(2.))
+            .rounded_full()
+            .border_1()
+            .border_color(rgba(divider()))
+            .bg(rgba(hover()));
+        for (target, icon_name, label) in [
+            (1usize, "rows-3", "单列"),
+            (
+                crate::preferences::STAGGERED_MODE,
+                "git-commit-vertical",
+                "双列",
+            ),
+        ] {
+            let active = (target == crate::preferences::STAGGERED_MODE) == staggered;
+            group = group.child(
+                row()
+                    .id(("timeline-layout", target))
+                    .h(px(22.))
+                    .px(px(9.))
+                    .gap(px(5.))
+                    .rounded_full()
+                    .text_size(px(11.))
+                    .cursor_pointer()
+                    .when(active, |d| d.bg(rgba(hover_strong())))
+                    .when(!active, |d| {
+                        d.text_color(rgb(muted_color()))
+                            .hover(|s| s.bg(rgba(hover())))
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.set_mode(target, cx);
+                    }))
+                    .child(icon(icon_name, 12.))
+                    .child(label),
+            );
+        }
+        group.into_any_element()
     }
 
     /// Stepped cover size for the shelf. The thumb sits on the level the covers
@@ -835,18 +1162,27 @@ impl WhiskyApp {
             .justify_center()
             .size(px(30.))
             .rounded_full()
-            .bg(rgba(play_circle_bg()))
+            // Fades in translucent and saturates to the accent as the card's
+            // hover peaks — the same grey→orange language as the text buttons.
+            .bg(rgba(mix_rgba(
+                play_circle_bg(),
+                fade_rgb(ACCENT, 0.95),
+                amount,
+            )))
             .opacity(amount)
             .child(icon("play", 15.));
         if let Some(action) = action {
             let view = cx.entity().downgrade();
-            circle = circle.cursor_pointer().on_click(move |_, _, cx| {
-                let _ = view.update(cx, |this, cx| {
-                    this.perform_runtime_action(index, Some(action), cx)
+            circle = circle
+                .cursor_pointer()
+                .hover(|s| s.bg(rgb(0xff9c3a)))
+                .on_click(move |_, _, cx| {
+                    let _ = view.update(cx, |this, cx| {
+                        this.perform_runtime_action(index, Some(action), cx)
+                    });
+                    // The card behind this control opens the details panel.
+                    cx.stop_propagation();
                 });
-                // The card behind this control opens the details panel.
-                cx.stop_propagation();
-            });
         }
         circle.into_any_element()
     }
@@ -909,7 +1245,7 @@ impl WhiskyApp {
         index: usize,
         rect: CardRect,
         child: impl IntoElement,
-    ) -> impl IntoElement {
+    ) -> Stateful<Div> {
         div()
             .id(("library-slot", index))
             .absolute()
@@ -946,11 +1282,27 @@ impl WhiskyApp {
         }
         self.library_viewport(0, content)
     }
+    /// Default run button: grey glass at rest, orange under the pointer. The
+    /// timeline family passes a card-hover `lit` instead, so the accent
+    /// already rises as the cursor reaches the card.
     pub(crate) fn play_button(
         &self,
         id: impl Into<ElementId>,
         index: usize,
         demo_label: &'static str,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        self.play_button_toned(id, index, demo_label, 0., cx)
+    }
+    /// A play button whose accent fades in with `lit` (0 idle → 1 hot). The
+    /// timeline family keeps a row of these calm: they stay muted glass until
+    /// their own card is hovered, so the accent lands where the cursor is.
+    pub(crate) fn play_button_toned(
+        &self,
+        id: impl Into<ElementId>,
+        index: usize,
+        demo_label: &'static str,
+        lit: f32,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         // The demo has no runtime; it keeps its own label and its notice.
@@ -983,8 +1335,8 @@ impl WhiskyApp {
                 _ => icon("play", 13.),
             };
             button = button
-                .bg(rgb(ACCENT))
-                .text_color(rgb(0xffffff))
+                .bg(rgba(mix_rgba(hover_strong(), fade_rgb(ACCENT, 1.), lit)))
+                .text_color(rgb(mix_rgb(muted_color(), 0xffffff, lit)))
                 .cursor_pointer()
                 .hover(|s| s.bg(rgb(0xff9c3a)))
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -1009,13 +1361,19 @@ impl WhiskyApp {
         }
         button
     }
-    pub(crate) fn timeline(&self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    /// Ordered indices for the timeline family (list and staggered). The demo
+    /// keeps its hand-tuned featured order for the default sort; every other
+    /// case uses the same memoised order as the other modes.
+    pub(crate) fn timeline_ordered(&self, cx: &mut Context<Self>) -> Vec<usize> {
         let games = self.games();
-        // The demo keeps its hand-tuned featured order for the default sort;
-        // every other case uses the same memoised order as the other modes.
-        let indices = if self.demo && self.preview.sort == 0 {
+        if self.demo && self.preview.sort == 0 {
             let mut indices = self.filtered(cx);
-            let featured = ["Northwind Signal", "Saltlight", "Quiet Frequency", "Emberline"];
+            let featured = [
+                "Northwind Signal",
+                "Saltlight",
+                "Quiet Frequency",
+                "Emberline",
+            ];
             indices.sort_by_key(|&i| {
                 featured
                     .iter()
@@ -1028,7 +1386,11 @@ impl WhiskyApp {
             indices
         } else {
             self.ordered(cx)
-        };
+        }
+    }
+    pub(crate) fn timeline(&self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let games = self.games();
+        let indices = self.timeline_ordered(cx);
         let rail = if width > 1000. { 100. } else { 48. };
         let cw = if width > 1000. { 145. } else { 125. };
         let ch = cw * 1.5 + 26.;
@@ -1038,6 +1400,9 @@ impl WhiskyApp {
             .w_full()
             .h(px(layout.height.max(100.)))
             .flex_shrink_0();
+        // Node → card links, collected while the rows build and painted by one
+        // overlay canvas afterwards (the canvas has no hitboxes).
+        let mut links = Vec::new();
         for (position, (index, target)) in layout.cards.into_iter().enumerate() {
             let rect = self.animated_rect(index, target, window, cx);
             let g = &games[index];
@@ -1089,6 +1454,16 @@ impl WhiskyApp {
                 window,
                 cx,
             );
+            // A hovered row grows its link from the rail node to the card
+            // edge; the same curve as the staggered rail, always left→right.
+            if hover > 0.005 {
+                let node_y = rect.y + ch / 2.;
+                links.push(connector_curve(
+                    (rect.x + rail * 0.55 + 4.5, node_y),
+                    (rect.x + rail + 17., node_y),
+                    hover,
+                ));
+            }
             content = content.child(
                 self.card_slot(
                     index,
@@ -1245,10 +1620,11 @@ impl WhiskyApp {
                                         .gap(px(12.))
                                         .w(px(106.))
                                         .flex_shrink_0()
-                                        .child(self.play_button(
+                                        .child(self.play_button_toned(
                                             ("timeline-play", index),
                                             index,
                                             "继续游玩",
+                                            hover,
                                             cx,
                                         ))
                                         .child(self.game_options(index, cx)),
@@ -1260,6 +1636,16 @@ impl WhiskyApp {
         if indices.is_empty() {
             content = content.child(muted(self.empty_library_message()).p(px(30.)));
         }
+        content = content.child(
+            canvas(
+                move |_, _, _| links,
+                move |bounds, links: Vec<ConnectorPaint>, window, _| {
+                    paint_connectors(bounds.origin, &links, window)
+                },
+            )
+            .absolute()
+            .inset_0(),
+        );
         self.library_viewport(1, content)
     }
     pub(crate) fn classic(&self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {

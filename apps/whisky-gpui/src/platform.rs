@@ -114,7 +114,7 @@ mod launcher_tests {
             std::env::temp_dir().join(format!("whisky-appimage-launcher-{}", std::process::id()));
         let mount = directory.join("mount/usr/bin");
         std::fs::create_dir_all(&mount).unwrap();
-        let image = directory.join("Whisky 包.AppImage");
+        let image = directory.join("Maltoria 包.AppImage");
         let binary = mount.join("whisky-gpui");
         let unrelated = directory.join("native");
         for file in [&image, &binary, &unrelated] {

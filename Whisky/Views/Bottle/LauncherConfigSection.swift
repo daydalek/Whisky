@@ -22,7 +22,7 @@ import SwiftUI
 import WhiskyKit
 
 private let launcherConfigLogger = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.franke.Whisky",
+    subsystem: Bundle.main.bundleIdentifier ?? "com.daydalek.Maltoria",
     category: "LauncherConfig"
 )
 

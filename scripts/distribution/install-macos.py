@@ -21,7 +21,7 @@ def digest(path):
 
 def verify(app):
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
-    if info.get('CFBundleIdentifier') != 'com.franke.Whisky' or info.get('CFBundleExecutable') != 'whisky-gpui':
+    if info.get('CFBundleIdentifier') != 'com.daydalek.Maltoria' or info.get('CFBundleExecutable') != 'whisky-gpui':
         raise ValueError('应用标识或可执行文件与 Whisky GPUI 不符')
     for path in ('Contents/MacOS/whisky-gpui', 'Contents/Resources/whisky-bridge',
                  'Contents/Resources/winetricks', 'Contents/Resources/verbs.txt',
@@ -73,7 +73,7 @@ def install(source, destination, remove_source=False):
     if remove_source:
         shutil.rmtree(source)
         print('已清理构建副本：' + str(source), flush=True)
-    print('已运行的 Whisky 需重新启动后使用新版本。', flush=True)
+    print('已运行的 Maltoria 需重新启动后使用新版本。', flush=True)
 
 
 def main():
@@ -81,7 +81,7 @@ def main():
     parser.add_argument('--remove-source', action='store_true', help='部署并校验成功后删除构建副本')
     parser.add_argument('app', type=Path)
     args = parser.parse_args()
-    install(args.app, Path('/Applications/Whisky.app'), remove_source=args.remove_source)
+    install(args.app, Path('/Applications/Maltoria.app'), remove_source=args.remove_source)
 
 
 if __name__ == '__main__':

@@ -128,7 +128,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Bundle.main.resourceURL?.deletingLastPathComponent().deletingLastPathComponent()
     }
 
-    private static let expectedUrl = URL(fileURLWithPath: "/Applications/Whisky.app")
+    private static let expectedUrl = URL(fileURLWithPath: "/Applications/Maltoria.app")
 
     private static var insideAppsFolder: Bool {
         if let url = appUrl {
@@ -209,6 +209,6 @@ extension Notification.Name {
 
     /// Posted from program settings to navigate to the Audio troubleshooting panel.
     static let openAudioTroubleshooting = Notification.Name(
-        "com.franke.Whisky.openAudioTroubleshooting"
+        "com.daydalek.Maltoria.openAudioTroubleshooting"
     )
 }

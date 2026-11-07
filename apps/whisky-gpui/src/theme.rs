@@ -30,6 +30,8 @@ pub(crate) const OVERLAY: u32 = 0x00000088;
 
 // Animation durations. Values match the inline literals they replaced.
 pub(crate) const HOVER_MS: u64 = 180;
+/// Card-focus transitions on the staggered timeline: opacity, node, connector.
+pub(crate) const FOCUS_MS: u64 = 220;
 pub(crate) const BACKDROP_MS: u64 = 420;
 pub(crate) const DETAIL_MS: u64 = 240;
 pub(crate) const NOTICE_MS: u64 = 180;

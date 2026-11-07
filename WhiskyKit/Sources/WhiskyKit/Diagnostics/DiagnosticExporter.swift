@@ -133,7 +133,7 @@ public enum DiagnosticExporter {
         program: Program,
         options: ExportOptions
     ) -> String {
-        var markdown = "## Whisky Diagnostic Report\n\n"
+        var markdown = "## Maltoria Diagnostic Report\n\n"
         markdown += "**Generated:** \(Date().formatted())\n\n"
 
         markdown += generateSystemInfoSection()
@@ -157,7 +157,7 @@ public enum DiagnosticExporter {
             section += "- **Architecture:** Intel (x86_64)\n"
         }
         if let whiskyWineVersion = WhiskyWineInstaller.whiskyWineVersion() {
-            section += "- **WhiskyWine:** \(whiskyWineVersion.major).\(whiskyWineVersion.minor)"
+            section += "- **Wine:** \(whiskyWineVersion.major).\(whiskyWineVersion.minor)"
             section += ".\(whiskyWineVersion.patch)\n"
         }
         if let dxvkVersion = WhiskyWineInstaller.whiskyWineDXVKVersion() {
@@ -317,12 +317,12 @@ extension DiagnosticExporter {
         let bottleName = sanitizeName(context.bottle.settings.name)
         let programName = sanitizeName(context.program.name)
         let dateString = formatDateForFilename(Date())
-        let zipFilename = "Whisky-Diagnostics-\(bottleName)-\(programName)-\(dateString).zip"
+        let zipFilename = "Maltoria-Diagnostics-\(bottleName)-\(programName)-\(dateString).zip"
 
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let contentDir = tempDir.appendingPathComponent(
-            "Whisky-Diagnostics-\(bottleName)-\(programName)",
+            "Maltoria-Diagnostics-\(bottleName)-\(programName)",
             isDirectory: true
         )
         let zipURL = tempDir.appendingPathComponent(zipFilename)

@@ -31,7 +31,8 @@ use super::{
         ChecksReplyDto, ConfigChangeDto, Container, ContainerList, DescribeResponse,
         DiagnosticsReportDto,
         EntryDto, EntryList, FoldersDto, GameConfigApplyReplyDto, GameConfigMatchReplyDto,
-        GptkStatusDto, HiddenReplyDto, JobDto, JobStartDto, KillReplyDto, LaunchReplyDto, LibraryPageDto,
+        GptkStatusDto, HiddenReplyDto, JobDto, JobStartDto, KillReplyDto, LaunchReplyDto,
+        LaunchersDto, LibraryPageDto,
         MetadataSearchGroupDto, MetadataSearchReplyDto, MetadataSyncReplyDto, PathReplyDto,
         PreferencesSchemaDto, SetupStatusDto,
         ProcessDto, ProgramDto, RUNTIME_METHODS, RUNTIME_SESSION_METHODS, RuntimeEntryDto,
@@ -491,6 +492,16 @@ pub(crate) enum BridgeEvent {
         source: String,
         target: String,
     },
+    /// `launchers.read` / `launchers.setAutoStart`: the identities the bottle
+    /// auto-starts, keyed by `LibraryEntry.metadataIdentity`.
+    Launchers {
+        container: String,
+        auto_start: Vec<String>,
+    },
+    LaunchersFailed {
+        container: String,
+        reason: String,
+    },
     Environment {
         container: String,
         values: BTreeMap<String, String>,
@@ -717,6 +728,14 @@ enum Command {
     EditFolders {
         container: String,
         edit: FolderEdit,
+    },
+    /// `launchers.read` for one container.
+    LoadLaunchers(String),
+    /// `launchers.setAutoStart` for one entry's stable identity.
+    SetLauncherAutoStart {
+        container: String,
+        entry_id: String,
+        enabled: bool,
     },
     /// `folders.candidates` for one folder entry.
     LoadCandidates {
@@ -1119,6 +1138,35 @@ impl BridgeSupervisor {
             container: container.to_owned(),
             edit,
         });
+    }
+
+    /// `launchers.read`: which entries auto-start with Whisky for one bottle.
+    pub(crate) fn load_launchers(&self, container: &str) {
+        let _ = self
+            .commands
+            .send(Command::LoadLaunchers(container.to_owned()));
+    }
+
+    /// `launchers.setAutoStart`; the reply is the whole set, always authoritative.
+    pub(crate) fn set_launcher_autostart(&self, container: &str, entry_id: &str, enabled: bool) {
+        let _ = self.commands.send(Command::SetLauncherAutoStart {
+            container: container.to_owned(),
+            entry_id: entry_id.to_owned(),
+            enabled,
+        });
+    }
+
+    /// `folders.assign` for each path: standalone game folders, not scan roots.
+    pub(crate) fn assign_game_folders(&self, container: &str, paths: &[String]) {
+        for path in paths {
+            let _ = self.commands.send(Command::EditFolders {
+                container: container.to_owned(),
+                edit: FolderEdit::Assign {
+                    path: path.clone(),
+                    assigned: true,
+                },
+            });
+        }
     }
 
     /// `system.chooseFolders`: multi-select directory picker for scan roots.
@@ -2212,12 +2260,12 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                             Ok(Some(UpdateCheckTerminal::Failed(reason))) => {
                                 // A failed check is not worth a surface; the
                                 // next launch tries again.
-                                eprintln!("whisky-bridge: WhiskyWine update check failed: {reason}");
+                                eprintln!("whisky-bridge: Wine update check failed: {reason}");
                                 update_check = None;
                             }
                             Ok(None) => {}
                             Err(CallFailure::Remote(reason)) => {
-                                eprintln!("whisky-bridge: WhiskyWine update check failed: {reason}");
+                                eprintln!("whisky-bridge: Wine update check failed: {reason}");
                                 update_check = None;
                             }
                             Err(CallFailure::Session(reason)) => reconnect = Some(reason),
@@ -2764,6 +2812,59 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                         Err(CallFailure::Remote(reason)) => emit_event(
                             &events,
                             BridgeEvent::FoldersFailed { container, reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::LoadLaunchers(container)) => {
+                    match client
+                        .call("launchers.read", json!({ "container": container }))
+                        .map_err(classify)
+                        .and_then(|reply| {
+                            serde_json::from_value::<LaunchersDto>(reply)
+                                .map_err(|error| CallFailure::Remote(format!("invalid launchers payload: {error}")))
+                        }) {
+                        Ok(dto) => {
+                            emit_event(&events, BridgeEvent::Launchers {
+                                container,
+                                auto_start: dto.auto_start,
+                            });
+                        }
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::LaunchersFailed { container, reason },
+                        ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::SetLauncherAutoStart {
+                    container,
+                    entry_id,
+                    enabled,
+                }) => {
+                    match client
+                        .call(
+                            "launchers.setAutoStart",
+                            json!({
+                                "container": container,
+                                "entryID": entry_id,
+                                "enabled": enabled,
+                            }),
+                        )
+                        .map_err(classify)
+                        .and_then(|reply| {
+                            serde_json::from_value::<LaunchersDto>(reply)
+                                .map_err(|error| CallFailure::Remote(format!("invalid launchers payload: {error}")))
+                        }) {
+                        Ok(dto) => {
+                            emit_event(&events, BridgeEvent::Launchers {
+                                container,
+                                auto_start: dto.auto_start,
+                            });
+                        }
+                        Err(CallFailure::Remote(reason)) => emit_event(
+                            &events,
+                            BridgeEvent::LaunchersFailed { container, reason },
                         ),
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
@@ -5103,7 +5204,7 @@ fn poll_update_check(
                 .error
                 .as_ref()
                 .map(BridgeFailureDto::reason)
-                .unwrap_or_else(|| "WhiskyWine 更新检查失败".to_owned());
+                .unwrap_or_else(|| "Wine 更新检查失败".to_owned());
             Ok(Some(UpdateCheckTerminal::Failed(reason)))
         }
         JobStatus::Queued | JobStatus::Running | JobStatus::Cancelling => Ok(None),

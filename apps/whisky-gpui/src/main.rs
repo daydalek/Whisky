@@ -89,7 +89,7 @@ impl Render for WhiskyApp {
             };
         let sw = spring(
             "sidebar-width",
-            if self.sidebar { 200_f32 } else { 0. },
+            self.sidebar.width(),
             Spring::new(Duration::from_millis(SIDEBAR_MS))
                 .with_epsilon(0.1)
                 .with_travel(self.motion),
@@ -105,6 +105,8 @@ impl Render for WhiskyApp {
             self.application_settings(cx)
         } else if self.preview.page == PreviewPage::Statistics {
             self.statistics_page(width, cx)
+        } else if self.preview.page == PreviewPage::Launchers {
+            self.launchers_page(cx)
         } else if self.preview.page != PreviewPage::Library {
             self.preview_page(window, cx)
         } else {
@@ -156,8 +158,8 @@ impl Render for WhiskyApp {
             .on_action(cx.listener(|this, _: &ShowAbout, _, cx| this.show_about(cx)))
             .on_action(cx.listener(|this, _: &ShowSettings, _, cx| this.open_settings(cx)))
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
-                this.sidebar = !this.sidebar;
-                cx.notify();
+                let next = this.sidebar.toggled(this.sidebar_collapsed_style);
+                this.set_sidebar(next, cx);
             }))
             .on_action(cx.listener(|this, _: &QuitPreview, window, cx| {
                 this.request_quit(window, cx);
@@ -192,8 +194,10 @@ impl Render for WhiskyApp {
                     this.preview_dismiss(cx);
                 } else if this.walkthrough_view.fullscreen {
                     this.walkthrough_view.fullscreen = false;
-                } else {
+                } else if this.detail_open {
                     this.detail_open = false;
+                } else {
+                    this.staggered_selection = None;
                 }
                 this.focus_handle.focus(window, cx);
                 cx.notify();
@@ -205,7 +209,12 @@ impl Render for WhiskyApp {
                     .h_full()
                     .overflow_hidden()
                     .flex_shrink_0()
-                    .child(div().w(px(200.)).h_full().child(self.sidebar(cx))),
+                    .child(
+                        div()
+                            .w(px(self.sidebar.layout_width()))
+                            .h_full()
+                            .child(self.sidebar(cx)),
+                    ),
             )
             .child(
                 col()
@@ -287,7 +296,7 @@ impl Render for WhiskyApp {
                 .when(client_titlebar, |column| {
                     column.child(
                         gpui_kit::component::TitleBar::new()
-                            .child("Whisky")
+                            .child("Maltoria")
                             .on_close_window(cx.listener(|this, _, window, cx| {
                                 this.request_quit(window, cx);
                             })),
@@ -325,6 +334,10 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
             "statistics-compact",
             "immersive",
             "immersive-compact",
+            "staggered",
+            "staggered-compact",
+            "timeline-hover",
+            "sidebar-rail",
         ];
         for (stage, name) in names.into_iter().enumerate() {
             if std::env::var_os("WHISKY_STATISTICS_CAPTURE").is_some() && stage < 16 {
@@ -430,6 +443,37 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
                                 });
                                 this.mode = 3;
                             }
+                            20 | 21 => {
+                                window.resize(if stage == 20 {
+                                    size(px(1280.), px(820.))
+                                } else {
+                                    size(px(900.), px(650.))
+                                });
+                                this.mode = 5;
+                                // Focus one card per side so the rail shows
+                                // the accent node, connector and dimmed
+                                // siblings in both directions.
+                                let ordered = this.ordered(cx);
+                                if let Some(&index) = ordered.get(if stage == 20 { 0 } else { 1 }) {
+                                    this.select_staggered(index, cx);
+                                }
+                            }
+                            22 => {
+                                window.resize(size(px(1280.), px(820.)));
+                                this.mode = 1;
+                                // Hover state lights the hovered row's
+                                // node→card link and its play button.
+                                let ordered = this.timeline_ordered(cx);
+                                if let Some(&index) = ordered.get(1) {
+                                    this.hovered = Some(index);
+                                }
+                            }
+                            // Last: the icon rail — the stage reset above does
+                            // not restore the sidebar mode.
+                            23 => {
+                                window.resize(size(px(1280.), px(820.)));
+                                this.set_sidebar(crate::state::SidebarMode::Icons, cx);
+                            }
                             _ => {
                                 window.resize(size(px(800.), px(580.)));
                                 this.selected_bottle = Some(0);
@@ -444,7 +488,11 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
                 .timer(Duration::from_millis(750))
                 .await;
             handle
-                .update(cx, |_, window, _| {
+                .update(cx, |_, window, cx| {
+                    // `render_to_image` snapshots the last painted scene; an
+                    // unchanged size (stage 23 resizes to the current extent)
+                    // leaves the stage's update unpainted. Draw explicitly.
+                    let _ = window.draw(cx);
                     window
                         .render_to_image()
                         .expect("GPU capture failed")
@@ -475,12 +523,12 @@ fn cli_value<'a>(arguments: &'a [String], flag: &str) -> Result<Option<&'a str>,
 /// OS actions for their standard shortcuts.
 fn install_menus(cx: &mut App) {
     cx.set_menus(vec![
-        Menu::new("Whisky").items(vec![
-            MenuItem::action("关于 Whisky", ShowAbout),
+        Menu::new("Maltoria").items(vec![
+            MenuItem::action("关于 Maltoria", ShowAbout),
             MenuItem::separator(),
             MenuItem::action("设置…", ShowSettings),
             MenuItem::separator(),
-            MenuItem::action("退出 Whisky", QuitPreview),
+            MenuItem::action("退出 Maltoria", QuitPreview),
         ]),
         Menu::new("编辑").items(vec![
             MenuItem::os_action("撤销", NoAction, OsAction::Undo),
@@ -688,11 +736,11 @@ fn main() {
             let (_handle, _view) = gpui_kit::open_window(
                 WindowOptions {
                     #[cfg(target_os = "linux")]
-                    app_id: Some("com.franke.Whisky".into()),
+                    app_id: Some("com.daydalek.Maltoria".into()),
                     #[cfg(target_os = "linux")]
                     window_decorations: Some(WindowDecorations::Client),
                     titlebar: Some(TitlebarOptions {
-                        title: Some("Whisky".into()),
+                        title: Some("Maltoria".into()),
                         appears_transparent: true,
                         traffic_light_position: Some(point(px(15.), px(21.))),
                     }),

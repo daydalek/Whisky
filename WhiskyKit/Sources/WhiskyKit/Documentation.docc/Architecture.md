@@ -9,7 +9,7 @@ WhiskyKit is organized into several logical layers, each responsible for a speci
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Application Layer                         │
-│                 (Whisky.app, WhiskyCmd)                      │
+│                 (Maltoria.app, WhiskyCmd)                      │
 ├─────────────────────────────────────────────────────────────┤
 │                      WhiskyKit                               │
 │  ┌─────────────┐  ┌──────────────┐  ┌───────────────────┐  │

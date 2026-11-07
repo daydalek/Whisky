@@ -57,7 +57,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.franke.Whisky</string>
+			<string>com.daydalek.Maltoria</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>whisky</string>
@@ -65,13 +65,13 @@
 		</dict>
 	</array>
 	<key>NSDesktopFolderUsageDescription</key>
-	<string>Whisky needs access to Desktop to create shortcuts for Windows programs.</string>
+	<string>Maltoria needs access to Desktop to create shortcuts for Windows programs.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
-	<string>Whisky needs access to this folder to manage Wine bottles and install Windows dependencies.</string>
+	<string>Maltoria needs access to this folder to manage Wine bottles and install Windows dependencies.</string>
 	<key>NSNetworkVolumesUsageDescription</key>
-	<string>Whisky needs access to network volumes when bottles are stored on network drives.</string>
+	<string>Maltoria needs access to network volumes when bottles are stored on network drives.</string>
 	<key>NSRemovableVolumesUsageDescription</key>
-	<string>Whisky needs access to removable volumes when bottles are stored on external drives.</string>
+	<string>Maltoria needs access to removable volumes when bottles are stored on external drives.</string>
 	<key>SUFeedURL</key>
 	<string>https://daydalek.github.io/Whisky/appcast.xml</string>
 	<key>UTExportedTypeDeclarations</key>

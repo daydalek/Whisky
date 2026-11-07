@@ -20,7 +20,7 @@ def exercise(window, app, fixture, bottle, registry, snapshot, env):
     time.sleep(1)
     snapshot('desktop-settings')
     click(1200, 295)
-    entry = fixture / 'data/applications/com.franke.Whisky.desktop'
+    entry = fixture / 'data/applications/com.daydalek.Maltoria.desktop'
     deadline = time.monotonic() + 15
     frontend = os.readlink(f'/proc/{app.pid}/exe')
     while time.monotonic() < deadline:

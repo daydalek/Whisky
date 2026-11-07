@@ -85,7 +85,7 @@ def main():
         with (output / 'application.log').open('w') as log:
             app = subprocess.Popen([str(bundle / 'Whisky')], env=env, stdout=log, stderr=subprocess.STDOUT)
             window = session.wait_window(pid=app.pid)
-            assert window['app_id'] == 'com.franke.Whisky' and window['window'] is None, window
+            assert window['app_id'] == 'com.daydalek.Maltoria' and window['window'] is None, window
             session.focus(window)
             time.sleep(2)
             session.snapshot('wayland-library')
@@ -97,7 +97,7 @@ def main():
             session.snapshot('wayland-settings')
             report['steps'].append('native-keyboard-shortcut-and-pointer-preference-write')
             session.click(1200, 295)
-            desktop = fixture / 'data/applications/com.franke.Whisky.desktop'
+            desktop = fixture / 'data/applications/com.daydalek.Maltoria.desktop'
             wait(desktop.exists, 'Wayland desktop installation failed')
             assert desktop.stem == window['app_id']
             report['steps'].append('desktop-entry-identity-matches-native-wayland-app-id')
@@ -152,10 +152,10 @@ def main():
             session.click(974, 129)
             child_env = dict(env, WHISKY_GPUI_STATE=str(fixture / 'secondary-window.json'))
             subprocess.run(['gio', 'launch', str(shortcut)], env=child_env, check=True)
-            wait(lambda: any(node['pid'] != app.pid and node.get('app_id') == 'com.franke.Whisky'
+            wait(lambda: any(node['pid'] != app.pid and node.get('app_id') == 'com.daydalek.Maltoria'
                              for node in session.windows()), 'GIO did not open a second native Wayland window')
             secondary = next(node for node in session.windows() if node['pid'] != app.pid
-                             and node.get('app_id') == 'com.franke.Whisky')
+                             and node.get('app_id') == 'com.daydalek.Maltoria')
             assert secondary['shell'] == 'xdg_shell' and secondary['window'] is None
             session.focus(secondary)
             time.sleep(2)
@@ -198,7 +198,7 @@ def main():
             report['steps'].append('source-prefix-and-registry-preserved-with-explicit-shortcut-identity-allocation')
             app = subprocess.Popen([str(bundle / 'Whisky')], env=env, stdout=log, stderr=subprocess.STDOUT)
             restored = session.wait_window(pid=app.pid)
-            assert restored['app_id'] == 'com.franke.Whisky'
+            assert restored['app_id'] == 'com.daydalek.Maltoria'
             session.focus(restored)
             time.sleep(1)
             session.snapshot('wayland-restarted')

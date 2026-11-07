@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.franke.Whisky</id>
+  <id>com.daydalek.Maltoria</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <name>Whisky</name>
+  <name>Maltoria</name>
   <summary>Manage Wine containers and Windows games</summary>
-  <description><p>Whisky manages Wine containers and a game library. The Wine runtime downloads separately.</p></description>
-  <launchable type="desktop-id">com.franke.Whisky.desktop</launchable>
+  <description><p>Maltoria manages Wine containers and a game library. The Wine runtime downloads separately.</p></description>
+  <launchable type="desktop-id">com.daydalek.Maltoria.desktop</launchable>
   <url type="homepage">https://github.com/daydalek/Whisky</url>
   <provides><binary>whisky</binary></provides>
   <content_rating type="oars-1.1"/>

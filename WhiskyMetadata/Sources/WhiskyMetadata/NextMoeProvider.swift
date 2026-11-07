@@ -95,7 +95,7 @@ public struct NextMoeProvider: Sendable {
             guard let requestURL = url.url else { throw URLError(.badURL) }
             var request = URLRequest(url: requestURL, timeoutInterval: 25)
             request.setValue("application/json", forHTTPHeaderField: "Accept")
-            request.setValue("Whisky/1.0 (NextMoe catalog)", forHTTPHeaderField: "User-Agent")
+            request.setValue("Maltoria/1.0 (NextMoe catalog)", forHTTPHeaderField: "User-Agent")
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
             guard (200 ..< 300).contains(http.statusCode) else {

@@ -1,7 +1,7 @@
 # Funding
 
-Whisky (this fork) is free, GPL-v3 software maintained by one person in their spare time. There is no
-company behind it and no paid team. Funding is **not required** to use Whisky and never will be.
+Maltoria (this fork) is free, GPL-v3 software maintained by one person in their spare time. There is no
+company behind it and no paid team. Funding is **not required** to use Maltoria and never will be.
 
 To be clear up front: **this project has no affiliate or revenue-sharing arrangement with anyone.**
 There are no referral links here that pay the project a cut.
@@ -13,12 +13,12 @@ There are no referral links here that pay the project a cut.
   [@frankea](https://github.com/frankea). Shipping a notarized macOS app also carries a recurring cost
   (an Apple Developer Program membership is required to sign and notarize the DMG).
 
-Whisky also stands on the shoulders of upstream projects. Whisky receives nothing from supporting them —
+Maltoria also stands on the shoulders of upstream projects. Maltoria receives nothing from supporting them —
 but if you value the work, supporting them directly is worthwhile:
 
-- **CrossOver / CodeWeavers** — the commercial Wine product Whisky's stack ultimately derives from.
+- **CrossOver / CodeWeavers** — the commercial Wine product Maltoria's stack ultimately derives from.
   [codeweavers.com/crossover](https://www.codeweavers.com/crossover).
-- **Gcenx** — maintains the macOS Wine and DXVK-macOS builds Whisky bundles.
+- **Gcenx** — maintains the macOS Wine and DXVK-macOS builds Maltoria bundles.
   [ko-fi.com/gcenx](https://ko-fi.com/gcenx).
 
 ## What funding does *not* buy

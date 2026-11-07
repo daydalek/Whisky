@@ -56,6 +56,9 @@ pub(crate) struct Game {
     /// A storefront client (Steam etc.) rather than a game; grouped below the
     /// games unless the timeline presentation is active (`isLauncher`).
     pub(crate) is_launcher: bool,
+    /// `LibraryEntry.metadataIdentity` — the stable per-bottle key launcher
+    /// auto-start preferences persist under.
+    pub(crate) identity: String,
 }
 
 impl Game {
@@ -95,6 +98,7 @@ impl Game {
             container: if demo.bottle == 1 { "demo:galgame" } else { "demo:galgame-win7" }.into(),
             last_session_ended_at: None,
             is_launcher: false,
+            identity: format!("demo:{index}"),
         }
     }
 

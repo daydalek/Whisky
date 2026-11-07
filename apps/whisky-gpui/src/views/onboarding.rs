@@ -127,7 +127,7 @@ impl WhiskyApp {
                         .child("让游戏各就其位"),
                 )
                 .child(
-                    muted("Whisky 帮助你运行 Windows 游戏，并整理属于自己的游戏库。")
+                    muted("Maltoria 帮助你运行 Windows 游戏，并整理属于自己的游戏库。")
                         .line_height(relative(1.6)),
                 )
                 .child(

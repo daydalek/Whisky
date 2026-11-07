@@ -85,7 +85,7 @@ public struct FixPreview: Sendable {
 /// | `apply-game-config` | GameDB recommended configuration | Yes |
 public enum FixApplicator { // swiftlint:disable:this type_body_length
     private static let logger = Logger(
-        subsystem: "com.franke.Whisky",
+        subsystem: "com.daydalek.Maltoria",
         category: "FixApplicator"
     )
 

@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Whisky — Run Windows games and apps on macOS via Wine</title>
-<meta name="description" content="Whisky is a native SwiftUI Wine wrapper for macOS with DXMT and DXVK graphics backends. Active community fork of the archived whisky-app/whisky. Apple Silicon, signed and notarized.">
-<meta name="author" content="Adam Franke">
+<title>Maltoria — Run Windows games and apps on macOS via Wine</title>
+<meta name="description" content="Maltoria is a native Wine wrapper for macOS with DXMT and DXVK graphics backends. Community fork of Whisky (frankea/Whisky, originally whisky-app/whisky). Apple Silicon.">
+<meta name="author" content="daydalek">
 <meta name="theme-color" content="#1d1d1f" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
 <link rel="canonical" href="https://daydalek.github.io/Whisky/">
@@ -15,15 +15,15 @@
 <!-- Open Graph / Twitter Card -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://daydalek.github.io/Whisky/">
-<meta property="og:title" content="Whisky — Run Windows games and apps on macOS via Wine">
-<meta property="og:description" content="Native SwiftUI Wine wrapper for macOS with DXMT and DXVK backends. Active community fork of the archived whisky-app/whisky.">
+<meta property="og:title" content="Maltoria — Run Windows games and apps on macOS via Wine">
+<meta property="og:description" content="Native Wine wrapper for macOS with DXMT and DXVK backends. Community fork of Whisky (frankea/Whisky, originally whisky-app/whisky).">
 <meta property="og:image" content="https://raw.githubusercontent.com/daydalek/Whisky/main/images/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Whisky — Run Windows games and apps on macOS, using Wine. Apple Silicon, macOS 15+, GPL v3.">
+<meta property="og:image:alt" content="Maltoria — Run Windows games and apps on macOS, using Wine. Apple Silicon, macOS 15+, GPL v3.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Whisky — Run Windows games and apps on macOS via Wine">
-<meta name="twitter:description" content="Native SwiftUI Wine wrapper for macOS with DXMT and DXVK backends. Active community fork of the archived whisky-app/whisky.">
+<meta name="twitter:title" content="Maltoria — Run Windows games and apps on macOS via Wine">
+<meta name="twitter:description" content="Native Wine wrapper for macOS with DXMT and DXVK backends. Community fork of Whisky.">
 <meta name="twitter:image" content="https://raw.githubusercontent.com/daydalek/Whisky/main/images/og-card.png">
 
 <!-- JSON-LD -->
@@ -31,7 +31,7 @@
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  "name": "Whisky",
+  "name": "Maltoria",
   "operatingSystem": "macOS 15.0+",
   "applicationCategory": "GameApplication",
   "applicationSubCategory": "Wine wrapper",
@@ -132,27 +132,27 @@ img.screenshot {
 <main>
 
 <header>
-  <h1>Whisky</h1>
+  <h1>Maltoria</h1>
   <p class="tagline">Run Windows games and applications on macOS, using Wine.</p>
 </header>
 
-<p>Whisky is a native macOS app that wraps Wine with a clean SwiftUI interface. It ships the DXMT (Direct3D 11 to Metal) and DXVK (Direct3D to Vulkan) graphics translation layers, and includes built-in compatibility for Steam, Epic, EA App, Battle.net, and other launchers.</p>
+<p>Maltoria is a native macOS app that wraps Wine with a clean native interface. It ships the DXMT (Direct3D 11 to Metal) and DXVK (Direct3D to Vulkan) graphics translation layers, and includes built-in compatibility for Steam, Epic, EA App, Battle.net, and other launchers.</p>
 
 <div class="notice">
-<strong>Active community fork.</strong> The original <a href="https://github.com/whisky-app/whisky">whisky-app/whisky</a> was archived in April 2025. This fork, maintained by <a href="https://github.com/frankea">@frankea</a>, continues development. Not affiliated with the original project or getwhisky.app.
+<strong>Community fork of Whisky.</strong> Maltoria is maintained by <a href="https://github.com/daydalek">@daydalek</a> and derives from <a href="https://github.com/frankea/Whisky">frankea/Whisky</a>. The original <a href="https://github.com/whisky-app/whisky">whisky-app/whisky</a> was archived in April 2025. Not affiliated with the original project or getwhisky.app.
 </div>
 
 <p>
-  <a class="cta" href="https://github.com/frankea/Whisky/releases/latest">Download for macOS</a>
-  <a class="cta secondary" href="https://github.com/frankea/Whisky">View on GitHub</a>
+  <a class="cta" href="https://github.com/daydalek/Whisky/releases/latest">Download for macOS</a>
+  <a class="cta secondary" href="https://github.com/daydalek/Whisky">View on GitHub</a>
 </p>
 
-<img class="screenshot" src="https://raw.githubusercontent.com/frankea/Whisky/main/images/new-bottle-screenshot.png" alt="Creating a new Wine bottle in Whisky" loading="lazy" width="1200">
-<img class="screenshot" src="https://raw.githubusercontent.com/frankea/Whisky/main/images/config-screenshot.png" alt="Whisky bottle configuration — graphics backend, Wine, and performance settings" loading="lazy" width="1200">
+<img class="screenshot" src="https://raw.githubusercontent.com/daydalek/Whisky/main/images/new-bottle-screenshot.png" alt="Creating a new Wine bottle in Maltoria" loading="lazy" width="1200">
+<img class="screenshot" src="https://raw.githubusercontent.com/daydalek/Whisky/main/images/config-screenshot.png" alt="Maltoria bottle configuration — graphics backend, Wine, and performance settings" loading="lazy" width="1200">
 
-<h2>Install via Homebrew</h2>
-<pre><code>brew install --cask frankea/whisky/whisky</code></pre>
-<p class="muted">Note: the default <code>brew install --cask whisky</code> still installs the archived original. Use the qualified <code>frankea/whisky/whisky</code> form for this fork.</p>
+<h2>Install</h2>
+<p>Download the latest build from <a href="https://github.com/daydalek/Whisky/releases">GitHub Releases</a>, extract <code>Maltoria.app</code> and drag it into Applications.</p>
+<p class="muted">Note: the upstream <code>brew install --cask frankea/whisky/whisky</code> cask installs Whisky, not this fork.</p>
 
 <h2>Requirements</h2>
 <ul>
@@ -172,13 +172,13 @@ img.screenshot {
 </ul>
 
 <h2>Graphics backends</h2>
-<p>Whisky translates Direct3D to the Mac GPU with translation layers you pick per bottle:</p>
+<p>Maltoria translates Direct3D to the Mac GPU with translation layers you pick per bottle:</p>
 <ul>
   <li><strong>DXMT</strong> (the default behind "Recommended"): Direct3D 11 to Metal, deployed per bottle so one bottle's choice never affects another. The fast path for modern DirectX 11 titles.</li>
   <li><strong>DXVK</strong>: Direct3D to Vulkan (via MoltenVK), a broad-compatibility fallback for titles DXMT doesn't handle. Pinned at the macOS-compatible 1.10.3 <em>by design</em>: the DXVK 2.x line needs Vulkan features macOS doesn't expose, so a higher version number simply wouldn't run here.</li>
-  <li><strong>D3DMetal</strong>: Apple's layer from the Game Porting Toolkit. The current engine can't execute it, and Whisky says so in the picker instead of silently falling back to something slower. Real support (an engine that runs it, with your own imported GPTK payload) is in active development.</li>
+  <li><strong>D3DMetal</strong>: Apple's layer from the Game Porting Toolkit. The current engine can't execute it, and Maltoria says so in the picker instead of silently falling back to something slower. Real support (an engine that runs it, with your own imported GPTK payload) is in active development.</li>
 </ul>
-<p class="muted"><strong>Anti-cheat:</strong> games using kernel-level anti-cheat (EAC, BattlEye, and similar) generally do not run under any Wine-based wrapper on macOS, including Whisky. This is a Wine-wide limitation, not specific to this fork.</p>
+<p class="muted"><strong>Anti-cheat:</strong> games using kernel-level anti-cheat (EAC, BattlEye, and similar) generally do not run under any Wine-based wrapper on macOS, including Maltoria. This is a Wine-wide limitation, not specific to this fork.</p>
 
 <h2>News</h2>
 <ul>
@@ -188,20 +188,20 @@ img.screenshot {
   <li><strong>2026-06-14: Whisky 3.5.0 released.</strong> Optional menu bar extra, inline descriptions across bottle configuration, and program scanning off the main thread.</li>
   <li><strong>2026-06-13: Whisky 3.4.0 released.</strong> DXMT arrives as a selectable per-bottle graphics backend, alongside Wine Libraries 3.1.1.</li>
 </ul>
-<p class="muted">Full history in the <a href="https://github.com/frankea/Whisky/blob/main/CHANGELOG.md">changelog</a>. Release announcements also ship in-app via Sparkle.</p>
+<p class="muted">Full history in the <a href="https://github.com/daydalek/Whisky/blob/main/CHANGELOG.md">changelog</a>. Release announcements also ship in-app via Sparkle.</p>
 
 <h2>Documentation</h2>
 <ul>
   <li><a href="documentation/whiskykit/">WhiskyKit API documentation</a> — DocC-generated reference for the framework</li>
-  <li><a href="https://github.com/frankea/Whisky/blob/main/docs/AUDIT.md">Upstream issue audit</a> — per-issue accounting against the archived upstream</li>
-  <li><a href="https://github.com/frankea/Whisky/blob/main/docs/LauncherTroubleshooting.md">Launcher troubleshooting</a></li>
-  <li><a href="https://github.com/frankea/Whisky/blob/main/docs/StabilityTroubleshooting.md">Stability troubleshooting</a></li>
-  <li><a href="https://github.com/frankea/Whisky/blob/main/WhiskyKit/Sources/WhiskyKit/GameDatabase/Resources/GameDB.json">Bundled game configurations</a> — 80+ curated per-game setups, browsable in-app under Game Configurations</li>
+  <li><a href="https://github.com/daydalek/Whisky/blob/main/docs/AUDIT.md">Upstream issue audit</a> — per-issue accounting against the archived upstream</li>
+  <li><a href="https://github.com/daydalek/Whisky/blob/main/docs/LauncherTroubleshooting.md">Launcher troubleshooting</a></li>
+  <li><a href="https://github.com/daydalek/Whisky/blob/main/docs/StabilityTroubleshooting.md">Stability troubleshooting</a></li>
+  <li><a href="https://github.com/daydalek/Whisky/blob/main/WhiskyKit/Sources/WhiskyKit/GameDatabase/Resources/GameDB.json">Bundled game configurations</a> — 80+ curated per-game setups, browsable in-app under Game Configurations</li>
 </ul>
 
 <hr>
 
-<p class="muted">Whisky is GPL v3 licensed. Source code, releases, and issue tracker on <a href="https://github.com/frankea/Whisky">GitHub</a>. Whisky is possible thanks to <a href="https://github.com/Gcenx/DXVK-macOS">DXVK-macOS</a>, <a href="https://github.com/marzent/wine-msync">msync</a>, <a href="https://github.com/KhronosGroup/MoltenVK">MoltenVK</a>, <a href="https://github.com/sparkle-project/Sparkle">Sparkle</a>, <a href="https://www.codeweavers.com/crossover">CrossOver</a>, and Apple's D3DMetal.</p>
+<p class="muted">Maltoria is GPL v3 licensed. Source code, releases, and issue tracker on <a href="https://github.com/daydalek/Whisky">GitHub</a>. Maltoria is possible thanks to <a href="https://github.com/Gcenx/DXVK-macOS">DXVK-macOS</a>, <a href="https://github.com/marzent/wine-msync">msync</a>, <a href="https://github.com/KhronosGroup/MoltenVK">MoltenVK</a>, <a href="https://github.com/sparkle-project/Sparkle">Sparkle</a>, <a href="https://www.codeweavers.com/crossover">CrossOver</a>, and Apple's D3DMetal.</p>
 
 </main>
 </body>

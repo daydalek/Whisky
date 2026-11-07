@@ -60,7 +60,7 @@ extension PublicGameMetadataProvider {
         _ url: URL, body: Data? = nil, timeout: TimeInterval = 20, as type: T.Type
     ) async throws -> T {
         var request = URLRequest(url: url, timeoutInterval: timeout)
-        request.setValue("Whisky/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
+        request.setValue("Maltoria/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             request.httpMethod = "POST"

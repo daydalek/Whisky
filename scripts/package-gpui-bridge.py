@@ -37,6 +37,6 @@ subprocess.run(['codesign', '--verify', '--strict', str(output / 'whisky-bridge'
 files = {str(p.relative_to(output)): hashlib.sha256(p.read_bytes()).hexdigest()
          for p in sorted(output.rglob('*')) if p.is_file()}
 (output / 'bridge-manifest.json').write_text(json.dumps({
-    'protocolVersion': 1, 'dataIdentity': 'com.franke.Whisky', 'files': files,
+    'protocolVersion': 1, 'dataIdentity': 'com.daydalek.Maltoria', 'files': files,
 }, ensure_ascii=False, indent=2) + '\n')
 print(output)

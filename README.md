@@ -1,6 +1,6 @@
 <div align="center">
 
-  # Whisky 🥃
+  # Maltoria
   *Wine but a bit stronger*
 
   > This fork is maintained by [@daydalek](https://github.com/daydalek), based on
@@ -16,7 +16,7 @@
 
 ## 构建与分发
 
-运行 `./build.sh` 打开统一构建菜单，或用 `./build.sh list` 查看 Whisky / Wine 目标。
+运行 `./build.sh` 打开统一构建菜单，或用 `./build.sh list` 查看 Maltoria / Wine 目标。
 命令行与 CI 用法见 [构建指南](docs/BUILDING.md)，公开发布路线见 [分发策略调研](docs/DistributionStrategy.md)。
 
 ## 项目定位与核心改动
@@ -88,30 +88,30 @@ Wine Release 同时提供 `Libraries-sources.tar.gz`、SHA-256 摘要和构建�
 
 ### 安装与更新 (Installation & Updates)
 
-1. 从本仓库的 [Releases](https://github.com/daydalek/Whisky/releases) 下载应用压缩包 `Whisky-X.Y.Z-arm64.zip`（支持 `v*` 与 `vn-v*` 发布标签），解压后将 `Whisky.app` 拖入 `/Applications`（应用使用 ad-hoc 签名，首次打开可能需要在系统设置中允许运行）。
+1. 从本仓库的 [Releases](https://github.com/daydalek/Whisky/releases) 下载应用压缩包 `Maltoria-X.Y.Z-arm64.zip`（支持 `v*` 与 `vn-v*` 发布标签），解压后将 `Maltoria.app` 拖入 `/Applications`（应用使用 ad-hoc 签名，首次打开可能需要在系统设置中允许运行）。
 2. 首次启动时，应用读取 [Wine 更新清单](https://raw.githubusercontent.com/daydalek/ge-proton-macos-wine-poc/runtime-channel/WhiskyWineVersion.plist)，从我们 [Wine 仓库的 GitHub Releases](https://github.com/daydalek/ge-proton-macos-wine-poc/releases) 下载清单指定的 `Libraries.tar.gz`，校验 SHA-256 后解包安装。
 3. Wine CI 在完成构建、验证和发布后更新清单。频道支持正式版与 prerelease；应用启动时比较本地运行库版本（进程内缓存清单 1 小时），发现更高版本后提示用户确认下载安装。应用本体通过手动下载 Release 升级。
 
 ### 离线运行
 
-在 **设置 → 更新** 中关闭 **检查 WhiskyWine 更新**，启动时即可跳过 Wine 版本查询。
-开启同一区域的 **离线模式** 后，Whisky 会暂停更新检查、在线游戏资料查询、封面下载、遥测与组件下载，并保留各项联网偏好。
+在 **设置 → 更新** 中关闭 **检查 Wine 更新**，启动时即可跳过 Wine 版本查询。
+开启同一区域的 **离线模式** 后，Maltoria 会暂停更新检查、在线游戏资料查询、封面下载、遥测与组件下载，并保留各项联网偏好。
 安装好 Wine 与 Rosetta 2 后，可直接使用本地游戏库、已有资料与封面缓存，创建 Bottle 并启动本地游戏。恢复联网功能时关闭离线模式即可；游戏和启动器自身的联网行为由各自管理。
 
 ### 存储路径与彻底卸载
 
-- **本地存储路径**：共享运行库安装在 `~/Library/Application Support/com.franke.Whisky/Libraries/`；默认容器、文件夹游戏库配置（`Folder Games.json`、`Library Visibility.json`）及刮削缓存（`Game Metadata/`）位于 `~/Library/Containers/com.franke.Whisky/`（或您自定义的 Bottle 路径）下。
-- **彻底卸载**：将 `Whisky.app` 移至废纸篓默认保留运行库与 Bottle 数据。如需彻底清除（**请先备份重要存档与容器**），可删除以下目录：
+- **本地存储路径**：共享运行库安装在 `~/Library/Application Support/com.daydalek.Maltoria/Libraries/`；默认容器、文件夹游戏库配置（`Folder Games.json`、`Library Visibility.json`）及刮削缓存（`Game Metadata/`）位于 `~/Library/Containers/com.daydalek.Maltoria/`（或您自定义的 Bottle 路径）下。
+- **彻底卸载**：将 `Maltoria.app` 移至废纸篓默认保留运行库与 Bottle 数据。如需彻底清除（**请先备份重要存档与容器**），可删除以下目录：
 
 ```sh
-rm -rf "/Applications/Whisky.app"
-rm -rf ~/Library/Containers/com.franke.Whisky
-rm -rf ~/Library/Containers/com.franke.Whisky.WhiskyThumbnail
-rm -rf ~/Library/Application\ Support/com.franke.Whisky
-rm -rf ~/Library/Caches/com.franke.Whisky
-rm -rf ~/Library/Logs/com.franke.Whisky
-rm -rf ~/Library/HTTPStorages/com.franke.Whisky
-rm -f  ~/Library/Preferences/com.franke.Whisky.plist
+rm -rf "/Applications/Maltoria.app"
+rm -rf ~/Library/Containers/com.daydalek.Maltoria
+rm -rf ~/Library/Containers/com.daydalek.Maltoria.WhiskyThumbnail
+rm -rf ~/Library/Application\ Support/com.daydalek.Maltoria
+rm -rf ~/Library/Caches/com.daydalek.Maltoria
+rm -rf ~/Library/Logs/com.daydalek.Maltoria
+rm -rf ~/Library/HTTPStorages/com.daydalek.Maltoria
+rm -f  ~/Library/Preferences/com.daydalek.Maltoria.plist
 ```
 
 ### 遥测与诊断 (Telemetry & Diagnostics)
@@ -153,7 +153,7 @@ rm -f  ~/Library/Preferences/com.franke.Whisky.plist
 
 ### Credits & Acknowledgments
 
-Whisky is possible thanks to the magic of several projects:
+Maltoria is possible thanks to the magic of several projects:
 
 - [msync](https://github.com/marzent/wine-msync) by marzent
 - [DXVK-macOS](https://github.com/Gcenx/DXVK-macOS) by Gcenx and doitsujin
@@ -182,7 +182,7 @@ Special thanks to Gcenx, ohaiibuzzle, Nat Brown, [Frank](https://github.com/fran
         </picture>
     </td>
     <td>
-        Whisky doesn't exist without CrossOver. If you want a fully-supported commercial Wine experience on macOS, check out <a href="https://www.codeweavers.com/crossover">CrossOver</a> from CodeWeavers. (This fork has no affiliate arrangement and receives nothing from CrossOver sales.)
+        Maltoria doesn't exist without CrossOver. If you want a fully-supported commercial Wine experience on macOS, check out <a href="https://www.codeweavers.com/crossover">CrossOver</a> from CodeWeavers. (This fork has no affiliate arrangement and receives nothing from CrossOver sales.)
     </td>
   </tr>
 </table>

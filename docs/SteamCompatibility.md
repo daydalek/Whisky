@@ -236,7 +236,7 @@ Whisky isolates Steam's UI rendering from your games.
 
 **If Still Invisible:**
 - Delete Steam, reinstall fresh
-- Check ~/Library/Logs/com.franke.Whisky/ for errors
+- Check ~/Library/Logs/com.daydalek.Maltoria/ for errors
 
 **Related Issues:**
 - whisky-app/whisky#1183 (No UI)

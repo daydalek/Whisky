@@ -276,7 +276,7 @@ impl WhiskyApp {
                     vec![
                         self.toggle(
                             "kill",
-                            "退出 Whisky 时结束所有进程",
+                            "退出 Maltoria 时结束所有进程",
                             if self.toggle_available("kill") {
                                 "退出应用时按此设置处理运行中的 Windows 程序。"
                             } else {
@@ -453,12 +453,12 @@ impl WhiskyApp {
                         self.toggle(
                             "offline",
                             "离线模式",
-                            "阻止 Whisky 自身的联网请求；游戏不受影响。",
+                            "阻止 Maltoria 自身的联网请求；游戏不受影响。",
                             cx,
                         ),
                         self.toggle(
                             "updates",
-                            "检查 WhiskyWine 更新",
+                            "检查 Wine 更新",
                             if self.toggle_available("updates") {
                                 ""
                             } else {

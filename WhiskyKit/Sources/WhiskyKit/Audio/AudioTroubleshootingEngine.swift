@@ -100,7 +100,7 @@ public final class AudioTroubleshootingEngine: ObservableObject {
     public var fixExecutor: ((String) async throws -> Void)?
 
     private let logger = Logger(
-        subsystem: "com.franke.Whisky",
+        subsystem: "com.daydalek.Maltoria",
         category: "AudioTroubleshootingEngine"
     )
 

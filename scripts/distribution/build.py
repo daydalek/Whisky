@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Unified local build menu and CI command line for Whisky and its Wine recipes."""
+"""Unified local build menu and CI command line for Maltoria and its Wine recipes."""
 import argparse
 import csv
 import fcntl
@@ -40,7 +40,7 @@ def parser():
     result = argparse.ArgumentParser(description=__doc__, epilog='运行 ./build.sh menu 打开交互菜单。')
     result.add_argument('action', choices=('menu', 'list', 'doctor', 'plan', 'run'), nargs='?', default='menu')
     result.add_argument('target', choices=TARGETS, nargs='?')
-    result.add_argument('--install', action='store_true', help='构建后替换 /Applications/Whisky.app（macOS GPUI）')
+    result.add_argument('--install', action='store_true', help='构建后替换 /Applications/Maltoria.app（macOS GPUI）')
     result.add_argument('--version', help='应用或 Linux 安装包版本 X.Y.Z')
     result.add_argument('--formats', nargs='+', choices=('tar', 'deb', 'rpm', 'appimage'),
                         help='Linux 应用格式；默认 tar deb rpm appimage')
@@ -112,7 +112,7 @@ def plan(args):
 
     work = None
     if args.target == 'whisky-macos-gpui-arm64':
-        app_dir = output / 'artifacts/Whisky.app'
+        app_dir = output / 'artifacts/Maltoria.app'
         env['WHISKY_GPUI_APP_DIR'] = str(app_dir)
         if args.version:
             if not re.fullmatch(r'\d+\.\d+\.\d+', args.version):
@@ -126,7 +126,7 @@ def plan(args):
                  '--app', app_dir, '--version', args.version, '--build-number', str(args.build_number),
                  '--output', packages_dir])
         if args.install:
-            step('部署到 /Applications/Whisky.app', ['python3', ROOT / 'scripts/distribution/install-macos.py',
+            step('部署到 /Applications/Maltoria.app', ['python3', ROOT / 'scripts/distribution/install-macos.py',
                  '--remove-source', app_dir])
     elif args.target == 'whisky-linux-amd64':
         version = args.version or '0.1.0'
@@ -136,11 +136,11 @@ def plan(args):
         env['WHISKY_LINUX_RELEASE_OUTPUT'] = str(output / 'artifacts')
         step('Linux Release 与源码、许可证打包', ['bash', repo / 'apps/whisky-gpui/tools/build-linux-release.sh'])
         step('glibc 基线和 ELF 依赖报告', ['python3', ROOT / 'scripts/distribution/audit-elf.py',
-             output / 'artifacts/Whisky', '--output', output / 'elf-abi.json'])
+             output / 'artifacts/Maltoria', '--output', output / 'elf-abi.json'])
         formats = [name for name in (args.formats or ['tar', 'deb', 'rpm', 'appimage']) if name != 'tar']
         if formats:
             step('Linux 安装包与 AppImage', ['python3', ROOT / 'scripts/distribution/package-linux.py',
-                '--archive', output / 'artifacts/whisky-linux-x86_64.tar.gz', '--version', version,
+                '--archive', output / 'artifacts/maltoria-linux-x86_64.tar.gz', '--version', version,
                 '--output', output / 'packages', '--formats', *formats])
     elif args.target == 'wine-macos-arm64':
         work = (args.work_dir or output / 'work').expanduser().resolve()
@@ -352,7 +352,7 @@ def execute(value):
 def menu(args):
     if not sys.stdin.isatty():
         raise ValueError('交互菜单需要终端；CI 使用 list、doctor、plan 或 run')
-    print('Whisky / Wine 构建中心\n')
+    print('Maltoria / Wine 构建中心\n')
     names = list(TARGETS)
     for index, name in enumerate(names, 1):
         print(f'  {index}. {name} · {TARGETS[name][2]}')

@@ -20,7 +20,7 @@ import Foundation
 
 /// Disposable derivatives use a bounded queue separate from image decoding.
 final class ArtworkWriteQueue: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "com.franke.Whisky.artwork-writer", qos: .utility)
+    private let queue = DispatchQueue(label: "com.daydalek.Maltoria.artwork-writer", qos: .utility)
     private let lock = NSLock()
     private var pending: [URL: IconCache.Sampled] = [:]
     private var running = false

@@ -200,7 +200,12 @@ extension GameActivityTracker {
                     queryFailures[url] = nil
                 }
                 let date = now()
-                let runningNames = Set(processes.map { $0.imageName.lowercased() })
+                // Only app images count: every `wine start` launch reports a
+                // start.exe system process whose name a scanned folder game may
+                // also contain (e.g. anemoi's Start.exe), wrongly lighting it.
+                let runningNames = Set(
+                    processes.filter { $0.kind == .app }.map { $0.imageName.lowercased() }
+                )
                 let preferred = preferredNames(in: url, runningNames: runningNames, at: date)
                 let matched = GameActivityClock.match(
                     executables: names[url] ?? [:], runningNames: runningNames, preferred: preferred

@@ -120,6 +120,8 @@ pub(crate) struct ProcessesPage {
 pub(crate) enum PreviewPage {
     Library,
     Statistics,
+    /// Storefront clients (Steam etc.), kept apart from the game library.
+    Launchers,
     Bottle,
     ConfigureBottle,
     Programs,
@@ -166,6 +168,59 @@ pub(crate) enum BottleDialogKind {
     Rename,
     Duplicate,
     Remove,
+}
+
+/// The library sidebar's three presentations: labelled rows, an icon-only
+/// rail, or removed entirely.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SidebarMode {
+    Hidden,
+    Icons,
+    Expanded,
+}
+
+impl SidebarMode {
+    /// The strip's resting width; the window's spring animates to it.
+    pub(crate) fn width(self) -> f32 {
+        match self {
+            Self::Hidden => 0.,
+            Self::Icons => 56.,
+            Self::Expanded => 200.,
+        }
+    }
+    /// The fixed width the content is laid out at under the animated clip;
+    /// `Hidden` keeps the expanded rows so the slide-out reads identically.
+    pub(crate) fn layout_width(self) -> f32 {
+        match self {
+            Self::Icons => Self::Icons.width(),
+            _ => Self::Expanded.width(),
+        }
+    }
+    /// The `ToggleSidebar` action: collapse to the remembered collapsed style
+    /// (`Icons` or `Hidden`), or expand again when already collapsed.
+    pub(crate) fn toggled(self, collapsed_style: Self) -> Self {
+        match self {
+            Self::Expanded => collapsed_style,
+            _ => Self::Expanded,
+        }
+    }
+    /// The `librarySidebarMode` preference value.
+    pub(crate) fn raw(self) -> &'static str {
+        match self {
+            Self::Hidden => "hidden",
+            Self::Icons => "icons",
+            Self::Expanded => "expanded",
+        }
+    }
+    /// A stored `librarySidebarMode`; unknown values keep the caller's default.
+    pub(crate) fn from_raw(raw: &str) -> Option<Self> {
+        Some(match raw {
+            "hidden" => Self::Hidden,
+            "icons" => Self::Icons,
+            "expanded" => Self::Expanded,
+            _ => return None,
+        })
+    }
 }
 
 /// The sidebar's modal actions. Rename and Duplicate read a text field;
@@ -430,6 +485,9 @@ pub(crate) struct WhiskyApp {
     pub(crate) search: Entity<InputState>,
     pub(crate) mode: usize,
     pub(crate) gallery_selection: Option<(String, String)>,
+    /// The focused card of the staggered timeline, keyed by `(container, id)`
+    /// so it survives re-sorts; cleared when the entry leaves the view.
+    pub(crate) staggered_selection: Option<(String, String)>,
     pub(crate) gallery_detail_scroll: ScrollHandle,
     /// The bundled demo snapshot, enabled with `WHISKY_GPUI_DEMO_DATA=1`.
     pub(crate) demo: bool,
@@ -485,6 +543,14 @@ pub(crate) struct WhiskyApp {
     auto_synced: BTreeSet<String>,
     /// Container waiting for the native multi-folder picker reply.
     scan_root_picker: Option<String>,
+    /// `launchers.read` results: entry identities (`metadataIdentity`) that
+    /// auto-start with Whisky, keyed by container path.
+    pub(crate) launcher_prefs: BTreeMap<String, BTreeSet<String>>,
+    /// Containers whose `launchers.read` is in flight or already answered.
+    launchers_pending: BTreeSet<String>,
+    /// Launchers already auto-started this session; the flag fires once per
+    /// app run, not once per entries reload.
+    launcher_autostarted: BTreeSet<String>,
     /// The card the in-app executable picker is open for, and whether choosing
     /// one should start it (Play) or only record it (the card menu).
     pub(crate) executable_picker: Option<ExecutablePickerState>,
@@ -568,7 +634,16 @@ pub(crate) struct WhiskyApp {
     /// Last committed value per entry, for rolling back optimistic edits.
     rating_edits: PendingEdits<Option<u8>>,
     hidden_edits: PendingEdits<bool>,
-    pub(crate) sidebar: bool,
+    /// The library sidebar's presentation; `Hidden` leaves the toolbar's
+    /// reveal button as the way back.
+    pub(crate) sidebar: SidebarMode,
+    /// Set once `set_sidebar` runs: a stored `librarySidebarMode` arriving
+    /// later (a reconnect's `preferences.read` or a `setMany` echo) must not
+    /// override the user's in-session choice.
+    sidebar_dirty: bool,
+    /// The collapsed presentation (`Icons` or `Hidden`) last chosen; what the
+    /// collapse button and `ToggleSidebar` switch to. Persisted.
+    pub(crate) sidebar_collapsed_style: SidebarMode,
     pub(crate) settings: bool,
     /// The About panel; independent of the settings page and sheets.
     pub(crate) about: bool,
@@ -581,7 +656,7 @@ pub(crate) struct WhiskyApp {
     pub(crate) motion: bool,
     pub(crate) lively: bool,
     pub(crate) reversed: bool,
-    pub(crate) library_scroll: [ScrollHandle; 5],
+    pub(crate) library_scroll: [ScrollHandle; 6],
     pub(crate) detail_scroll: ScrollHandle,
     pub(crate) scroll_needs_measurement: std::cell::Cell<bool>,
     #[cfg(feature = "visual-test")]
@@ -701,6 +776,7 @@ impl WhiskyApp {
             search,
             mode: 0,
             gallery_selection: None,
+            staggered_selection: None,
             gallery_detail_scroll: ScrollHandle::new(),
             demo,
             bottles: if demo { demo_bottles() } else { Vec::new() },
@@ -732,6 +808,9 @@ impl WhiskyApp {
             folders_reload_after_write: BTreeSet::new(),
             auto_synced: BTreeSet::new(),
             scan_root_picker: None,
+            launcher_prefs: BTreeMap::new(),
+            launchers_pending: BTreeSet::new(),
+            launcher_autostarted: BTreeSet::new(),
             executable_picker: None,
             environments: BTreeMap::new(),
             environment_error: BTreeMap::new(),
@@ -785,7 +864,9 @@ impl WhiskyApp {
             env_fill: None,
             rating_edits: PendingEdits::default(),
             hidden_edits: PendingEdits::default(),
-            sidebar: true,
+            sidebar: SidebarMode::Expanded,
+            sidebar_dirty: false,
+            sidebar_collapsed_style: SidebarMode::Icons,
             settings: false,
             about: false,
             app_info: None,
@@ -889,6 +970,10 @@ impl WhiskyApp {
         self.folders_reload_after_write.clear();
         self.auto_synced.clear();
         self.scan_root_picker = None;
+        self.launcher_prefs.clear();
+        self.launchers_pending.clear();
+        // `launcher_autostarted` survives: a reconnect must not relaunch what
+        // the session already started.
         self.executable_picker = None;
         self.environments.clear();
         self.environment_error.clear();
@@ -1238,6 +1323,24 @@ impl WhiskyApp {
                     self.pending.remove(&index);
                     self.failures.remove(&index);
                     self.maybe_auto_sync_metadata(&container);
+                    self.ensure_launchers(&container);
+                    self.maybe_autostart_launchers(&container, cx);
+                }
+            }
+            BridgeEvent::Launchers { container, auto_start } => {
+                if !self.demo {
+                    self.launchers_pending.remove(&container);
+                    self.launcher_prefs
+                        .insert(container.clone(), auto_start.into_iter().collect());
+                    self.maybe_autostart_launchers(&container, cx);
+                    cx.notify();
+                }
+            }
+            BridgeEvent::LaunchersFailed { container, reason } => {
+                if !self.demo {
+                    self.launchers_pending.remove(&container);
+                    self.launcher_prefs.entry(container).or_default();
+                    self.show_notice(reason, cx);
                 }
             }
             BridgeEvent::LoadFailed { container, reason } => {
@@ -1262,6 +1365,17 @@ impl WhiskyApp {
             BridgeEvent::Preferences { values, schema } => {
                 if !self.demo {
                     self.prefs_supported = schema.keys().map(str::to_owned).collect();
+                    if self.sidebar_dirty {
+                        // Changes made before the schema arrived were dropped
+                        // by `persist`; flush the live mode now that the key
+                        // is known so storage matches what the user sees.
+                        self.persist(preferences::SIDEBAR_MODE, json!(self.sidebar.raw()), cx);
+                        self.persist(
+                            preferences::SIDEBAR_COLLAPSED_STYLE,
+                            json!(self.sidebar_collapsed_style.raw()),
+                            cx,
+                        );
+                    }
                     self.apply_preferences(&values);
                     if !self.onboarding_checked {
                         self.onboarding_checked = true;
@@ -1466,15 +1580,21 @@ impl WhiskyApp {
                 }
             }
             BridgeEvent::FoldersChosen { purpose, paths } => {
-                if !self.demo && purpose == "scan-roots" {
-                    if let Some(container) = self.scan_root_picker.take() {
-                        let paths: Vec<String> = paths
-                            .into_iter()
-                            .filter(|path| path.starts_with('/'))
-                            .collect();
-                        if !paths.is_empty() {
-                            self.folders_reload_after_write.insert(container.clone());
-                            self.bridge.add_scan_roots(&container, &paths);
+                if !self.demo && let Some(container) = self.scan_root_picker.take() {
+                    let paths: Vec<String> = paths
+                        .into_iter()
+                        .filter(|path| path.starts_with('/'))
+                        .collect();
+                    if !paths.is_empty() {
+                        self.folders_reload_after_write.insert(container.clone());
+                        match purpose.as_str() {
+                            "scan-roots" => self.bridge.add_scan_roots(&container, &paths),
+                            // Standalone game folders assign rather than scan:
+                            // the folder itself is the game, not its children.
+                            "assign-folders" => {
+                                self.bridge.assign_game_folders(&container, &paths);
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -2487,7 +2607,7 @@ impl WhiskyApp {
                         SetupUpdate::WineUpdate { local, remote } => {
                             self.show_notice(
                                 format!(
-                                    "发现新版 WhiskyWine {remote}（当前 {local}），可在设置中更新运行时"
+                                    "发现新版 Wine {remote}（当前 {local}），可在设置中更新运行时"
                                 ),
                                 cx,
                             );
@@ -2872,8 +2992,13 @@ impl WhiskyApp {
             &mut indices,
             Sort::from_index(self.preview.sort),
             &self.bottles,
-            // `groupsLaunchers: displayMode != .timeline` (LibraryView.swift).
-            Some(self.mode) != preferences::mode_index("timeline"),
+            // `groupsLaunchers: displayMode != .timeline` (LibraryView.swift);
+            // the staggered rail is a timeline too, so launchers interleave.
+            ![
+                preferences::mode_index("timeline"),
+                Some(preferences::STAGGERED_MODE),
+            ]
+            .contains(&Some(self.mode)),
         );
         if self.reversed {
             indices.reverse();
@@ -2935,6 +3060,7 @@ impl WhiskyApp {
                     self.open_executable_picker(i, false, cx);
                 }
             }
+            Command::LauncherAutoStart(i) => self.toggle_launcher_autostart(i, cx),
             Command::OpenGameDirectory(i) => {
                 if self.demo {
                     self.show_notice(DEMO_NOTICE, cx);
@@ -3339,6 +3465,19 @@ impl WhiskyApp {
         cx.notify();
     }
 
+    /// Sidebar presentation changes go through here so the user's choice
+    /// reaches `librarySidebarMode`, not just the frame's layout.
+    pub(crate) fn set_sidebar(&mut self, mode: SidebarMode, cx: &mut Context<Self>) {
+        self.sidebar = mode;
+        self.sidebar_dirty = true;
+        self.persist(preferences::SIDEBAR_MODE, json!(mode.raw()), cx);
+        if mode != SidebarMode::Expanded && mode != self.sidebar_collapsed_style {
+            self.sidebar_collapsed_style = mode;
+            self.persist(preferences::SIDEBAR_COLLAPSED_STYLE, json!(mode.raw()), cx);
+        }
+        cx.notify();
+    }
+
     /// Live value from the cover size control. `persist` debounces the write,
     /// so a drag across levels costs one call per quiet period, not per frame.
     pub(crate) fn set_cover_width(&mut self, value: f32, cx: &mut Context<Self>) {
@@ -3610,6 +3749,38 @@ impl WhiskyApp {
         }
     }
 
+    /// The staggered timeline keeps exactly one focused card, remembered by
+    /// `(container, id)` so a re-sort cannot strand the selection. Clicking
+    /// the same card again is a no-op — no redundant animation.
+    pub(crate) fn select_staggered(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(game) = self.game(index) {
+            let identity = (game.container.clone(), game.id.clone());
+            if self.staggered_selection.as_ref() != Some(&identity) {
+                self.staggered_selection = Some(identity);
+                cx.notify();
+            }
+        }
+    }
+
+    pub(crate) fn clear_staggered(&mut self, cx: &mut Context<Self>) {
+        if self.staggered_selection.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// Resolves the stored selection to a card of the current view. When the
+    /// entry was filtered out or its game disappeared this returns `None`,
+    /// which simply renders as "nothing selected" — the identity is kept so
+    /// the focus returns if the card re-enters the view.
+    pub(crate) fn staggered_selected_index(&self, indices: &[usize]) -> Option<usize> {
+        let (container, id) = self.staggered_selection.as_ref()?;
+        indices.iter().copied().find(|&index| {
+            self.game(index).is_some_and(|game| {
+                game.container.as_str() == container.as_str() && game.id.as_str() == id.as_str()
+            })
+        })
+    }
+
     /// Manual hero navigation: remembers the slide and restarts the
     /// auto-advance countdown by retiring the running loop (the epoch check
     /// below makes it exit on its next tick).
@@ -3814,6 +3985,23 @@ impl WhiskyApp {
         {
             self.default_bottle_location = Some(location.to_owned());
         }
+        if !self.sidebar_dirty
+            && let Some(mode) = values
+                .get(preferences::SIDEBAR_MODE)
+                .and_then(serde_json::Value::as_str)
+                .and_then(SidebarMode::from_raw)
+        {
+            self.sidebar = mode;
+        }
+        if !self.sidebar_dirty
+            && let Some(style) = values
+                .get(preferences::SIDEBAR_COLLAPSED_STYLE)
+                .and_then(serde_json::Value::as_str)
+                .and_then(SidebarMode::from_raw)
+            && style != SidebarMode::Expanded
+        {
+            self.sidebar_collapsed_style = style;
+        }
         self.invalidate_view();
     }
 
@@ -3824,11 +4012,11 @@ impl WhiskyApp {
         let home = std::env::var_os("HOME")?.to_string_lossy().into_owned();
         #[cfg(target_os = "macos")]
         {
-            Some(format!("{}/Library/Containers/com.franke.Whisky/Bottles", home))
+            Some(format!("{}/Library/Containers/com.daydalek.Maltoria/Bottles", home))
         }
         #[cfg(not(target_os = "macos"))]
         {
-            Some(format!("{}/.local/share/whisky/Bottles", home))
+            Some(format!("{}/.local/share/maltoria/Bottles", home))
         }
     }
 
@@ -4581,6 +4769,95 @@ impl WhiskyApp {
         }
         self.folders_pending.insert(container.clone());
         self.bridge.load_folders(&container);
+        cx.notify();
+    }
+
+    /// Read the auto-start set for one bottle; fired once per container.
+    fn ensure_launchers(&mut self, container: &str) {
+        if self.demo
+            || self.launcher_prefs.contains_key(container)
+            || self.launchers_pending.contains(container)
+        {
+            return;
+        }
+        self.launchers_pending.insert(container.to_owned());
+        self.bridge.load_launchers(container);
+    }
+
+    /// Every launcher entry across the bottles, in display order. The
+    /// 启动器 page renders these; they never enter a game grid.
+    pub(crate) fn launchers(&self) -> Vec<usize> {
+        (0..self.games().len())
+            .filter(|&index| self.games()[index].is_launcher)
+            .collect()
+    }
+
+    /// Whether one launcher auto-starts when Whisky opens.
+    pub(crate) fn launcher_auto_start(&self, index: usize) -> bool {
+        self.game(index).is_some_and(|game| {
+            self.launcher_prefs
+                .get(&game.container)
+                .is_some_and(|set| set.contains(&game.identity))
+        })
+    }
+
+    /// Flip one launcher's "open with Whisky" flag; the bridge reply
+    /// re-synchronises the whole set.
+    pub(crate) fn toggle_launcher_autostart(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(game) = self.game(index) else { return };
+        if self.demo || game.container.is_empty() {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let (container, entry_id, identity, enabled) = (
+            game.container.clone(),
+            game.id.clone(),
+            game.identity.clone(),
+            !self.launcher_auto_start(index),
+        );
+        let set = self.launcher_prefs.entry(container.clone()).or_default();
+        if enabled {
+            set.insert(identity);
+        } else {
+            set.remove(&identity);
+        }
+        self.bridge
+            .set_launcher_autostart(&container, &entry_id, enabled);
+        cx.notify();
+    }
+
+    /// Fire each flagged launcher once per app run, after the bottle's entries
+    /// and its auto-start set have both landed.
+    fn maybe_autostart_launchers(&mut self, container: &str, cx: &mut Context<Self>) {
+        let Some(auto_start) = self.launcher_prefs.get(container) else {
+            return;
+        };
+        let Some(games) = self.bottle_entries.get(container) else {
+            return;
+        };
+        let launches: Vec<String> = games
+            .iter()
+            .filter(|game| {
+                game.is_launcher && !game.needs_executable && auto_start.contains(&game.identity)
+            })
+            .map(|game| game.id.clone())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .filter(|entry_id| {
+                self.launcher_autostarted.insert(entry_key(container, entry_id))
+            })
+            .collect();
+        if launches.is_empty() {
+            return;
+        }
+        // One configure for the whole batch; ordered commands keep it ahead
+        // of the launches on the worker.
+        if self.configured.ensure(container) {
+            self.bridge.configure_runtime(container);
+        }
+        for entry_id in launches {
+            self.bridge.launch(container, &entry_id, None);
+        }
         cx.notify();
     }
 
@@ -5585,6 +5862,24 @@ impl WhiskyApp {
         cx.notify();
     }
 
+    /// Native picker for standalone game folders — a folder that IS one game,
+    /// unlike a scan root whose children become the games.
+    pub(crate) fn choose_assign_folders(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let Some(container) = self.scan_container() else {
+            return;
+        };
+        self.scan_root_picker = Some(container.clone());
+        let start = std::env::var_os("HOME")
+            .map(|home| home.to_string_lossy().into_owned())
+            .unwrap_or_else(|| format!("{container}/drive_c"));
+        self.bridge.choose_folders("assign-folders", &start);
+        cx.notify();
+    }
+
     /// Typed-path fallback for adding one scan root.
     pub(crate) fn add_scan_root(&mut self, path: &str, cx: &mut Context<Self>) {
         let path = path.trim();
@@ -6207,7 +6502,7 @@ impl WhiskyApp {
             self.preview.history.push(self.preview.page);
         }
         self.preview.page = page;
-        if page == PreviewPage::Statistics {
+        if matches!(page, PreviewPage::Statistics | PreviewPage::Launchers) {
             self.selected_bottle = None;
             if !self.demo {
                 self.refresh_library(cx);
@@ -6235,6 +6530,14 @@ impl WhiskyApp {
         match self.preview.page {
             PreviewPage::ConfigureBottle => self.ensure_configuration(cx),
             PreviewPage::Programs => self.ensure_programs(cx),
+            PreviewPage::Launchers => {
+                // Entries and the auto-start set arrive on different replies;
+                // cover containers whose entries landed before the page opened.
+                let containers: Vec<String> = self.bottle_entries.keys().cloned().collect();
+                for container in containers {
+                    self.ensure_launchers(&container);
+                }
+            }
             PreviewPage::Processes => {
                 self.ensure_processes(cx);
                 self.start_process_polling(cx);
@@ -6277,6 +6580,7 @@ impl WhiskyApp {
         match self.preview.page {
             PreviewPage::Library => "Library".into(),
             PreviewPage::Statistics => "游玩统计".into(),
+            PreviewPage::Launchers => "启动器".into(),
             PreviewPage::Bottle => self.bottle_name().to_owned().into(),
             PreviewPage::ConfigureBottle => "Configure Bottle".into(),
             PreviewPage::Programs => "已安装的程序".into(),
@@ -6328,7 +6632,9 @@ impl WhiskyApp {
         let slot = self.bottle_slot();
         self.games()
             .iter()
-            .filter(|game| (slot == 0 || game.bottle == slot) && game.hidden)
+            .filter(|game| {
+                (slot == 0 || game.bottle == slot) && game.hidden && !game.is_launcher
+            })
             .count()
     }
 }

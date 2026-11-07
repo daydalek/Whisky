@@ -23,7 +23,7 @@ import os.log
 public final class SettingsPersistence: @unchecked Sendable {
     public static let shared = SettingsPersistence(backgroundWritesEnabled: false)
     private let lock = NSLock()
-    private let queue = DispatchQueue(label: "com.franke.Whisky.settings-writer", qos: .utility)
+    private let queue = DispatchQueue(label: "com.daydalek.Maltoria.settings-writer", qos: .utility)
     private struct Stamp: Equatable {
         let inode: UInt64
         let modified: Date

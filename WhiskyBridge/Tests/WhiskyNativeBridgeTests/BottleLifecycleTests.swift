@@ -74,7 +74,7 @@ private struct LifecycleFixture {
 @MainActor private func lifecycleService() -> MacOSApplicationServices {
     MacOSApplicationServices(
         wineEnabled: true,
-        preferencesDomain: "com.franke.Whisky.lifecycle.\(UUID().uuidString)",
+        preferencesDomain: "com.daydalek.Maltoria.lifecycle.\(UUID().uuidString)",
         jobs: BridgeJobStore()
     )
 }

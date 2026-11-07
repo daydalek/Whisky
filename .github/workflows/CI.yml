@@ -257,7 +257,7 @@ jobs:
       - name: Verify GPUI app packaging
         run: |
           ./build.sh run whisky-macos-gpui-arm64 --output build/ci-gpui
-          app=build/ci-gpui/artifacts/Whisky.app
+          app=build/ci-gpui/artifacts/Maltoria.app
           test -x "$app/Contents/MacOS/whisky-gpui"
           for res in whisky-bridge winetricks verbs.txt cabextract WhiskyKit_WhiskyKit.bundle WhiskyCore_WhiskyCore.bundle; do
             test -e "$app/Contents/Resources/$res" || { echo "Missing resource: $res"; exit 1; }

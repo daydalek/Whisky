@@ -122,7 +122,7 @@ struct BridgeHost {
             fileURL: HostPaths.preferences(), defaultBottleDirectory: defaultBottleDirectory
         )
         #else
-        let preferencesDomain = argument("--preferences-domain") ?? "com.franke.Whisky"
+        let preferencesDomain = argument("--preferences-domain") ?? "com.daydalek.Maltoria"
         let defaultBottleDirectory = workspace.registry.deletingLastPathComponent()
             .appendingPathComponent("Bottles")
         let preferences = PreferencesService(

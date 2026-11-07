@@ -84,7 +84,7 @@ private struct MetadataFixture {
 @MainActor private func metadataService() -> MacOSApplicationServices {
     MacOSApplicationServices(
         wineEnabled: true,
-        preferencesDomain: "com.franke.Whisky.metadata.\(UUID().uuidString)",
+        preferencesDomain: "com.daydalek.Maltoria.metadata.\(UUID().uuidString)",
         jobs: BridgeJobStore()
     )
 }

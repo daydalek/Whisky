@@ -221,7 +221,7 @@ Steam 下载目录快照已经在 utility 任务中执行并支持取消；停�
 
 ### 安装验收
 
-Release 已构建并替换 `/Applications/Whisky.app`，来源为 `main c5d85ed` 与当前工作区。严格签名检查通过，已安装 GUI 和 WhiskyCmd 的 SHA-256 与构建产物一致，WhiskyCmd 帮助正常，进程快照 PE 资源与源码目录中的文件一致。独立验收记录为 `/private/tmp/whisky-performance-deploy/main-verification.json`，`verified=true`。
+Release 已构建并替换 `/Applications/Maltoria.app`，来源为 `main c5d85ed` 与当前工作区。严格签名检查通过，已安装 GUI 和 WhiskyCmd 的 SHA-256 与构建产物一致，WhiskyCmd 帮助正常，进程快照 PE 资源与源码目录中的文件一致。独立验收记录为 `/private/tmp/whisky-performance-deploy/main-verification.json`，`verified=true`。
 
 通用打包器的验收模板包含串流分支的 helper 和 Sunshine 项；本次 main 包使用 `WhiskyProcessSnapshot.exe`，采用上述分支对应的验收记录。已启动应用并通过界面树与截图确认时间线、封面和侧栏计数正常呈现。
 

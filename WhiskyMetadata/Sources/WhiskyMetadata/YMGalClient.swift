@@ -168,7 +168,7 @@ actor YMGalClient {
         guard let requestURL = url.url else { throw URLError(.badURL) }
         var request = URLRequest(url: requestURL, timeoutInterval: 20)
         request.setValue("application/json;charset=utf-8", forHTTPHeaderField: "Accept")
-        request.setValue("Whisky/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
+        request.setValue("Maltoria/1.0 (game metadata)", forHTTPHeaderField: "User-Agent")
         if authenticated, let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue("1", forHTTPHeaderField: "version")

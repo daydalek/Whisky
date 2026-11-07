@@ -163,6 +163,7 @@ mod tests {
     fn entry(name: &str) -> EntryDto {
         EntryDto {
             id: format!("pinned:{name}"),
+            identity: None,
             name: name.to_owned(),
             container: None,
             executable: None,

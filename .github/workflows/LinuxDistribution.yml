@@ -191,8 +191,8 @@ jobs:
         include:
           - {format: deb, target: deb, filename: package.deb}
           - {format: rpm, target: rpm, filename: package.rpm}
-          - {format: appimage, target: appimage-ubuntu, filename: Whisky.AppImage}
-          - {format: appimage, target: appimage-fedora, filename: Whisky.AppImage}
+          - {format: appimage, target: appimage-ubuntu, filename: Maltoria.AppImage}
+          - {format: appimage, target: appimage-fedora, filename: Maltoria.AppImage}
     steps:
       - uses: actions/checkout@v6
         with:

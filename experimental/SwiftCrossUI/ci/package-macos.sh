@@ -16,7 +16,7 @@ cat > "$app_dir/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>com.franke.Whisky.CrossUI</string>
+<key>CFBundleIdentifier</key><string>com.daydalek.Maltoria.CrossUI</string>
 <key>CFBundleName</key><string>WhiskyCrossUI</string>
 <key>CFBundleDisplayName</key><string>Whisky · SwiftCrossUI</string>
 <key>CFBundleExecutable</key><string>WhiskyCrossUI</string>
@@ -25,7 +25,7 @@ cat > "$app_dir/Contents/Info.plist" <<'PLIST'
 <key>CFBundleShortVersionString</key><string>0.1</string>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>NSHighResolutionCapable</key><true/>
-<key>WhiskyDataBundleIdentifier</key><string>com.franke.Whisky</string>
+<key>WhiskyDataBundleIdentifier</key><string>com.daydalek.Maltoria</string>
 </dict></plist>
 PLIST
 if [[ -n "${WHISKY_CROSSUI_APP_ID:-}" ]]; then

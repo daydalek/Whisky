@@ -25,7 +25,7 @@ class PackageTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix='whisky-format-test-')
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.bundle = self.root / 'Whisky'
+        self.bundle = self.root / 'Maltoria'
         (self.bundle / 'bin').mkdir(parents=True)
         header = bytearray(20)
         header[:6] = b'\x7fELF\x02\x01'
@@ -52,8 +52,8 @@ class PackageTests(unittest.TestCase):
             sha256=hashlib.sha256(header).hexdigest(), size=len(header))
         upscaler_manifest.write_text(json.dumps(dict(
             schemaVersion=1, architecture=self.arch, modelFamily='models-se', files=upscaler_files)))
-        (self.bundle / 'Whisky').write_text('#!/bin/sh\nexit 0\n')
-        (self.bundle / 'Whisky').chmod(0o755)
+        (self.bundle / 'Maltoria').write_text('#!/bin/sh\nexit 0\n')
+        (self.bundle / 'Maltoria').chmod(0o755)
         files = {str(p.relative_to(self.bundle)): dict(sha256=hashlib.sha256(p.read_bytes()).hexdigest(),
                  bytes=p.stat().st_size, mode=p.stat().st_mode & 0o777) for p in self.bundle.rglob('*') if p.is_file()}
         self.manifest = dict(formatVersion=1, platform='linux', architecture=self.arch,
@@ -75,7 +75,7 @@ class PackageTests(unittest.TestCase):
         for kind in ('traversal', 'symlink'):
             archive = self.root / (kind + '.tar.gz')
             with tarfile.open(archive, 'w:gz') as stream:
-                entry = tarfile.TarInfo('Whisky/../../outside' if kind == 'traversal' else 'Whisky/link')
+                entry = tarfile.TarInfo('Maltoria/../../outside' if kind == 'traversal' else 'Maltoria/link')
                 if kind == 'symlink':
                     entry.type = tarfile.SYMTYPE
                     entry.linkname = '/etc/passwd'
@@ -132,7 +132,7 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(formats.ARCHITECTURES[self.arch][1], formats.run('rpm', '-qp', '--qf', '%{ARCH}', rpm).strip())
         entries = formats.run('rpm', '-qpl', rpm)
         self.assertIn('/usr/bin/whisky', entries)
-        self.assertIn('/usr/share/applications/com.franke.Whisky.desktop', entries)
+        self.assertIn('/usr/share/applications/com.daydalek.Maltoria.desktop', entries)
 
 
 if __name__ == '__main__':

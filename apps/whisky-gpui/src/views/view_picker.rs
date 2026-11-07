@@ -5,7 +5,7 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::*, *};
 
 use crate::controls::*;
-use crate::preferences::VISIBLE_MODES;
+use crate::preferences::{VISIBLE_MODES, picker_mode};
 use crate::state::WhiskyApp;
 use crate::theme::*;
 
@@ -107,6 +107,49 @@ fn layout_preview(mode: usize, selected: bool) -> AnyElement {
                     .child(div().h(px(4.)).w(relative(0.55)).rounded_full().bg(fill)),
             )
             .into_any_element(),
+        5 => div()
+            .relative()
+            .size_full()
+            .child(
+                div()
+                    .absolute()
+                    .left(relative(0.5))
+                    .top(px(-4.))
+                    .bottom(px(-4.))
+                    .w(px(1.))
+                    .bg(accent),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(relative(0.5))
+                    .top(relative(0.5))
+                    .ml(px(-2.5))
+                    .mt(px(-2.5))
+                    .size(px(5.))
+                    .rounded_full()
+                    .bg(accent),
+            )
+            .child(
+                row()
+                    .size_full()
+                    .gap(px(14.))
+                    .child(
+                        col()
+                            .flex_1()
+                            .justify_center()
+                            .gap(px(5.))
+                            .child(div().h(px(18.)).w_full().rounded(px(4.)).bg(fill))
+                            .child(div().h(px(18.)).w_full().rounded(px(4.)).bg(fill)),
+                    )
+                    .child(
+                        col()
+                            .flex_1()
+                            .justify_center()
+                            .child(div().h(px(26.)).w_full().rounded(px(4.)).bg(fill)),
+                    ),
+            )
+            .into_any_element(),
         _ => col()
             .size_full()
             .gap(px(5.))
@@ -142,13 +185,15 @@ fn layout_preview(mode: usize, selected: bool) -> AnyElement {
 
 impl WhiskyApp {
     pub(crate) fn library_mode_menu(&self, cx: &Context<Self>) -> AnyElement {
+        // Hidden timeline variants report their parent entry (staggered → 列表).
+        let picked = picker_mode(self.mode);
         let current = VISIBLE_MODES
             .iter()
-            .find(|(index, ..)| *index == self.mode)
+            .find(|(index, ..)| *index == picked)
             .map(|(_, _, label, _)| *label)
             .unwrap_or(VISIBLE_MODES[0].2);
         let view = cx.entity().downgrade();
-        let mode = self.mode;
+        let mode = picked;
         Button::new("library-view-menu")
             .label(format!("{current}  ⌄"))
             .rounded_full()
@@ -184,7 +229,7 @@ impl WhiskyApp {
         for pair in VISIBLE_MODES.chunks(2) {
             let mut strip = row().w_full().gap(px(12.));
             for &(index, name, label, description) in pair {
-                let selected = self.mode == index;
+                let selected = picker_mode(self.mode) == index;
                 strip = strip.child(
                     col()
                         .id(("view-choice", index))

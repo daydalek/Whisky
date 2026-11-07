@@ -124,7 +124,7 @@ git tag -a v0.1.0 -m 'Whisky GE fork 0.1.0'
 git push origin v0.1.0
 ```
 
-Assets include `Whisky-0.1.0-arm64.zip` containing `Whisky.app`, `SHA256SUMS`,
+Assets include `Whisky-0.1.0-arm64.zip` containing `Maltoria.app`, `SHA256SUMS`,
 `build-info.json` and release notes. Wine Libraries are downloaded separately.
 Manual workflow runs accept an app version and retain the ZIP as an Actions
 artifact. Ad-hoc app releases require macOS first-launch approval.

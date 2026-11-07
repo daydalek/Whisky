@@ -120,7 +120,7 @@ public enum HostPaths {
             return URL(fileURLWithPath: override)
         }
         #if os(macOS)
-        return home.appendingPathComponent("Library/Containers/com.franke.Whisky/BottleVM.plist")
+        return home.appendingPathComponent("Library/Containers/com.daydalek.Maltoria/BottleVM.plist")
         #else
         let base = environment["XDG_CONFIG_HOME"].flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
             ?? home.appendingPathComponent(".config")
@@ -153,6 +153,10 @@ private struct ContainerMetadata: Decodable {
 
 public struct EntryRecord: Codable, Sendable {
     public let id: String
+    /// `LibraryEntry.metadataIdentity`: the stable, bottle-relative key used by
+    /// hidden and launcher auto-start preferences. It survives rescans and
+    /// container moves that an `id` carrying the full bottle path would not.
+    public let identity: String
     public let name: String
     public let container: String
     public let source: String
@@ -177,6 +181,7 @@ public struct EntryRecord: Codable, Sendable {
     public init(_ entry: LibraryEntry, visibility: LibraryVisibility) throws {
         let presentation = try LibraryPresentation.load(for: entry)
         id = entry.id
+        identity = entry.metadataIdentity
         name = entry.name
         container = entry.bottleURL.path
         source = entry.source.rawValue

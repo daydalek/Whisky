@@ -1,6 +1,6 @@
 # whisky-gpui
 
-Tracked GPUI app for the Whisky desktop UI — the primary macOS frontend and the
+Tracked GPUI app for the Maltoria desktop UI — the primary macOS frontend and the
 basis of the Linux port (see [`docs/gpui-port/PLAN.md`](../../docs/gpui-port/PLAN.md)
 and [`docs/gpui-port/LINUX.md`](../../docs/gpui-port/LINUX.md)). The original
 sources were seeded from the local design demo at `demos/gpui-demo/` (gitignored);
@@ -157,7 +157,7 @@ and `cabextract` beside its executable; `tools/package-app.sh` copies them from
 
 ## Metadata setup and source selection
 
-On first use of the new setup flow, Whisky explains containers and the library,
+On first use of the new setup flow, Maltoria explains containers and the library,
 then offers a default metadata provider. Category overrides are collapsed by
 default. “暂不刮削” stores an empty allowed-search list; it does not silently opt
 the user into the recommended providers. Automatic matching waits for saved

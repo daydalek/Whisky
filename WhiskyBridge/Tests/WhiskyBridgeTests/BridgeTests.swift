@@ -332,12 +332,18 @@ private struct Fixture {
     }
     for key in [
         "preferredTerminal", "libraryCoverFillStyle", "libraryDisplayMode", "librarySort",
-        "libraryDetailLayoutStyle", "libraryMetadataEnabledSources", "telemetryConsent"
+        "libraryDetailLayoutStyle", "libraryMetadataEnabledSources", "telemetryConsent",
+        "librarySidebarMode", "librarySidebarCollapsedStyle"
     ] {
         #expect(strings[key] != nil)
     }
     #expect(booleans["libraryMixedCoverLayout"] == .bool(true))
     #expect(strings["libraryDisplayMode"] == .string("covers"))
+    #expect(strings["librarySidebarMode"] == .string("expanded"))
+    #expect(strings["librarySidebarCollapsedStyle"] == .string("icons"))
+    _ = try service.call("preferences.set", params: [
+        "key": .string("librarySidebarMode"), "value": .string("icons")
+    ])
     let read = try service.call("preferences.read", params: [:])
     #expect(read.object?["librarySort"] == .string("recent"))
     #expect(read.object?["defaultBottleLocation"] == .string("/tmp/Bottles"))
@@ -347,6 +353,7 @@ private struct Fixture {
     ])
     let updated = try service.call("preferences.read", params: [:])
     #expect(updated.object?["libraryDisplayMode"] == .string("timeline"))
+    #expect(updated.object?["librarySidebarMode"] == .string("icons"))
     #expect(updated.object?["defaultBottleLocation"] == .string("/tmp/Chosen Bottles"))
     #expect(throws: BridgeFailure.self) { try service.call(
         "preferences.set",

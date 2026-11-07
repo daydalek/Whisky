@@ -41,7 +41,7 @@ actor WorkspaceArtworkProvider: ArtworkProviding {
         if FileManager.default.fileExists(atPath: cached.path) {
             return await base.artwork(for: ArtworkRequest(source: .image(cached), maxPixelSize: request.maxPixelSize))
         }
-        let preferences = UserDefaults(suiteName: "com.franke.Whisky") ?? .standard
+        let preferences = UserDefaults(suiteName: "com.daydalek.Maltoria") ?? .standard
         guard !preferences.bool(forKey: "offlineMode"), !Task.isCancelled else { return nil }
         do {
             var download = URLRequest(url: url, timeoutInterval: 20)

@@ -1365,11 +1365,11 @@ impl WhiskyApp {
                         )
                         .into_any_element(),
                 );
-                if folders.roots.is_empty() {
+                if folders.roots.is_empty() && folders.assigned_folders.is_empty() {
                     rows.push(muted("尚未添加扫描文件夹").into_any_element());
                 }
                 for root in folders.roots.clone() {
-                    rows.push(self.scan_root_row(&container, &folders, &root, window, cx));
+                    rows.push(self.scan_root_row(&container, &root, cx));
                 }
                 rows.push(
                     row()
@@ -1383,7 +1383,7 @@ impl WhiskyApp {
                                     this.choose_scan_roots(cx);
                                 })),
                         )
-                        .child(muted("可多选，从容器 C: 盘开始").text_size(px(11.)))
+                        .child(muted("可多选,从容器 C: 盘开始;子文件夹会成为游戏").text_size(px(11.)))
                         .into_any_element(),
                 );
                 rows.push(
@@ -1403,6 +1403,27 @@ impl WhiskyApp {
                                         this.preview.inputs["scan-path"].read(cx).value().to_string();
                                     this.add_scan_root(&path, cx);
                                 })),
+                        )
+                        .into_any_element(),
+                );
+                for folder in folders.assigned_folders.clone() {
+                    rows.push(self.scan_game_row(&container, &folders, &folder, window, cx));
+                }
+                rows.push(
+                    row()
+                        .gap(px(10.))
+                        .py(px(10.))
+                        .child(
+                            Button::new("scan-assign-picker")
+                                .label("添加单个游戏文件夹…")
+                                .ghost()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.choose_assign_folders(cx);
+                                })),
+                        )
+                        .child(
+                            muted("文件夹本身就是一个游戏,不扫描其子目录")
+                                .text_size(px(11.)),
                         )
                         .into_any_element(),
                 );
@@ -1441,28 +1462,16 @@ impl WhiskyApp {
         )
     }
 
+    /// A scan-root row. Roots are containers of games — their child folders
+    /// become entries, the root itself never does — so the row only offers
+    /// root-level actions. Game-level controls live on `scan_game_row`.
     fn scan_root_row(
         &mut self,
         container: &str,
-        folders: &FoldersDto,
         root: &str,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let assigned = folders.is_assigned(root);
-        let excluded = folders.is_excluded(root);
-        let executable = folders.executable_for(root).unwrap_or_default().to_owned();
-        let display = if executable.is_empty() {
-            "未设置可执行文件".to_owned()
-        } else {
-            executable.clone()
-        };
-        let input = self.folder_input(root, &executable, window, cx);
-        let assign_root = root.to_owned();
-        let exclude_root = root.to_owned();
         let remove_root = root.to_owned();
-        let executable_root = root.to_owned();
-        let executable_key = format!("scan-exe:{root}");
         let other_bottles: Vec<(usize, String)> = self
             .bottles
             .iter()
@@ -1507,35 +1516,7 @@ impl WhiskyApp {
                             .min_w_0()
                             .gap(px(4.))
                             .child(div().truncate().child(root.to_owned()))
-                            .child(muted(display).truncate()),
-                    )
-                    .child(
-                        Switch::new(format!("scan-assign:{root}"))
-                            .label("游戏库")
-                            .checked(assigned)
-                            .on_change(cx.listener(move |this, checked, _, cx| {
-                                this.edit_folder(
-                                    FolderEdit::Assign {
-                                        path: assign_root.clone(),
-                                        assigned: *checked,
-                                    },
-                                    cx,
-                                );
-                            })),
-                    )
-                    .child(
-                        Switch::new(format!("scan-exclude:{root}"))
-                            .label("排除")
-                            .checked(excluded)
-                            .on_change(cx.listener(move |this, checked, _, cx| {
-                                this.edit_folder(
-                                    FolderEdit::Exclude {
-                                        path: exclude_root.clone(),
-                                        excluded: *checked,
-                                    },
-                                    cx,
-                                );
-                            })),
+                            .child(muted("扫描文件夹").truncate()),
                     )
                     .when_some(move_button, |d, button| d.child(button))
                     .child(
@@ -1550,12 +1531,96 @@ impl WhiskyApp {
                             })),
                     ),
             )
+            .child(muted(format!("容器：{container}")).text_size(px(10.)))
+            .into_any_element()
+    }
+
+    /// A standalone game folder: the folder itself is the game. It can be
+    /// unassigned (游戏库 off), excluded, or given its launching executable.
+    fn scan_game_row(
+        &mut self,
+        container: &str,
+        folders: &FoldersDto,
+        folder: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let excluded = folders.is_excluded(folder);
+        let executable = folders.executable_for(folder).unwrap_or_default().to_owned();
+        let display = if executable.is_empty() {
+            "未设置可执行文件".to_owned()
+        } else {
+            executable.clone()
+        };
+        let input = self.folder_input(folder, &executable, window, cx);
+        let assign_folder = folder.to_owned();
+        let exclude_folder = folder.to_owned();
+        let remove_folder = folder.to_owned();
+        let executable_folder = folder.to_owned();
+        let executable_key = format!("scan-exe:{folder}");
+        col()
+            .gap(px(8.))
+            .py(px(10.))
+            .child(
+                row()
+                    .gap(px(10.))
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(4.))
+                            .child(div().truncate().child(folder.to_owned()))
+                            .child(muted(display).truncate()),
+                    )
+                    .child(
+                        Switch::new(format!("scan-assign:{folder}"))
+                            .label("游戏库")
+                            .checked(true)
+                            .on_change(cx.listener(move |this, checked, _, cx| {
+                                this.edit_folder(
+                                    FolderEdit::Assign {
+                                        path: assign_folder.clone(),
+                                        assigned: *checked,
+                                    },
+                                    cx,
+                                );
+                            })),
+                    )
+                    .child(
+                        Switch::new(format!("scan-exclude:{folder}"))
+                            .label("排除")
+                            .checked(excluded)
+                            .on_change(cx.listener(move |this, checked, _, cx| {
+                                this.edit_folder(
+                                    FolderEdit::Exclude {
+                                        path: exclude_folder.clone(),
+                                        excluded: *checked,
+                                    },
+                                    cx,
+                                );
+                            })),
+                    )
+                    .child(
+                        Button::new(format!("scan-remove:{folder}"))
+                            .label("−")
+                            .ghost()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.edit_folder(
+                                    FolderEdit::Assign {
+                                        path: remove_folder.clone(),
+                                        assigned: false,
+                                    },
+                                    cx,
+                                );
+                            })),
+                    ),
+            )
             .child(
                 row()
                     .gap(px(10.))
                     .child(div().flex_1().child(Input::new(&input)))
                     .child(
-                        Button::new(format!("scan-exe:{root}"))
+                        Button::new(format!("scan-exe:{folder}"))
                             .label("设置可执行文件")
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let text = this
@@ -1568,7 +1633,7 @@ impl WhiskyApp {
                                     .then(|| text.trim().to_owned());
                                 this.edit_folder(
                                     FolderEdit::Executable {
-                                        path: executable_root.clone(),
+                                        path: executable_folder.clone(),
                                         executable,
                                     },
                                     cx,
@@ -2683,7 +2748,7 @@ impl WhiskyApp {
                         .default_bottle_location
                         .as_ref()
                         .map(|path| crate::create_bottle::display_bottle_location(path))
-                        .unwrap_or_else(|| "~/Library/Containers/Whisky/Bottles".to_owned());
+                        .unwrap_or_else(|| "~/Library/Containers/com.daydalek.Maltoria/Bottles".to_owned());
                     self.form(
                         "create-bottle-scroll",
                         vec![self.section(
@@ -3381,12 +3446,12 @@ impl WhiskyApp {
                 #[cfg(target_os = "macos")]
                 {
                     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
-                    format!("{}/Library/Containers/com.franke.Whisky/Bottles", home)
+                    format!("{}/Library/Containers/com.daydalek.Maltoria/Bottles", home)
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
                     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
-                    format!("{}/.local/share/whisky/Bottles", home)
+                    format!("{}/.local/share/maltoria/Bottles", home)
                 }
             });
 
@@ -3596,7 +3661,7 @@ impl WhiskyApp {
             _ => "正在准备…",
         });
         let mut rows: Vec<AnyElement> = vec![
-            muted("Whisky 需要一个 Wine 运行时才能运行 Windows 程序。安装包来自项目的公开发布渠道，并会校验 SHA-256。")
+            muted("Maltoria 需要一个 Wine 运行时才能运行 Windows 程序。安装包来自项目的公开发布渠道，并会校验 SHA-256。")
                 .line_height(relative(1.5))
                 .into_any_element(),
         ];
@@ -3797,7 +3862,7 @@ impl WhiskyApp {
             .as_ref()
             .map(|info| info.app_name.clone())
             .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| "Whisky".into());
+            .unwrap_or_else(|| "Maltoria".into());
         let version = self
             .app_info
             .as_ref()
@@ -3891,7 +3956,7 @@ impl WhiskyApp {
                                 div()
                                     .flex_1()
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .child("关于 Whisky"),
+                                    .child("关于 Maltoria"),
                             )
                             .child(
                                 Button::new("about-close")

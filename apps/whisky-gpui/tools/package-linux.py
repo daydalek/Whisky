@@ -222,7 +222,7 @@ def main():
         shutil.copyfile(source, library)
         library.chmod(0o644)
         subprocess.run(['patchelf', '--set-rpath', '$ORIGIN', str(library)], check=True)
-    launcher = output / 'Whisky'
+    launcher = output / 'Maltoria'
     launcher.write_text('#!/bin/sh\nset -eu\nbundle=$(dirname -- "$(readlink -f -- "$0")")\nexec "$bundle/bin/whisky-gpui" "$@"\n')
     launcher.chmod(0o755)
     notices = output / 'share/licenses/whisky'
@@ -234,10 +234,10 @@ def main():
     copy_sources(output, target)
     copy_upscaler_resources(args.upscaler, output)
     (output / 'README.txt').write_text(
-        'Whisky Linux file and host services\n\n'
+        'Maltoria Linux file and host services\n\n'
         'Target: Ubuntu 24.04 or compatible systems, ' + architecture + '.\n'
         'Install the packages in share/whisky-runtime-packages.txt using your system package manager.\n'
-        'Launch ./Whisky or bin/whisky-gpui. The entire directory can be moved together.\n'
+        'Launch ./Maltoria or bin/whisky-gpui. The entire directory can be moved together.\n'
         'Settings can install or refresh the desktop entry at its current location.\n'
         'Swift libraries are bundled; GTK, graphics drivers, fonts and host tools use system packages.\n'
         'Application sources and locked Rust source archives are in share/whisky/sources.\n'
@@ -247,7 +247,7 @@ def main():
         'Original binary/runtime hashes and modified file hashes are recorded in manifest.json.\n'
         'Settings can download and update the separately published Linux Wine runtime.\n'
         'Wine execution requires an x86_64 runtime and compatible host libraries and kernel.\n')
-    executables = {output / 'Whisky', helper} | {output / 'bin' / name for name in PRODUCTS}
+    executables = {output / 'Maltoria', helper} | {output / 'bin' / name for name in PRODUCTS}
     output.chmod(0o755)
     for path in output.rglob('*'):
         path.chmod(0o755 if path.is_dir() or path in executables else 0o644)
@@ -270,7 +270,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='.whisky-package-', dir=archive_path.parent) as temporary:
         staged = Path(temporary) / 'bundle.tar.gz'
         with tarfile.open(staged, 'w:gz') as archive:
-            archive.add(output, arcname='Whisky')
+            archive.add(output, arcname='Maltoria')
         staged.chmod(0o644)
         os.link(staged, archive_path)
     print(json.dumps(dict(bundle=str(output), archive=str(archive_path), sha256=digest(archive_path),

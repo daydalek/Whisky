@@ -1,6 +1,6 @@
 # Third-party notices and source attribution
 
-Whisky is distributed under GPL-3.0-or-later. Copyright and license notices for
+Maltoria is distributed under GPL-3.0-or-later. Copyright and license notices for
 its dependencies are preserved in `ThirdParty/licenses/`. The application carries
 this document and that directory under `Contents/Resources/ThirdParty/`.
 `ThirdParty/manifest.json` records the resolved source revisions and file hashes.
@@ -47,7 +47,7 @@ Apache-2.0 attribution; the Apache text is supplied in `swift-argument-parser.tx
   `cabextract-AUTHORS.txt`. The bundled libmspack source is LGPL-2.1 (copyright
   Stuart Caie); its license text is supplied in `Winetricks-LGPL-2.1.txt`.
   `sources/cabextract-1.11.tar.gz` is the unmodified official source distribution,
-  including its bundled libmspack, build scripts, and tests. Whisky rebuilds the
+  including its bundled libmspack, build scripts, and tests. Maltoria rebuilds the
   arm64 executable from it. See `cabextract-BUILD.md` for commands and provenance.
 - **MinGW-w64 runtime support** — <https://www.mingw-w64.org/>. The Windows
   helpers have their source in `scripts/whisky_audio_test.c` and

@@ -16,12 +16,12 @@ from typing import Dict, List, Optional, Tuple, Any
 DEFAULT_WINE_PREFIX = os.getenv(
     "WINEPREFIX",
     os.path.expanduser(
-        "~/Library/Containers/com.franke.Whisky/Bottles/9C6C4CD2-82BE-43E9-81E5-8AF2591EA484"
+        "~/Library/Containers/com.daydalek.Maltoria/Bottles/9C6C4CD2-82BE-43E9-81E5-8AF2591EA484"
     ),
 )
 DEFAULT_WINE_ROOT = os.getenv(
     "WINE_ROOT",
-    os.path.expanduser("~/Library/Application Support/com.franke.Whisky/Libraries/Wine"),
+    os.path.expanduser("~/Library/Application Support/com.daydalek.Maltoria/Libraries/Wine"),
 )
 DEFAULT_WINE_LOADER = os.path.join(DEFAULT_WINE_ROOT, "bin", "wine64")
 DEFAULT_WINESERVER = os.path.join(DEFAULT_WINE_ROOT, "bin", "wineserver")

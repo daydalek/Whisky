@@ -22,7 +22,7 @@ public extension Bundle {
     static var whiskyBundleIdentifier: String {
         WhiskyDataIdentity.selectedIdentifier
             ?? Bundle.main.object(forInfoDictionaryKey: "WhiskyDataBundleIdentifier") as? String
-            ?? Bundle.main.bundleIdentifier ?? "com.franke.Whisky"
+            ?? Bundle.main.bundleIdentifier ?? "com.daydalek.Maltoria"
     }
 }
 

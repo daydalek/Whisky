@@ -74,10 +74,12 @@ impl WhiskyApp {
             PreviewPage::Programs => self.programs(cx),
             PreviewPage::Processes => self.processes(cx),
             PreviewPage::GameConfigs => self.game_configs(cx),
-            // Library/Statistics are rendered by a different surface; if state
-            // desyncs and we land here, degrade to the bottle home rather than
-            // panic — a transient wrong page is recoverable, a crash isn't.
-            PreviewPage::Library | PreviewPage::Statistics => self.bottle_home(cx),
+            // Library/Statistics/Launchers are rendered by a different surface;
+            // if state desyncs and we land here, degrade to the bottle home
+            // rather than panic — a transient wrong page is recoverable.
+            PreviewPage::Library | PreviewPage::Statistics | PreviewPage::Launchers => {
+                self.bottle_home(cx)
+            }
         };
         col()
             .size_full()
@@ -135,7 +137,7 @@ impl WhiskyApp {
             .games()
             .iter()
             .enumerate()
-            .filter(|(_, game)| game.bottle == slot)
+            .filter(|(_, game)| game.bottle == slot && !game.is_launcher)
             .take(5)
             .map(|(i, game)| {
                 let (top, bottom) = theme::placeholder_gradient();
@@ -223,7 +225,7 @@ impl WhiskyApp {
                     d.child(muted("No games in this bottle").p(px(4.)))
                 })
                 .child(links)
-                .child(muted("自动选择图形后端 · Windows 11 · WhiskyWine")),
+                .child(muted("自动选择图形后端 · Windows 11 · Wine")),
         )
     }
     /// Configure Bottle. The demo keeps its static design snapshot; a live

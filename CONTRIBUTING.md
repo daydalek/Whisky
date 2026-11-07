@@ -1,6 +1,6 @@
 # How to Contribute
 
-Thanks for your interest! First, make a fork of Whisky, create a new branch for your changes, and get coding!
+Thanks for your interest! First, make a fork of Maltoria, create a new branch for your changes, and get coding!
 
 ## Build Environment
 
@@ -18,7 +18,7 @@ Run `./build.sh list` for the full target menu and [docs/BUILDING.md](docs/BUILD
 
 ### Linting with SwiftLint
 
-Every Whisky commit is automatically linted using SwiftLint. You can run these checks locally by building in Xcode; violations will appear as errors or warnings. For your pull request to be merged, you must meet all requirements outlined by SwiftLint and have no violations.
+Every Maltoria commit is automatically linted using SwiftLint. You can run these checks locally by building in Xcode; violations will appear as errors or warnings. For your pull request to be merged, you must meet all requirements outlined by SwiftLint and have no violations.
 
 ### Formatting with SwiftFormat
 
@@ -141,7 +141,7 @@ through a coordinated rewrite.
 
 ### Running Tests
 
-Whisky has two test layers:
+Maltoria has two test layers:
 
 **Swift package unit tests** — WhiskyKit, WhiskyCore and WhiskyMetadata pure-Swift
 logic, runnable without launching the app:
@@ -211,4 +211,4 @@ Once your pull request passes CI checks (SwiftLint, SwiftFormat, and builds), it
 - [ ] Documentation updated (if adding features)
 - [ ] Changelog updated (if user-facing changes)
 
-Thank you for contributing to Whisky!
+Thank you for contributing to Maltoria!

@@ -19,9 +19,23 @@
 //! it unchanged.
 
 /// The presentations, in `LibraryDisplayMode` declaration order plus the
-/// GPUI-only "immersive" mode, which the SwiftUI enum has no case for (the
-/// bridge stores any string and SwiftUI falls back to covers for it).
-pub(crate) const MODE_VALUES: [&str; 5] = ["covers", "timeline", "classic", "immersive", "gallery"];
+/// GPUI-only modes, which the SwiftUI enum has no case for (the bridge stores
+/// any string and SwiftUI falls back to covers for them).
+pub(crate) const MODE_VALUES: [&str; 6] = [
+    "covers",
+    "timeline",
+    "classic",
+    "immersive",
+    "gallery",
+    "staggered",
+];
+/// The staggered two-column timeline's mode index. It shares the 列表 picker
+/// entry — the toolbar's column toggle moves between it and mode 1.
+pub(crate) const STAGGERED_MODE: usize = 5;
+/// The picker's parent mode for a hidden timeline variant.
+pub(crate) fn picker_mode(mode: usize) -> usize {
+    if mode == STAGGERED_MODE { 1 } else { mode }
+}
 pub(crate) const VISIBLE_MODES: [(usize, &str, &str, &str); 4] = [
     (0, "library-big", "网格", "紧凑排列，快速浏览全部封面"),
     (1, "rows-3", "列表", "按行查看游戏与游玩记录"),
@@ -67,6 +81,11 @@ pub(crate) const SHOW_MENU_BAR_EXTRA: &str = "showMenuBarExtra";
 pub(crate) const OFFLINE_MODE: &str = "offlineMode";
 pub(crate) const CHECK_UPDATES: &str = "checkWhiskyWineUpdates";
 pub(crate) const DEFAULT_BOTTLE_LOCATION: &str = "defaultBottleLocation";
+/// The library sidebar's presentation; GPUI-only like `libraryCoverWidth`.
+pub(crate) const SIDEBAR_MODE: &str = "librarySidebarMode";
+/// Which collapsed presentation (`icons` or `hidden`) the collapse action
+/// and `ToggleSidebar` use; remembered across launches.
+pub(crate) const SIDEBAR_COLLAPSED_STYLE: &str = "librarySidebarCollapsedStyle";
 
 /// SwiftUI defaults, used before the bridge answers and for keys the bridge
 /// does not expose.
@@ -176,10 +195,17 @@ mod tests {
 
     #[test]
     fn value_sets_match_the_swift_enums() {
-        // LibraryDisplayMode, LibraryView.swift:26, plus GPUI-only "immersive".
+        // LibraryDisplayMode, LibraryView.swift:26, plus the GPUI-only modes.
         assert_eq!(
             MODE_VALUES,
-            ["covers", "timeline", "classic", "immersive", "gallery"]
+            [
+                "covers",
+                "timeline",
+                "classic",
+                "immersive",
+                "gallery",
+                "staggered"
+            ]
         );
         // LibrarySort, WhiskyCore/LibraryOrdering.swift:21.
         assert_eq!(SORT_VALUES, ["recent", "name", "bottle"]);
@@ -204,6 +230,9 @@ mod tests {
         assert_eq!(mode_value(4), "gallery");
         assert_eq!(visible_mode_index(mode_value(4)), Some(4));
         assert_eq!(visible_mode_index("gallery"), Some(4));
+        assert_eq!(mode_index("staggered"), Some(STAGGERED_MODE));
+        assert_eq!(mode_value(STAGGERED_MODE), "staggered");
+        assert_eq!(visible_mode_index("staggered"), Some(STAGGERED_MODE));
         assert_eq!(
             VISIBLE_MODES
                 .iter()

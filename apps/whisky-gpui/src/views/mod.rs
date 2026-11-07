@@ -5,8 +5,10 @@ pub(crate) mod dialogs;
 pub(crate) mod gallery;
 pub(crate) mod immersive;
 pub(crate) mod import_bottles;
+pub(crate) mod launchers;
 pub(crate) mod library;
 pub(crate) mod settings;
+pub(crate) mod staggered;
 pub(crate) mod statistics;
 pub(crate) mod onboarding;
 pub(crate) mod view_picker;
@@ -37,6 +39,8 @@ pub(crate) enum Command {
     Runtime(usize),
     /// Name the executable a folder entry starts, without running it.
     Executable(usize),
+    /// Flip a launcher's "open with Whisky" auto-start flag.
+    LauncherAutoStart(usize),
     Toggle(&'static str),
     /// Set the shelf's cover width; zero restores the automatic shelf.
     CoverSize(f32),
@@ -131,6 +135,105 @@ impl MenuEntry {
             .on_click(move |_, _, cx| {
                 let _ = view.update(cx, |this, cx| this.command(command, cx));
             })
+    }
+}
+
+/// Interpolates two `0xRRGGBB` colours.
+pub(crate) fn mix_rgb(a: u32, b: u32, t: f32) -> u32 {
+    let t = t.clamp(0., 1.);
+    let mut out = 0u32;
+    for shift in [16u32, 8, 0] {
+        let from = (a >> shift) & 0xff;
+        let to = (b >> shift) & 0xff;
+        out |= ((from as f32 + (to as f32 - from as f32) * t).round() as u32) << shift;
+    }
+    out
+}
+
+/// Interpolates two `0xRRGGBBAA` colours, alpha included.
+pub(crate) fn mix_rgba(a: u32, b: u32, t: f32) -> u32 {
+    let t = t.clamp(0., 1.);
+    let mut out = 0u32;
+    for shift in [24u32, 16, 8, 0] {
+        let from = (a >> shift) & 0xff;
+        let to = (b >> shift) & 0xff;
+        out |= ((from as f32 + (to as f32 - from as f32) * t).round() as u32) << shift;
+    }
+    out
+}
+
+/// `0xRRGGBB` re-encoded as `0xRRGGBBAA` for `rgba` backgrounds/paths.
+pub(crate) fn fade_rgb(color: u32, alpha: f32) -> u32 {
+    (color << 8) | (alpha.clamp(0., 1.) * 255.).round() as u32
+}
+
+/// Connector stroke, in points; the glow pass is three times as wide.
+pub(crate) const CONNECTOR_WIDTH: f32 = 2.5;
+/// The connector dips by a fraction of its span, capped, so it reads as a
+/// drawn thread rather than a wire.
+const CONNECTOR_SAG: f32 = 0.12;
+const CONNECTOR_SAG_MAX: f32 = 9.;
+
+fn lerp_point(a: (f32, f32), b: (f32, f32), t: f32) -> (f32, f32) {
+    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
+}
+
+/// One connector cubic, already trimmed for its grow/shrink progress.
+pub(crate) struct ConnectorPaint {
+    pub(crate) start: (f32, f32),
+    pub(crate) control_a: (f32, f32),
+    pub(crate) control_b: (f32, f32),
+    pub(crate) end: (f32, f32),
+    pub(crate) alpha: f32,
+}
+
+/// The timeline link's shape: leaves the rail node horizontally, sags
+/// slightly, and arrives horizontally at the card edge. `progress` trims the
+/// curve with de Casteljau so it grows out of the node and retracts back.
+pub(crate) fn connector_curve(start: (f32, f32), end: (f32, f32), progress: f32) -> ConnectorPaint {
+    let span = end.0 - start.0;
+    let sag = (span.abs() * CONNECTOR_SAG).min(CONNECTOR_SAG_MAX);
+    let control_a = (start.0 + span * 0.45, start.1 + sag);
+    let control_b = (end.0 - span * 0.45, end.1 + sag);
+    let t = progress.clamp(0., 1.);
+    let q0 = lerp_point(start, control_a, t);
+    let q1 = lerp_point(control_a, control_b, t);
+    let q2 = lerp_point(control_b, end, t);
+    let r0 = lerp_point(q0, q1, t);
+    let r1 = lerp_point(q1, q2, t);
+    ConnectorPaint {
+        start,
+        control_a: q0,
+        control_b: r0,
+        end: lerp_point(r0, r1, t),
+        alpha: t,
+    }
+}
+
+/// Paints accent connector cubics from content-space coordinates; `origin` is
+/// the canvas element's window-space origin.
+pub(crate) fn paint_connectors(
+    origin: Point<Pixels>,
+    connectors: &[ConnectorPaint],
+    window: &mut Window,
+) {
+    let to_window = |p: (f32, f32)| origin + point(px(p.0), px(p.1));
+    for connector in connectors {
+        for (width, alpha) in [
+            (CONNECTOR_WIDTH * 3., connector.alpha * 0.22),
+            (CONNECTOR_WIDTH, connector.alpha * 0.95),
+        ] {
+            let mut builder = PathBuilder::stroke(px(width));
+            builder.move_to(to_window(connector.start));
+            builder.cubic_bezier_to(
+                to_window(connector.end),
+                to_window(connector.control_a),
+                to_window(connector.control_b),
+            );
+            if let Ok(path) = builder.build() {
+                window.paint_path(path, rgba(fade_rgb(crate::theme::ACCENT, alpha)));
+            }
+        }
     }
 }
 
@@ -253,12 +356,8 @@ impl WhiskyApp {
             menu
         }
     }
-    /// Sidebar context menu, mirroring the SwiftUI bottle list entry.
-    pub(crate) fn bottle_menu(
-        &self,
-        index: usize,
-        cx: &Context<Self>,
-    ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+    /// One bottle's context-menu entries, mirroring the SwiftUI bottle list.
+    fn bottle_menu_entries(&self, index: usize, cx: &Context<Self>) -> Vec<MenuEntry> {
         let available = self.bottles.get(index).is_some_and(|bottle| bottle.available);
         let mut items = vec![];
         if available {
@@ -271,6 +370,15 @@ impl WhiskyApp {
             items.push(MenuEntry::separator(cx.entity().downgrade()));
         }
         items.push(self.menu_item(crate::platform::REVEAL_LABEL, Command::BottleReveal(index), cx));
+        items
+    }
+    /// Sidebar context menu, mirroring the SwiftUI bottle list entry.
+    pub(crate) fn bottle_menu(
+        &self,
+        index: usize,
+        cx: &Context<Self>,
+    ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+        let items = self.bottle_menu_entries(index, cx);
         move |mut menu, _, _| {
             for item in &items {
                 menu = menu.item(item.build());

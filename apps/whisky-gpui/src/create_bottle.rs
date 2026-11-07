@@ -100,10 +100,10 @@ mod tests {
     #[test]
     fn display_location_collapses_home() {
         let home = dirs_home().expect("HOME");
-        let full = format!("{home}/Library/Containers/Whisky/Bottles");
+        let full = format!("{home}/Library/Containers/com.daydalek.Maltoria/Bottles");
         assert_eq!(
             display_bottle_location(&full),
-            "~/Library/Containers/Whisky/Bottles"
+            "~/Library/Containers/com.daydalek.Maltoria/Bottles"
         );
         assert_eq!(display_bottle_location("/tmp/Bottles"), "/tmp/Bottles");
     }

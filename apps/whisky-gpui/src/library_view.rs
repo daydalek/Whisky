@@ -99,7 +99,10 @@ pub(crate) fn filter_indices(
     (0..games.len())
         .filter(|&index| {
             let game = &games[index];
+            // Launchers are storefront clients, not games: they live on the
+            // dedicated 启动器 page instead of any game grid.
             (slot == 0 || game.bottle == slot)
+                && !game.is_launcher
                 && (show_hidden || !game.hidden)
                 && matches_query(game, query)
         })
@@ -244,6 +247,7 @@ mod tests {
             metadata: None,
             character_images: Default::default(),
             id: id.into(),
+            identity: id.into(),
             art: Some(std::path::PathBuf::from(format!("/covers/{title}.jpg"))),
             title: title.into(),
             studio: (!studio.is_empty()).then(|| studio.into()),

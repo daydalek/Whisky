@@ -74,13 +74,13 @@ fn state_path() -> Option<PathBuf> {    if let Some(path) = std::env::var_os("WH
     let directory = home
         .join("Library")
         .join("Application Support")
-        .join("Whisky");
+        .join("Maltoria");
     #[cfg(not(target_os = "macos"))]
     let directory = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .unwrap_or_else(|| home.join(".config"))
-        .join("whisky");
+        .join("maltoria");
     Some(directory.join("gpui-window.json"))
 }
 

@@ -88,7 +88,7 @@ private struct Fixture {
 @MainActor private func services(wineEnabled: Bool = false) -> MacOSApplicationServices {
     MacOSApplicationServices(
         wineEnabled: wineEnabled,
-        preferencesDomain: "com.franke.Whisky.tests.\(UUID().uuidString)",
+        preferencesDomain: "com.daydalek.Maltoria.tests.\(UUID().uuidString)",
         jobs: BridgeJobStore()
     )
 }

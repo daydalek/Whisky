@@ -62,8 +62,8 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         }
     )
 
-    public init(wineEnabled: Bool, preferencesDomain: String = "com.franke.Whisky", jobs: BridgeJobStore) {
-        WhiskyDataIdentity.configure("com.franke.Whisky")
+    public init(wineEnabled: Bool, preferencesDomain: String = "com.daydalek.Maltoria", jobs: BridgeJobStore) {
+        WhiskyDataIdentity.configure("com.daydalek.Maltoria")
         self.wineEnabled = wineEnabled
         self.jobs = jobs
         WhiskyPreferences.configureSharedDomain(preferencesDomain)

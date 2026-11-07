@@ -26,10 +26,10 @@ public enum ApplicationInfo {
     public static func payload() -> JSONValue {
         let bundle = Bundle.main
         let info = bundle.infoDictionary
-        let name = info?["CFBundleName"] as? String ?? "Whisky"
+        let name = info?["CFBundleName"] as? String ?? "Maltoria"
         let version = info?["CFBundleShortVersionString"] as? String ?? "0.0.0"
         let build = info?["CFBundleVersion"] as? String ?? ""
-        let identifier = bundle.bundleIdentifier ?? "com.franke.Whisky"
+        let identifier = bundle.bundleIdentifier ?? "com.daydalek.Maltoria"
         let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
         return .object([
             "appName": .string(name),

@@ -1,4 +1,4 @@
-# Codecov Configuration for Whisky
+# Codecov Configuration for Maltoria
 # https://docs.codecov.io/docs/codecovyml-reference
 
 # Coverage settings
@@ -79,6 +79,6 @@ component_management:
       paths:
         - WhiskyKit/Sources/**
     - component_id: whiskyapp
-      name: Whisky (app)
+      name: Maltoria (app)
       paths:
         - Whisky/**

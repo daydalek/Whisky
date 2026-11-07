@@ -61,7 +61,7 @@ def exercise(window, app, fixture, snapshot, report):
         {item['method'] for item in requests()}), 'Restored host services were not discovered')
     snapshot('settings-services-restored')
     click(1200, 295)
-    entry = fixture / 'data/applications/com.franke.Whisky.desktop'
+    entry = fixture / 'data/applications/com.daydalek.Maltoria.desktop'
     wait_for(entry.exists, 'Restored desktop installation did not publish the entry')
     assert 'system.desktop.install' in {item['method'] for item in requests()}
     snapshot('settings-restored-desktop-installed')

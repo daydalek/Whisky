@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Package a verified macOS GPUI Whisky.app into release ZIP, source archive and checksums."""
+"""Package a verified macOS GPUI Maltoria.app into release ZIP, source archive and checksums."""
 import argparse
 import hashlib
 import json
@@ -63,7 +63,7 @@ def package(app: Path, version: str, output: Path, build_number: int = 1) -> Non
     verify_app(app, version)
     output.mkdir(parents=True, exist_ok=True)
 
-    archive_name = f"Whisky-{version}-arm64.zip"
+    archive_name = f"Maltoria-{version}-arm64.zip"
     archive_path = output / archive_name
     if archive_path.exists():
         archive_path.unlink()
@@ -73,15 +73,15 @@ def package(app: Path, version: str, output: Path, build_number: int = 1) -> Non
 
     with tempfile.TemporaryDirectory(prefix="whisky-zip-check-") as tmpdir:
         subprocess.run(['ditto', '-x', '-k', str(archive_path), tmpdir], check=True)
-        extracted_app = Path(tmpdir) / 'Whisky.app'
+        extracted_app = Path(tmpdir) / 'Maltoria.app'
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(extracted_app)], check=True)
 
-    sources_name = f"Whisky-{version}-sources.tar.gz"
+    sources_name = f"Maltoria-{version}-sources.tar.gz"
     sources_path = output / sources_name
     print(f"Archiving release sources: {sources_path}")
     subprocess.run([
         'git', '-C', str(ROOT), 'archive',
-        f'--prefix=Whisky-{version}/',
+        f'--prefix=Maltoria-{version}/',
         '--format=tar.gz',
         '-o', str(sources_path),
         'HEAD',
@@ -103,14 +103,14 @@ def package(app: Path, version: str, output: Path, build_number: int = 1) -> Non
     }
     (output / 'build-info.json').write_text(json.dumps(build_info, indent=2) + '\n')
 
-    release_notes = f"""Whisky {version} for Apple Silicon (GPUI).
+    release_notes = f"""Maltoria {version} for Apple Silicon (GPUI).
 
-Download {archive_name}, extract Whisky.app and drag it into Applications.
+Download {archive_name}, extract Maltoria.app and drag it into Applications.
 The app downloads CrossOver-based GE Wine Libraries separately on first setup.
 The current Wine runtime requires macOS 27+ and Rosetta 2.
 Source code is included in {sources_name}.
 Third-party licenses, source attribution, and cabextract source are included in
-Whisky.app/Contents/Resources/ThirdParty/ and THIRD-PARTY-NOTICES.md.
+Maltoria.app/Contents/Resources/ThirdParty/ and THIRD-PARTY-NOTICES.md.
 
 This build uses an ad-hoc signature. Apple notarization is pending; macOS Gatekeeper may require additional approval on first launch.
 """
@@ -129,7 +129,7 @@ This build uses an ad-hoc signature. Apple notarization is pending; macOS Gateke
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--app', type=Path, required=True, help='Path to Whisky.app')
+    parser.add_argument('--app', type=Path, required=True, help='Path to Maltoria.app')
     parser.add_argument('--version', type=str, required=True, help='Release version X.Y.Z')
     parser.add_argument('--output', type=Path, required=True, help='Output directory for release assets')
     parser.add_argument('--build-number', type=int, default=1, help='Build number')

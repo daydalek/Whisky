@@ -135,7 +135,7 @@ public struct WhiskyWineSetupDiagnostics: Codable, Sendable {
     }
 
     private func appendHeaderLines(into lines: inout [String], stage: String, error: String?) {
-        lines.append("WhiskyWine Setup Diagnostics (\(Self.issueURL))")
+        lines.append("Wine Setup Diagnostics (\(Self.issueURL))")
         lines.append("Session: \(sessionID.uuidString)")
         lines.append("Stage: \(stage)")
         lines.append("Generated: \(Date().formatted(Self.eventTimestampFormatter))")
@@ -154,7 +154,7 @@ public struct WhiskyWineSetupDiagnostics: Codable, Sendable {
     static func versionSectionLines(for info: WhiskyWineVersion?) -> [String] {
         var lines = ["[VERSION]"]
         if let version = info?.version.description {
-            lines.append("WhiskyWine: \(version)")
+            lines.append("Wine: \(version)")
         }
         if let dxvk = info?.dxvkVersion {
             lines.append("DXVK: \(dxvk)")

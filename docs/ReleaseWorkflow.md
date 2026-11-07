@@ -90,7 +90,7 @@ The manifest records the exact release asset `downloadURL`, the archive SHA-256,
 
 The runtime version is generated as `11.0.(GITHUB_RUN_NUMBER + 1)` and is independent of the public release tag. The app compares this runtime version for update prompts. Normal checks share a one-hour in-process manifest cache; setup and explicit retries request fresh metadata. The app validates the manifest URL and SHA-256 and verifies the downloaded archive before installing it.
 
-The shared runtime installs at `~/Library/Application Support/com.franke.Whisky/Libraries/`.
+The shared runtime installs at `~/Library/Application Support/com.daydalek.Maltoria/Libraries/`.
 
 ## Pages and distribution URLs
 

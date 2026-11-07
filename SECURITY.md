@@ -2,18 +2,18 @@
 
 ## Supported Versions
 
-The following versions of Whisky are currently supported with security updates:
+The following versions of Maltoria are currently supported with security updates:
 
 | Version | Supported          |
 | ------- | ------------------ |
 | Latest  | :white_check_mark: |
 | < Latest | :x:               |
 
-We recommend always using the latest version of Whisky for the best security and feature support.
+We recommend always using the latest version of Maltoria for the best security and feature support.
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Whisky, please report it responsibly:
+If you discover a security vulnerability in Maltoria, please report it responsibly:
 
 1. **Do not** open a public GitHub issue for security vulnerabilities
 2. **Use** GitHub's private vulnerability reporting feature via the **Security** tab of this repository:
@@ -35,7 +35,7 @@ If you discover a security vulnerability in Whisky, please report it responsibly
 ### Scope
 
 This security policy applies to:
-- The Whisky application
+- The Maltoria application
 - WhiskyKit library
 - Related command-line tools (WhiskyCmd)
 - Build and release infrastructure
@@ -49,18 +49,18 @@ The following are generally out of scope:
 
 ### Wine / DXVK Vulnerability Response
 
-Whisky bundles a Wine runtime (Wine, DXVK, D3DMetal, and related components) that it does not develop.
-A vulnerability in those components is fixed upstream, not here — but it still reaches Whisky users, so
+Maltoria bundles a Wine runtime (Wine, DXVK, D3DMetal, and related components) that it does not develop.
+A vulnerability in those components is fixed upstream, not here — but it still reaches Maltoria users, so
 we track it as a runtime-currency concern rather than a closed door:
 
 - Bundled component versions are pinned and checked against their upstream sources, so a new upstream
   build carrying a security fix is surfaced rather than missed.
-- A **critical** vulnerability in a bundled component (one exploitable through normal Whisky use) is a
+- A **critical** vulnerability in a bundled component (one exploitable through normal Maltoria use) is a
   trigger to rebuild the runtime archive on the patched upstream version and cut a new app release out
   of band, rather than waiting for the next scheduled runtime update.
 - Non-critical upstream fixes are picked up as part of the normal runtime-update cadence.
 
-If you believe a bundled-runtime vulnerability is being mishandled or under-prioritized in Whisky's
+If you believe a bundled-runtime vulnerability is being mishandled or under-prioritized in Maltoria's
 packaging, report it through the private channel above and say so explicitly.
 
 ## Telemetry & Data Collection

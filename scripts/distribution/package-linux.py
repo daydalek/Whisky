@@ -106,22 +106,22 @@ def unpack(archive, output):
             raise ValueError('Archive exceeds package limits')
         for member in members:
             parts = Path(member.name).parts
-            if not parts or parts[0] != 'Whisky' or '..' in parts or not (member.isfile() or member.isdir()):
+            if not parts or parts[0] != 'Maltoria' or '..' in parts or not (member.isfile() or member.isdir()):
                 raise ValueError('Unsafe release archive member: ' + member.name)
         stream.extractall(output, filter='data')
-    return output / 'Whisky'
+    return output / 'Maltoria'
 
 
 def install_assets(stage, bundle):
     shutil.copytree(bundle, stage / 'opt/whisky')
     launcher = stage / 'usr/bin/whisky'
     launcher.parent.mkdir(parents=True)
-    launcher.write_text('#!/bin/sh\nexec /opt/whisky/Whisky "$@"\n')
+    launcher.write_text('#!/bin/sh\nexec /opt/whisky/Maltoria "$@"\n')
     launcher.chmod(0o755)
     for source, destination in [
-        ('com.franke.Whisky.desktop', 'usr/share/applications/com.franke.Whisky.desktop'),
-        ('com.franke.Whisky.png', 'usr/share/icons/hicolor/512x512/apps/com.franke.Whisky.png'),
-        ('com.franke.Whisky.metainfo.xml', 'usr/share/metainfo/com.franke.Whisky.metainfo.xml'),
+        ('com.daydalek.Maltoria.desktop', 'usr/share/applications/com.daydalek.Maltoria.desktop'),
+        ('com.daydalek.Maltoria.png', 'usr/share/icons/hicolor/512x512/apps/com.daydalek.Maltoria.png'),
+        ('com.daydalek.Maltoria.metainfo.xml', 'usr/share/metainfo/com.daydalek.Maltoria.metainfo.xml'),
     ]:
         path = stage / destination
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -143,7 +143,7 @@ def deb(bundle, manifest, version, output, workspace):
     control.parent.chmod(0o755)
     installed = sum(p.stat().st_size for p in stage.rglob('*') if p.is_file()) // 1024
     control.write_text(f'Package: whisky\nVersion: {version}\nArchitecture: {ARCHITECTURES[manifest["architecture"]][0]}\n'
-        'Maintainer: Whisky contributors <noreply@github.com>\nSection: games\nPriority: optional\n'
+        'Maintainer: Maltoria contributors <noreply@github.com>\nSection: games\nPriority: optional\n'
         f'Installed-Size: {installed}\nDepends: ' + ', '.join(DEPENDENCIES['deb']) + '\n'
         'Recommends: fonts-noto-cjk, mesa-vulkan-drivers\nHomepage: https://github.com/daydalek/Whisky\n'
         'Description: Wine container and Windows game library manager\n'
@@ -191,9 +191,9 @@ cp -a "$WHISKY_RPM_STAGE"/. "%{{buildroot}}"/
 %defattr(-,root,root,-)
 /opt/whisky
 /usr/bin/whisky
-/usr/share/applications/com.franke.Whisky.desktop
-/usr/share/icons/hicolor/512x512/apps/com.franke.Whisky.png
-/usr/share/metainfo/com.franke.Whisky.metainfo.xml
+/usr/share/applications/com.daydalek.Maltoria.desktop
+/usr/share/icons/hicolor/512x512/apps/com.daydalek.Maltoria.png
+/usr/share/metainfo/com.daydalek.Maltoria.metainfo.xml
 ''')
     run('rpmbuild', '--define', '_topdir ' + str(top), '--define', '_build_id_links none',
         '--target', ARCHITECTURES[manifest['architecture']][1], '-bb', spec,
@@ -215,7 +215,7 @@ def download(item, cache):
     with tempfile.NamedTemporaryFile(dir=cache, delete=False) as stream:
         temporary = Path(stream.name)
         try:
-            request = urllib.request.Request(item['url'], headers={'User-Agent': 'Whisky-build/1'})
+            request = urllib.request.Request(item['url'], headers={'User-Agent': 'Maltoria-build/1'})
             with urllib.request.urlopen(request, timeout=120) as response:
                 shutil.copyfileobj(response, stream)
             stream.flush()
@@ -356,7 +356,7 @@ fi
 if [ -z "${CURL_CA_BUNDLE:-}" ] && [ -n "${SSL_CERT_FILE:-}" ]; then
     export CURL_CA_BUNDLE="$SSL_CERT_FILE"
 fi
-cache="${XDG_CACHE_HOME:-$HOME/.cache}/whisky/appimage/$(printf '%s' "$root" | sha256sum | cut -c1-20)"
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/maltoria/appimage/$(printf '%s' "$root" | sha256sum | cut -c1-20)"
 mkdir -p "$cache"
 cache_tmp=$(mktemp "$cache/loaders.XXXXXX")
 "$bundle/tools/gdk-pixbuf-query-loaders" "$GDK_PIXBUF_MODULEDIR"/*.so > "$cache_tmp"
@@ -382,7 +382,7 @@ def portable_manifest(staged, manifest):
 
 
 def appimage(bundle, manifest, version, output, workspace, cache):
-    appdir = workspace / 'Whisky.AppDir'
+    appdir = workspace / 'Maltoria.AppDir'
     staged = appdir / 'usr/lib/whisky'
     shutil.copytree(bundle, staged)
     original_manifest = staged / 'manifest.json'
@@ -392,19 +392,19 @@ def appimage(bundle, manifest, version, output, workspace, cache):
     portable_manifest(staged, manifest)
     (appdir / 'AppRun').write_text(APPRUN)
     (appdir / 'AppRun').chmod(0o755)
-    desktop = (HERE / 'assets/com.franke.Whisky.desktop').read_text().replace('Exec=whisky', 'Exec=AppRun').replace('TryExec=whisky\n', '')
-    (appdir / 'com.franke.Whisky.desktop').write_text(desktop)
-    shutil.copyfile(HERE / 'assets/com.franke.Whisky.png', appdir / 'com.franke.Whisky.png')
-    (appdir / '.DirIcon').symlink_to('com.franke.Whisky.png')
+    desktop = (HERE / 'assets/com.daydalek.Maltoria.desktop').read_text().replace('Exec=whisky', 'Exec=AppRun').replace('TryExec=whisky\n', '')
+    (appdir / 'com.daydalek.Maltoria.desktop').write_text(desktop)
+    shutil.copyfile(HERE / 'assets/com.daydalek.Maltoria.png', appdir / 'com.daydalek.Maltoria.png')
+    (appdir / '.DirIcon').symlink_to('com.daydalek.Maltoria.png')
     metadata = appdir / 'usr/share/metainfo'
     metadata.mkdir(parents=True)
-    shutil.copyfile(HERE / 'assets/com.franke.Whisky.metainfo.xml', metadata / 'com.franke.Whisky.metainfo.xml')
+    shutil.copyfile(HERE / 'assets/com.daydalek.Maltoria.metainfo.xml', metadata / 'com.daydalek.Maltoria.metainfo.xml')
     lock = json.loads((HERE / 'appimage-tools.json').read_text())['architectures'][manifest['architecture']]
     tool, runtime = (download(lock[key], cache) for key in ('tool', 'runtime'))
     executable = workspace / 'appimagetool.AppImage'
     shutil.copyfile(tool, executable)
     executable.chmod(0o755)
-    path = output / f'Whisky-{version}-{manifest["architecture"]}.AppImage'
+    path = output / f'Maltoria-{version}-{manifest["architecture"]}.AppImage'
     run(executable, '--appimage-extract-and-run', '--runtime-file', runtime, '--no-appstream',
         appdir, path, env=dict(os.environ, ARCH=manifest['architecture'], VERSION=version))
     path.chmod(0o755)

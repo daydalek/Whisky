@@ -41,7 +41,7 @@ struct DomainError: LocalizedError {
 @main
 struct Whisky: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "A CLI interface for Whisky.",
+        abstract: "A CLI interface for Maltoria.",
         discussion: """
         Exit codes: 64 for a malformed invocation (unknown flags, missing or \
         empty arguments; printed with usage), 1 for a well-formed command \
@@ -263,7 +263,7 @@ extension Whisky {
 
     struct Remove: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Remove an existing bottle from Whisky.",
+            abstract: "Remove an existing bottle from Maltoria.",
             discussion: "This will not remove the bottle from disk."
         )
 
@@ -286,10 +286,10 @@ extension Whisky {
 
     struct Run: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "Run a program with Whisky.",
+            abstract: "Run a program with Maltoria.",
             discussion: """
             Runs a Windows program directly using Wine, with the same settings \
-            and preparation as a launch from Whisky. Use --command to print the \
+            and preparation as a launch from Maltoria. Use --command to print the \
             command instead: the bottle is prepared first (DLL overrides written \
             to its registry, graphics backend files deployed), so the printed \
             command runs the program the same way. Use --follow to stream program \
@@ -561,15 +561,15 @@ extension Whisky {
     }
 
     struct Install: ParsableCommand {
-        static let configuration = CommandConfiguration(abstract: "Install WhiskyWine.")
+        static let configuration = CommandConfiguration(abstract: "Install Wine.")
 
         mutating func run() throws {}
     }
 
     struct Uninstall: ParsableCommand {
-        static let configuration = CommandConfiguration(abstract: "Uninstall WhiskyWine.")
+        static let configuration = CommandConfiguration(abstract: "Uninstall Wine.")
 
-        @Flag(name: [.long, .short], help: "Uninstall WhiskyWine") var whiskyWine = false
+        @Flag(name: [.long, .short], help: "Uninstall Wine") var whiskyWine = false
 
         mutating func run() throws {}
     }
