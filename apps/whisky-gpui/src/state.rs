@@ -496,7 +496,7 @@ pub(crate) struct WhiskyApp {
     /// `Game::bottle` is the one-based slot and `Game::container` is the path.
     pub(crate) entries: Vec<Game>,
     /// Successful reads keyed by bottle path: revisiting a bottle is instant.
-    bottle_entries: BTreeMap<String, Vec<Game>>,
+    pub(crate) bottle_entries: BTreeMap<String, Vec<Game>>,
     /// Index into `bottles`; `None` means the whole library.
     pub(crate) selected_bottle: Option<usize>,
     /// A read for the visible scope is still in flight.
@@ -506,7 +506,7 @@ pub(crate) struct WhiskyApp {
     /// Bottle indices with a queued or in-flight read.
     pending: BTreeSet<usize>,
     /// Per-bottle read errors, shown when that bottle is visible.
-    failures: BTreeMap<usize, String>,
+    pub(crate) failures: BTreeMap<usize, String>,
     /// Bottles already handed to `runtime.configure`, so Play on the Library
     /// page configures each bottle exactly once.
     configured: ConfiguredBottles,
@@ -584,7 +584,7 @@ pub(crate) struct WhiskyApp {
     pub(crate) move_entry: Option<MoveEntryState>,
     /// The opened/dropped file, while its bottle picker is open.
     pub(crate) open_file: Option<OpenFileState>,
-    catalogue_ready: bool,
+    pub(crate) catalogue_ready: bool,
     desktop_resolution_generation: u64,
     desktop_resolutions: HashMap<u64, crate::desktop_open::ExternalOpen>,
     external_opens: std::collections::VecDeque<crate::desktop_open::ExternalOpen>,
@@ -748,6 +748,22 @@ pub(crate) struct LegacyFullscreenPrompt {
 
 impl WhiskyApp {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let (bridge, bridge_events) = BridgeSupervisor::start();
+        let demo = demo_requested(std::env::var("WHISKY_GPUI_DEMO_DATA").ok().as_deref());
+        Self::new_with_bridge(window, cx, bridge, bridge_events, demo)
+    }
+
+    /// The shared constructor: `new` supplies a real supervisor and reads the
+    /// demo flag from the environment; headless tests hand over
+    /// `BridgeSupervisor::disconnected_for_tests` and an empty event channel
+    /// so no helper process is spawned.
+    pub(crate) fn new_with_bridge(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        bridge: BridgeSupervisor,
+        bridge_events: smol::channel::Receiver<BridgeEvent>,
+        demo: bool,
+    ) -> Self {
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle, cx);
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search programs"));
@@ -755,7 +771,6 @@ impl WhiskyApp {
         let preview = PreviewState::new(window, cx);
         let dependency_search = preview.inputs["dependency-search"].clone();
         let dependency_subscription = cx.observe(&dependency_search, |_, _, cx| cx.notify());
-        let (bridge, bridge_events) = BridgeSupervisor::start();
         // Polling pauses in the background, so the worker starts from the real
         // activation state rather than assuming the window is focused.
         bridge.set_active(window.is_window_active());
@@ -784,7 +799,6 @@ impl WhiskyApp {
             }
         })
         .detach();
-        let demo = demo_requested(std::env::var("WHISKY_GPUI_DEMO_DATA").ok().as_deref());
         Self {
             focus_handle,
             preview,
@@ -1889,75 +1903,58 @@ impl WhiskyApp {
             }
             BridgeEvent::BottleCreate { update } => {
                 if !self.demo {
-                    match update {
-                        BottleCreateUpdate::Started { job_id } => {
-                            let state = self.create_bottle.get_or_insert_with(CreateBottleState::default);
-                            state.job_id = Some(job_id);
-                            state.status = Some(JobStatus::Queued);
-                            state.stage = None;
-                            state.error = None;
-                            state.finished = false;
-                        }
-                        BottleCreateUpdate::Progress { status, stage } => {
-                            let state = self.create_bottle.get_or_insert_with(CreateBottleState::default);
-                            state.status = Some(status);
-                            state.stage = stage;
-                            state.error = None;
-                        }
-                        BottleCreateUpdate::Completed {
-                            path,
-                            name,
-                            containers,
-                        } => {
-                            let state = self.create_bottle.get_or_insert_with(CreateBottleState::default);
-                            state.status = Some(JobStatus::Completed);
-                            state.stage = None;
-                            state.finished = true;
-                            state.error = None;
-                            state.created_path = Some(path.clone());
-                            self.show_notice(format!("已成功创建容器 {name}"), cx);
+                    let accepted = self
+                        .create_bottle
+                        .get_or_insert_with(CreateBottleState::default)
+                        .apply(&update);
+                    if accepted {
+                        match update {
+                            BottleCreateUpdate::Completed {
+                                path,
+                                name,
+                                containers,
+                            } => {
+                                self.show_notice(format!("已成功创建容器 {name}"), cx);
 
-                            // Update the bottle catalogue
-                            let previous = self
-                                .selected_bottle
-                                .and_then(|index| self.bottles.get(index).map(|bottle| bottle.path.clone()));
-                            self.bottles = containers
-                                .into_iter()
-                                .map(|container| BottleVm {
-                                    path: container.path,
-                                    name: container.name,
-                                    available: container.available,
-                                })
-                                .collect();
-                            self.selected_bottle = previous
-                                .and_then(|path| self.bottles.iter().position(|bottle| bottle.path == path));
-                            self.bottle_entries.clear();
-                            self.entries.clear();
-                            self.failures.clear();
-                            self.load_error = None;
-                            self.pending.clear();
-                            self.runtime = RuntimeTable::default();
-                            self.configured.clear();
-                            self.rating_edits.clear();
-                            self.hidden_edits.clear();
-                            self.reset_bottle_surfaces();
-                            self.invalidate_view();
-                            self.request_all();
+                                // Update the bottle catalogue
+                                let previous = self
+                                    .selected_bottle
+                                    .and_then(|index| self.bottles.get(index).map(|bottle| bottle.path.clone()));
+                                self.bottles = containers
+                                    .into_iter()
+                                    .map(|container| BottleVm {
+                                        path: container.path,
+                                        name: container.name,
+                                        available: container.available,
+                                    })
+                                    .collect();
+                                self.selected_bottle = previous
+                                    .and_then(|path| self.bottles.iter().position(|bottle| bottle.path == path));
+                                self.bottle_entries.clear();
+                                self.entries.clear();
+                                self.failures.clear();
+                                self.load_error = None;
+                                self.pending.clear();
+                                self.runtime = RuntimeTable::default();
+                                self.configured.clear();
+                                self.rating_edits.clear();
+                                self.hidden_edits.clear();
+                                self.reset_bottle_surfaces();
+                                self.invalidate_view();
+                                self.request_all();
 
-                            // Select the newly created bottle
-                            if let Some(index) = self.bottles.iter().position(|bottle| bottle.path == path) {
-                                self.select_bottle(Some(index), cx);
+                                // Select the newly created bottle
+                                if let Some(index) = self.bottles.iter().position(|bottle| bottle.path == path) {
+                                    self.select_bottle(Some(index), cx);
+                                }
                             }
-                        }
-                        BottleCreateUpdate::Failed { status, reason } => {
-                            let state = self.create_bottle.get_or_insert_with(CreateBottleState::default);
-                            state.status = Some(status);
-                            state.stage = None;
-                            state.finished = true;
-                            state.error = Some(reason.clone());
-                            if status != JobStatus::Cancelled {
-                                self.show_notice(reason, cx);
+                            BottleCreateUpdate::Failed { status, reason } => {
+                                if status != JobStatus::Cancelled {
+                                    self.show_notice(reason, cx);
+                                }
                             }
+                            BottleCreateUpdate::Started { .. }
+                            | BottleCreateUpdate::Progress { .. } => {}
                         }
                     }
                 }

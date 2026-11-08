@@ -3563,11 +3563,13 @@ impl WhiskyApp {
             .get("bottle-name")
             .map(|input| input.read(cx).value().to_string())
             .unwrap_or_default();
-        let name = name.trim();
-        if name.is_empty() {
-            self.show_notice("容器名称不能为空", cx);
-            return;
-        }
+        let name = match crate::create_bottle::validate_name(&name) {
+            Ok(name) => name,
+            Err(reason) => {
+                self.show_notice(reason, cx);
+                return;
+            }
+        };
 
         let windows_label = self
             .preview

@@ -43,6 +43,8 @@ mod walkthrough_tree;
 mod walkthrough_routes;
 #[cfg(feature = "visual-test")]
 mod walkthrough_capture;
+#[cfg(test)]
+mod headless_state_machine_tests;
 
 use crate::controls::{col, icon, row};
 #[cfg(feature = "visual-test")]
@@ -568,6 +570,20 @@ fn install_menus(cx: &mut App) {
     ]);
 }
 
+/// Window-level key bindings, shared by `main` and headless UI tests so the
+/// simulated-keystroke tests drive the same binding table the app installs.
+pub(crate) fn bind_shortcuts(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("escape", DismissPreview, None),
+        KeyBinding::new(platform::SHORTCUTS[0], QuitPreview, None),
+        KeyBinding::new(platform::SHORTCUTS[1], RefreshLibrary, None),
+        KeyBinding::new(platform::SHORTCUTS[2], ToggleMotion, None),
+        KeyBinding::new(platform::SHORTCUTS[3], ShowSettings, None),
+        KeyBinding::new(platform::SHORTCUTS[4], ToggleSidebar, None),
+        KeyBinding::new(platform::SHORTCUTS[5], MinimizeWindow, None),
+    ]);
+}
+
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     if arguments.iter().any(|argument| argument == "--print-bridge-status") {
@@ -722,15 +738,7 @@ fn main() {
     }
     application.run(move |cx| {
             gpui_kit::init(cx);
-            cx.bind_keys([
-                KeyBinding::new("escape", DismissPreview, None),
-                KeyBinding::new(platform::SHORTCUTS[0], QuitPreview, None),
-                KeyBinding::new(platform::SHORTCUTS[1], RefreshLibrary, None),
-                KeyBinding::new(platform::SHORTCUTS[2], ToggleMotion, None),
-                KeyBinding::new(platform::SHORTCUTS[3], ShowSettings, None),
-                KeyBinding::new(platform::SHORTCUTS[4], ToggleSidebar, None),
-                KeyBinding::new(platform::SHORTCUTS[5], MinimizeWindow, None),
-            ]);
+            bind_shortcuts(cx);
             install_menus(cx);
             let appearance = ui_state::load_appearance();
             cx.set_window_appearance(appearance.window_override());

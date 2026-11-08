@@ -79,9 +79,9 @@ const STAGGERED_MARKER_GAP: f32 = 44.;
 /// The rail overshoots the first and last node by this much.
 const STAGGERED_RAIL_OVERHANG: f32 = 16.;
 /// Narrowest column before the card body squeezes instead of giving up.
-const STAGGERED_MIN_COLUMN: f32 = 190.;
+pub const STAGGERED_MIN_COLUMN: f32 = 190.;
 /// Column width below which the card hides its description row.
-const STAGGERED_COMPACT: f32 = 330.;
+pub const STAGGERED_COMPACT: f32 = 330.;
 
 /// Narrowest and widest cover the size control can ask for.
 pub const MIN_COVER_WIDTH: f32 = 110.;

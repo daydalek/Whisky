@@ -68,6 +68,79 @@ impl CreateBottleState {
                 .status
                 .is_some_and(|status| !status.is_terminal())
     }
+
+    /// Merge one `bottle.create` job update. Returns `true` when the update
+    /// was accepted so callers can apply the matching UI side effects.
+    ///
+    /// `Started` always wins: it resets every field including a previous
+    /// terminal outcome, so a retry begins clean. Any non-`Started` update
+    /// arriving after the job finished is ignored — terminal state is
+    /// sticky. A terminal update on a fresh state is still accepted so the
+    /// helper's job readback after a reconnect lands without a preceding
+    /// `Started`.
+    pub(crate) fn apply(&mut self, update: &crate::bridge::BottleCreateUpdate) -> bool {
+        use crate::bridge::BottleCreateUpdate;
+        use crate::scan::JobStatus;
+        if self.finished && !matches!(update, BottleCreateUpdate::Started { .. }) {
+            return false;
+        }
+        match update {
+            BottleCreateUpdate::Started { job_id } => {
+                self.job_id = Some(job_id.clone());
+                self.status = Some(JobStatus::Queued);
+                self.stage = None;
+                self.error = None;
+                self.finished = false;
+                self.created_path = None;
+            }
+            BottleCreateUpdate::Progress { status, stage } => {
+                self.status = Some(*status);
+                self.stage = stage.clone();
+                self.error = None;
+            }
+            BottleCreateUpdate::Completed { path, .. } => {
+                self.status = Some(JobStatus::Completed);
+                self.stage = None;
+                self.finished = true;
+                self.error = None;
+                self.created_path = Some(path.clone());
+            }
+            BottleCreateUpdate::Failed { status, reason } => {
+                self.status = Some(*status);
+                self.stage = None;
+                self.finished = true;
+                self.error = Some(reason.clone());
+            }
+        }
+        true
+    }
+}
+
+/// Bottle name validation shared by the create sheet's submit path. Trims
+/// first, then applies the bridge's rules: non-empty, no `/`, NUL, CR/LF or
+/// other control characters (tab survives), at most 128 UTF-8 bytes. On
+/// success the trimmed name is returned for the wire call.
+pub(crate) fn validate_name(name: &str) -> Result<&str, &'static str> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("容器名称不能为空");
+    }
+    if trimmed.contains('/') {
+        return Err("容器名称不能包含路径分隔符 '/'");
+    }
+    if trimmed.contains('\0') {
+        return Err("容器名称不能包含空字符 '\\0'");
+    }
+    if trimmed.contains('\r') || trimmed.contains('\n') {
+        return Err("容器名称不能包含换行符");
+    }
+    if trimmed.chars().any(|c| c.is_control() && c != '\t') {
+        return Err("容器名称包含控制字符");
+    }
+    if trimmed.len() > 128 {
+        return Err("容器名称不能超过 128 字节");
+    }
+    Ok(trimmed)
 }
 
 /// Progress line for the create sheet.
