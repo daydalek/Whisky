@@ -18,6 +18,21 @@ coverage:
         # Gate on WhiskyKit unit-test coverage
         flags:
           - whiskykit
+      gpui:
+        target: auto
+        threshold: 0%
+        if_ci_failed: error
+        flags: [gpui]
+      bridge-sdk:
+        target: auto
+        threshold: 0%
+        if_ci_failed: error
+        flags: [bridge-sdk]
+      bridge-application:
+        target: auto
+        threshold: 0%
+        if_ci_failed: error
+        flags: [bridge-application]
     # Per-patch (diff) coverage requirements
     patch:
       default:
@@ -26,6 +41,21 @@ coverage:
         threshold: 10%
         flags:
           - whiskykit
+      gpui:
+        target: 85%
+        threshold: 0%
+        if_ci_failed: error
+        flags: [gpui]
+      bridge-sdk:
+        target: 85%
+        threshold: 0%
+        if_ci_failed: error
+        flags: [bridge-sdk]
+      bridge-application:
+        target: 85%
+        threshold: 0%
+        if_ci_failed: error
+        flags: [bridge-application]
 
   # Precision of coverage percentage (2 decimal places)
   precision: 2
@@ -46,11 +76,28 @@ flags:
     paths:
       - WhiskyKit/Sources/**
     carryforward: true
+  gpui:
+    paths: [apps/whisky-gpui/src/**]
+    carryforward: false
+  bridge-sdk:
+    paths: [crates/whisky-bridge/src/**]
+    carryforward: false
+  bridge-application:
+    paths:
+      - WhiskyBridge/Sources/WhiskyApplication/**
+      - WhiskyBridge/Sources/WhiskyBridgeProtocol/**
+      - WhiskyBridge/Sources/WhiskyNativeBridge/**
+    carryforward: false
 
 # Ignore paths from coverage calculation
 ignore:
   - "WhiskyKit/Tests/**"
   - "**/*.generated.swift"
+  - "apps/whisky-gpui/tests/**"
+  - "apps/whisky-gpui/src/headless_state_machine_tests.rs"
+  - "apps/whisky-gpui/src/upscale/tests.rs"
+  - "crates/whisky-bridge/tests/**"
+  - "WhiskyBridge/Tests/**"
 
 # Path fixes for CI environment
 # Not needed - coverage report already contains correct relative paths

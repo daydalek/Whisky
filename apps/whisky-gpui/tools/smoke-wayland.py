@@ -15,12 +15,29 @@ import time
 TOOLS = Path(__file__).resolve().parent
 
 
+def resolve_bundle(bundle: Path) -> tuple[Path, Path]:
+    """Validate the extracted Maltoria bundle before any fixture work.
+
+    The packaging source of truth ships the `Maltoria` launcher plus
+    `bin/whisky-gpui` and `bin/whisky-bridge`; a bundle missing any of them is
+    a build defect, not a smoke scenario, so fail before preparing fixtures.
+    """
+    launcher = bundle / 'Maltoria'
+    binary = bundle / 'bin/whisky-gpui'
+    helper = bundle / 'bin/whisky-bridge'
+    for product in (launcher, binary, helper):
+        assert product.is_file() and os.access(product, os.X_OK), \
+            f'Bundle is missing an executable product: {product}'
+    return launcher, helper
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bundle', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     args = parser.parse_args()
     bundle = args.bundle.resolve()
+    launcher, helper = resolve_bundle(bundle)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     assert os.geteuid() != 0, 'Run Wayland acceptance as an ordinary user'
@@ -72,7 +89,7 @@ def main():
         session = session_type(output)
         env = dict(session.env, WHISKY_REGISTRY=str(registry),
                    WHISKY_BRIDGE_HELPER=str(TOOLS / 'record-helper.py'),
-                   WHISKY_REAL_HELPER=str(bundle / 'bin/whisky-bridge'),
+                   WHISKY_REAL_HELPER=str(helper),
                    WHISKY_REQUEST_LOG=str(fixture / 'requests.jsonl'),
                    WHISKY_RESPONSE_LOG=str(fixture / 'responses.jsonl'),
                    WHISKY_GPUI_STATE=str(fixture / 'window.json'), WHISKY_BRIDGE_NO_WINE='1',
@@ -83,7 +100,7 @@ def main():
         report.update(backend='wayland', compositor='sway-headless-pixman', uid=os.geteuid(),
                       waylandDisplay=env['WAYLAND_DISPLAY'])
         with (output / 'application.log').open('w') as log:
-            app = subprocess.Popen([str(bundle / 'Whisky')], env=env, stdout=log, stderr=subprocess.STDOUT)
+            app = subprocess.Popen([str(launcher)], env=env, stdout=log, stderr=subprocess.STDOUT)
             window = session.wait_window(pid=app.pid)
             assert window['app_id'] == 'com.daydalek.Maltoria' and window['window'] is None, window
             session.focus(window)
@@ -196,7 +213,7 @@ def main():
             assert stored_registry == original_registry
             assert len(identities) == 1 and next(iter(identities.values()))['path'] == str(bottle)
             report['steps'].append('source-prefix-and-registry-preserved-with-explicit-shortcut-identity-allocation')
-            app = subprocess.Popen([str(bundle / 'Whisky')], env=env, stdout=log, stderr=subprocess.STDOUT)
+            app = subprocess.Popen([str(launcher)], env=env, stdout=log, stderr=subprocess.STDOUT)
             restored = session.wait_window(pid=app.pid)
             assert restored['app_id'] == 'com.daydalek.Maltoria'
             session.focus(restored)

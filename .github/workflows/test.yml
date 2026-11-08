@@ -1,0 +1,255 @@
+name: Test Infrastructure CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: &docs-paths
+      - '**.md'
+      - 'docs/**'
+      - 'images/**'
+      - 'LICENSE'
+  pull_request:
+    branches: [main]
+    paths-ignore: *docs-paths
+  workflow_dispatch:
+
+concurrency:
+  group: test-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  macos-gpui-core:
+    name: macOS 26 - Foundation, Coverage & GPUI
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Bridge coverage exporter regression tests
+        run: python3 -m unittest discover -s scripts -p 'test_bridge_coverage.py' -v
+
+      - name: GPUI Foundation Gate (Swift + real helper + coverage)
+        run: python3 scripts/check-gpui-foundation.py --coverage --output build/reliability/foundation
+        env:
+          LC_ALL: en_US.UTF-8
+
+      - name: Export bridge helper path
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json
+          from pathlib import Path
+          report = json.loads(Path('build/reliability/foundation/report.json').read_text())
+          print(f"WHISKY_BRIDGE_HELPER={report['helper']}")
+          PY
+
+      - name: GPUI app coverage (lcov)
+        run: |
+          set -euo pipefail
+          cargo llvm-cov --locked --manifest-path apps/whisky-gpui/Cargo.toml \
+            --lcov --output-path build/reliability/gpui.lcov
+          test -s build/reliability/gpui.lcov
+
+      - name: Bridge SDK coverage (lcov, incl. real-helper test)
+        run: |
+          set -euo pipefail
+          # The instrumented Swift helper must not write Apple LLVM profiles
+          # into cargo-llvm-cov's Rust profile directory.
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import shlex
+          profiles = Path('build/reliability/swift-sdk-profiles').resolve()
+          profiles.mkdir(parents=True, exist_ok=True)
+          wrapper = Path('build/reliability/bridge-sdk-helper')
+          wrapper.write_text(
+              '#!/bin/sh\nset -eu\nexport LLVM_PROFILE_FILE='
+              + shlex.quote(str(profiles / '%p-%m.profraw'))
+              + '\nexec ' + shlex.quote(os.environ['WHISKY_BRIDGE_HELPER']) + ' "$@"\n')
+          wrapper.chmod(0o755)
+          PY
+          WHISKY_BRIDGE_HELPER="$(pwd)/build/reliability/bridge-sdk-helper" \
+            cargo llvm-cov --locked --manifest-path crates/whisky-bridge/Cargo.toml \
+            --lcov --output-path build/reliability/bridge-sdk.lcov -- --include-ignored
+          test -s build/reliability/bridge-sdk.lcov
+
+      - name: Upload GPUI coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: build/reliability/gpui.lcov
+          flags: gpui
+          disable_search: true
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload bridge SDK coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: build/reliability/bridge-sdk.lcov
+          flags: bridge-sdk
+          disable_search: true
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload bridge application coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: build/reliability/foundation/bridge.lcov
+          flags: bridge-application
+          disable_search: true
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload raw coverage & foundation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-reliability-logs
+          path: |
+            build/reliability/**/*.log
+            build/reliability/**/*.lcov
+            build/reliability/**/report.json
+            build/reliability/**/build-report.json
+          if-no-files-found: ignore
+
+  linux-release-acceptance:
+    name: Ubuntu 24.04 - Foundation, X11/Wayland Acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Linux development dependencies
+        run: sudo bash apps/whisky-gpui/tools/install-linux-deps.sh
+
+      - name: Setup Swift 6.4.0
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.4.0'
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: GPUI Foundation Gate (Swift + Bridge SDK + real helper)
+        run: python3 scripts/check-gpui-foundation.py --output build/reliability/foundation-linux
+
+      - name: Export bridge helper path
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json
+          from pathlib import Path
+          report = json.loads(Path('build/reliability/foundation-linux/report.json').read_text())
+          print(f"WHISKY_BRIDGE_HELPER={report['helper']}")
+          PY
+
+      - name: GPUI app tests under Xvfb (software GL)
+        run: |
+          set -euo pipefail
+          LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a \
+            cargo test --locked --manifest-path apps/whisky-gpui/Cargo.toml 2>&1 | \
+            tee build/reliability/xvfb-cargo-test.log
+
+      - name: Build release tarball via unified build entry
+        run: |
+          set -euo pipefail
+          ./build.sh run whisky-linux-amd64 --version 0.1.0 --formats tar --jobs 4 \
+            --output build/reliability/linux-release
+
+      - name: Extract and validate the produced bundle
+        run: |
+          set -euo pipefail
+          tarball=build/reliability/linux-release/artifacts/maltoria-linux-x86_64.tar.gz
+          test -f "$tarball" || { echo "missing release tarball: $tarball"; exit 1; }
+          test "$(find build/reliability/linux-release -name '*.tar.gz' | wc -l)" -eq 1 \
+            || { echo "expected exactly one tarball"; exit 1; }
+          mkdir -p build/reliability/linux-bundle
+          tar -xzf "$tarball" -C build/reliability/linux-bundle
+          BUNDLE_ROOT="$(pwd)/build/reliability/linux-bundle/Maltoria"
+          test -x "$BUNDLE_ROOT/Maltoria" || { echo "missing executable launcher $BUNDLE_ROOT/Maltoria"; exit 1; }
+          test -x "$BUNDLE_ROOT/bin/whisky-gpui" || { echo "missing executable $BUNDLE_ROOT/bin/whisky-gpui"; exit 1; }
+          test -x "$BUNDLE_ROOT/bin/whisky-bridge" || { echo "missing executable $BUNDLE_ROOT/bin/whisky-bridge"; exit 1; }
+          echo "BUNDLE_ROOT=$BUNDLE_ROOT" >> "$GITHUB_ENV"
+
+      - name: Build acceptance Docker images
+        run: |
+          set -euo pipefail
+          docker build -f apps/whisky-gpui/tools/linux-runtime.Dockerfile \
+            --target acceptance -t whisky-acceptance apps/whisky-gpui/tools 2>&1 | \
+            tee build/reliability/docker-acceptance-build.log
+          docker build -f apps/whisky-gpui/tools/linux-runtime.Dockerfile \
+            --target wayland-acceptance -t whisky-wayland-acceptance apps/whisky-gpui/tools 2>&1 | \
+            tee build/reliability/docker-wayland-build.log
+
+      - name: X11 smoke inside acceptance container
+        run: |
+          set -euo pipefail
+          mkdir -p build/reliability/evidence-x11
+          sudo chown -R 10001:10001 build/reliability/evidence-x11
+          docker run --rm --network none \
+            --user 10001:10001 \
+            -e HOME=/home/whisky-test \
+            -v "$(pwd):/repo:ro" \
+            -v "$BUNDLE_ROOT:/bundle:ro" \
+            -v "$(pwd)/build/reliability/evidence-x11:/evidence:rw" \
+            -w /repo \
+            whisky-acceptance \
+            dbus-run-session -- xvfb-run -a python3 \
+              apps/whisky-gpui/tools/smoke-linux.py \
+              --binary /bundle/Maltoria \
+              --helper /bundle/bin/whisky-bridge \
+              --output /evidence --scenario empty 2>&1 | \
+            tee build/reliability/smoke-x11.log
+
+      - name: Wayland smoke inside acceptance container
+        run: |
+          set -euo pipefail
+          mkdir -p build/reliability/evidence-wayland
+          sudo chown -R 10001:10001 build/reliability/evidence-wayland
+          docker run --rm --network none \
+            --user 10001:10001 \
+            -e HOME=/home/whisky-test \
+            -v "$(pwd):/repo:ro" \
+            -v "$BUNDLE_ROOT:/bundle:ro" \
+            -v "$(pwd)/build/reliability/evidence-wayland:/evidence:rw" \
+            -w /repo \
+            whisky-wayland-acceptance \
+            dbus-run-session -- python3 \
+              apps/whisky-gpui/tools/smoke-wayland.py \
+              --bundle /bundle \
+              --output /evidence 2>&1 | \
+            tee build/reliability/smoke-wayland.log
+
+      - name: Upload raw logs and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-reliability-logs
+          path: |
+            build/reliability/**/*.log
+            build/reliability/**/*.lcov
+            build/reliability/**/report.json
+            build/reliability/**/build-report.json
+            build/reliability/evidence-*/**
+          if-no-files-found: ignore

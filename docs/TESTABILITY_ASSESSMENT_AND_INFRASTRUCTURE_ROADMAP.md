@@ -721,13 +721,37 @@ struct BridgeLifecycleTests {
 
 ---
 
-## 7. 结语与架构演进愿景 (Conclusion & Architecture Vision)
+## 7. 实施现状 (Implementation Status)
+
+当前已完成并可本地离线验证的共享测试路径：
+
+| 领域 | 已交付内容 | 验证命令 |
+|---|---|---|
+| Bridge SDK | `RemoteError` 可序列化；mock 线级错误注入（记录调用后、成功应答前）；26+ 项传输/故障注入测试 | `cargo test --locked --offline --manifest-path crates/whisky-bridge/Cargo.toml` |
+| IPC 契约 | CLI 完全隔离：自带 Python NDJSON fixture helper，每测试唯一临时根，`WHISKY_BRIDGE_HELPER`/`NO_WINE`/`HOME`/`XDG*` 全隔离，含子进程超时守护 | `cargo test --locked --offline --manifest-path apps/whisky-gpui/Cargo.toml --test headless_state_machine_tests` |
+| Supervisor | 按 worker 注入的退避函数（`start_with_spawner_and_backoff`），无进程级全局快进；断言 [500,1000,2000,4000,8000,8000,8000] 与恢复后重置 500ms；远程错误不拆会话、单 worker 无重启 | `cargo test --locked --offline --manifest-path apps/whisky-gpui/Cargo.toml --bin whisky-gpui bridge::supervisor::tests` |
+| Create-bottle | `CreateBottleState::apply` 归约器（终态粘滞、Started 重置、`created_path` 清理）+ `validate_name`（trim 后禁字符/128 UTF-8 字节上限）接入生产路径 | `cargo test --locked --offline --manifest-path apps/whisky-gpui/Cargo.toml --bin whisky-gpui create_bottle` |
+| Upscale 生命周期 | 共享 `cache::Stage`（独占 0700 `.stage-*`）与 `cache::publish`（符号链接拒绝、取消三检查点、全解码校验、原子 rename、失败保旧）；共享 `process::run_helper`（自有子进程 RAII kill+reap、120s 上限、有界 stderr）；macOS Anime4K/CoreML、Linux ncnn、Synthetic 全部经 publish；`upscaled_cover_in` 显式 cache root，`with_worker` 互斥门；确定性 channel/barrier 测试，无时序猜测 | `cargo test --locked --offline --manifest-path apps/whisky-gpui/Cargo.toml --bin whisky-gpui upscale` |
+| 根视图测试 | `WhiskyApp::new_with_bridge` 注入断开的 supervisor + 空事件通道；`bind_shortcuts` 与 main 共享绑定表；模拟按键驱动 ShowSettings；事件驱动目录/条目/创建完成断言 | `cargo test --locked --offline --manifest-path apps/whisky-gpui/Cargo.toml --bin whisky-gpui headless_state_machine_tests` |
+| Swift 桥 | `LinuxFilePicker` 桩 runner 断言 310s 超时转发与 exit 5 → `host_timeout`；`BridgeLifecycleTests` 与 `VirtualPrefixFixture` 已 swiftformat | `swift test --disable-automatic-resolution --package-path WhiskyBridge --filter LinuxPicker` |
+
+显式离线/本地 vs 待 CI 验收：
+
+- **已 `#[ignore]` 标记**：真实引擎冒烟（Anime4K Metal / CoreML realcugan）需 `WHISKY_COVER_TEST=<cover>` 显式运行；Swift host 真实 helper 测试由 foundation 脚本在 CI 中以真实二进制执行。
+- **CI（`.github/workflows/test.yml`，已配置未本地执行）**：macos-26 job 先跑 `check-gpui-foundation.py --coverage`（导出 `report.helper` 与 `bridge.lcov`），再 `cargo llvm-cov` 产出 `gpui.lcov`/`bridge-sdk.lcov`，三份 lcov 按 flag（gpui / bridge-sdk / bridge-application）上传 Codecov。Ubuntu 24.04 job 先跑 foundation（含 Bridge + SDK 真实 helper），再 `xvfb-run` 软件渲染跑 app 测试，经统一 `./build.sh run whisky-linux-amd64 --formats tar` 产出唯一 tar 并校验可执行包，最后在 `acceptance` / `wayland-acceptance` Docker 目标内以非 root（uid 10001）、`--network none`、repo+bundle 只读、evidence 可写运行真实 X11（`smoke-linux.py`）与 Wayland（`smoke-wayland.py`）冒烟；缺失 bundle 或冒烟非零即失败。
+- **覆盖率门槛**：codecov.yml 已含 85% PATCH 门槛（gpui / bridge-sdk / bridge-application）与 project auto 无回归门槛；85% 总覆盖率仍是未测量目标，无既成声明。
+- **最终全量门（实测）**：`check-gpui-foundation.py --coverage --offline` 中 core（130 项）/ metadata（47 项）/ bridge（163 项：portableBridge 151 + nativeBridge 12）三档 Swift 测试全部通过。首次运行暴露的覆盖率导出缺陷——硬编码 `WhiskyBridgePackageTests.xctest` 单一 bundle 名——已由 `scripts/bridge_coverage.py` 修复：自动发现全部 XCTest bundle 并逐 `--object` 传入（含 WhiskyNativeBridgeTests），配 `scripts/test_bridge_coverage.py` 6 例回归全部通过；完整多-bundle 导出冻结于 `bridge-complete.lcov`（清单 `bridge-coverage.json`、核验 `coverage-verification.txt`）。脚本现为 `report.helper` 先于覆盖率落盘、SDK 子进程用 `LLVM_PROFILE_FILE` 定向隔离 profile（已实测：无新 `default.profraw`，仅 `sdk-profiles/` 内产物）。修复仅涉及编排/导出层，完整 foundation 调用未整体重跑。app 全量门：294+5 通过、2 ignored（真实引擎冒烟）；SDK 28 项含真实 helper host 测试全过。`swiftformat --lint`、`swiftlint`、`git diff --check`、YAML/Python/bash 语法全部干净。`cargo-llvm-cov`（Rust 端完整覆盖率）与 `actionlint` 本机未安装、未执行；85% 总覆盖率仍未测量，无既成声明。
+- **未执行**：Linux / Docker 验收步骤未在本机运行（无 sudo/网络/docker 权限范围外操作）；`actionlint` 本机不可用，工作流仅经 YAML 语法检查。
+
+---
+
+## 8. 结语与架构演进愿景 (Conclusion & Architecture Vision)
 
 通过对历史遗留 SwiftUI 构想的彻底剥离，Whisky / Maltoria 项目确立了以 **GPUI 为唯一规范前端**、以 **`whisky-bridge` 为标准 IPC 通信总线** 的现代化跨平台工程架构。
 
-本测试基础设施建设路线图不仅解决了长久以来困扰项目的“UI 零测试覆盖”、“环境物理污染”和“CI 缺乏真实图形上下文”三大历史技术债务，更为未来的全自动化跨平台交付奠定了坚实基石：
-1. **端到端解耦**：UI 表现层在毫秒级运行单元测试，无需加载物理驱动或依赖 Wine 运行时。
-2. **容灾强自愈**：通过故障注入与指数退避断言，保证桌面应用在极端系统错误与子进程崩溃下保持 100% 界面可用性。
-3. **确定性 CI 门禁**：通过 Xvfb 与 Sway Headless 驱动真实光栅化，建立跨 Linux / macOS 双平台的持续质量防护网。
+本路线图面向 UI 测试不足、测试污染用户环境及 CI 图形验收缺失等技术债务。已验证的共享路径与尚待完成的验收以第 7 节为准，不能以方案设计代替实际验收结果：
+1. **端到端解耦**：核心视图和状态测试使用隔离 fixture，无需真实 Wine 容器；真实引擎和显示协议验收另行执行。
+2. **容灾恢复**：通过故障注入与指数退避断言，验证已覆盖场景的会话恢复、任务终态与重试上限，不对未测试场景作可用率保证。
+3. **可执行 CI 门禁**：配置 Xvfb 与 Sway Headless 验收及覆盖率报告；完整图形验收结果仍需在对应 Linux runner 上实际执行确认。
 
-这是一套遵循现代软件工程规范、具备高度工业级鲁棒性与前瞻性的基础设施方案，将为广大 Wine 与跨平台 Windows 应用运行环境用户提供稳定、高效的桌面体验保障。
+后续应依据 CI 记录、覆盖率报告及真实引擎验收结果持续完善，逐步收敛尚未验证的可靠性风险。
