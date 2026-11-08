@@ -88,9 +88,6 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
     public var titleLanguage: String?
     public var characters: [GameCharacter]?
     public var provenance: [String: MetadataProvenance]?
-    public var walkthroughs: [GameWalkthrough]?
-    /// NextMoe work explicitly selected for routes, independent of the metadata source.
-    public var walkthroughWorkID: String?
     public var fetchedAt: Date
 
     public var id: String {
@@ -111,8 +108,7 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
         fetchedAt: Date = Date(),
         alternateTitles: [String]? = nil,
         titleLanguage: String? = nil,
-        characters: [GameCharacter]? = nil,
-        walkthroughs: [GameWalkthrough]? = nil
+        characters: [GameCharacter]? = nil
     ) {
         self.source = source
         self.sourceID = sourceID
@@ -128,8 +124,6 @@ public struct GameMetadata: Codable, Hashable, Sendable, Identifiable {
         self.alternateTitles = alternateTitles
         self.titleLanguage = titleLanguage
         self.characters = characters
-        self.walkthroughs = walkthroughs
-        self.walkthroughWorkID = nil
     }
 
     public var matchingTitles: [String] {

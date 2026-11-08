@@ -45,37 +45,7 @@ public struct NextMoeProvider: Sendable {
         var includes = "titles,intros,companies"
         if includeCharacters { includes += ",characters" }
         let work: Work = try await get("works/\(candidate.sourceID)", ["include": includes])
-        var metadata = work.metadata()
-        metadata.walkthroughs = try await walkthroughs(workID: work.id)
-        return metadata
-    }
-
-    public func walkthroughs(workID: String) async throws -> [GameWalkthrough] {
-        guard Self.validID(workID) else { throw URLError(.badURL) }
-        var guides: [GameWalkthrough] = []
-        var cursor: String?
-        var seen = Set<String>()
-        repeat {
-            var parameters = ["work_id": workID, "limit": "100", "content_limit": "sfw"]
-            parameters["cursor"] = cursor
-            let page: Page<GameWalkthrough> = try await get("walkthroughs", parameters)
-            guides.append(contentsOf: page.items)
-            cursor = page.nextCursor
-            if let cursor, !seen.insert(cursor).inserted { throw URLError(.cannotParseResponse) }
-        } while cursor != nil
-        guard guides.allSatisfy({ $0.workID == workID }) else {
-            throw URLError(.cannotParseResponse)
-        }
-        return guides
-    }
-
-    public func walkthrough(id: String, workID: String) async throws -> GameWalkthrough {
-        guard Self.validID(id), Self.validID(workID) else { throw URLError(.badURL) }
-        let guide: GameWalkthrough = try await get("walkthroughs/\(id)")
-        guard guide.workID == workID, guide.workContentLimit == "sfw", guide.chart != nil else {
-            throw URLError(.cannotParseResponse)
-        }
-        return guide
+        return work.metadata()
     }
 
     private static func validID(_ id: String) -> Bool {

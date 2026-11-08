@@ -38,11 +38,6 @@ mod ui_state;
 mod upscale;
 mod views;
 mod winetricks;
-mod walkthrough;
-mod walkthrough_tree;
-mod walkthrough_routes;
-#[cfg(feature = "visual-test")]
-mod walkthrough_capture;
 #[cfg(test)]
 mod headless_state_machine_tests;
 
@@ -195,8 +190,6 @@ impl Render for WhiskyApp {
                     this.about = false;
                 } else if this.preview.sheet.is_some() {
                     this.preview_dismiss(cx);
-                } else if this.walkthrough_view.fullscreen {
-                    this.walkthrough_view.fullscreen = false;
                 } else if this.detail_open {
                     this.detail_open = false;
                 } else {
@@ -245,9 +238,6 @@ impl Render for WhiskyApp {
             if let Some(index) = self.detail {
                 root = root.child(self.detail_panel(index, presence.progress, ww, wh, cx));
             }
-        }
-        if self.walkthrough_view.fullscreen {
-            root = root.child(self.walkthrough_tree_overlay(fullscreen, cx));
         }
         if let Some(sheet) = self.preview.sheet {
             root = root.child(self.preview_sheet(sheet, ww, wh, window, cx));
@@ -431,7 +421,7 @@ fn capture_preview(handle: AnyWindowHandle, view: Entity<WhiskyApp>, cx: &mut Ap
                                     editor, container: "visual-fixture".into(), entry_id: "demo:0".into(),
                                     title: "作品的中文名称".into(), input: None, searching: false,
                                     searching_sources: Vec::new(), sources_expanded: false,
-                                    selected_character: None, walkthrough_only: false,
+                                    selected_character: None,
                                     applying: false, error: None, groups: Vec::new(), matches: None,
                                     config_message: None, config_error: None,
                                 });
@@ -789,10 +779,6 @@ fn main() {
                 });
             }));
             cx.activate(true);
-            #[cfg(feature = "visual-test")]
-            if std::env::var_os("WHISKY_WALKTHROUGH_CAPTURE").is_some() {
-                walkthrough_capture::run(_handle, _view.clone(), cx);
-            }
             #[cfg(feature = "visual-test")]
             if std::env::var_os("WHISKY_MOTION_CAPTURE").is_some() {
                 motion_capture::run(_handle, _view.clone(), cx);

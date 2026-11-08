@@ -1994,8 +1994,7 @@ impl WhiskyApp {
                                                 ),
                                         )
                                     })
-                                    .child(self.detail_character_cards(index, cx))
-                                    .child(self.detail_walkthroughs(index, cx)),
+                                    .child(self.detail_character_cards(index, cx)),
                             ),
                         ),
                     ),

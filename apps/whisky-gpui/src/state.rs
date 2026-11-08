@@ -278,8 +278,6 @@ pub(crate) struct GameInfoPage {
     pub(crate) config_message: Option<String>,
     pub(crate) config_error: Option<String>,
     pub(crate) selected_character: Option<String>,
-    /// Search only NextMoe and import walkthrough routes without touching linked metadata.
-    pub(crate) walkthrough_only: bool,
 }
 
 impl GameInfoPage {
@@ -317,7 +315,6 @@ mod metadata_search_tests {
             config_message: None,
             config_error: None,
             selected_character: None,
-            walkthrough_only: false,
         }
     }
 
@@ -704,7 +701,6 @@ pub(crate) struct WhiskyApp {
     pub(crate) detail: Option<usize>,
     pub(crate) detail_open: bool,
     pub(crate) detail_character: Option<String>,
-    pub(crate) walkthrough_view: crate::walkthrough::WalkthroughView,
     pub(crate) appearance: crate::theme::AppearanceMode,
     /// The message on the existing toast; `None` hides it. Runtime and entry
     /// failures reuse the toast instead of introducing another surface.
@@ -933,7 +929,6 @@ impl WhiskyApp {
             detail: None,
             detail_open: false,
             detail_character: None,
-            walkthrough_view: Default::default(),
             appearance,
             notice: None,
             runtime: RuntimeTable::default(),
@@ -2410,7 +2405,7 @@ impl WhiskyApp {
                         } => {
                             let matches_source = self.game_info.as_ref().is_some_and(|page| {
                                 page.accepts_search(&container, &entry_id, generation, request)
-                                    && results.iter().all(|group| group.source == if page.walkthrough_only { "nextmoe" } else { page.editor.search_source.as_str() })
+                                    && results.iter().all(|group| group.source == page.editor.search_source.as_str())
                             });
                             if matches_source {
                                 if let Some(page) = self.game_info.as_mut() {
@@ -2446,11 +2441,6 @@ impl WhiskyApp {
                             container,
                             entry_id,
                         } => {
-                            if self.walkthrough_view.pending.as_ref().is_some_and(|(c, e)| c == &container && e == &entry_id) {
-                                self.walkthrough_view.pending = None;
-                                self.walkthrough_view.error = None;
-                                self.bridge.load_entries(&container);
-                            }
                             if self.game_info.as_ref().is_some_and(|page| {
                                 page.container == container && page.entry_id == entry_id
                             }) {
@@ -2555,9 +2545,6 @@ impl WhiskyApp {
                             // whole-bottle re-read would cause.
                         }
                         MetadataUpdate::Failed { reason } => {
-                            if self.walkthrough_view.pending.take().is_some() {
-                                self.walkthrough_view.error = Some(reason.clone());
-                            }
                             if let Some(page) = self.game_info.as_mut() {
                                 page.applying = false;
                                 page.error = Some(reason.clone());
@@ -4452,15 +4439,6 @@ impl WhiskyApp {
 
     /// Open the metadata/cover/GameDB sheet for one library card.
     pub(crate) fn open_game_info(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.open_game_info_mode(index, false, cx);
-    }
-
-    pub(crate) fn open_walkthrough_search(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.open_game_info_mode(index, true, cx);
-        self.search_game_info(cx);
-    }
-
-    fn open_game_info_mode(&mut self, index: usize, walkthrough_only: bool, cx: &mut Context<Self>) {
         if self.demo {
             self.show_notice(DEMO_NOTICE, cx);
             return;
@@ -4490,19 +4468,16 @@ impl WhiskyApp {
             config_message: None,
             config_error: None,
             selected_character: None,
-            walkthrough_only,
         });
-        if !walkthrough_only {
-            self.bridge.match_game_config(&container, &entry_id);
-            self.load_metadata_editor(cx);
-        }
+        self.bridge.match_game_config(&container, &entry_id);
+        self.load_metadata_editor(cx);
         self.open_preview_sheet(PreviewSheet::GameInfo(index), cx);
         let needs_characters = self.entries.iter()
             .find(|game| game.container == container && game.id == entry_id)
             .and_then(|game| game.metadata.as_ref())
             .is_some_and(|metadata| metadata.characters.is_none()
                 && matches!(metadata.extra.get("source").and_then(|value| value.as_str()), Some("vndb" | "bangumi")));
-        if !walkthrough_only && needs_characters && self.preview.toggles.get("scrape-characters").copied().unwrap_or(true) && !self.offline() {
+        if needs_characters && self.preview.toggles.get("scrape-characters").copied().unwrap_or(true) && !self.offline() {
             self.refresh_game_characters(cx);
         }
     }
@@ -4535,12 +4510,11 @@ impl WhiskyApp {
         if self.game_info.as_ref().is_none_or(|page| page.searching) {
             return;
         }
-        let walkthrough_only = self.game_info.as_ref().is_some_and(|page| page.walkthrough_only);
-        if !self.service_available("metadata.search") || (!walkthrough_only && self.metadata_sources().is_empty()) {
+        if !self.service_available("metadata.search") || self.metadata_sources().is_empty() {
             self.show_notice("搜索不可用；请在设置中启用资料来源并确认桥接服务支持搜索", cx);
             return;
         }
-        if !walkthrough_only && !self.game_info.as_ref().is_some_and(|page| self.metadata_sources().contains(&page.editor.search_source)) {
+        if !self.game_info.as_ref().is_some_and(|page| self.metadata_sources().contains(&page.editor.search_source)) {
             self.show_notice("此平台未获准搜索；请在设置中启用，或选择其他平台", cx);
             return;
         }
@@ -4551,7 +4525,7 @@ impl WhiskyApp {
         let Some(page) = self.game_info.as_mut() else {
             return;
         };
-        if !walkthrough_only && (!page.editor.loaded || page.editor.busy) {
+        if !page.editor.loaded || page.editor.busy {
             return;
         }
         let query = page
@@ -4569,11 +4543,7 @@ impl WhiskyApp {
         page.error = None;
         page.groups.clear();
         let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
-        let sources = if walkthrough_only {
-            vec!["nextmoe".to_owned()]
-        } else {
-            vec![page.editor.search_source.clone()]
-        };
+        let sources = vec![page.editor.search_source.clone()];
         self.bridge.search_metadata(
             &container,
             &entry_id,
@@ -4601,18 +4571,6 @@ impl WhiskyApp {
         else {
             return;
         };
-        if page.walkthrough_only {
-            if page.applying { return; }
-            let mut raw = candidate.raw.clone();
-            raw["walkthroughOnly"] = serde_json::Value::Bool(true);
-            raw["localTitle"] = serde_json::Value::String(page.title.clone());
-            page.applying = true;
-            page.error = None;
-            let (container, entry_id) = (page.container.clone(), page.entry_id.clone());
-            self.bridge.apply_metadata(&container, &entry_id, raw);
-            cx.notify();
-            return;
-        }
         if !page.editor.loaded || page.editor.busy { return; }
         let raw = candidate.raw.clone();
         let provider = page.groups[source].source.clone();

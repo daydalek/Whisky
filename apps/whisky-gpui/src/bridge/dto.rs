@@ -787,8 +787,6 @@ pub(crate) struct MetadataDto {
     #[serde(default)]
     pub(crate) characters: Option<Vec<CharacterDto>>,
     #[serde(default)]
-    pub(crate) walkthroughs: Option<Vec<crate::walkthrough::Walkthrough>>,
-    #[serde(default)]
     pub(crate) provenance: std::collections::BTreeMap<String, MetadataProvenanceDto>,
     #[serde(flatten)]
     pub(crate) extra: std::collections::BTreeMap<String, serde_json::Value>,

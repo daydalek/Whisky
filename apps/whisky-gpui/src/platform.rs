@@ -1,11 +1,5 @@
 //! Desktop conventions shared by the root view and menus.
 
-pub(crate) const ZOOM_HINT: &str = if cfg!(target_os = "macos") {
-    "点击路线节点阅读步骤 · 拖动或滚动平移 · 捏合或 ⌘ + 滚轮缩放"
-} else {
-    "点击路线节点阅读步骤 · 拖动或滚动平移 · 捏合或 Ctrl + 滚轮缩放"
-};
-
 #[cfg(target_os = "macos")]
 pub(crate) const UI_FONT: &str = ".AppleSystemUIFont";
 #[cfg(not(target_os = "macos"))]
@@ -97,15 +91,6 @@ fn persistent_launcher(
 
 #[cfg(test)]
 mod launcher_tests {
-    #[test]
-    fn zoom_hint_matches_platform_modifier() {
-        if cfg!(target_os = "macos") {
-            assert!(super::ZOOM_HINT.contains('⌘'));
-        } else {
-            assert!(super::ZOOM_HINT.contains("Ctrl"));
-            assert!(!super::ZOOM_HINT.contains('⌘'));
-        }
-    }
     use super::persistent_launcher;
 
     #[test]

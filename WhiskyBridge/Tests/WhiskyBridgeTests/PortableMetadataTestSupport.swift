@@ -106,10 +106,3 @@ let pngPixel = Data(base64Encoded:
     }
     throw BridgeFailure("test_timeout", "Metadata fixture job timed out")
 }
-
-let nextMoeGuideFixture = """
-{"id":"1","work_id":"4","source":"example","source_url":"https://fixture.example/guide",
- "source_author":"Author","lang":"ja","release":null,"characters":[],"ending_count":1,
- "save_count":1,"segment_count":1,"work_route_hints":true,"work_content_limit":"sfw",
- "updated_at":"2026-01-01T00:00:00Z"}
-"""

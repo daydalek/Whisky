@@ -105,48 +105,6 @@ public final class LibraryMetadataService {
             throw BridgeFailure("invalid_params", "Missing metadata snapshot")
         }
         var metadata = try value.decoded(GameMetadata.self)
-        if value.object?["walkthroughOnly"] == .bool(true) {
-            guard metadata.source == .nextmoe else {
-                throw BridgeFailure("invalid_params", "Choose a NextMoe work")
-            }
-            let previous = try await store.load(for: entry.metadataIdentity)
-            let guides = try await NextMoeProvider(session: session, networkAccess: networkAccess)
-                .walkthroughs(workID: metadata.sourceID)
-            let latest = try await store.load(for: entry.metadataIdentity)
-            guard latest == previous else {
-                throw BridgeFailure("operation_failed", "The linked game has changed")
-            }
-            var result = latest ?? GameMetadata(
-                source: .nextmoe,
-                sourceID: metadata.sourceID,
-                title: value.object?["localTitle"]?.string ?? metadata.title
-            )
-            result.walkthroughWorkID = metadata.sourceID
-            result.walkthroughs = guides
-            try await store.save(result, for: entry.metadataIdentity)
-            return .object(["applied": .bool(true)])
-        }
-        if let walkthroughID = value.object?["walkthroughID"]?.string {
-            guard let current = try await store.load(for: entry.metadataIdentity), current.id == metadata.id,
-                  current.walkthroughs?.contains(where: { $0.id == walkthroughID }) == true
-            else {
-                throw BridgeFailure("invalid_params", "Choose a walkthrough from the linked NextMoe work")
-            }
-            guard let workID = current.walkthroughWorkID ?? (current.source == .nextmoe ? current.sourceID : nil) else {
-                throw BridgeFailure("invalid_params", "No linked NextMoe work")
-            }
-            let guide = try await NextMoeProvider(session: session, networkAccess: networkAccess)
-                .walkthrough(id: walkthroughID, workID: workID)
-            guard var latest = try await store.load(for: entry.metadataIdentity), latest.id == current.id,
-                  (latest.walkthroughWorkID ?? (latest.source == .nextmoe ? latest.sourceID : nil)) == workID,
-                  let index = latest.walkthroughs?.firstIndex(where: { $0.id == walkthroughID })
-            else {
-                throw BridgeFailure("operation_failed", "The linked game has changed")
-            }
-            latest.walkthroughs?[index] = guide
-            try await store.save(latest, for: entry.metadataIdentity)
-            return .object(["applied": .bool(true)])
-        }
         let refreshCharacters = value.object?["refreshCharacters"] == .bool(true)
         if refreshCharacters {
             guard let current = try await store.load(for: entry.metadataIdentity),
@@ -177,11 +135,6 @@ public final class LibraryMetadataService {
             }
             current.characters = metadata.characters
             metadata = current
-        }
-        if !refreshCharacters, let current = try await store.load(for: entry.metadataIdentity),
-           let workID = current.walkthroughWorkID {
-            metadata.walkthroughWorkID = workID
-            metadata.walkthroughs = current.walkthroughs
         }
         var record = try await store.loadRecord(for: entry.metadataIdentity) ?? defaultRecord()
         record.bindings[metadata.source.rawValue] = metadata.sourceID

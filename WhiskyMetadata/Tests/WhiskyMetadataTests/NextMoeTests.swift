@@ -24,7 +24,7 @@ import WhiskyCore
 import FoundationNetworking
 #endif
 
-@Suite("NextMoe catalog and walkthroughs")
+@Suite("NextMoe catalog")
 struct NextMoeTests {
     private func session() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
@@ -32,7 +32,7 @@ struct NextMoeTests {
         return URLSession(configuration: configuration)
     }
 
-    @Test func searchMapsCatalogAndDetailsPageGuidesWithoutDownloadingCharts() async throws {
+    @Test func searchMapsCatalogAndDetailsPage() async throws {
         let session = session()
         defer { session.invalidateAndCancel() }
         let provider = PublicGameMetadataProvider(source: .nextmoe, session: session, networkAccess: {})
@@ -58,8 +58,6 @@ struct NextMoeTests {
         #expect(characters[1].name == "无配音角色")
         #expect(characters[1].voiceActor == nil)
         #expect(characters[1].imageURL == nil)
-        #expect(detail.walkthroughs?.map(\.id) == ["1", "2"])
-        #expect(detail.walkthroughs?.allSatisfy { $0.chart == nil } == true)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = GameMetadataStore(directory: directory, networkAccess: {})
@@ -67,52 +65,12 @@ struct NextMoeTests {
         #expect(try await store.load(for: "game") == GameMetadataRecord(legacy: detail).resolved().metadata)
     }
 
-    @Test func lazyChartRetainsGraphTranslationsAndFutureStepKindsThroughDisk() async throws {
-        let session = session()
-        defer { session.invalidateAndCancel() }
-        let guide = try await NextMoeProvider(session: session, networkAccess: {}).walkthrough(id: "1", workID: "4")
-        #expect(guide.sourceAuthor == "作者")
-        #expect(guide.sourceURL?.absoluteString == "https://fixture.example/guide")
-        let encoded = try JSONEncoder().encode(guide)
-        let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        let chart = try #require(json["chart"] as? [String: Any])
-        let segments = try #require(chart["segments"] as? [[String: Any]])
-        let steps = try #require(segments.first?["steps"] as? [[String: Any]])
-        #expect(steps.last?["step_type"] as? String == "future-kind")
-        #expect(steps.last?["future_field"] as? String == "preserved")
-        let game = GameMetadata(source: .nextmoe, sourceID: "4", title: "测试", walkthroughs: [guide])
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = GameMetadataStore(directory: directory, networkAccess: {})
-        try await store.save(game, for: "game")
-        #expect(try await store.load(for: "game") == GameMetadataRecord(legacy: game).resolved().metadata)
-    }
-
-    @Test func walkthroughIndexCanBeFetchedWithoutWorkDetails() async throws {
-        let session = session()
-        defer { session.invalidateAndCancel() }
-        let provider = NextMoeProvider(session: session, networkAccess: {})
-        let guides = try await provider.walkthroughs(workID: "4")
-        #expect(guides.map(\.id) == ["1", "2"])
-        #expect(guides.allSatisfy { $0.chart == nil && $0.workID == "4" })
-        await #expect(throws: URLError.self) { try await provider.walkthroughs(workID: "../4") }
-    }
-
-    @Test func chartChecksWorkIdentityIDsAndNetworkPolicy() async throws {
-        let session = session()
-        defer { session.invalidateAndCancel() }
-        let provider = NextMoeProvider(session: session, networkAccess: {})
-        await #expect(throws: URLError.self) { try await provider.walkthrough(id: "1", workID: "5") }
-        await #expect(throws: URLError.self) { try await provider.walkthrough(id: "../1", workID: "4") }
-        let offline = NextMoeProvider(session: session, networkAccess: { throw URLError(.notConnectedToInternet) })
-        await #expect(throws: URLError.self) { try await offline.walkthrough(id: "1", workID: "4") }
-    }
-
     @Test func rateLimitCarriesRetryAfterForTheSharedGate() async throws {
         let session = session()
         defer { session.invalidateAndCancel() }
+        let provider = NextMoeProvider(session: session, networkAccess: {})
         do {
-            _ = try await NextMoeProvider(session: session, networkAccess: {}).walkthrough(id: "99", workID: "4")
+            _ = try await provider.details(GameMetadata(source: .nextmoe, sourceID: "99", title: "x"))
             Issue.record("Expected rate limit")
         } catch let ProviderError.rateLimited(code, retryAfter) {
             #expect(code == 429)
@@ -195,19 +153,7 @@ private final class NextMoeFixtureProtocol: URLProtocol, @unchecked Sendable {
             case "/v2/catalog/works/4":
                 #expect(query["include"]?.split(separator: ",").contains("characters") == true)
                 body = Self.work
-            case "/v2/catalog/walkthroughs":
-                #expect(query["work_id"] == "4")
-                #expect(query["content_limit"] == "sfw")
-                var guide = Self.guide
-                guide.removeValue(forKey: "chart")
-                if query["cursor"] == "cur_next" {
-                    guide["id"] = "2"
-                    body = ["object": "list", "items": [guide]]
-                } else {
-                    body = ["object": "list", "items": [guide], "next_cursor": "cur_next"]
-                }
-            case "/v2/catalog/walkthroughs/1": body = Self.guide
-            case "/v2/catalog/walkthroughs/99":
+            case "/v2/catalog/works/99":
                 status = 429
                 body = ["status": 429, "code": "RATE_LIMITED"]
             default: throw URLError(.badURL)
@@ -242,34 +188,6 @@ private final class NextMoeFixtureProtocol: URLProtocol, @unchecked Sendable {
         "companies": [
             ["display_name": "发行商", "attribution_role": "publisher"],
             ["display_name": "开发商", "attribution_role": "developer"]
-        ]
-    ] }
-
-    static var guide: [String: Any] { [
-        "object": "walkthrough", "id": "1", "work_id": "4", "source": "example", "lang": "ja",
-        "source_url": "https://fixture.example/guide", "source_author": "作者", "source_updated_on": "2026-01-01",
-        "characters": [], "ending_count": 2, "save_count": 1, "segment_count": 2,
-        "work_route_hints": true, "work_content_limit": "sfw", "updated_at": "2026-01-01T00:00:00Z",
-        "chart": [
-            "sections": [["key": "s1", "title": "路线一"]],
-            "entries": [["key": "start", "label": "开始"]],
-            "saves": [["key": "sv1", "label": "SAVE 1"]],
-            "endings": [["key": "e1", "name": "END"]],
-            "segments": [[
-                "key": "g1",
-                "section_key": "s1",
-                "from_node": ["node_type": "entry", "key": "start"],
-                "to_node": ["node_type": "ending", "key": "e1"],
-                "steps": [
-                    ["step_type": "save", "save_key": "sv1"],
-                    [
-                        "step_type": "choice",
-                        "text": "選択",
-                        "localized": ["zh-Hans": ["value": "选择", "is_machine": true]]
-                    ],
-                    ["step_type": "future-kind", "future_field": "preserved"]
-                ]
-            ]]
         ]
     ] }
 }
