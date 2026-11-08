@@ -20,6 +20,9 @@ import Foundation
 import WhiskyBridgeProtocol
 import WhiskyCore
 import WhiskyMetadata
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Host effects are explicit and injectable. GPUI receives errors and owns every dialog.
 @MainActor

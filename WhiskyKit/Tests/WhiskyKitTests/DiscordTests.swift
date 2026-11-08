@@ -191,7 +191,9 @@ private final class FakeDiscordClient: @unchecked Sendable {
             return nil
         }
 
-        DispatchQueue.global().async { [self] in serve() }
+        // A dedicated thread rather than the global GCD pool: a saturated
+        // cooperative pool can starve serve() past the test's poll window.
+        Thread { [self] in serve() }.start()
     }
 
     deinit { close(listener) }
@@ -233,7 +235,7 @@ struct DiscordPresenceSocketTests {
     }
 
     private func waitForFrames(_ count: Int, from client: FakeDiscordClient) async {
-        for _ in 0 ..< 100 where client.frames.count < count {
+        for _ in 0 ..< 300 where client.frames.count < count {
             try? await Task.sleep(for: .milliseconds(20))
         }
     }
