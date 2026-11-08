@@ -52,7 +52,6 @@ let package = Package(
                 // should try to interpret.
                 .copy("Discord/Resources/WhiskyDiscordBridge.exe"),
                 .copy("Wine/Resources/WhiskyProcessSnapshot.exe"),
-                .copy("Wine/Resources/WhiskyProcessHelper.exe"),
                 // Carries `client-id.txt` when a build was given one. The file
                 // is gitignored, so a plain checkout copies an empty directory.
                 .copy("Discord/Local")

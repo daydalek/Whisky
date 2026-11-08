@@ -143,10 +143,10 @@ jobs:
       - name: Install Linux development dependencies
         run: sudo bash apps/whisky-gpui/tools/install-linux-deps.sh
 
-      - name: Setup Swift 6.4.0
+      - name: Setup Swift
         uses: swift-actions/setup-swift@v2
         with:
-          swift-version: '6.4.0'
+          swift-version: 'latest'
 
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable

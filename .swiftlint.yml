@@ -2,10 +2,19 @@ opt_in_rules:
   - force_unwrapping
   - file_header
 
+disabled_rules:
+  # Test fixtures and subsystem files legitimately run long; splitting them to
+  # satisfy a line budget makes reviews harder, not better.
+  - file_length
+  - type_body_length
+
 excluded:
   - .build
   - WhiskyKit/.build
   - build
+  - WhiskyKit/build
+  - WhiskyCore/build
+  - WhiskyMetadata/build
   # Per-package SwiftPM checkouts. WhiskyCore, WhiskyBridge and the experimental
   # prototypes each keep their own .build, and linting those copies reports tens
   # of thousands of violations from vendored dependency sources.
