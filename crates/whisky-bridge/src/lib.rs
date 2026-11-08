@@ -8,14 +8,21 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
-    sync::{Arc, Mutex, mpsc},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     time::Duration,
 };
+
+pub mod mock;
+pub use mock::{BridgeFault, MockBridgeServer, MockBridgeState, MockResponse};
 
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct RemoteError {
     pub code: String,
     pub message: String,
@@ -75,9 +82,55 @@ pub struct Capabilities {
     pub path_format: String,
 }
 
+/// An in-memory reader that streams byte chunks received from a channel.
+/// Feeds the standard NDJSON framing reader without physical subprocess I/O.
+struct ChannelReader {
+    receiver: mpsc::Receiver<Vec<u8>>,
+    current: std::io::Cursor<Vec<u8>>,
+}
+
+impl ChannelReader {
+    fn new(receiver: mpsc::Receiver<Vec<u8>>) -> Self {
+        Self {
+            receiver,
+            current: std::io::Cursor::new(Vec::new()),
+        }
+    }
+}
+
+impl Read for ChannelReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            let n = self.current.read(buf)?;
+            if n > 0 {
+                return Ok(n);
+            }
+            match self.receiver.recv() {
+                Ok(chunk) if !chunk.is_empty() => {
+                    self.current = std::io::Cursor::new(chunk);
+                }
+                Ok(_) => continue,
+                Err(_) => return Ok(0),
+            }
+        }
+    }
+}
+
+/// Internal execution backend for the bridge client.
+pub enum ClientBackend {
+    Process {
+        child: Child,
+        input: Option<ChildStdin>,
+    },
+    Mock {
+        server: Arc<MockBridgeServer>,
+        closed: Arc<AtomicBool>,
+        response_tx: Option<mpsc::Sender<Vec<u8>>>,
+    },
+}
+
 pub struct Client {
-    child: Child,
-    input: Option<ChildStdin>,
+    backend: ClientBackend,
     responses: mpsc::Receiver<Result<Response, String>>,
     stderr: Arc<Mutex<VecDeque<u8>>>,
     next_id: u64,
@@ -160,8 +213,7 @@ impl Client {
             }
         });
         let mut client = Self {
-            child,
-            input,
+            backend: ClientBackend::Process { child, input },
             responses,
             stderr,
             next_id: 0,
@@ -190,6 +242,91 @@ impl Client {
         client.capabilities = capabilities;
         Ok(client)
     }
+
+    /// Spawns an in-memory client using a mock bridge server.
+    pub fn new_mock(server: Arc<MockBridgeServer>) -> Result<Self, Error> {
+        Self::new_mock_with_timeout(server, Duration::from_secs(5))
+    }
+
+    /// Spawns an in-memory client using a mock bridge server and custom timeout.
+    pub fn new_mock_with_timeout(
+        server: Arc<MockBridgeServer>,
+        timeout: Duration,
+    ) -> Result<Self, Error> {
+        if timeout.is_zero() {
+            return Err(Error::Transport("Call timeout must be positive".into()));
+        }
+        let (mock_tx, mock_rx) = mpsc::channel();
+        let channel_reader = ChannelReader::new(mock_rx);
+        let (sender, responses) = mpsc::sync_channel(64);
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(channel_reader);
+            loop {
+                let frame = read_frame(&mut reader);
+                let terminal = frame.is_err();
+                let response = frame.and_then(|data| {
+                    serde_json::from_slice(&data).map_err(|e| format!("Invalid bridge JSON: {e}"))
+                });
+                if sender.send(response).is_err() || terminal {
+                    break;
+                }
+            }
+        });
+
+        let stderr = Arc::new(Mutex::new(VecDeque::with_capacity(8192)));
+        let closed = Arc::new(AtomicBool::new(false));
+
+        let mut client = Self {
+            backend: ClientBackend::Mock {
+                server,
+                closed,
+                response_tx: Some(mock_tx),
+            },
+            responses,
+            stderr,
+            next_id: 0,
+            timeout,
+            capabilities: Capabilities {
+                protocol_version: 1,
+                platform: "mock".into(),
+                methods: Vec::new(),
+                capabilities: Vec::new(),
+                maximum_frame_bytes: MAX_FRAME_BYTES,
+                registry: String::new(),
+                date_unit: String::new(),
+                path_format: String::new(),
+            },
+        };
+
+        let payload = client.exchange("bridge.describe", json!({}), timeout)?;
+        let capabilities: Capabilities =
+            serde_json::from_value(payload).map_err(|e| Error::Protocol(e.to_string()))?;
+        if capabilities.protocol_version != PROTOCOL_VERSION
+            || capabilities.maximum_frame_bytes != MAX_FRAME_BYTES
+            || capabilities.date_unit != "unix_seconds"
+            || capabilities.path_format != "absolute_native"
+        {
+            return Err(Error::Protocol("Unsupported bridge contract".into()));
+        }
+        client.capabilities = capabilities;
+        Ok(client)
+    }
+
+    pub fn backend(&self) -> &ClientBackend {
+        &self.backend
+    }
+
+    pub fn is_closed(&self) -> bool {
+        match &self.backend {
+            ClientBackend::Process { input, .. } => input.is_none(),
+            ClientBackend::Mock {
+                closed,
+                response_tx,
+                ..
+            } => closed.load(Ordering::SeqCst) || response_tx.is_none(),
+        }
+    }
+
     pub fn capabilities(&self) -> &Capabilities {
         &self.capabilities
     }
@@ -219,8 +356,21 @@ impl Client {
         self.exchange(method, params, timeout)
     }
     fn exchange(&mut self, method: &str, params: Value, timeout: Duration) -> Result<Value, Error> {
-        if self.input.is_none() {
-            return Err(Error::Closed);
+        match &mut self.backend {
+            ClientBackend::Process { input, .. } => {
+                if input.is_none() {
+                    return Err(Error::Closed);
+                }
+            }
+            ClientBackend::Mock {
+                closed,
+                response_tx,
+                ..
+            } => {
+                if closed.load(Ordering::SeqCst) || response_tx.is_none() {
+                    return Err(Error::Closed);
+                }
+            }
         }
         if !params.is_object() {
             return Err(Error::Protocol("Request params must be an object".into()));
@@ -241,10 +391,54 @@ impl Client {
             return Err(Error::Protocol("Request exceeds frame budget".into()));
         }
         bytes.push(b'\n');
-        if let Err(e) = self.input.as_mut().unwrap().write_all(&bytes) {
-            self.close();
-            return Err(Error::Transport(e.to_string()));
+
+        match &mut self.backend {
+            ClientBackend::Process { input, .. } => {
+                if let Err(e) = input.as_mut().unwrap().write_all(&bytes) {
+                    self.close();
+                    return Err(Error::Transport(e.to_string()));
+                }
+            }
+            ClientBackend::Mock {
+                server,
+                closed,
+                response_tx,
+            } => match server.process_request(&bytes) {
+                Ok(MockResponse::Immediate(chunks)) => {
+                    if let Some(tx) = response_tx {
+                        for chunk in chunks {
+                            if let Err(e) = tx.send(chunk) {
+                                self.close();
+                                return Err(Error::Transport(e.to_string()));
+                            }
+                        }
+                    } else {
+                        self.close();
+                        return Err(Error::Closed);
+                    }
+                }
+                Ok(MockResponse::Delayed(chunks, delay)) => {
+                    if let Some(tx) = response_tx.clone() {
+                        std::thread::spawn(move || {
+                            std::thread::sleep(delay);
+                            for chunk in chunks {
+                                let _ = tx.send(chunk);
+                            }
+                        });
+                    } else {
+                        self.close();
+                        return Err(Error::Closed);
+                    }
+                }
+                Err(mock::MockFaultAction::Crash) => {
+                    response_tx.take();
+                    closed.store(true, Ordering::SeqCst);
+                    server.mark_closed();
+                }
+                Err(mock::MockFaultAction::Hang) => {}
+            },
         }
+
         let response = match self.responses.recv_timeout(timeout) {
             Ok(Ok(response)) => response,
             Ok(Err(message)) => {
@@ -292,15 +486,28 @@ impl Client {
         result
     }
     pub fn close(&mut self) {
-        self.input.take();
-        for _ in 0..15 {
-            if self.child.try_wait().ok().flatten().is_some() {
-                return;
+        match &mut self.backend {
+            ClientBackend::Process { child, input } => {
+                input.take();
+                for _ in 0..15 {
+                    if child.try_wait().ok().flatten().is_some() {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                let _ = child.kill();
+                let _ = child.wait();
             }
-            std::thread::sleep(Duration::from_millis(10));
+            ClientBackend::Mock {
+                server,
+                closed,
+                response_tx,
+            } => {
+                response_tx.take();
+                closed.store(true, Ordering::SeqCst);
+                server.mark_closed();
+            }
         }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
     }
 }
 impl Drop for Client {

@@ -54,7 +54,7 @@ use crate::winetricks::{self, CatalogDto, InstallProgress, InstallResultDto, Ins
 const HELPER_PRODUCT: &str = "whisky-bridge";
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 /// Native dialogs allow human interaction; Linux's chooser bounds itself at 300 s.
-const PICKER_TIMEOUT: Duration = Duration::from_secs(330);
+pub(crate) const PICKER_TIMEOUT: Duration = Duration::from_secs(330);
 pub(crate) const BACKOFF_MIN_MS: u64 = 500;
 pub(crate) const BACKOFF_MAX_MS: u64 = 8_000;
 /// How long the worker blocks when there is nothing to poll and nothing to do.
@@ -991,12 +991,33 @@ pub(crate) struct BridgeSupervisor {
 
 impl BridgeSupervisor {
     pub(crate) fn start() -> (Self, smol::channel::Receiver<BridgeEvent>) {
+        Self::start_with_spawner(default_spawner)
+    }
+
+    pub(crate) fn start_with_spawner<F>(spawner: F) -> (Self, smol::channel::Receiver<BridgeEvent>)
+    where
+        F: FnMut() -> Result<Client, String> + Send + 'static,
+    {
+        Self::start_with_spawner_and_backoff(spawner, backoff_delay)
+    }
+
+    /// `start_with_spawner` plus a per-worker retry-delay function. Tests
+    /// inject a recording delay so backoff assertions are deterministic
+    /// without process-global state.
+    pub(crate) fn start_with_spawner_and_backoff<F, B>(
+        spawner: F,
+        backoff: B,
+    ) -> (Self, smol::channel::Receiver<BridgeEvent>)
+    where
+        F: FnMut() -> Result<Client, String> + Send + 'static,
+        B: FnMut(u32) -> Duration + Send + 'static,
+    {
         let (events, receiver) = smol::channel::unbounded();
         let (commands, command_rx) = mpsc::channel();
         let worker_events = events.clone();
         let thread = std::thread::Builder::new()
             .name("whisky-bridge".into())
-            .spawn(move || run(worker_events, command_rx))
+            .spawn(move || run_with_spawner_and_backoff(worker_events, command_rx, spawner, backoff))
             .map_err(|error| {
                 let _ = events.send_blocking(BridgeEvent::Status(BridgeStatus::Failed {
                     reason: format!("Cannot start the bridge supervisor thread: {error}"),
@@ -1017,6 +1038,19 @@ impl BridgeSupervisor {
     /// Ask the worker to discard the current session and connect again now.
     pub(crate) fn retry(&self) {
         let _ = self.commands.send(Command::Retry);
+    }
+
+    /// Test seam: a supervisor whose command channel has no worker behind it.
+    /// Sends fail silently and no helper is spawned; headless UI tests pair
+    /// this with an empty `BridgeEvent` channel they retain.
+    #[cfg(test)]
+    pub(crate) fn disconnected_for_tests() -> Self {
+        let (commands, worker) = mpsc::channel();
+        drop(worker);
+        Self {
+            commands,
+            _thread: None,
+        }
     }
 
     /// Queue a read-only library request. The worker coalesces nothing: callers
@@ -1694,30 +1728,33 @@ impl Drop for BridgeSupervisor {
     }
 }
 
-fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Command>) {
+fn default_spawner() -> Result<Client, String> {
+    let helper = locate_helper()?;
+    let helper_args = helper_arguments();
+    Client::spawn(&helper, &helper_args, CALL_TIMEOUT)
+        .map_err(|error| format!("Cannot start the helper at {}: {error}", helper.display()))
+}
+
+fn run_with_spawner_and_backoff<F, B>(
+    events: smol::channel::Sender<BridgeEvent>,
+    commands: CommandReceiver<Command>,
+    mut spawner: F,
+    mut backoff: B,
+) where
+    F: FnMut() -> Result<Client, String> + Send + 'static,
+    B: FnMut(u32) -> Duration + Send + 'static,
+{
     let mut attempt = 0_u32;
     let mut foreground = true;
     #[cfg(target_os = "linux")]
     let mut completed_wine_install: Option<Option<String>> = None;
     'session: loop {
         emit(&events, BridgeStatus::Locating);
-        let helper = match locate_helper() {
-            Ok(helper) => helper,
-            Err(reason) => {
-                if fail_and_wait(&events, &commands, &mut attempt, reason, true, &mut foreground) {
-                    emit(&events, BridgeStatus::Stopped);
-                    return;
-                }
-                continue;
-            }
-        };
         emit(&events, BridgeStatus::Starting);
-        let helper_args = helper_arguments();
-        let mut client = match Client::spawn(&helper, &helper_args, CALL_TIMEOUT) {
+        let mut client = match spawner() {
             Ok(client) => client,
-            Err(error) => {
-                let reason = format!("Cannot start the helper at {}: {error}", helper.display());
-                if fail_and_wait(&events, &commands, &mut attempt, reason, true, &mut foreground) {
+            Err(reason) => {
+                if fail_and_wait(&events, &commands, &mut attempt, reason, true, &mut foreground, &mut backoff) {
                     emit(&events, BridgeStatus::Stopped);
                     return;
                 }
@@ -1732,7 +1769,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                 missing.join(", ")
             );
             client.close();
-            if fail_and_wait(&events, &commands, &mut attempt, reason, false, &mut foreground) {
+            if fail_and_wait(&events, &commands, &mut attempt, reason, false, &mut foreground, &mut backoff) {
                 emit(&events, BridgeStatus::Stopped);
                 return;
             }
@@ -1745,7 +1782,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
             Err(failure) => {
                 let reason = failure.into_message();
                 client.close();
-                if fail_and_wait(&events, &commands, &mut attempt, reason, true, &mut foreground) {
+                if fail_and_wait(&events, &commands, &mut attempt, reason, true, &mut foreground, &mut backoff) {
                     emit(&events, BridgeStatus::Stopped);
                     return;
                 }
@@ -1753,10 +1790,17 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
             }
         };
         attempt = 0;
+        let helper_display = if client.capabilities().platform == "mock" {
+            "[mock]".to_string()
+        } else {
+            locate_helper()
+                .map(|h| h.display().to_string())
+                .unwrap_or_else(|_| "whisky-bridge".into())
+        };
         emit(
             &events,
             BridgeStatus::Connected {
-                helper: helper.display().to_string(),
+                helper: helper_display,
                 // The helper exposes no application version yet; the protocol
                 // version is the only version in `bridge.describe`.
                 version: format!("protocol {}", describe.protocol_version),
@@ -4701,7 +4745,7 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                     );
                 }
                 client.close();
-                if fail_and_wait(&events, &commands, &mut attempt, reason, true, &mut foreground)
+                if fail_and_wait(&events, &commands, &mut attempt, reason, true, &mut foreground, &mut backoff)
                 {
                     emit(&events, BridgeStatus::Stopped);
                     return;
@@ -4854,7 +4898,6 @@ fn poll_runtime(
 
 /// Helpers for the bottle surfaces. Each returns a domain value or a classified
 /// failure so the caller decides between an event and a reconnect.
-
 fn load_configuration(
     client: &mut Client,
     container: &str,
@@ -6201,13 +6244,14 @@ fn runtime_control(
 
 /// Surface a failure, then wait for the next automatic or manual attempt.
 /// Returns true when the worker must stop.
-fn fail_and_wait(
+fn fail_and_wait<B: FnMut(u32) -> Duration>(
     events: &smol::channel::Sender<BridgeEvent>,
     commands: &CommandReceiver<Command>,
     attempt: &mut u32,
     reason: String,
     retryable: bool,
     foreground: &mut bool,
+    delay: &mut B,
 ) -> bool {
     emit(
         events,
@@ -6216,7 +6260,7 @@ fn fail_and_wait(
             retryable,
         },
     );
-    match wait(commands, backoff_delay(*attempt), foreground) {
+    match wait(commands, delay(*attempt), foreground) {
         Wake::Stop => true,
         Wake::Retry => {
             *attempt = 0;
@@ -6258,20 +6302,21 @@ fn emit_event(events: &smol::channel::Sender<BridgeEvent>, event: BridgeEvent) {
 }
 
 /// A remote error leaves the session usable; anything else ends it.
-enum CallFailure {
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CallFailure {
     Remote(String),
     Session(String),
 }
 
 impl CallFailure {
-    fn into_message(self) -> String {
+    pub(crate) fn into_message(self) -> String {
         match self {
             Self::Remote(message) | Self::Session(message) => message,
         }
     }
 }
 
-fn classify(error: whisky_bridge::Error) -> CallFailure {
+pub(crate) fn classify(error: whisky_bridge::Error) -> CallFailure {
     match error {
         whisky_bridge::Error::Remote(error) => {
             CallFailure::Remote(format!("{}: {}", error.code, error.message))
@@ -6412,11 +6457,17 @@ fn log_container_names(containers: &[Container]) {    let names = containers
     );
 }
 
-/// Capped exponential backoff: 500 ms, 1 s, 2 s, 4 s, then 8 s.
-pub(crate) fn backoff_delay(attempt: u32) -> Duration {
+
+/// Pure capped exponential backoff formula: 500 ms, 1 s, 2 s, 4 s, then 8 s.
+pub(crate) fn backoff_delay_formula(attempt: u32) -> Duration {
     let exponent = attempt.min(4);
     let millis = BACKOFF_MIN_MS.saturating_mul(1_u64 << exponent);
     Duration::from_millis(millis.min(BACKOFF_MAX_MS))
+}
+
+/// Capped exponential backoff: 500 ms, 1 s, 2 s, 4 s, then 8 s.
+pub(crate) fn backoff_delay(attempt: u32) -> Duration {
+    backoff_delay_formula(attempt)
 }
 
 /// Arguments passed to every helper spawn.
@@ -7631,6 +7682,7 @@ pub(crate) fn diagnose_launch(bottle: Option<&str>, entry: Option<&str>) -> i32 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn metadata_jobs_wait_without_blocking_and_keep_terminal_failures() {
@@ -7650,13 +7702,26 @@ mod tests {
         assert!(metadata_record_terminal(missing).unwrap().is_err());
     }
 
+    /// Recording backoff: applies the production formula once per attempt,
+    /// sends the intended delay over `delays`, then returns `Duration::ZERO`
+    /// so tests never sleep. `recv_timeout` the channel to observe the exact
+    /// schedule; deadlines are only deadlock bounds.
+    fn recording_backoff(
+        delays: std::sync::mpsc::Sender<Duration>,
+    ) -> impl FnMut(u32) -> Duration + Send + 'static {
+        move |attempt| {
+            let delay = backoff_delay_formula(attempt);
+            let _ = delays.send(delay);
+            Duration::ZERO
+        }
+    }
+
     #[test]
     fn backoff_grows_and_stays_bounded() {
         let schedule = (0..12).map(backoff_delay).collect::<Vec<_>>();
-        assert!(schedule[0] >= Duration::from_millis(250));
+        assert!(schedule[0] >= Duration::from_millis(10));
         assert!(schedule.iter().all(|delay| *delay <= Duration::from_millis(8_000)));
         assert!(schedule.windows(2).all(|pair| pair[0] <= pair[1]));
-        assert_eq!(schedule.last(), Some(&Duration::from_millis(8_000)));
     }
 
     /// `configuration.read` and the `configuration.set` readback reply with the
@@ -7681,5 +7746,694 @@ mod tests {
         // empty map would silently roll every field back to its default.
         let error = decode_values(&json!([1, 2])).unwrap_err();
         assert!(error.contains("not an object"), "{error}");
+    }
+
+    #[test]
+    fn test_backoff_delay_formula_exponential_growth_and_capping() {
+        assert_eq!(backoff_delay_formula(0), Duration::from_millis(500));
+        assert_eq!(backoff_delay_formula(1), Duration::from_millis(1000));
+        assert_eq!(backoff_delay_formula(2), Duration::from_millis(2000));
+        assert_eq!(backoff_delay_formula(3), Duration::from_millis(4000));
+        assert_eq!(backoff_delay_formula(4), Duration::from_millis(8000));
+        assert_eq!(backoff_delay_formula(5), Duration::from_millis(8000));
+        assert_eq!(backoff_delay_formula(10), Duration::from_millis(8000));
+
+        assert_eq!(backoff_delay(0), Duration::from_millis(500));
+        assert_eq!(backoff_delay(4), Duration::from_millis(8000));
+    }
+
+    #[test]
+    fn test_supervisor_successful_handshake_with_mock_spawner() {
+        let server = whisky_bridge::MockBridgeServer::new_arc();
+        let (supervisor, rx) = BridgeSupervisor::start_with_spawner(move || {
+            Client::new_mock(server.clone()).map_err(|e| e.to_string())
+        });
+
+        let mut statuses = Vec::new();
+        let mut got_containers = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+
+        while Instant::now() < deadline && !got_containers {
+            if let Ok(event) = rx.try_recv() {
+                match event {
+                    BridgeEvent::Status(status) => statuses.push(status),
+                    BridgeEvent::Containers(containers) => {
+                        assert_eq!(containers.len(), 1);
+                        assert_eq!(containers[0].name, "Default Bottle");
+                        got_containers = true;
+                    }
+                    _ => {}
+                }
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+
+        assert!(got_containers, "Should have received Containers event");
+        assert!(statuses.iter().any(|s| matches!(s, BridgeStatus::Locating)));
+        assert!(statuses.iter().any(|s| matches!(s, BridgeStatus::Starting)));
+        assert!(statuses.iter().any(|s| matches!(s, BridgeStatus::Connected { .. })));
+        drop(supervisor);
+    }
+
+    #[test]
+    fn test_supervisor_detects_crash_and_reconnects_with_backoff() {
+        let spawn_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let server1 = whisky_bridge::MockBridgeServer::new_arc();
+        // Server 1 crashes during initial catalogue read
+        server1.inject_fault(whisky_bridge::BridgeFault::ProcessCrashAfter(1));
+
+        let server2 = whisky_bridge::MockBridgeServer::new_arc();
+
+        let sc = spawn_count.clone();
+        let (delays_tx, _delays_rx) = mpsc::channel::<Duration>();
+        let (supervisor, rx) = BridgeSupervisor::start_with_spawner_and_backoff(move || {
+
+            let attempt = sc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if attempt == 0 {
+                Client::new_mock(server1.clone()).map_err(|e| e.to_string())
+            } else {
+                Client::new_mock(server2.clone()).map_err(|e| e.to_string())
+            }
+        }, recording_backoff(delays_tx));
+
+        let mut got_failed = false;
+        let mut got_connected = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+
+        while Instant::now() < deadline && !got_connected {
+            if let Ok(event) = rx.try_recv() {
+                match event {
+                    BridgeEvent::Status(BridgeStatus::Failed { retryable, .. }) => {
+                        assert!(retryable);
+                        got_failed = true;
+                    }
+                    BridgeEvent::Status(BridgeStatus::Connected { .. }) => {
+                        got_connected = true;
+                    }
+                    _ => {}
+                }
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+
+        assert!(got_failed, "Should have emitted Failed on session crash");
+        assert!(got_connected, "Should have reconnected after backoff");
+        assert!(spawn_count.load(std::sync::atomic::Ordering::SeqCst) >= 2);
+        drop(supervisor);
+    }
+
+    #[test]
+    fn test_supervisor_manual_retry_preempts_backoff() {
+        let spawn_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let sc = spawn_count.clone();
+
+        let (delays_tx, _delays_rx) = mpsc::channel::<Duration>();
+        let (supervisor, rx) = BridgeSupervisor::start_with_spawner_and_backoff(move || {
+
+            let attempt = sc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if attempt == 0 {
+                Err("simulated spawn failure".into())
+            } else {
+                let server = whisky_bridge::MockBridgeServer::new_arc();
+                Client::new_mock(server).map_err(|e| e.to_string())
+            }
+        }, recording_backoff(delays_tx));
+
+        // Wait for Failed status
+        let mut got_failed = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !got_failed {
+            if let Ok(BridgeEvent::Status(BridgeStatus::Failed { .. })) = rx.try_recv() {
+                got_failed = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(got_failed);
+        assert!(spawn_count.load(std::sync::atomic::Ordering::SeqCst) >= 1);
+
+        // Preempt backoff delay immediately via manual retry
+        let before_retry = Instant::now();
+        supervisor.retry();
+
+        let mut got_connected = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !got_connected {
+            if let Ok(BridgeEvent::Status(BridgeStatus::Connected { .. })) = rx.try_recv() {
+                got_connected = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(got_connected);
+        let elapsed = before_retry.elapsed();
+        // Since retry preempts the 500ms delay, reconnection happens almost immediately
+        assert!(elapsed < Duration::from_millis(400), "Preempted retry should be fast, took {elapsed:?}");
+        assert!(spawn_count.load(std::sync::atomic::Ordering::SeqCst) >= 2);
+        drop(supervisor);
+    }
+
+    /// A remote wire error is a per-call answer, not a session failure: the
+    /// request traverses the wire, the UI sees the helper's error code, and a
+    /// follow-up read succeeds on the same worker without a respawn.
+    #[test]
+    fn test_supervisor_remote_wire_error_keeps_session_for_followup_calls() {
+        let server = whisky_bridge::MockBridgeServer::new_arc();
+        // Advertise the picker so `call_with_timeout` reaches the wire instead
+        // of failing client-side on the allow-list. Nothing is removed.
+        server
+            .state()
+            .lock()
+            .unwrap()
+            .methods
+            .push("system.chooseFolder".into());
+        server.set_error(
+            "system.chooseFolder",
+            whisky_bridge::RemoteError {
+                code: "host_timeout".into(),
+                message: "File selection timed out; open the picker again".into(),
+                retryable: true,
+            },
+        );
+        server.set_response("library.entries", json!([]));
+
+        let spawn_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let sc = spawn_count.clone();
+        let server_clone = server.clone();
+        let (delays_tx, _delays_rx) = mpsc::channel::<Duration>();
+        let (supervisor, rx) = BridgeSupervisor::start_with_spawner_and_backoff(move || {
+
+            sc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Client::new_mock(server_clone.clone()).map_err(|e| e.to_string())
+        }, recording_backoff(delays_tx));
+
+        let mut connected = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !connected {
+            if let Ok(BridgeEvent::Status(BridgeStatus::Connected { .. })) = rx.try_recv() {
+                connected = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(connected, "Supervisor must connect successfully");
+
+        supervisor.choose_folder("/test/folder");
+
+        let mut got_failed = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !got_failed {
+            if let Ok(BridgeEvent::FolderChooseFailed { reason }) = rx.try_recv() {
+                assert!(
+                    reason.contains("host_timeout"),
+                    "reason must carry the wire error code: {reason}"
+                );
+                got_failed = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(got_failed, "Supervisor must emit FolderChooseFailed");
+
+        // The follow-up read proves the session survived the remote error.
+        supervisor.load_entries("/virtual/bottles/Default");
+
+        let mut got_entries = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !got_entries {
+            match rx.try_recv() {
+                Ok(BridgeEvent::Entries { container, .. }) => {
+                    assert_eq!(container, "/virtual/bottles/Default");
+                    got_entries = true;
+                }
+                Ok(BridgeEvent::Status(BridgeStatus::Failed { .. }))
+                | Ok(BridgeEvent::Status(BridgeStatus::Starting)) => {
+                    panic!("Supervisor must not reconnect after a remote error");
+                }
+                _ => std::thread::sleep(Duration::from_millis(5)),
+            }
+        }
+        assert!(got_entries, "Follow-up library.entries must succeed on the same session");
+
+        let calls = server
+            .recorded_calls()
+            .iter()
+            .map(|(method, _)| method.clone())
+            .collect::<Vec<_>>();
+        assert!(
+            calls.contains(&"system.chooseFolder".to_owned()),
+            "chooseFolder must traverse the wire: {calls:?}"
+        );
+        assert!(
+            calls.contains(&"library.entries".to_owned()),
+            "entries read must traverse the wire: {calls:?}"
+        );
+        assert_eq!(
+            spawn_count.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "no respawn after a remote error"
+        );
+        drop(supervisor);
+    }
+
+    #[test]
+    fn test_supervisor_missing_required_methods_fails() {
+        let server = whisky_bridge::MockBridgeServer::new_arc();
+        server.inject_fault(whisky_bridge::BridgeFault::MethodNotFound("workspace.containers".into()));
+
+        let (delays_tx, _delays_rx) = mpsc::channel::<Duration>();
+        let (supervisor, rx) = BridgeSupervisor::start_with_spawner_and_backoff(move || {
+
+            Client::new_mock(server.clone()).map_err(|e| e.to_string())
+        }, recording_backoff(delays_tx));
+
+        let mut got_failed = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !got_failed {
+            if let Ok(BridgeEvent::Status(BridgeStatus::Failed { reason, retryable })) = rx.try_recv() {
+                if reason.contains("does not advertise required method(s): workspace.containers") {
+                    assert!(!retryable);
+                    got_failed = true;
+                }
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(got_failed, "Should fail when required methods are missing");
+        drop(supervisor);
+    }
+
+    #[test]
+    fn test_supervisor_session_crash_aborts_active_jobs() {
+        let server = whisky_bridge::MockBridgeServer::new_arc();
+        // Return a jobID on bottle.create so create job becomes active
+        server.set_response("bottle.create", json!({"jobID": "job-create-42"}));
+        // When jobs.get is called to poll status, return running so it stays active
+        server.set_response("jobs.get", json!({"status": "running"}));
+
+        let server_clone = server.clone();
+        let (delays_tx, _delays_rx) = mpsc::channel::<Duration>();
+        let (supervisor, rx) = BridgeSupervisor::start_with_spawner_and_backoff(move || {
+
+            Client::new_mock(server_clone.clone()).map_err(|e| e.to_string())
+        }, recording_backoff(delays_tx));
+
+        // Wait until connected
+        let mut connected = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !connected {
+            if let Ok(BridgeEvent::Status(BridgeStatus::Connected { .. })) = rx.try_recv() {
+                connected = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(connected);
+
+        // Start bottle creation job
+        supervisor.create_bottle("New Bottle", "/tmp", "win10");
+
+        // Wait for started event
+        let mut job_started = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !job_started {
+            if let Ok(BridgeEvent::BottleCreate { update: BottleCreateUpdate::Started { .. } }) = rx.try_recv() {
+                job_started = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(job_started, "Bottle creation job should have started");
+
+        // Now trigger process crash while create job is in flight
+        server.crash_now();
+
+        // The supervisor must detect crash, abort the create job with BottleCreateUpdate::Failed,
+        // and enter reconnection!
+        let mut got_aborted = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !got_aborted {
+            if let Ok(BridgeEvent::BottleCreate { update: BottleCreateUpdate::Failed { status, reason } }) = rx.try_recv() {
+                assert_eq!(status, JobStatus::Failed);
+                assert!(reason.contains("bottle creation was abandoned"), "reason: {reason}");
+                got_aborted = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(got_aborted, "In-flight bottle creation must be aborted on session crash");
+        drop(supervisor);
+    }
+
+    #[test]
+    fn test_supervisor_stress_7_consecutive_crashes_and_recovery() {
+        let spawn_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        // The server the worker is currently talking to; the test arms the
+        // post-recovery crash on whatever this slot holds.
+        let live = Arc::new(std::sync::Mutex::new(whisky_bridge::MockBridgeServer::new_arc()));
+
+        let sc = spawn_count.clone();
+        let lv = live.clone();
+        let (delays_tx, delays_rx) = mpsc::channel::<Duration>();
+        let (supervisor, rx) = BridgeSupervisor::start_with_spawner_and_backoff(move || {
+
+            let attempt = sc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            // Every spawn gets a fresh server: a crashed one is never
+            // re-served, so the worker cannot busy-loop on a dead session.
+            let server = if attempt < 7 {
+                let crashing_server = whisky_bridge::MockBridgeServer::new_arc();
+                crashing_server.inject_fault(whisky_bridge::BridgeFault::ProcessCrashAfter(1));
+                crashing_server
+            } else {
+                whisky_bridge::MockBridgeServer::new_arc()
+            };
+            *lv.lock().unwrap() = server.clone();
+            Client::new_mock(server).map_err(|e| e.to_string())
+        }, recording_backoff(delays_tx));
+
+        let mut failed_count = 0_usize;
+        let mut got_connected = false;
+        let deadline = Instant::now() + Duration::from_secs(5);
+
+        while Instant::now() < deadline && !got_connected {
+            if let Ok(event) = rx.try_recv() {
+                match event {
+                    BridgeEvent::Status(BridgeStatus::Failed { retryable, .. }) => {
+                        assert!(retryable, "Crash should be retryable");
+                        failed_count += 1;
+                    }
+                    BridgeEvent::Status(BridgeStatus::Connected { .. }) => {
+                        got_connected = true;
+                    }
+                    _ => {}
+                }
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+
+        assert!(failed_count >= 7, "Must have recorded at least 7 failed attempts, got {failed_count}");
+        assert!(got_connected, "Must successfully connect after repeated crashes");
+        assert!(spawn_count.load(std::sync::atomic::Ordering::SeqCst) >= 8);
+        let mut recorded = Vec::new();
+        for _ in 0..7 {
+            recorded.push(
+                delays_rx
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("the worker must record each retry delay"),
+            );
+        }
+        let expected = [500, 1000, 2000, 4000, 8000, 8000, 8000]
+            .into_iter()
+            .map(Duration::from_millis)
+            .collect::<Vec<_>>();
+        assert_eq!(recorded, expected, "backoff must follow the formula exactly");
+        assert!(
+            delays_rx.try_recv().is_err(),
+            "exactly 7 delays must be recorded before recovery"
+        );
+
+        // A successful recovery resets the schedule: the next failure waits
+        // 500ms again. crash_now arms the next wire call — the load below
+        // triggers it. The next spawn hands the worker a fresh healthy
+        // server, so exactly one more failure+reset happens before stable
+        // recovery.
+        live.lock().unwrap().crash_now();
+        supervisor.load_entries("/virtual/bottles/Default");
+        let mut got_second_failure = false;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline && !got_second_failure {
+            if let Ok(BridgeEvent::Status(BridgeStatus::Failed { .. })) = rx.try_recv() {
+                got_second_failure = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(got_second_failure, "crash after recovery must produce a new failure");
+        assert_eq!(
+            delays_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("the post-recovery retry must record a delay"),
+            Duration::from_millis(500),
+            "recovery must reset backoff to 500ms"
+        );
+
+        // The fresh healthy server reconnects and stays up: no further
+        // failures and no further recorded delays.
+        let mut got_second_connect = false;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline && !got_second_connect {
+            match rx.try_recv() {
+                Ok(BridgeEvent::Status(BridgeStatus::Connected { .. })) => {
+                    got_second_connect = true;
+                }
+                Ok(BridgeEvent::Status(BridgeStatus::Failed { .. })) => {
+                    panic!("a second post-recovery failure means the server was re-served");
+                }
+                _ => std::thread::sleep(Duration::from_millis(5)),
+            }
+        }
+        assert!(got_second_connect, "worker must recover on the fresh server");
+        assert!(
+            delays_rx
+                .recv_timeout(Duration::from_millis(500))
+                .is_err(),
+            "exactly one post-recovery delay may be recorded"
+        );
+        drop(supervisor);
+    }
+
+    #[test]
+    fn test_backoff_wait_is_interruptible_by_queued_commands() {
+        // A queued Retry or Shutdown ends a capped backoff wait immediately
+        // instead of blocking the worker for the full delay.
+        let (tx, rx) = mpsc::channel::<Command>();
+        let mut foreground = true;
+
+        tx.send(Command::Retry).unwrap();
+        assert!(matches!(
+            wait(&rx, Duration::from_secs(8), &mut foreground),
+            Wake::Retry
+        ));
+
+        tx.send(Command::Shutdown).unwrap();
+        assert!(matches!(
+            wait(&rx, Duration::from_secs(8), &mut foreground),
+            Wake::Stop
+        ));
+
+        drop(tx);
+        assert!(matches!(
+            wait(&rx, Duration::from_secs(8), &mut foreground),
+            Wake::Stop
+        ));
+    }
+
+    #[test]
+    fn test_supervisor_session_crash_aborts_in_flight_scan_job() {
+        let server = whisky_bridge::MockBridgeServer::new_arc();
+        server.state().lock().unwrap().methods.push("library.scan".into());
+        server.set_response("library.scan", json!({"jobID": "scan-job-99"}));
+        server.set_response("jobs.get", json!({"status": "running"}));
+
+        let server_clone = server.clone();
+        let (delays_tx, _delays_rx) = mpsc::channel::<Duration>();
+        let (supervisor, rx) = BridgeSupervisor::start_with_spawner_and_backoff(move || {
+
+            Client::new_mock(server_clone.clone()).map_err(|e| e.to_string())
+        }, recording_backoff(delays_tx));
+
+        // Wait until connected
+        let mut connected = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !connected {
+            if let Ok(BridgeEvent::Status(BridgeStatus::Connected { .. })) = rx.try_recv() {
+                connected = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(connected);
+
+        // Start scan job
+        supervisor.start_scan("Default Bottle");
+
+        // Wait for started event
+        let mut scan_started = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !scan_started {
+            if let Ok(event) = rx.try_recv() {
+                if let BridgeEvent::Scan { update: ScanUpdate::Started { .. }, .. } = event {
+                    scan_started = true;
+                }
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(scan_started, "Scan job should have started");
+
+        // Trigger crash while scan is in flight
+        server.crash_now();
+
+        // Supervisor must abort active scan with ScanUpdate::Failed { status: JobStatus::Failed, .. }
+        let mut scan_aborted = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !scan_aborted {
+            if let Ok(BridgeEvent::Scan { update: ScanUpdate::Failed { status, reason }, .. }) = rx.try_recv() {
+                assert_eq!(status, JobStatus::Failed);
+                assert!(reason.contains("the scan was abandoned"), "reason: {reason}");
+                scan_aborted = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(scan_aborted, "In-flight scan must be aborted on session crash");
+        drop(supervisor);
+    }
+
+    #[test]
+    fn test_supervisor_session_crash_aborts_in_flight_winetricks_job() {
+        let server = whisky_bridge::MockBridgeServer::new_arc();
+        server.state().lock().unwrap().methods.push("winetricks.install".into());
+        server.set_response("winetricks.install", json!({"jobID": "tricks-job-101"}));
+        server.set_response("jobs.get", json!({"status": "running"}));
+
+        let server_clone = server.clone();
+        let (delays_tx, _delays_rx) = mpsc::channel::<Duration>();
+        let (supervisor, rx) = BridgeSupervisor::start_with_spawner_and_backoff(move || {
+
+            Client::new_mock(server_clone.clone()).map_err(|e| e.to_string())
+        }, recording_backoff(delays_tx));
+
+        // Wait until connected
+        let mut connected = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !connected {
+            if let Ok(BridgeEvent::Status(BridgeStatus::Connected { .. })) = rx.try_recv() {
+                connected = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(connected);
+
+        // Start winetricks install job
+        let verbs = vec!["fake_verb".to_string()];
+        supervisor.install_winetricks("Default Bottle", &verbs);
+
+        // Wait for started event
+        let mut tricks_started = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !tricks_started {
+            if let Ok(BridgeEvent::WinetricksInstall { update: winetricks::InstallUpdate::Started { .. }, .. }) = rx.try_recv() {
+                tricks_started = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(tricks_started, "Winetricks install job should have started");
+
+        // Trigger crash while winetricks install is in flight
+        server.crash_now();
+
+        // Supervisor must abort active winetricks with InstallUpdate::Failed { status: JobStatus::Failed, .. }
+        let mut tricks_aborted = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !tricks_aborted {
+            if let Ok(BridgeEvent::WinetricksInstall { update: winetricks::InstallUpdate::Failed { status, reason }, .. }) = rx.try_recv() {
+                assert_eq!(status, JobStatus::Failed);
+                assert!(reason.contains("winetricks install was abandoned"), "reason: {reason}");
+                tricks_aborted = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(tricks_aborted, "In-flight winetricks install must be aborted on session crash");
+        drop(supervisor);
+    }
+
+    #[test]
+    fn test_supervisor_retry_rapid_fire_no_deadlock() {
+        let spawn_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let sc = spawn_count.clone();
+
+        let (delays_tx, _delays_rx) = mpsc::channel::<Duration>();
+        let (supervisor, rx) = BridgeSupervisor::start_with_spawner_and_backoff(move || {
+
+            let attempt = sc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if attempt < 5 {
+                Err("simulated startup error".into())
+            } else {
+                let healthy = whisky_bridge::MockBridgeServer::new_arc();
+                Client::new_mock(healthy).map_err(|e| e.to_string())
+            }
+        }, recording_backoff(delays_tx));
+
+        // Fire 20 retry commands in rapid fire from another thread
+        let sup_ref = &supervisor;
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                for _ in 0..20 {
+                    sup_ref.retry();
+                }
+            });
+        });
+
+        let mut got_connected = false;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !got_connected {
+            if let Ok(BridgeEvent::Status(BridgeStatus::Connected { .. })) = rx.try_recv() {
+                got_connected = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+
+        assert!(got_connected, "Supervisor should recover and connect under rapid retry commands");
+        assert!(spawn_count.load(std::sync::atomic::Ordering::SeqCst) >= 5);
+        drop(supervisor);
+    }
+
+    #[test]
+    fn test_supervisor_recovers_from_malformed_ndjson_and_oversized_payload() {
+        let spawn_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let sc = spawn_count.clone();
+
+        let (supervisor, rx) = BridgeSupervisor::start_with_spawner(move || {
+            let attempt = sc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let server = whisky_bridge::MockBridgeServer::new_arc();
+            if attempt == 0 {
+                server.inject_fault(whisky_bridge::BridgeFault::MalformedNdjsonFrame);
+            } else if attempt == 1 {
+                server.inject_fault(whisky_bridge::BridgeFault::OversizedPayload(2_000_000));
+            }
+            Client::new_mock(server).map_err(|e| e.to_string())
+        });
+
+        let mut failed_count = 0;
+        let mut got_connected = false;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !got_connected {
+            if let Ok(event) = rx.try_recv() {
+                match event {
+                    BridgeEvent::Status(BridgeStatus::Failed { retryable, .. }) => {
+                        assert!(retryable);
+                        failed_count += 1;
+                    }
+                    BridgeEvent::Status(BridgeStatus::Connected { .. }) => {
+                        got_connected = true;
+                    }
+                    _ => {}
+                }
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+
+        assert!(failed_count >= 2, "Expected at least 2 failures from malformed and oversize payloads");
+        assert!(got_connected, "Supervisor must connect on 3rd attempt after fault injection");
+        drop(supervisor);
     }
 }

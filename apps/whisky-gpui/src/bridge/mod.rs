@@ -7,7 +7,7 @@
 //! restarting the UI process.
 
 pub(crate) mod dto;
-mod supervisor;
+pub(crate) mod supervisor;
 
 pub(crate) use supervisor::{
     BottleCreateUpdate, BottleOperation, BottleOperationUpdate, BridgeEvent, BridgeSupervisor,

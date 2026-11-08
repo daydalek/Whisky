@@ -26,6 +26,24 @@ import Glibc
 import Darwin
 #endif
 
+/// @unchecked Sendable: every access to `values` is protected by `lock`.
+private final class PickerTimeoutProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [TimeInterval] = []
+
+    func append(_ timeout: TimeInterval) {
+        lock.lock()
+        values.append(timeout)
+        lock.unlock()
+    }
+
+    var timeouts: [TimeInterval] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
 private struct PickerFixture {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("linux-picker-\(UUID())")
         .resolvingSymlinksInPath()
@@ -88,6 +106,26 @@ private struct PickerFixture {
     await #expect(throws: BridgeFailure.self) {
         try await fixture.picker(text: fixture.root.path + "\0").call("system.choosePath", params: [:])
     }
+}
+
+@Test func linuxPickerStatus5ThrowsHostTimeoutAndBoundsTheRunner() async throws {
+    let fixture = try PickerFixture()
+    defer { fixture.remove() }
+    // The dialog itself exits after 300 s; the runner gets 310 s so a
+    // status-5 reply always means the dialog timed out first.
+    let probe = PickerTimeoutProbe()
+    let picker = LinuxFilePicker(searchPaths: [fixture.bin], environment: ["DISPLAY": ":fixture"]) { _, _, _, timeout in
+        probe.append(timeout)
+        return HostCommandResult(status: 5, output: Data(), signalled: false)
+    }
+    do {
+        _ = try await picker.call("system.chooseFolder", params: [:])
+        Issue.record("status 5 must throw")
+    } catch let failure as BridgeFailure {
+        #expect(failure.code == "host_timeout")
+        #expect(failure.retryable)
+    }
+    #expect(probe.timeouts == [310])
 }
 
 @Test func linuxPickerValidatesFiltersBeforeStartingTheHostProcess() async throws {
