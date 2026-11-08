@@ -113,7 +113,8 @@ class PackageTests(unittest.TestCase):
         formats.refresh_upscaler_manifest(self.bundle)
         self.manifest['files'] = {str(p.relative_to(self.bundle)): dict(sha256=formats.digest(p),
             bytes=p.stat().st_size, mode=p.stat().st_mode & 0o777)
-            for p in self.bundle.rglob('*') if p.is_file() and p.name != 'manifest.json'}
+            for p in self.bundle.rglob('*') if p.is_file()
+            and (p.parent != self.bundle or p.name != 'manifest.json')}
         (self.bundle / 'manifest.json').write_text(json.dumps(self.manifest))
         output = self.root / 'packages'
         output.mkdir()
