@@ -17,6 +17,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 mod cache;
+mod process;
+
+pub(crate) mod synthetic;
 
 #[cfg(target_os = "macos")]
 mod anime4k;
@@ -39,6 +42,7 @@ pub(crate) enum Engine {
     Anime4K,
     RealCugan,
     RealCuganCpu,
+    Synthetic,
 }
 
 impl Engine {
@@ -47,6 +51,7 @@ impl Engine {
             "realcugan" => Self::RealCugan,
             "realcugan-cpu" => Self::RealCuganCpu,
             "anime4k" => Self::Anime4K,
+            "synthetic" => Self::Synthetic,
             _ => Self::Anime4K,
         }
         .platform_default()
@@ -64,6 +69,7 @@ impl Engine {
         {
             match self {
                 Self::RealCuganCpu => Self::RealCuganCpu,
+                Self::Synthetic => Self::Synthetic,
                 _ => Self::RealCugan,
             }
         }
@@ -78,6 +84,7 @@ impl Engine {
             Self::Anime4K => "anime4k",
             Self::RealCugan => "realcugan",
             Self::RealCuganCpu => "realcugan-cpu",
+            Self::Synthetic => "synthetic",
         }
     }
 
@@ -88,6 +95,7 @@ impl Engine {
                 cfg!(target_os = "macos") || cfg!(any(target_os = "linux", test))
             }
             Self::RealCuganCpu => cfg!(any(target_os = "linux", test)),
+            Self::Synthetic => true,
         }
     }
 
@@ -95,7 +103,7 @@ impl Engine {
         match self {
             Self::RealCugan => cfg!(target_os = "linux"),
             Self::RealCuganCpu => cfg!(any(target_os = "linux", test)),
-            Self::Anime4K => false,
+            Self::Anime4K | Self::Synthetic => false,
         }
     }
 }
@@ -205,6 +213,17 @@ fn dimensions(source: &Path) -> Option<(u32, u32)> {
         .ok()
 }
 
+/// The worker gate, shared by production and tests: `work` runs holding the
+/// single derivation slot, after a fresh cancellation check. Queue
+/// cancellation after acquiring the worker is expected behaviour.
+fn with_worker<R>(cancel: &AtomicBool, work: impl FnOnce() -> Option<R>) -> Option<R> {
+    let _worker = WORKER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    work()
+}
+
 /// The derived cover for `source`, or `None` when it cannot be produced — the
 /// caller then keeps drawing the original.
 pub(crate) fn upscaled_cover(source: &Path, passes: u8, engine: Engine) -> Option<PathBuf> {
@@ -217,67 +236,73 @@ pub(crate) fn upscaled_cover_with_cancel(
     engine: Engine,
     cancel: &AtomicBool,
 ) -> Option<PathBuf> {
+    upscaled_cover_in(source, passes, engine, cancel, &cache::default_root()?)
+}
+
+/// The shared implementation with an explicit cache root: tests pass a
+/// per-test directory so no global HOME/cache state is involved, while
+/// `upscaled_cover_with_cancel` resolves the platform root and forwards.
+pub(crate) fn upscaled_cover_in(
+    source: &Path,
+    passes: u8,
+    engine: Engine,
+    cancel: &AtomicBool,
+    cache_root: &Path,
+) -> Option<PathBuf> {
     if !engine.available() || !source.is_absolute() || passes == 0 {
         return None;
     }
     if cancel.load(std::sync::atomic::Ordering::Relaxed) {
         return None;
     }
-    #[cfg(target_os = "linux")]
-    {
-        let _worker = WORKER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        return linux::upscaled_cover(source, passes, engine, cancel);
+    let (width, height) = dimensions(source)?;
+    if width == 0 || height == 0 {
+        return None;
     }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let (width, height) = dimensions(source)?;
-        if width == 0 || height == 0 {
-            return None;
-        }
-        let passes = capped_passes(passes, width, height);
-        if passes == 0 {
-            return None;
-        }
-        let derived = cache::location(source, passes, &cache_key(engine)?)?;
-        let expected = (width << passes, height << passes);
-        if cached(&derived, engine, expected) {
-            return Some(derived);
-        }
-        // One cover at a time: a four-times derivation holds hundreds of megabytes
-        // of float buffers, and the worker pool would otherwise run several.
-        let _worker = WORKER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-            return None;
-        }
-        if cached(&derived, engine, expected) {
-            return Some(derived);
+    let passes = capped_passes(passes, width, height);
+    if passes == 0 {
+        return None;
+    }
+    #[cfg(target_os = "linux")]
+    if engine != Engine::Synthetic {
+        return with_worker(cancel, || {
+            linux::upscaled_cover(source, passes, engine, cancel, cache_root)
+        });
+    }
+    let derived = cache::location_in(cache_root, source, passes, &cache_key(engine)?)?;
+    let expected = (
+        width.checked_shl(u32::from(passes))?,
+        height.checked_shl(u32::from(passes))?,
+    );
+    // One cover at a time: a four-times derivation holds hundreds of megabytes
+    // of float buffers, and the worker pool would otherwise run several. The
+    // hit check shares the gate too: full-PNG validation decodes the file, so
+    // parallel cache hits outside the gate could still multiply decode memory.
+    with_worker(cancel, || {
+        if cached(&derived, expected) {
+            return Some(derived.clone());
         }
         match engine {
+            #[cfg(any(target_os = "linux", test))]
             Engine::RealCugan | Engine::RealCuganCpu if engine.ncnn() => {
                 ncnn_cover(source, passes, engine, &derived, expected, cancel)
             }
-            Engine::Anime4K => anime4k_cover(source, passes, &derived),
-            Engine::RealCugan => realcugan_cover(source, passes, &derived),
-            Engine::RealCuganCpu => None,
+            #[cfg(not(target_os = "linux"))]
+            Engine::Anime4K => anime4k_cover(source, passes, &derived, cancel),
+            #[cfg(not(target_os = "linux"))]
+            Engine::RealCugan => realcugan_cover(source, passes, &derived, expected, cancel),
+            Engine::Synthetic => cache::publish(&derived, expected, cancel, |output| {
+                synthetic::derive(source, passes, output, expected, cancel)
+            }),
+            _ => None,
         }
-    }
+    })
 }
 
-fn cached(derived: &Path, engine: Engine, expected: (u32, u32)) -> bool {
-    if !derived.exists() {
-        return false;
-    }
-    !engine.ncnn() || valid_ncnn(derived, expected)
-}
-
-#[cfg(any(target_os = "linux", test))]
-fn valid_ncnn(path: &Path, expected: (u32, u32)) -> bool {
-    linux::valid_output(path, expected)
-}
-
-#[cfg(not(any(target_os = "linux", test)))]
-fn valid_ncnn(_path: &Path, _expected: (u32, u32)) -> bool {
-    false
+/// Cache hits share publish's validation for every engine: a real file that
+/// fully decodes to exactly `expected`, never a symlink or a truncated PNG.
+fn cached(derived: &Path, expected: (u32, u32)) -> bool {
+    cache::valid_output(derived, expected)
 }
 
 #[cfg(any(target_os = "linux", test))]
@@ -304,47 +329,58 @@ fn ncnn_cover(
     None
 }
 
-/// Runs the in-process Metal network for each pass.
+/// Runs the in-process Metal network for each pass, checking the token
+/// before and after every GPU dispatch. A cancelled token lands mid-pass —
+/// an executing GPU command is not preempted.
 #[cfg(not(target_os = "linux"))]
-fn anime4k_cover(source: &Path, passes: u8, derived: &Path) -> Option<PathBuf> {
+fn anime4k_cover(
+    source: &Path,
+    passes: u8,
+    derived: &Path,
+    cancel: &AtomicBool,
+) -> Option<PathBuf> {
     let mut image = image::load_from_memory(&std::fs::read(source).ok()?)
         .ok()?
         .to_rgba8();
     for _ in 0 .. passes {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
         let (width, height) = image.dimensions();
         image = image::RgbaImage::from_raw(
             width * 2,
             height * 2,
             wide(image.as_raw(), width, height)?,
         )?;
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
     }
     let (width, height) = image.dimensions();
-    cache::store(derived, image.as_raw(), width, height).then(|| derived.to_path_buf())
+    cache::store(derived, image.as_raw(), width, height, cancel).then(|| derived.to_path_buf())
 }
 
-/// Hands the cover to the Core ML helper, which writes the PNG itself.
+/// Hands the cover to the Core ML helper through the shared bounded process
+/// runner; staging, validation and the atomic rename are `publish`'s job.
 #[cfg(not(target_os = "linux"))]
-fn realcugan_cover(source: &Path, passes: u8, derived: &Path) -> Option<PathBuf> {
+fn realcugan_cover(
+    source: &Path,
+    passes: u8,
+    derived: &Path,
+    expected: (u32, u32),
+    cancel: &AtomicBool,
+) -> Option<PathBuf> {
     let helper = resource("realcugan-helper")?;
     let model = resource("coreml/realcugan-384x384.mlmodelc")?;
-    let parent = derived.parent()?;
-    std::fs::create_dir_all(parent).ok()?;
-    // Write beside the target and move it in, so an interrupted helper cannot
-    // leave a half-written PNG that `exists` would then serve forever.
-    let staging = derived.with_extension("part");
-    let output = std::process::Command::new(helper)
-        .arg("--model").arg(model)
-        .arg("--in").arg(source)
-        .arg("--out").arg(&staging)
-        .arg("--passes").arg(passes.to_string())
-        .output()
-        .ok()?;
-    if !output.status.success() || !staging.exists() {
-        let _ = std::fs::remove_file(&staging);
-        return None;
-    }
-    std::fs::rename(&staging, derived).ok()?;
-    Some(derived.to_path_buf())
+    cache::publish(derived, expected, cancel, |output| {
+        let mut command = std::process::Command::new(&helper);
+        command
+            .arg("--model").arg(&model)
+            .arg("--in").arg(source)
+            .arg("--out").arg(output)
+            .arg("--passes").arg(passes.to_string());
+        process::run_helper(command, output, process::HELPER_TIMEOUT, cancel)
+    })
 }
 
 /// A file shipped in the bundle's `Resources`, next to the executable.
@@ -385,70 +421,4 @@ mod platform_tests {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_factor_alone_decides_the_passes() {
-        assert_eq!(Factor::Off.passes(), 0);
-        assert_eq!(Factor::X2.passes(), 1);
-        assert_eq!(Factor::X4.passes(), 2);
-        // A thumbnail and a full poster both get the factor's passes; nothing
-        // here looks at how large the card is.
-        assert_eq!(capped_passes(Factor::X4.passes(), 250, 300), 2);
-        assert_eq!(capped_passes(Factor::X4.passes(), 1_000, 1_500), 2);
-        assert_eq!(capped_passes(Factor::X2.passes(), 1_000, 1_500), 1);
-    }
-
-    #[test]
-    fn the_ceiling_drops_passes_instead_of_skipping_the_cover() {
-        // 1200x1800 (2.2 MP) at 4x would be 34 MP, over the ceiling, so the
-        // single 2x pass is kept rather than leaving the cover untreated.
-        assert_eq!(capped_passes(2, 1_200, 1_800), 1);
-        // 2400x3600 cannot fit even one pass at 2x, so it is left alone.
-        assert_eq!(capped_passes(2, 2_400, 3_600), 0);
-    }
-
-    /// Drives the real pipeline against a library cover; skipped unless
-    /// `WHISKY_COVER_TEST` points at one. Kept because the engines depend on
-    /// files beside the executable that a plain unit test cannot fabricate.
-    #[test]
-    #[cfg(target_os = "macos")]
-    fn a_real_cover_goes_through_both_engines() {
-        let Ok(path) = std::env::var("WHISKY_COVER_TEST") else { return };
-        let cover = PathBuf::from(path);
-        let (width, height) = dimensions(&cover).expect("cover readable");
-        let passes = capped_passes(2, width, height);
-        for engine in engines() {
-            let derived = upscaled_cover(&cover, passes, *engine);
-            let size = derived.as_ref().and_then(|path| dimensions(path));
-            println!("{engine:?}: {derived:?} -> {size:?}");
-            assert!(derived.is_some(), "{engine:?} produced nothing");
-        }
-    }
-
-    #[test]
-    fn every_engine_round_trips_its_raw_value() {
-        for engine in engines() {
-            assert_eq!(Engine::from_raw(engine.raw()), *engine);
-        }
-    }
-
-    #[test]
-    #[cfg(target_os = "macos")]
-    fn macos_mapping_keeps_both_bundled_engines() {
-        assert_eq!(Engine::from_raw("anime4k"), Engine::Anime4K);
-        assert_eq!(Engine::from_raw("realcugan"), Engine::RealCugan);
-        assert_eq!(Engine::from_raw("nonsense"), Engine::Anime4K);
-        assert_eq!(Engine::from_raw("realcugan-cpu"), Engine::RealCugan);
-    }
-
-    #[test]
-    #[cfg(target_os = "linux")]
-    fn linux_mapping_folds_apple_engines_into_realcugan() {
-        assert_eq!(Engine::from_raw("anime4k"), Engine::RealCugan);
-        assert_eq!(Engine::from_raw("nonsense"), Engine::RealCugan);
-        assert_eq!(Engine::from_raw("realcugan"), Engine::RealCugan);
-        assert_eq!(Engine::from_raw("realcugan-cpu"), Engine::RealCuganCpu);
-    }
-}
+mod tests;

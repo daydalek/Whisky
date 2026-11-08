@@ -1,15 +1,17 @@
 use std::ffi::OsString;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, sync_channel};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 
 use super::Engine;
+// Staging and output validation are shared with every engine via the cache
+// module; re-exported so this file's own tests keep their existing names.
+pub(super) use super::cache::{Stage, valid_output};
 
 const HELPER_NAME: &str = "realcugan-ncnn-vulkan";
 const MODEL_FILES: [&str; 2] = ["up2x-no-denoise.param", "up2x-no-denoise.bin"];
@@ -17,10 +19,7 @@ const MODEL_FAMILY: &str = "models-se";
 const MODEL_DIRECTORY: &str = "share/realcugan-ncnn-vulkan/models-se";
 const BUNDLE_MANIFEST: &str = "share/whisky/upscalers/manifest.json";
 const INFERENCE_SCHEMA: u64 = 2;
-const STDERR_LIMIT: usize = 16 * 1024;
 const PASS_TIMEOUT: Duration = Duration::from_secs(120);
-const POLL: Duration = Duration::from_millis(40);
-const STAGE_ATTEMPTS: u32 = 64;
 
 const STATUS_INITIAL: u8 = 0;
 const STATUS_READY: u8 = 1;
@@ -367,24 +366,9 @@ fn fingerprint(helper: &Path, models: &Path) -> Option<String> {
     ))
 }
 
-pub(super) fn valid_output(path: &Path, expected: (u32, u32)) -> bool {
-    let Ok(metadata) = std::fs::symlink_metadata(path) else {
-        return false;
-    };
-    if metadata.is_symlink() || !metadata.is_file() {
-        return false;
-    }
-    if super::dimensions(path) != Some(expected) {
-        return false;
-    }
-    let Ok(bytes) = std::fs::read(path) else {
-        return false;
-    };
-    image::load_from_memory(&bytes)
-        .map(|image| (image.width(), image.height()) == expected)
-        .unwrap_or(false)
-}
-
+/// Multi-pass ncnn derivation inside a `cache::publish` stage: each pass
+/// writes a sibling of the publish output, the last pass writes the publish
+/// output itself, and `publish` performs the validation and atomic rename.
 pub(super) fn derive(
     config: &Config,
     source: &Path,
@@ -397,45 +381,35 @@ pub(super) fn derive(
     if valid_output(derived, expected) {
         return Some(derived.to_path_buf());
     }
-    if derived
-        .symlink_metadata()
-        .map(|metadata| metadata.is_symlink())
-        .unwrap_or(false)
-    {
-        return None;
-    }
-    std::fs::create_dir_all(derived.parent()?).ok()?;
-    let stage = Stage::new(derived.parent()?)?;
-    let input = stage.0.join("input.png");
-    image::load_from_memory(&std::fs::read(source).ok()?)
-        .ok()?
-        .save_with_format(&input, image::ImageFormat::Png)
-        .ok()?;
-    let mut current = input;
-    for pass in 0..passes {
-        if cancel.load(Ordering::Relaxed) {
-            return None;
+    super::cache::publish(derived, expected, cancel, |output| {
+        let stage_dir = output.parent()?;
+        let input = stage_dir.join("input.png");
+        image::load_from_memory(&std::fs::read(source).ok()?)
+            .ok()?
+            .save_with_format(&input, image::ImageFormat::Png)
+            .ok()?;
+        let mut current = input;
+        for pass in 0..passes {
+            if cancel.load(Ordering::Relaxed) {
+                return None;
+            }
+            let pass_out = if pass + 1 == passes {
+                output.to_path_buf()
+            } else {
+                stage_dir.join(format!("pass-{pass}.png"))
+            };
+            run_pass(config, engine, &current, &pass_out, PASS_TIMEOUT, cancel)?;
+            let want = (
+                expected.0 >> (passes - 1 - pass),
+                expected.1 >> (passes - 1 - pass),
+            );
+            if !valid_output(&pass_out, want) {
+                return None;
+            }
+            current = pass_out;
         }
-        let output = stage.0.join(if pass + 1 == passes {
-            "output.png".to_owned()
-        } else {
-            format!("pass-{pass}.png")
-        });
-        run_pass(config, engine, &current, &output, PASS_TIMEOUT, cancel)?;
-        let want = (
-            expected.0 >> (passes - 1 - pass),
-            expected.1 >> (passes - 1 - pass),
-        );
-        if !valid_output(&output, want) {
-            return None;
-        }
-        current = output;
-    }
-    if cancel.load(Ordering::Relaxed) {
-        return None;
-    }
-    std::fs::rename(&current, derived).ok()?;
-    Some(derived.to_path_buf())
+        Some(())
+    })
 }
 
 fn run_pass(
@@ -469,97 +443,7 @@ fn run_pass(
     if engine == Engine::RealCuganCpu {
         command.arg("-g").arg("-1");
     }
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| eprintln!("cover upscaler: could not start helper: {error}"))
-        .ok()?;
-    let diagnostics = drain_stderr(child.stderr.take()?);
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let detail = receive_diagnostics(&diagnostics);
-                if !status.success() || !output.is_file() {
-                    log_failure(format!("helper exited with {status}; {detail}"));
-                    return None;
-                }
-                return Some(());
-            }
-            Ok(None) => {
-                if cancel.load(Ordering::Relaxed) || Instant::now() >= deadline {
-                    kill_wait(&mut child);
-                    let detail = receive_diagnostics(&diagnostics);
-                    log_failure(format!(
-                        "{}; {detail}",
-                        if cancel.load(Ordering::Relaxed) {
-                            "helper cancelled"
-                        } else {
-                            "helper timed out"
-                        }
-                    ));
-                    return None;
-                }
-                std::thread::sleep(POLL);
-            }
-            Err(_) => {
-                kill_wait(&mut child);
-                let detail = receive_diagnostics(&diagnostics);
-                log_failure(format!("could not wait for helper; {detail}"));
-                return None;
-            }
-        }
-    }
-}
-
-fn drain_stderr(mut stderr: std::process::ChildStderr) -> Receiver<String> {
-    let (sender, receiver) = sync_channel(1);
-    std::thread::spawn(move || {
-        let mut tail = Vec::with_capacity(STDERR_LIMIT);
-        let mut buffer = [0_u8; 4096];
-        loop {
-            match stderr.read(&mut buffer) {
-                Ok(0) | Err(_) => break,
-                Ok(count) => {
-                    if count >= STDERR_LIMIT {
-                        tail.clear();
-                        tail.extend_from_slice(&buffer[count - STDERR_LIMIT..count]);
-                    } else {
-                        let overflow = tail
-                            .len()
-                            .saturating_add(count)
-                            .saturating_sub(STDERR_LIMIT);
-                        if overflow > 0 {
-                            tail.drain(..overflow);
-                        }
-                        tail.extend_from_slice(&buffer[..count]);
-                    }
-                }
-            }
-        }
-        let _ = sender.send(String::from_utf8_lossy(&tail).into_owned());
-    });
-    receiver
-}
-
-fn receive_diagnostics(receiver: &Receiver<String>) -> String {
-    receiver
-        .recv_timeout(Duration::from_millis(100))
-        .unwrap_or_else(|_| "stderr unavailable".to_owned())
-}
-
-fn log_failure(message: String) {
-    eprintln!(
-        "cover upscaler: {}",
-        message.chars().take(STDERR_LIMIT).collect::<String>()
-    );
-}
-
-fn kill_wait(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
+    super::process::run_helper(command, output, timeout, cancel)
 }
 
 pub(super) fn upscaled_cover(
@@ -567,6 +451,7 @@ pub(super) fn upscaled_cover(
     passes: u8,
     engine: Engine,
     cancel: &AtomicBool,
+    cache_root: &Path,
 ) -> Option<PathBuf> {
     if cancel.load(Ordering::Relaxed) {
         return None;
@@ -576,12 +461,18 @@ pub(super) fn upscaled_cover(
         return None;
     };
     let (width, height) = super::dimensions(source)?;
+    let passes = super::capped_passes(passes, width, height);
+    if passes == 0 {
+        return None;
+    }
     let expected = (
         width.checked_shl(u32::from(passes))?,
         height.checked_shl(u32::from(passes))?,
     );
-    let cpu_cache = super::cache::location(source, passes, &config.key(Engine::RealCuganCpu))?;
-    let gpu_cache = super::cache::location(source, passes, &config.key(Engine::RealCugan))?;
+    let cpu_cache =
+        super::cache::location_in(cache_root, source, passes, &config.key(Engine::RealCuganCpu))?;
+    let gpu_cache =
+        super::cache::location_in(cache_root, source, passes, &config.key(Engine::RealCugan))?;
 
     if engine == Engine::RealCugan {
         return derive_auto(
@@ -682,47 +573,6 @@ fn derive_auto(
         STATUS.store(STATUS_FAILED, Ordering::Relaxed);
     }
     output
-}
-
-struct Stage(PathBuf);
-
-impl Stage {
-    fn new(parent: &Path) -> Option<Self> {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        for _ in 0..STAGE_ATTEMPTS {
-            let nanos = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|age| age.as_nanos())
-                .unwrap_or(0);
-            let name = format!(
-                ".stage-{}-{nanos}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed),
-            );
-            if let Some(stage) = Self::create(parent, &name) {
-                return Some(stage);
-            }
-        }
-        None
-    }
-
-    fn create(parent: &Path, name: &str) -> Option<Self> {
-        let dir = parent.join(name);
-        let mut builder = std::fs::DirBuilder::new();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            builder.mode(0o700);
-        }
-        builder.create(&dir).ok()?;
-        Some(Self(dir))
-    }
-}
-
-impl Drop for Stage {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
 }
 
 #[cfg(test)]
