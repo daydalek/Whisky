@@ -49,7 +49,7 @@ try:
         window = None
         while time.monotonic() < deadline:
             assert app.poll() is None
-            result = subprocess.run(['xdotool', 'search', '--onlyvisible', '--pid', str(app.pid), '--name', '^Whisky$'],
+            result = subprocess.run(['xdotool', 'search', '--onlyvisible', '--pid', str(app.pid), '--name', '^Maltoria$'],
                                     capture_output=True, text=True)
             if result.returncode == 0 and result.stdout.strip():
                 window = result.stdout.splitlines()[0]

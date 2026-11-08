@@ -29,6 +29,12 @@ def main():
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     fixture = Path(tempfile.mkdtemp(prefix='fixture-', dir=output))
+    # Seed a returning-user profile: the first-run onboarding sheet would race
+    # the scripted pointer clicks and grab them before settings opens.
+    preferences_dir = fixture / 'config/whisky'
+    preferences_dir.mkdir(parents=True, exist_ok=True)
+    (preferences_dir / 'preferences.plist').write_bytes(
+        plistlib.dumps({'libraryOnboardingCompleted': True}))
     env = dict(os.environ, WHISKY_BRIDGE_HELPER=str(args.helper.resolve()),
                WHISKY_BRIDGE_NO_WINE='1', WHISKY_GPUI_STATE=str(fixture / 'window.json'),
                WHISKY_REGISTRY=str(fixture / 'BottleVM.plist'),
@@ -151,7 +157,7 @@ def main():
                 if app.poll() is not None:
                     raise AssertionError(f'Application exited with {app.returncode}')
                 result = subprocess.run(['xdotool', 'search', '--onlyvisible', '--pid', str(app.pid),
-                                         '--name', '^Whisky$'], capture_output=True, text=True)
+                                         '--name', '^Maltoria$'], capture_output=True, text=True)
                 if result.returncode == 0 and result.stdout.strip():
                     window = result.stdout.splitlines()[0]
                     break

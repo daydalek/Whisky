@@ -40,10 +40,18 @@ def exercise(window, app, fixture, snapshot, report):
     assert not {'killOnTerminate', 'libraryRefreshAfterExit'} & preferences().keys(), preferences()
     assert all(item['method'] not in excluded for item in requests()), requests()
     assert 'setup.status' not in {item['method'] for item in requests()}
-    # A supported library preference remains writable in the same session.
-    click(1215, 553)
+    # A supported library preference remains writable in the same session. The
+    # library-mode cards pushed the row below the fold, so scroll the pane down
+    # to reach the toggle and back up for the coordinates that follow.
+    subprocess.run(['xdotool', 'mousemove', '--window', window, '1215', '600',
+                    'click', '--repeat', '10', '--delay', '20', '5'], check=True)
+    time.sleep(0.4)
+    click(1213, 175)
     wait_for(lambda: preferences().get('libraryMixedCoverLayout') is False,
              'Supported library toggle did not persist')
+    subprocess.run(['xdotool', 'mousemove', '--window', window, '1215', '600',
+                    'click', '--repeat', '10', '--delay', '20', '4'], check=True)
+    time.sleep(0.4)
     snapshot('settings-supported-preference')
 
     def reconnect(methods, count):
@@ -77,7 +85,7 @@ def exercise(window, app, fixture, snapshot, report):
     values = preferences()
     assert values['libraryMixedCoverLayout'] is False and 'killOnTerminate' not in values, values
     assert all(not item['method'].startswith(('setup.', 'runtime.')) for item in requests())
-    subprocess.run(['xdotool', 'mousemove', '--window', window, '1000', '700', 'click', '--repeat', '15', '--delay', '20', '5'], check=True)
+    subprocess.run(['xdotool', 'mousemove', '--window', window, '1000', '700', 'click', '--repeat', '30', '--delay', '20', '5'], check=True)
     time.sleep(0.5)
     snapshot('settings-runtime-and-network')
     click(1215, 747)  # Runtime-only update preference.

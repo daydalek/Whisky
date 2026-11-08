@@ -66,7 +66,7 @@ def exercise(window, app, fixture, bottle, registry, snapshot, report, env):
         snapshot('gamedb-resource-error')
     finally:
         retained.rename(resources)
-    click(921, 607)
+    click(926, 641)
     time.sleep(1)
     snapshot('gamedb-resource-retried')
     requests = [json.loads(line) for line in (fixture / 'requests.jsonl').read_text().splitlines()]

@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends /package.deb \
     && rm -rf /var/lib/apt/lists/* /package.deb
 
 FROM ubuntu-base AS appimage-ubuntu
-COPY Whisky.AppImage /opt/Whisky.AppImage
+COPY Maltoria.AppImage /opt/Whisky.AppImage
 RUN chmod 755 /opt/Whisky.AppImage
 
 FROM fedora:44 AS fedora-base
@@ -41,5 +41,5 @@ RUN --mount=type=cache,id=whisky-fedora44-metadata,target=/var/cache/libdnf5,sha
     --disablerepo=fedora-cisco-openh264 install -y /package.rpm && rm /package.rpm
 
 FROM fedora-base AS appimage-fedora
-COPY Whisky.AppImage /opt/Whisky.AppImage
+COPY Maltoria.AppImage /opt/Whisky.AppImage
 RUN chmod 755 /opt/Whisky.AppImage

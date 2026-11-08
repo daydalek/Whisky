@@ -9,5 +9,8 @@ ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh \
     && sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.99.1 \
     && rm /tmp/rustup.sh
+# The swift:6.4.0-noble image ships clang-21 without the clang++-21 driver name;
+# the name selects C++ mode, so the C++ link picks up libstdc++/libm.
+RUN ln -sf /usr/bin/clang-21 /usr/bin/clang++-21
 ENV PATH=/opt/cargo/bin:$PATH CC=/usr/bin/clang-21 CXX=/usr/bin/clang++-21
 WORKDIR /workspace

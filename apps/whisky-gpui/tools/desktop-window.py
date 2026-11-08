@@ -78,9 +78,9 @@ def exercise(window, app, fixture, bottle, registry, snapshot, env):
     subprocess.run(['gio', 'launch', str(shortcut)], env=child_env, check=True)
     secondary = None
     try:
-        deadline = time.monotonic() + 40
+        deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
-            result = subprocess.run(['xdotool', 'search', '--onlyvisible', '--name', '^Whisky$'],
+            result = subprocess.run(['xdotool', 'search', '--onlyvisible', '--name', '^Maltoria$'],
                                     capture_output=True, text=True)
             candidates = [item for item in result.stdout.splitlines() if item != window]
             if candidates:

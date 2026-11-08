@@ -34,7 +34,7 @@ def exercise(window, app, fixture, bottle, registry, snapshot):
     click(1200, 210)
     time.sleep(0.5)
     snapshot('linux-terminal-selected')
-    click(90, 145)
+    click(90, 219)
     time.sleep(1)
     snapshot('linux-terminal-bottle-before-open')
     click(985, 790)

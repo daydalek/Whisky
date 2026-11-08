@@ -120,7 +120,7 @@ def main():
             assert result.returncode == 0 and json.loads(result.stdout)['platform'] == 'linux', result.stderr
             report['checks'].append('relocation')
             report['launcher'] = str(launcher)
-        window_check([launcher], env, output, 'window', '^Whisky$', 'ctrl+q', 0)
+        window_check([launcher], env, output, 'window', '^Maltoria$', 'ctrl+q', 0)
         report['checks'].append('production-window')
         if args.format == 'appimage':
             subprocess.run([str(launcher), '--appimage-extract'], cwd=output, env=env,
@@ -133,6 +133,7 @@ def main():
             wrapper = output / 'PickerRun'
             script = Path('/usr/bin/whisky').read_text().replace('bin/whisky-gpui', 'bin/whisky-file-picker')
             script = script.replace('/opt/whisky/Whisky', '/opt/whisky/bin/whisky-file-picker')
+            script = script.replace('/opt/whisky/Maltoria', '/opt/whisky/bin/whisky-file-picker')
             bundle = Path('/opt/whisky')
         wrapper.write_text(script)
         wrapper.chmod(0o755)

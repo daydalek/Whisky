@@ -86,7 +86,7 @@ def main():
         nonlocal app, window
         app = subprocess.Popen([str(args.binary.resolve())], env=env, stdout=log, stderr=subprocess.STDOUT)
         def find_window():
-            result = subprocess.run(['xdotool', 'search', '--onlyvisible', '--pid', str(app.pid), '--name', '^Whisky$'],
+            result = subprocess.run(['xdotool', 'search', '--onlyvisible', '--pid', str(app.pid), '--name', '^Maltoria$'],
                                     capture_output=True, text=True, timeout=5)
             return result.stdout.splitlines()[0] if result.returncode == 0 and result.stdout.strip() else None
         window = wait(find_window, 'Production Wine setup window did not appear', timeout=45)

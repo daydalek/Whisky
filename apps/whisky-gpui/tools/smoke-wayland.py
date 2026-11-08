@@ -63,6 +63,12 @@ def main():
     identity = bottle / f'Program Settings/game-{key}.plist'
     install_shell = runpy.run_path(str(TOOLS / 'terminal-fixture.py'))['install_shell']
     shell = install_shell(fixture)
+    # Seed a returning-user profile: the first-run onboarding sheet would race
+    # the scripted pointer clicks and grab them before settings opens.
+    preferences_dir = fixture / 'config/whisky'
+    preferences_dir.mkdir(parents=True, exist_ok=True)
+    (preferences_dir / 'preferences.plist').write_bytes(
+        plistlib.dumps({'libraryOnboardingCompleted': True}))
     session = None
     app = None
     secondary = None
@@ -109,8 +115,13 @@ def main():
             report['steps'].append('native-xdg-shell-with-stable-desktop-app-id-and-no-x11-display')
             session.key('comma', ('ctrl',))
             time.sleep(0.6)
-            session.click(1215, 551)
+            session.scroll(1215, 600, 10)
+            time.sleep(0.4)
+            session.snapshot('wayland-settings-scrolled')
+            session.click(1215, 175)
             wait(lambda: preferences().get('libraryMixedCoverLayout') is False, 'Wayland pointer toggle did not persist')
+            session.scroll(1215, 600, -10)
+            time.sleep(0.4)
             session.snapshot('wayland-settings')
             report['steps'].append('native-keyboard-shortcut-and-pointer-preference-write')
             session.click(1200, 295)
@@ -157,12 +168,13 @@ def main():
             saved = plistlib.loads(identity.read_bytes())
             assert saved['future'] == {'keep': 'opaque'} and saved['environment']['CUSTOM'] == 'retained'
             report['steps'].append('native-wayland-clipboard-unicode-program-save-preserves-unknown-settings')
+            time.sleep(0.5)
             session.click(300, 150, 'button3')
-            time.sleep(0.3)
+            time.sleep(0.8)
             session.click(375, 290)
             time.sleep(0.5)
             session.snapshot('wayland-shortcut-section')
-            session.click(725, 770)
+            session.click(612, 765)
             shortcut = fixture / 'data/applications/game.desktop'
             wait(shortcut.exists, 'Wayland shortcut creation failed')
             assert '--container-id' in shortcut.read_text()
@@ -182,7 +194,7 @@ def main():
             secondary = None
             report['steps'].append('real-gio-stable-shortcut-starts-a-second-native-wayland-window')
             session.focus(window)
-            session.click(80, 179)
+            session.click(80, 252)
             time.sleep(0.6)
             session.snapshot('wayland-before-terminal')
             session.click(980, 870)
