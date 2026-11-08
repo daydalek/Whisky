@@ -73,6 +73,9 @@ extension LibraryMetadataService {
             for cover in hydratedCovers {
                 try? await store.cacheCover(from: cover, session: session)
             }
+            if let resolved = record.resolved().metadata {
+                await cacheCharacterImages(resolved, store: store)
+            }
         } else if method == "metadata.refresh" {
             for source in Self.requestedSources(params) {
                 guard let id = record.bindings[source.rawValue] else { continue }
@@ -95,6 +98,9 @@ extension LibraryMetadataService {
                 }
             }
             record = try await store.loadRecord(for: entry.metadataIdentity) ?? record
+            if let resolved = record.resolved().metadata {
+                await cacheCharacterImages(resolved, store: store)
+            }
         }
         return try .object([
             "hasRecord": .bool(method == "metadata.configuration.save" || existing != nil),

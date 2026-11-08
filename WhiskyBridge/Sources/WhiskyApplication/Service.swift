@@ -19,6 +19,7 @@
 import Foundation
 import WhiskyBridgeProtocol
 import WhiskyCore
+import WhiskyMetadata
 
 /// Host effects are explicit and injectable. GPUI receives errors and owns every dialog.
 @MainActor
@@ -55,6 +56,9 @@ public final class ApplicationService {
     private var closed = false
     private var catalogues: [String: [EntryRecord]] = [:]
     private var catalogueOrder: [String] = []
+    private var portraitRepair: Task<Void, Never>?
+    /// Retained across scans so per-URL failure cooldowns outlive a single pass.
+    private var repairStores: [URL: GameMetadataStore] = [:]
     public let jobs: BridgeJobStore
     public let native: (any NativeApplicationServices)?
     public let runtime: RuntimeService?
@@ -97,7 +101,8 @@ public final class ApplicationService {
         runtime: RuntimeService? = nil,
         processes: ProcessService? = nil,
         preferences: PreferencesService? = nil,
-        jobs: BridgeJobStore? = nil
+        jobs: BridgeJobStore? = nil,
+        metadataSession: URLSession = .shared
     ) {
         self.workspace = workspace
         self.native = native
@@ -110,6 +115,7 @@ public final class ApplicationService {
         lifecycleService = ContainerLifecycleService(jobs: jobStore)
         metadataService = LibraryMetadataService(
             jobs: jobStore,
+            session: metadataSession,
             preferences: preferences,
             networkAccess: { [weak preferences] in
                 let values = try await preferences?.call("preferences.read", params: [:])
@@ -164,6 +170,9 @@ public final class ApplicationService {
     public func shutdown(applyExitPolicy: Bool = false) async {
         guard !closed else { return }
         closed = true
+        portraitRepair?.cancel()
+        portraitRepair = nil
+        repairStores = [:]
         runtime?.stopTracking()
         await jobs.shutdown()
         await native?.shutdown(applyExitPolicy: applyExitPolicy)
@@ -305,12 +314,18 @@ extension ApplicationService {
             let workspace = workspace
             let scan = Task.detached {
                 let visibility = try LibraryVisibility.load(bottleURL: container)
-                return try await workspace.entries(in: container).map {
+                var repairs: [(URL, GameMetadata)] = []
+                let records = try await workspace.entries(in: container).map { entry -> EntryRecord in
                     try Task.checkCancellation()
-                    return try EntryRecord($0, visibility: visibility)
+                    let record = try EntryRecord(entry, visibility: visibility)
+                    if let metadata = Self.pendingPortraitRepair(record) {
+                        repairs.append((entry.metadataDirectory, metadata))
+                    }
+                    return record
                 }
+                return (records, repairs)
             }
-            let records = try await withTaskCancellationHandler {
+            let (records, repairs) = try await withTaskCancellationHandler {
                 try await scan.value
             } onCancel: { scan.cancel() }
             try Task.checkCancellation()
@@ -324,6 +339,7 @@ extension ApplicationService {
             }
             catalogueOrder.append(id)
             catalogues[id] = records
+            schedulePortraitRepair(repairs)
             return .object(["snapshotID": .string(id), "total": .integer(Int64(records.count))])
         }
     }
@@ -353,8 +369,54 @@ extension ApplicationService {
     private func listEntries(_ params: [String: JSONValue]) async throws -> JSONValue {
         let container = try workspace.resolve(params)
         let visibility = try LibraryVisibility.load(bottleURL: container)
-        return try await .encoded(workspace.entries(in: container)
-            .map { try EntryRecord($0, visibility: visibility) })
+        var repairs: [(URL, GameMetadata)] = []
+        let records = try await workspace.entries(in: container).map { entry -> EntryRecord in
+            let record = try EntryRecord(entry, visibility: visibility)
+            if let metadata = Self.pendingPortraitRepair(record) {
+                repairs.append((entry.metadataDirectory, metadata))
+            }
+            return record
+        }
+        schedulePortraitRepair(repairs)
+        return try .encoded(records)
+    }
+
+    /// A scanned entry whose stored cast still has portraits missing from the
+    /// artwork cache, e.g. scraped before download retries existed.
+    private nonisolated static func pendingPortraitRepair(_ record: EntryRecord) -> GameMetadata? {
+        guard let metadata = record.metadata,
+              let characters = metadata.characters,
+              Set(characters.compactMap(\.imageURL)).count > (record.characterImages ?? [:]).count
+        else { return nil }
+        return metadata
+    }
+
+    /// Backfill missing portraits in the background; the next scan picks up
+    /// whatever finished. Cached files are skipped, so steady-state cost is nil.
+    private func schedulePortraitRepair(_ repairs: [(URL, GameMetadata)]) {
+        portraitRepair?.cancel()
+        guard !repairs.isEmpty else {
+            portraitRepair = nil
+            return
+        }
+        var stores: [URL: GameMetadataStore] = [:]
+        for (directory, _) in repairs where stores[directory] == nil {
+            if repairStores[directory] == nil {
+                repairStores[directory] = GameMetadataStore(
+                    directory: directory,
+                    networkAccess: metadataService.networkAccess
+                )
+            }
+            stores[directory] = repairStores[directory]
+        }
+        let service = metadataService
+        portraitRepair = Task.detached(priority: .utility) {
+            for (directory, metadata) in repairs {
+                guard !Task.isCancelled else { return }
+                guard let store = stores[directory] else { continue }
+                await service.cacheCharacterImages(metadata, store: store)
+            }
+        }
     }
 
     private func entryCall(_ method: String, params: [String: JSONValue]) async throws -> JSONValue {

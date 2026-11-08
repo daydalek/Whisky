@@ -74,18 +74,7 @@ chmod +x .git/hooks/pre-commit
 
 ## Localization
 
-All user-facing strings must be localized. Add every new string to the
-English (source) entries in `Whisky/Localizable.xcstrings`. **Do not add
-other-language translations, and do not edit another language's entries, in a
-PR** — hand-editing the string catalog tends to re-serialize the whole file
-(producing huge, unreviewable diffs) and can silently drop existing
-translations.
-
-Translations are managed through Crowdin and synced automatically: the
-[`Crowdin`](.github/workflows/Crowdin.yml) workflow uploads new English strings
-to the project's Crowdin, and opens a `New translations from Crowdin` pull
-request when translators add or update strings. To help translate, contribute
-through the Crowdin project rather than opening a PR here.
+User-facing strings are maintained within the application frontend (`apps/whisky-gpui`). The legacy SwiftUI string catalog (`Whisky/Localizable.xcstrings`) has been deprecated and removed.
 
 ## Changelog
 
@@ -160,11 +149,9 @@ cargo test --locked --manifest-path apps/whisky-gpui/Cargo.toml
 ./build.sh run whisky-macos-gpui-arm64
 ```
 
-> **Note:** the `Whisky/` SwiftUI app target and `WhiskyUITests/` UI suite are
-> not yet covered in CI. The Python
-> end-to-end suite under `tests/` (tier1–tier4) is currently developer-local
-> only; it hardcodes a sample bottle path in `tests/common.py` and is not wired
-> into any workflow.
+> **Note:** The Python end-to-end suite under `tests/` (tier1–tier4) is currently
+> developer-local only; it hardcodes a sample bottle path in `tests/common.py`
+> and is not wired into any workflow.
 
 All tests must pass before your PR can be merged.
 

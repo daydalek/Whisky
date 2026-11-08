@@ -495,9 +495,8 @@ impl WhiskyApp {
             .bg(gradient(grad_start, grad_end))
             .border_r_1()
             .border_color(rgba(divider()))
-            // The traffic lights span the rail's full width; the header band
-            // stays empty so they never cover a button.
-            .child(div().w_full().h(px(52.)).flex_shrink_0())
+            // The full-width toolbar covers the traffic lights, so the rail's
+            // entries start directly under it instead of below an empty band.
             .child(entries)
             .child(div().flex_1())
             .child(
@@ -590,23 +589,9 @@ impl WhiskyApp {
             .bg(gradient(grad_start, grad_end))
             .border_r_1()
             .border_color(rgba(divider()))
-            .child(
-                row()
-                    .h(px(52.))
-                    .flex_shrink_0()
-                    .px(px(14.))
-                    .justify_end()
-                    .child(
-                        round_button("sidebar-hide", "panel-left")
-                            .tooltip(text_tip("收起侧边栏 · 右键选择显示方式"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let style = this.sidebar_collapsed_style;
-                                this.set_sidebar(style, cx);
-                            }))
-                            .context_menu(self.sidebar_mode_menu(cx)),
-                    ),
-            )
-            .child(entries.px(px(5.)))
+            // The collapse button lives in the toolbar beside the traffic
+            // lights, so the rows start directly under it like the rail's.
+            .child(entries.px(px(5.)).pt(px(5.)))
             .child(div().flex_1())
             .child(
                 col()
@@ -723,6 +708,17 @@ impl WhiskyApp {
                         .tooltip(text_tip("显示侧边栏 · 右键选择显示方式"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.set_sidebar(SidebarMode::Expanded, cx);
+                        }))
+                        .context_menu(self.sidebar_mode_menu(cx)),
+                )
+            })
+            .when(matches!(self.sidebar, SidebarMode::Expanded), |d| {
+                d.child(
+                    round_button("sidebar-hide", "panel-left")
+                        .tooltip(text_tip("收起侧边栏 · 右键选择显示方式"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            let style = this.sidebar_collapsed_style;
+                            this.set_sidebar(style, cx);
                         }))
                         .context_menu(self.sidebar_mode_menu(cx)),
                 )

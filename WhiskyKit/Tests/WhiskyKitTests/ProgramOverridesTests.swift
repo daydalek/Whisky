@@ -210,4 +210,50 @@ final class ProgramOverridesTests: XCTestCase {
         // With only taggedVerbs, hasFunctionalOverrides must be false
         XCTAssertFalse(programSettings.hasFunctionalOverrides)
     }
+
+    func testEmulateModesetRoundTrips() throws {
+        var overrides = ProgramOverrides()
+        overrides.emulateModeset = true
+        let data = try PropertyListEncoder().encode(overrides)
+        let decoded = try PropertyListDecoder().decode(ProgramOverrides.self, from: data)
+        XCTAssertEqual(decoded.emulateModeset, true)
+        XCTAssertFalse(decoded.isEmpty)
+    }
+
+    func testEmulateModesetAloneMakesOverridesNonEmpty() {
+        var overrides = ProgramOverrides()
+        XCTAssertTrue(overrides.isEmpty)
+        overrides.emulateModeset = false
+        XCTAssertFalse(overrides.isEmpty)
+    }
+
+    func testLegacyOverridesWithoutEmulateModesetDecodeNil() throws {
+        let decoded = try PropertyListDecoder().decode(
+            ProgramOverrides.self,
+            from: PropertyListSerialization.data(
+                fromPropertyList: ["dxvk": true], format: .binary, options: 0
+            )
+        )
+        XCTAssertEqual(decoded.dxvk, true)
+        XCTAssertNil(decoded.emulateModeset)
+    }
+
+    func testProgramSettingsWithoutDismissalFlagDecodesFalse() throws {
+        let decoded = try PropertyListDecoder().decode(
+            ProgramSettings.self,
+            from: PropertyListSerialization.data(
+                fromPropertyList: ["arguments": "-x"], format: .binary, options: 0
+            )
+        )
+        XCTAssertEqual(decoded.arguments, "-x")
+        XCTAssertFalse(decoded.legacyFullscreenDismissed)
+    }
+
+    func testProgramSettingsDismissalFlagRoundTrips() throws {
+        var settings = ProgramSettings()
+        settings.legacyFullscreenDismissed = true
+        let data = try PropertyListEncoder().encode(settings)
+        let decoded = try PropertyListDecoder().decode(ProgramSettings.self, from: data)
+        XCTAssertTrue(decoded.legacyFullscreenDismissed)
+    }
 }

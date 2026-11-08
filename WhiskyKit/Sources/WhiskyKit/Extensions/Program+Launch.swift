@@ -88,6 +88,9 @@ extension Program {
         await Wine.syncAudioRegistry(bottle: bottle)
         await Wine.syncInputRegistry(bottle: bottle)
         await Wine.syncGPURegistry(bottle: bottle)
+        await Wine.syncDisplayModeRegistry(
+            bottle: bottle, emulateModeset: settings.overrides?.emulateModeset ?? false
+        )
         return try await Wine.prepareProgramLaunch(
             at: url, args: args ?? settings.arguments.split { $0.isWhitespace }.map(String.init),
             bottle: bottle, environment: generateEnvironment(),

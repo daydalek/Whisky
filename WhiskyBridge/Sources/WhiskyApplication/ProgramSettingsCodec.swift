@@ -25,7 +25,7 @@ enum ProgramSettingsCodec {
     static let booleans: Set<String> = [
         "dxvk", "dxvkAsync", "metal4Enabled", "shaderCacheEnabled", "controllerCompatibilityMode",
         "disableHIDAPI", "allowBackgroundEvents", "disableControllerMapping", "useButtonLabels",
-        "virtualDesktopEnabled"
+        "virtualDesktopEnabled", "emulateModeset"
     ]
     static let choices: [String: Set<String>] = Dictionary(uniqueKeysWithValues:
         ContainerConfiguration.fields.compactMap { field in
@@ -119,8 +119,21 @@ enum ProgramSettingsCodec {
     }
 
     static func patch(_ patch: [String: JSONValue], into raw: inout [String: Any]) throws {
-        guard patch.keys.allSatisfy({ ["locale", "arguments", "environment", "overrides"].contains($0) }) else {
+        guard patch.keys.allSatisfy({
+            ["locale", "arguments", "environment", "overrides", "legacyFullscreenDismissed"].contains($0)
+        }) else {
             throw BridgeFailure("invalid_params", "Unknown program setting")
+        }
+        if let value = patch["legacyFullscreenDismissed"] {
+            if case .null = value {
+                raw.removeValue(forKey: "legacyFullscreenDismissed")
+            } else {
+                guard let dismissed = value.bool else { throw BridgeFailure(
+                    "invalid_params",
+                    "Expected legacyFullscreenDismissed boolean"
+                ) }
+                raw["legacyFullscreenDismissed"] = dismissed
+            }
         }
         if let value = patch["locale"] {
             guard let locale = value.string, ContainerConfiguration.locales.contains(where: { $0.0 == locale }) else {

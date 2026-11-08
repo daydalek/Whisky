@@ -160,6 +160,7 @@ extension LibraryMetadataService {
                 metadataRecord.manualTitle = display.title
             }
             try await store.saveAutomaticRecord(metadataRecord, for: entry.metadataIdentity)
+            await cacheCharacterImages(details, store: store)
             if let cover = details.coverURL {
                 try? await store.cacheCover(from: cover, session: session)
             }

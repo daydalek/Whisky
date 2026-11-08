@@ -396,6 +396,17 @@ pub(crate) enum BridgeEvent {
         /// the launch fell back onto `backend` because it cannot run.
         backend_from: Option<String>,
     },
+    /// A finished run's log recorded a failed display-mode change and the
+    /// program still qualifies for the legacy fullscreen prompt: the fix is
+    /// not forced on and the user never permanently dismissed it.
+    LegacyFullscreenPrompt {
+        container: String,
+        executable: String,
+        program_name: String,
+        /// The library entry the finished run belongs to, so the prompt can
+        /// relaunch it directly after enabling the override.
+        entry_id: String,
+    },
     /// The helper stopped before launching and needs a clipboard decision.
     ClipboardPrompt(ClipboardPrompt),
     /// Something the runtime refused. Shown on the existing error surface; a
@@ -786,6 +797,13 @@ enum Command {
     LoadProgramSettings {
         container: String,
         executable: String,
+    },
+    /// `programs.settings.read` after a run exits; only surfaces the legacy
+    /// fullscreen prompt when the read proves the failure is actionable.
+    ProbeLegacyFullscreen {
+        container: String,
+        executable: String,
+        entry_id: String,
     },
     SaveProgramSettings {
         container: String,
@@ -1288,6 +1306,22 @@ impl BridgeSupervisor {
             container: container.to_owned(),
             executable: executable.to_owned(),
             patch,
+        });
+    }
+
+    /// `programs.settings.read` after a run exits. A prompt event only fires
+    /// when the latest run failed a display-mode change and the program has
+    /// neither the override nor a permanent dismissal on record.
+    pub(crate) fn probe_legacy_fullscreen(
+        &self,
+        container: &str,
+        executable: &str,
+        entry_id: &str,
+    ) {
+        let _ = self.commands.send(Command::ProbeLegacyFullscreen {
+            container: container.to_owned(),
+            executable: executable.to_owned(),
+            entry_id: entry_id.to_owned(),
         });
     }
 
@@ -3372,6 +3406,27 @@ fn run(events: smol::channel::Sender<BridgeEvent>, commands: CommandReceiver<Com
                                 reason,
                             },
                         ),
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::ProbeLegacyFullscreen { container, executable, entry_id }) => {
+                    match read_program_settings(&mut client, &container, &executable) {
+                        // A probe that finds nothing actionable stays silent;
+                        // failures never surface since this runs unattended.
+                        Ok(settings) => {
+                            if settings.legacy_fullscreen_suggested() {
+                                emit_event(
+                                    &events,
+                                    BridgeEvent::LegacyFullscreenPrompt {
+                                        container,
+                                        executable,
+                                        program_name: settings.program_name,
+                                        entry_id,
+                                    },
+                                );
+                            }
+                        }
+                        Err(CallFailure::Remote(_)) => {}
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
                 }

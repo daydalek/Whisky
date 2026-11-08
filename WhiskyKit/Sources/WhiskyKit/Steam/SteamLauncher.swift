@@ -102,6 +102,9 @@ public enum SteamLauncher {
             await Wine.syncAudioRegistry(bottle: bottle)
             await Wine.syncInputRegistry(bottle: bottle)
             await Wine.syncGPURegistry(bottle: bottle)
+            await Wine.syncDisplayModeRegistry(
+                bottle: bottle, emulateModeset: plan.overrides.emulateModeset ?? false
+            )
             try Task.checkCancellation()
             if !clientIsRunning {
                 let alreadyRunning = await isClientRunning(bottle: bottle)
@@ -188,6 +191,11 @@ public enum SteamLauncher {
                 await Wine.syncInputRegistry(bottle: bottle)
                 try Task.checkCancellation()
                 try await Wine.syncGPURegistry(bottle: bottle, importer: gpuImporter)
+                try Task.checkCancellation()
+                try await Wine.syncDisplayModeRegistry(
+                    bottle: bottle, emulateModeset: overrides?.emulateModeset ?? false,
+                    importer: gpuImporter
+                )
                 try Task.checkCancellation()
                 try await run(steamExe, bottle, overrides, onHandoff)
             } catch is CancellationError {

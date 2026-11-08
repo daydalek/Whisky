@@ -88,7 +88,8 @@ public enum ProgramHistoryService {
             "id": .string(id), "programName": .string(program), "logFileName": .string(name),
             "logPath": .string(logsDirectory.appendingPathComponent(name).path),
             "startTime": .number(start.timeIntervalSince1970),
-            "hasWineDebugOutput": .bool(entry["hasWineDebugOutput"] as? Bool ?? false)
+            "hasWineDebugOutput": .bool(entry["hasWineDebugOutput"] as? Bool ?? false),
+            "displayModeChangeFailed": .bool(entry["displayModeChangeFailed"] as? Bool ?? false)
         ]
         if let end = entry["endTime"] as? Date {
             result["endTime"] = .number(end.timeIntervalSince1970)

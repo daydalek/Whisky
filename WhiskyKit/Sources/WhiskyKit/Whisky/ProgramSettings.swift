@@ -242,6 +242,13 @@ public struct ProgramSettings: Codable, Equatable, Sendable {
     /// evidence (e.g., a fresh crash diagnosis) is found.
     public var dismissedDependencyRecommendations: Set<String>?
 
+    /// Whether the user dismissed the legacy fullscreen compatibility suggestion.
+    ///
+    /// A failed display-mode change in the latest run log surfaces a one-click
+    /// prompt offering ``ProgramOverrides/emulateModeset``. `true` suppresses
+    /// that prompt permanently; the toggle stays reachable in run settings.
+    public var legacyFullscreenDismissed: Bool = false
+
     /// Creates a new ProgramSettings with default values.
     public init() {}
 
@@ -264,6 +271,10 @@ public struct ProgramSettings: Codable, Equatable, Sendable {
             Set<String>.self,
             forKey: .dismissedDependencyRecommendations
         )
+        self.legacyFullscreenDismissed = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .legacyFullscreenDismissed
+        ) ?? false
     }
 
     /// Loads program settings from a plist file.

@@ -198,7 +198,9 @@ public final class LibraryMetadataService {
         if let cover = metadata.coverURL {
             try? await store.cacheCover(from: cover, session: session)
         }
-        await cacheCharacterImages(metadata, store: store)
+        if let resolved = record.resolved().metadata {
+            await cacheCharacterImages(resolved, store: store)
+        }
         return try .object([
             "metadata": .encoded(record.resolved().metadata),
             "cover": .string(

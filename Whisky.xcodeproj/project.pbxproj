@@ -7,157 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A021C0DE0000000000000001 /* MacOSLibraryServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = A021C0DE0000000000000002 /* MacOSLibraryServices.swift */; };
-		A0C031010000000000000001 /* ThirdParty in Resources */ = {isa = PBXBuildFile; fileRef = A0C031010000000000000002 /* ThirdParty */; };
-		12DEDCF97DB77E9F6714B8F1 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 61747C7BF48347DA75C30397 /* Cocoa.framework */; };
-		160B41C4006351293AAEEF27 /* LauncherConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D27C1F7764AE4F0AED2FD03D /* LauncherConfigSection.swift */; };
 		1A2B3C4D2E0107F000AABBCC /* TextTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4E2E0107F000AABBCC /* TextTable.swift */; };
-		1A8BB6C8C6FC24E0837A3C59 /* CleanupConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 407A01251379955919903C3F /* CleanupConfigSection.swift */; };
-		2E9E4AD3124BDF8D5238BE32 /* DPIConfigSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD3735C5328F7A6ABD2D1248 /* DPIConfigSheetView.swift */; };
-		484A57DAD0A7634094236533 /* DiagnosticsPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8797408D60F55718DFC61664 /* DiagnosticsPickerSheet.swift */; };
-		C16DA5430762A5F33C8714AA /* MigrateBottlesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB85C8A3D3900AA9A7DDCE72 /* MigrateBottlesSheet.swift */; };
-		52513FA35312809A9760BCB2 /* MetalConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2699006F97F862815633C9F /* MetalConfigSection.swift */; };
-		6330DD962B1B0EA4007A625A /* RenameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6330DD952B1B0EA4007A625A /* RenameView.swift */; };
-		6365C4C12B1AA69D00AAE1FD /* Animation+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6365C4C02B1AA69D00AAE1FD /* Animation+Extensions.swift */; };
-		6365C4C32B1AA8CD00AAE1FD /* BottleListEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6365C4C22B1AA8CD00AAE1FD /* BottleListEntry.swift */; };
-		63FFDE862ADF0C7700178665 /* BottomBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63FFDE852ADF0C7700178665 /* BottomBar.swift */; };
-		6763D8F62BC6314100651D27 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6763D8F52BC6314100651D27 /* Constants.swift */; };
-		7A0510A52F5A000000000005 /* Telemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0510A42F5A000000000004 /* Telemetry.swift */; };
-		F1A2B3C4E5F61601A9B0C1F2 /* SparkleUpdaterDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4E5F61601A9B0C1F1 /* SparkleUpdaterDelegate.swift */; };
-		67D278512BC5907E006F9A1E /* ActionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67D278502BC5907E006F9A1E /* ActionView.swift */; };
-		689B4F6DF3B8006E89E1395F /* LauncherDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA88CFEB38031323229CD377 /* LauncherDiagnostics.swift */; };
-		6E064B1229DD32A200D9A2D2 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 6E064B1129DD32A200D9A2D2 /* Sparkle */; };
-		7A0510A32F5A000000000003 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 7A0510A22F5A000000000002 /* PostHog */; };
-		6E064B1429DD331F00D9A2D2 /* SparkleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E064B1329DD331F00D9A2D2 /* SparkleView.swift */; };
-		6E17B6462AF3FDC100831173 /* PinView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E17B6452AF3FDC100831173 /* PinView.swift */; };
-		6E17B6492AF4118F00831173 /* EnvironmentArgView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E17B6482AF4118F00831173 /* EnvironmentArgView.swift */; };
-		6E182FCA2B0BF64E00AADE81 /* WinetricksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E182FC92B0BF64E00AADE81 /* WinetricksView.swift */; };
-		6E2B25C12B0E20F50084A67A /* PinAddView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E2B25C02B0E20F50084A67A /* PinAddView.swift */; };
-		6E2FB15E2B589A7800E344C6 /* cabextract in Embed WhiskyCmd */ = {isa = PBXBuildFile; fileRef = 6E2FB15D2B589A7800E344C6 /* cabextract */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		A1F2E3D4C5B6A70000000102 /* winetricks in Embed WhiskyCmd */ = {isa = PBXBuildFile; fileRef = A1F2E3D4C5B6A70000000101 /* winetricks */; };
-		A1F2E3D4C5B6A70000000104 /* verbs.txt in Embed WhiskyCmd */ = {isa = PBXBuildFile; fileRef = A1F2E3D4C5B6A70000000103 /* verbs.txt */; };
-		6E355E5829D78249002D83BE /* ConfigView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E355E5729D78249002D83BE /* ConfigView.swift */; };
-		6E355E5A29D782B2002D83BE /* ProgramsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E355E5929D782B2002D83BE /* ProgramsView.swift */; };
-		6E355E5E29D7D85D002D83BE /* ProgramView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E355E5D29D7D85D002D83BE /* ProgramView.swift */; };
-		6E40495629CCA19C006E3F1B /* WhiskyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E40495529CCA19C006E3F1B /* WhiskyApp.swift */; };
-		6E40495829CCA19C006E3F1B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E40495729CCA19C006E3F1B /* ContentView.swift */; };
-		C1A2B3C4E5F60601A9B0A3D8 /* ContentView+Sidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0A3D9 /* ContentView+Sidebar.swift */; };
-		6E40495A29CCA19C006E3F1B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6E40495929CCA19C006E3F1B /* Assets.xcassets */; };
-		6E40495D29CCA19C006E3F1B /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6E40495C29CCA19C006E3F1B /* Preview Assets.xcassets */; };
-		6E40498129CCA8B0006E3F1B /* BottleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E40498029CCA8B0006E3F1B /* BottleView.swift */; };
-		C1A2B3C4E5F60601A9B0B1D8 /* BottleActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0B1D9 /* BottleActionBar.swift */; };
-		6E40498329CCA91B006E3F1B /* Bottle+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E40498229CCA91B006E3F1B /* Bottle+Extensions.swift */; };
-		6E49E0212AECB7DB00009CAC /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E49E0202AECB7DB00009CAC /* SettingsView.swift */; };
-		D4E5F6A7B8C90113A9B0C1F4 /* GPTKSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6A7B8C90113A9B0C1F5 /* GPTKSettingsSection.swift */; };
-		6E50D98329CD6066008C39F6 /* BottleVM.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E50D98229CD6066008C39F6 /* BottleVM.swift */; };
-		6E50D98529CDF25B008C39F6 /* BottleCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E50D98429CDF25B008C39F6 /* BottleCreationView.swift */; };
 		6E59676B2A9A424900D64F70 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = 6E59676A2A9A424900D64F70 /* ArgumentParser */; };
 		6E5B61B62AC34E6D007B1913 /* SemanticVersion in Frameworks */ = {isa = PBXBuildFile; productRef = 6E5B61B52AC34E6D007B1913 /* SemanticVersion */; };
-		6E621CEF2A5F631300C9AAB3 /* Winetricks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E621CEE2A5F631200C9AAB3 /* Winetricks.swift */; };
-		6E6C0CF22A419A6800356232 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6C0CF12A419A6800356232 /* WelcomeView.swift */; };
-		6E6C0CF42A419A7600356232 /* RosettaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6C0CF32A419A7600356232 /* RosettaView.swift */; };
-		6E6C0CF62A419A8300356232 /* WhiskyWineDownloadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6C0CF52A419A8300356232 /* WhiskyWineDownloadView.swift */; };
-		6EFA17E70000000000000001 /* WhiskyWineDownloadFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EFA17E70000000000000002 /* WhiskyWineDownloadFormatting.swift */; };
-		6E6C0CF82A419A8C00356232 /* WhiskyWineInstallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6C0CF72A419A8C00356232 /* WhiskyWineInstallView.swift */; };
 		6E70A49B2A9A2197007799E9 /* Main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E70A49A2A9A2197007799E9 /* Main.swift */; };
-		6E70A4A12A9A280C007799E9 /* WhiskyCmd.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E70A4A02A9A280C007799E9 /* WhiskyCmd.swift */; };
-		6E7C07BE2AAE7B0100F6E66B /* ProgramShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E7C07BD2AAE7B0100F6E66B /* ProgramShortcut.swift */; };
-		6E7C07C02AAF570100F6E66B /* FileOpenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E7C07BF2AAF570100F6E66B /* FileOpenView.swift */; };
-		6E95F66D2AB3EF3A00D585D1 /* WhiskyCmd in Embed WhiskyCmd */ = {isa = PBXBuildFile; fileRef = 6E70A4982A9A2197007799E9 /* WhiskyCmd */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		6EB58AC92AEACE5E00B1ED3F /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 6EB58AC82AEACE5E00B1ED3F /* Localizable.xcstrings */; };
-		C1A2B3C4E5F60601A9B0E1D8 /* WhiskyAudioTest.exe in Resources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0E1D9 /* WhiskyAudioTest.exe */; };
-		6EF557982A410599001A4F09 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EF557972A410599001A4F09 /* SetupView.swift */; };
-		6EFDF64C2AAE2DA800EF622F /* QuickLookThumbnailing.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6EFDF64B2AAE2DA800EF622F /* QuickLookThumbnailing.framework */; };
-		6EFDF64E2AAE2DA800EF622F /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6EFDF64D2AAE2DA800EF622F /* Quartz.framework */; };
-		6EFDF6512AAE2DA800EF622F /* ThumbnailProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EFDF6502AAE2DA800EF622F /* ThumbnailProvider.swift */; };
-		6EFDF6562AAE2DA800EF622F /* WhiskyThumbnail.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6EFDF64A2AAE2DA800EF622F /* WhiskyThumbnail.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		6EFDF6662AAE303300EF622F /* Icons.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6EFDF6652AAE303300EF622F /* Icons.xcassets */; };
-		6F2BCF2BAEDFAAA7B418E096 /* Winetricks+InstalledVerbs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F2BCF2BAEDF0AA7B418E096 /* Winetricks+InstalledVerbs.swift */; };
-		744CFC7F2B2281370D39A466 /* WineConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 258BF9104045ED48882E009D /* WineConfigSection.swift */; };
-		77A2EE1594CEE1B55E88AFAB /* InputConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000C327847E981AEF33EFB61 /* InputConfigSection.swift */; };
-		8C2AEFC82AED79B700CB568F /* WhiskyKit in Frameworks */ = {isa = PBXBuildFile; productRef = 8C2AEFC72AED79B700CB568F /* WhiskyKit */; };
 		8C2AEFCA2AED79CD00CB568F /* WhiskyKit in Frameworks */ = {isa = PBXBuildFile; productRef = 8C2AEFC92AED79CD00CB568F /* WhiskyKit */; };
-		8C73E1342AF472FC00B6FB45 /* ProgramMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C73E1332AF472FC00B6FB45 /* ProgramMenuView.swift */; };
-		8CB681E72AED7CD00018D319 /* WhiskyKit in Frameworks */ = {isa = PBXBuildFile; productRef = 8CB681E62AED7CD00018D319 /* WhiskyKit */; };
-		954F64484BFDF7786A5B184E /* LauncherDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 366E8BD2A51FD444160DFC10 /* LauncherDetection.swift */; };
-		D4E5F6A7B8C90113A9B0C1F2 /* GPTKDiskImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6A7B8C90113A9B0C1F3 /* GPTKDiskImage.swift */; };
-		A1B2C3D4E5F60718A9B0C1D2 /* DLLOverrideEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718A9B0C1D3 /* DLLOverrideEditor.swift */; };
-		A1B2C3D4E5F60718A9B0C1D4 /* DLLOverrideConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718A9B0C1D5 /* DLLOverrideConfigSection.swift */; };
-		A1B2C3D4E5F60718A9B0C1D6 /* ProgramOverrideSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718A9B0C1D7 /* ProgramOverrideSettingsView.swift */; };
-		AB0BCABD2B61036E00E21C31 /* RunningProcessesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0BCABC2B61036E00E21C31 /* RunningProcessesView.swift */; };
-		F1A2B3C4E5F61501A9B0C1E2 /* WhiskyMenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4E5F61501A9B0C1E1 /* WhiskyMenuBarView.swift */; };
-		B1A2C3D4E5F60302A9B0C1D3 /* ProcessesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A2C3D4E5F60302A9B0C1D2 /* ProcessesViewModel.swift */; };
-		D7B1C2E3F4A50801A9B0E1F3 /* LibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B1C2E3F4A50801A9B0E1F2 /* LibraryModel.swift */; };
-		B1C2D3E4F5A60402A9B0C1E0 /* BackendPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5A60402A9B0C1E1 /* BackendPickerView.swift */; };
-		B1C2D3E4F5A60402A9B0C1E2 /* GraphicsConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5A60402A9B0C1E3 /* GraphicsConfigSection.swift */; };
-		B1C2D3E4F5A60402A9B0C1E4 /* DXVKSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5A60402A9B0C1E5 /* DXVKSettingsView.swift */; };
-		C08ECD035DDFEDB70ACA1D1B /* PerformanceConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3724CE6DD2C1B22D80442DB6 /* PerformanceConfigSection.swift */; };
-		C1A2B3C4E5F60601A9B0C1D0 /* AudioStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0C1D1 /* AudioStatusView.swift */; };
-		C1A2B3C4E5F60601A9B0C1D2 /* AudioTestButtonsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0C1D3 /* AudioTestButtonsView.swift */; };
-		C1A2B3C4E5F60601A9B0C1D4 /* AudioSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0C1D5 /* AudioSettingsView.swift */; };
-		C1A2B3C4E5F60601A9B0C1D6 /* AudioFindingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0C1D7 /* AudioFindingsView.swift */; };
-		C1A2B3C4E5F60601A9B0C1D8 /* AudioConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0C1D9 /* AudioConfigSection.swift */; };
-		C1A2B3C4E5F60601A9B0F2D8 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0F2D9 /* LibraryView.swift */; };
-		F2A3B4C5D6E70819A0B1C2D3 /* LibraryView+Menu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3B4C5D6E70819A0B1C2D4 /* LibraryView+Menu.swift */; };
-		F2A3B4C5D6E70819A0B1C2D5 /* GraphicsConfigSection+Notices.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3B4C5D6E70819A0B1C2D6 /* GraphicsConfigSection+Notices.swift */; };
-		C1A2B3C4E5F60601A9B0F1D8 /* LibraryCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0F1D9 /* LibraryCard.swift */; };
-		B82D9168CA8E401CA33A0001 /* LibraryGameSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82D9168CA8E401CA33A0002 /* LibraryGameSheet.swift */; };
-		C1A2B3C4E5F60601A9B0D1D8 /* DiscordConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0D1D9 /* DiscordConfigSection.swift */; };
-		C1A2B3C4E5F60601A9B0C2D0 /* AudioTroubleshootingWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0C2D1 /* AudioTroubleshootingWizardView.swift */; };
-		C1A2B3C4E5F60601A9B0C2D2 /* AudioDeviceListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0C2D3 /* AudioDeviceListView.swift */; };
-		C1A2B3C4E5F60601A9B0C2D4 /* AudioDeviceHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0C2D5 /* AudioDeviceHistoryView.swift */; };
-		D1A2B3C4E5F60504A9B0C1D1 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A2B3C4E5F60504A9B0C1D0 /* DiagnosticsView.swift */; };
-		D1A2B3C4E5F60504A9B0C1D3 /* RemediationCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A2B3C4E5F60504A9B0C1D2 /* RemediationCardView.swift */; };
-		D1A2B3C4E5F60504A9B0C1D5 /* LogViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A2B3C4E5F60504A9B0C1D4 /* LogViewerView.swift */; };
-		D1A2B3C4E5F60504A9B0C1E1 /* DiagnosticExportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A2B3C4E5F60504A9B0C1E0 /* DiagnosticExportSheet.swift */; };
-		D1A2B3C4E5F60504A9B0C1E3 /* DiagnosisHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A2B3C4E5F60504A9B0C1E2 /* DiagnosisHistoryView.swift */; };
-		D1A2B3C4E5F60901A9B0C1D0 /* ResolutionConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A2B3C4E5F60901A9B0C1D1 /* ResolutionConfigSection.swift */; };
-		D6EEECF2BAE764BAE529B9BA /* AudioAlertTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADA9ADA587AF95DCFEC04F25 /* AudioAlertTracker.swift */; };
-		DB696FC82AFAE5DA0037EB2F /* PinCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB696FC72AFAE5DA0037EB2F /* PinCreationView.swift */; };
-		E1A2B3C4E5F60701A9B0C1D0 /* GameEntryRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4E5F60701A9B0C1D1 /* GameEntryRowView.swift */; };
-		E1A2B3C4E5F60701A9B0C1D2 /* GameConfigurationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4E5F60701A9B0C1D3 /* GameConfigurationView.swift */; };
-		E1A2B3C4E5F60701A9B0C2D0 /* GameEntryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4E5F60701A9B0C2D1 /* GameEntryDetailView.swift */; };
-		E1A2B3C4E5F60701A9B0C2D2 /* GameVariantPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4E5F60701A9B0C2D3 /* GameVariantPickerView.swift */; };
-		E1A2B3C4E5F60701A9B0C2D4 /* GameConfigPreviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4E5F60701A9B0C2D5 /* GameConfigPreviewSheet.swift */; };
-		E1A2B3C4E5F60701A9B0C3D0 /* GameConfigBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4E5F60701A9B0C3D1 /* GameConfigBannerView.swift */; };
-		E1A2B3C4E5F60901A9B0C1D0 /* ConsoleRunHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4E5F60901A9B0C1D1 /* ConsoleRunHistoryView.swift */; };
-		E1A2B3C4E5F60901A9B0C1D2 /* ConsoleLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4E5F60901A9B0C1D3 /* ConsoleLogView.swift */; };
-		E24B756A38C48A1EE4374F25 /* SettingItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAE15F0C1EF1F06C7DB73DF5 /* SettingItemView.swift */; };
-		E7BB70E85616CF51250E10FB /* WhiskyUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBD00A21534D48ADAE68040E /* WhiskyUITests.swift */; };
-		C1A2B3C4E5F60601A9B0A2D8 /* WhiskyUITestsGameDB.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0A2D9 /* WhiskyUITestsGameDB.swift */; };
-		C1A2B3C4E5F60601A9B0A1D8 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4E5F60601A9B0A1D9 /* UITestSupport.swift */; };
-		EB58FB552A499896002DC184 /* SemanticVersion in Frameworks */ = {isa = PBXBuildFile; productRef = EB58FB542A499896002DC184 /* SemanticVersion */; };
-		EEA5A2462A31DD65008274AE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEA5A2452A31DD65008274AE /* AppDelegate.swift */; };
-		F1A2B3C4E5F60801A9B0C1D1 /* ControllerMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4E5F60801A9B0C1D0 /* ControllerMonitor.swift */; };
-		F748991F03BA464CFCDA99F3 /* StatusToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E2D80EAABBB985BAED42548 /* StatusToast.swift */; };
-		FBD19F7BAD838BE3ABB2CCC2 /* LaunchResult+Toast.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2516958D60EC8937A2AF71 /* LaunchResult+Toast.swift */; };
-		G1A2B3C4E5F60901A9B0C1D0 /* DependencyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = G1A2B3C4E5F60901A9B0C1D1 /* DependencyManager.swift */; };
-		AB5DECAF20260818000000D4 /* RemediationExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5DECAF20260818000000D5 /* RemediationExecutor.swift */; };
-		AB5DECAF20260818000000D0 /* QuickLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5DECAF20260818000000D1 /* QuickLaunch.swift */; };
-		G1A2B3C4E5F60901A9B0C1D2 /* Winetricks+Install.swift in Sources */ = {isa = PBXBuildFile; fileRef = G1A2B3C4E5F60901A9B0C1D3 /* Winetricks+Install.swift */; };
-		H1A2B3C4E5F61001A9B0C1D0 /* LaunchTimeBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = H1A2B3C4E5F61001A9B0C1D1 /* LaunchTimeBanner.swift */; };
-		H1A2B3C4E5F61101A9B0C1D0 /* DependencyConfigSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = H1A2B3C4E5F61101A9B0C1D1 /* DependencyConfigSection.swift */; };
-		H1A2B3C4E5F61101A9B0C1D2 /* DependencyInstallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = H1A2B3C4E5F61101A9B0C1D3 /* DependencyInstallSheet.swift */; };
-		I1A2B3C4E5F61201A9B0C1D0 /* SteamDownloadMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = I1A2B3C4E5F61201A9B0C1D1 /* SteamDownloadMonitor.swift */; };
-		129146529D772EC1C559C0CB /* AppSteamClientDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B94A3D15B907CF55C906C9A /* AppSteamClientDriver.swift */; };
-		J1A2B3C4E5F61301A9B0C1D0 /* TroubleshootingWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J1A2B3C4E5F61301A9B0C1D1 /* TroubleshootingWizardView.swift */; };
-		J1A2B3C4E5F61301A9B0C1D2 /* ProgressRailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J1A2B3C4E5F61301A9B0C1D3 /* ProgressRailView.swift */; };
-		J1A2B3C4E5F61301A9B0C1D4 /* SymptomPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J1A2B3C4E5F61301A9B0C1D5 /* SymptomPickerView.swift */; };
-		J1A2B3C4E5F61301A9B0C1D6 /* StepCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J1A2B3C4E5F61301A9B0C1D7 /* StepCardView.swift */; };
-		J1A2B3C4E5F61301A9B0C1D8 /* FixPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J1A2B3C4E5F61301A9B0C1D9 /* FixPreviewView.swift */; };
-		J1A2B3C4E5F61301A9B0C2D0 /* FixVerifyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J1A2B3C4E5F61301A9B0C2D1 /* FixVerifyView.swift */; };
-		J1A2B3C4E5F61301A9B0C2D2 /* BranchExplanationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J1A2B3C4E5F61301A9B0C2D3 /* BranchExplanationView.swift */; };
-		J1A2B3C4E5F61301A9B0C2D4 /* SessionResumeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J1A2B3C4E5F61301A9B0C2D5 /* SessionResumeView.swift */; };
-		J1A2B3C4E5F61301A9B0C2D6 /* EscalationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = J1A2B3C4E5F61301A9B0C2D7 /* EscalationView.swift */; };
-		K1A2B3C4E5F61401A9B0C1D0 /* TroubleshootingHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = K1A2B3C4E5F61401A9B0C1D1 /* TroubleshootingHistoryView.swift */; };
-		K1A2B3C4E5F61401A9B0C1D2 /* TroubleshootingTargetPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = K1A2B3C4E5F61401A9B0C1D3 /* TroubleshootingTargetPicker.swift */; };
-		K1A2B3C4E5F61401A9B0C1D4 /* TroubleshootingEntryBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = K1A2B3C4E5F61401A9B0C1D5 /* TroubleshootingEntryBanner.swift */; };
-		63FBC2457D95CB0A0B6016A1 /* LibrarySidebarCounts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA60C3E7B4689DA7A654FA56 /* LibrarySidebarCounts.swift */; };
-		737B76A63405E92C1830DD28 /* DiagnosticLogRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B41617DD7FB4DA644AAFB89 /* DiagnosticLogRenderer.swift */; };
 /* End PBXBuildFile section */
-
-/* Begin PBXContainerItemProxy section */
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		6E70A4962A9A2197007799E9 /* CopyFiles */ = {
@@ -169,203 +24,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 1;
 		};
-		6E95F66C2AB3EF2F00D585D1 /* Embed WhiskyCmd */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 7;
-			files = (
-				6E2FB15E2B589A7800E344C6 /* cabextract in Embed WhiskyCmd */,
-				A1F2E3D4C5B6A70000000102 /* winetricks in Embed WhiskyCmd */,
-				A1F2E3D4C5B6A70000000104 /* verbs.txt in Embed WhiskyCmd */,
-				6E95F66D2AB3EF3A00D585D1 /* WhiskyCmd in Embed WhiskyCmd */,
-			);
-			name = "Embed WhiskyCmd";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		6EFDF65A2AAE2DA800EF622F /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				6EFDF6562AAE2DA800EF622F /* WhiskyThumbnail.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		A021C0DE0000000000000002 /* MacOSLibraryServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacOSLibraryServices.swift; sourceTree = "<group>"; };
 		A0C031010000000000000002 /* ThirdParty */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ThirdParty; sourceTree = SOURCE_ROOT; };
-		000C327847E981AEF33EFB61 /* InputConfigSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InputConfigSection.swift; sourceTree = "<group>"; };
 		1A2B3C4E2E0107F000AABBCC /* TextTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextTable.swift; sourceTree = "<group>"; };
-		1C3B8A506869998F3FE0FC74 /* WhiskyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WhiskyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		258BF9104045ED48882E009D /* WineConfigSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WineConfigSection.swift; sourceTree = "<group>"; };
-		366E8BD2A51FD444160DFC10 /* LauncherDetection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LauncherDetection.swift; sourceTree = "<group>"; };
-		D4E5F6A7B8C90113A9B0C1F3 /* GPTKDiskImage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GPTKDiskImage.swift; sourceTree = "<group>"; };
-		3724CE6DD2C1B22D80442DB6 /* PerformanceConfigSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceConfigSection.swift; sourceTree = "<group>"; };
-		407A01251379955919903C3F /* CleanupConfigSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CleanupConfigSection.swift; sourceTree = "<group>"; };
-		4D93508A9C8E5B94200BA068 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		4E2D80EAABBB985BAED42548 /* StatusToast.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Whisky/Views/Common/StatusToast.swift; sourceTree = SOURCE_ROOT; };
-		61747C7BF48347DA75C30397 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
-		6330DD952B1B0EA4007A625A /* RenameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenameView.swift; sourceTree = "<group>"; };
-		6365C4C02B1AA69D00AAE1FD /* Animation+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Animation+Extensions.swift"; sourceTree = "<group>"; };
-		6365C4C22B1AA8CD00AAE1FD /* BottleListEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleListEntry.swift; sourceTree = "<group>"; };
-		63FFDE852ADF0C7700178665 /* BottomBar.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BottomBar.swift; sourceTree = "<group>"; };
-		6763D8F52BC6314100651D27 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
-		7A0510A42F5A000000000004 /* Telemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Telemetry.swift; sourceTree = "<group>"; };
-		F1A2B3C4E5F61601A9B0C1F1 /* SparkleUpdaterDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkleUpdaterDelegate.swift; sourceTree = "<group>"; };
-		67D278502BC5907E006F9A1E /* ActionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionView.swift; sourceTree = "<group>"; };
-		6E064B1329DD331F00D9A2D2 /* SparkleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkleView.swift; sourceTree = "<group>"; };
-		6E17B6452AF3FDC100831173 /* PinView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinView.swift; sourceTree = "<group>"; };
-		6E17B6482AF4118F00831173 /* EnvironmentArgView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvironmentArgView.swift; sourceTree = "<group>"; };
-		6E182FC92B0BF64E00AADE81 /* WinetricksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WinetricksView.swift; sourceTree = "<group>"; };
-		6E2B25C02B0E20F50084A67A /* PinAddView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinAddView.swift; sourceTree = "<group>"; };
 		6E2FB15D2B589A7800E344C6 /* cabextract */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = cabextract; sourceTree = "<group>"; };
 		A1F2E3D4C5B6A70000000101 /* winetricks */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = winetricks; sourceTree = "<group>"; };
 		A1F2E3D4C5B6A70000000103 /* verbs.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = verbs.txt; sourceTree = "<group>"; };
-		6E355E5729D78249002D83BE /* ConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigView.swift; sourceTree = "<group>"; };
-		6E355E5929D782B2002D83BE /* ProgramsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgramsView.swift; sourceTree = "<group>"; };
-		6E355E5D29D7D85D002D83BE /* ProgramView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgramView.swift; sourceTree = "<group>"; };
-		6E40495229CCA19C006E3F1B /* Maltoria.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Maltoria.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		6E40495529CCA19C006E3F1B /* WhiskyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiskyApp.swift; sourceTree = "<group>"; };
-		6E40495729CCA19C006E3F1B /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0A3D9 /* ContentView+Sidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+Sidebar.swift"; sourceTree = "<group>"; };
-		6E40495929CCA19C006E3F1B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		6E40495C29CCA19C006E3F1B /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
-		6E40495E29CCA19C006E3F1B /* Whisky.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Whisky.entitlements; sourceTree = "<group>"; };
-		6E40498029CCA8B0006E3F1B /* BottleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleView.swift; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0B1D9 /* BottleActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleActionBar.swift; sourceTree = "<group>"; };
-		6E40498229CCA91B006E3F1B /* Bottle+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Bottle+Extensions.swift"; sourceTree = "<group>"; };
-		6E49E0202AECB7DB00009CAC /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		D4E5F6A7B8C90113A9B0C1F5 /* GPTKSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPTKSettingsSection.swift; sourceTree = "<group>"; };
-		6E50D98229CD6066008C39F6 /* BottleVM.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleVM.swift; sourceTree = "<group>"; };
-		6E50D98429CDF25B008C39F6 /* BottleCreationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottleCreationView.swift; sourceTree = "<group>"; };
-		6E621CEE2A5F631200C9AAB3 /* Winetricks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Winetricks.swift; sourceTree = "<group>"; };
-		6E6C0CF12A419A6800356232 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
-		6E6C0CF32A419A7600356232 /* RosettaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosettaView.swift; sourceTree = "<group>"; };
-		6E6C0CF52A419A8300356232 /* WhiskyWineDownloadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiskyWineDownloadView.swift; sourceTree = "<group>"; };
-		6EFA17E70000000000000002 /* WhiskyWineDownloadFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiskyWineDownloadFormatting.swift; sourceTree = "<group>"; };
-		6E6C0CF72A419A8C00356232 /* WhiskyWineInstallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiskyWineInstallView.swift; sourceTree = "<group>"; };
 		6E70A4982A9A2197007799E9 /* WhiskyCmd */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = WhiskyCmd; sourceTree = BUILT_PRODUCTS_DIR; };
 		6E70A49A2A9A2197007799E9 /* Main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Main.swift; sourceTree = "<group>"; };
-		6E70A4A02A9A280C007799E9 /* WhiskyCmd.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiskyCmd.swift; sourceTree = "<group>"; };
-		6E7C07BD2AAE7B0100F6E66B /* ProgramShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgramShortcut.swift; sourceTree = "<group>"; };
-		6E7C07BF2AAF570100F6E66B /* FileOpenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileOpenView.swift; sourceTree = "<group>"; };
-		6E899D1129CFC41D00A4A083 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		6EB58AC82AEACE5E00B1ED3F /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0E1D9 /* WhiskyAudioTest.exe */ = {isa = PBXFileReference; lastKnownFileType = file; path = Resources/WhiskyAudioTest.exe; sourceTree = "<group>"; };
-		6EF557972A410599001A4F09 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
-		6EFDF64A2AAE2DA800EF622F /* WhiskyThumbnail.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WhiskyThumbnail.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		6EFDF64B2AAE2DA800EF622F /* QuickLookThumbnailing.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookThumbnailing.framework; path = System/Library/Frameworks/QuickLookThumbnailing.framework; sourceTree = SDKROOT; };
-		6EFDF64D2AAE2DA800EF622F /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
-		6EFDF6502AAE2DA800EF622F /* ThumbnailProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailProvider.swift; sourceTree = "<group>"; };
-		6EFDF6522AAE2DA800EF622F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		6EFDF6532AAE2DA800EF622F /* WhiskyThumbnail.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WhiskyThumbnail.entitlements; sourceTree = "<group>"; };
-		6EFDF6652AAE303300EF622F /* Icons.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Icons.xcassets; sourceTree = "<group>"; };
-		6F2BCF2BAEDF0AA7B418E096 /* Winetricks+InstalledVerbs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Winetricks+InstalledVerbs.swift"; sourceTree = "<group>"; };
-		8797408D60F55718DFC61664 /* DiagnosticsPickerSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DiagnosticsPickerSheet.swift; sourceTree = "<group>"; };
-		DB85C8A3D3900AA9A7DDCE72 /* MigrateBottlesSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MigrateBottlesSheet.swift; sourceTree = "<group>"; };
-		8C73E1332AF472FC00B6FB45 /* ProgramMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgramMenuView.swift; sourceTree = "<group>"; };
 		8CB681E42AED7C6F0018D319 /* WhiskyKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = WhiskyKit; sourceTree = "<group>"; };
-		A1B2C3D4E5F60718A9B0C1D3 /* DLLOverrideEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DLLOverrideEditor.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F60718A9B0C1D5 /* DLLOverrideConfigSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DLLOverrideConfigSection.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F60718A9B0C1D7 /* ProgramOverrideSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgramOverrideSettingsView.swift; sourceTree = "<group>"; };
-		AA2516958D60EC8937A2AF71 /* LaunchResult+Toast.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "LaunchResult+Toast.swift"; sourceTree = "<group>"; };
-		AA88CFEB38031323229CD377 /* LauncherDiagnostics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LauncherDiagnostics.swift; sourceTree = "<group>"; };
-		AB0BCABC2B61036E00E21C31 /* RunningProcessesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningProcessesView.swift; sourceTree = "<group>"; };
-		F1A2B3C4E5F61501A9B0C1E1 /* WhiskyMenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiskyMenuBarView.swift; sourceTree = "<group>"; };
-		ADA9ADA587AF95DCFEC04F25 /* AudioAlertTracker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioAlertTracker.swift; sourceTree = "<group>"; };
-		B1A2C3D4E5F60302A9B0C1D2 /* ProcessesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessesViewModel.swift; sourceTree = "<group>"; };
-		D7B1C2E3F4A50801A9B0E1F2 /* LibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModel.swift; sourceTree = "<group>"; };
-		B1C2D3E4F5A60402A9B0C1E1 /* BackendPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendPickerView.swift; sourceTree = "<group>"; };
-		B1C2D3E4F5A60402A9B0C1E3 /* GraphicsConfigSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphicsConfigSection.swift; sourceTree = "<group>"; };
-		B1C2D3E4F5A60402A9B0C1E5 /* DXVKSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DXVKSettingsView.swift; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0C1D1 /* AudioStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioStatusView.swift; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0C1D3 /* AudioTestButtonsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTestButtonsView.swift; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0C1D5 /* AudioSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSettingsView.swift; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0C1D7 /* AudioFindingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFindingsView.swift; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0C1D9 /* AudioConfigSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioConfigSection.swift; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0F2D9 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LibraryView.swift; path = Whisky/Views/Library/LibraryView.swift; sourceTree = SOURCE_ROOT; };
-		F2A3B4C5D6E70819A0B1C2D4 /* LibraryView+Menu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "LibraryView+Menu.swift"; path = "Whisky/Views/Library/LibraryView+Menu.swift"; sourceTree = SOURCE_ROOT; };
-		F2A3B4C5D6E70819A0B1C2D6 /* GraphicsConfigSection+Notices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GraphicsConfigSection+Notices.swift"; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0F1D9 /* LibraryCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LibraryCard.swift; path = Whisky/Views/Library/LibraryCard.swift; sourceTree = SOURCE_ROOT; };
-		B82D9168CA8E401CA33A0002 /* LibraryGameSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LibraryGameSheet.swift; path = Whisky/Views/Library/LibraryGameSheet.swift; sourceTree = SOURCE_ROOT; };
-		C1A2B3C4E5F60601A9B0D1D9 /* DiscordConfigSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscordConfigSection.swift; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0C2D1 /* AudioTroubleshootingWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTroubleshootingWizardView.swift; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0C2D3 /* AudioDeviceListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDeviceListView.swift; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0C2D5 /* AudioDeviceHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDeviceHistoryView.swift; sourceTree = "<group>"; };
-		D1A2B3C4E5F60504A9B0C1D0 /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
-		D1A2B3C4E5F60504A9B0C1D2 /* RemediationCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemediationCardView.swift; sourceTree = "<group>"; };
-		D1A2B3C4E5F60504A9B0C1D4 /* LogViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogViewerView.swift; sourceTree = "<group>"; };
-		D1A2B3C4E5F60504A9B0C1E0 /* DiagnosticExportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticExportSheet.swift; sourceTree = "<group>"; };
-		D1A2B3C4E5F60504A9B0C1E2 /* DiagnosisHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosisHistoryView.swift; sourceTree = "<group>"; };
-		D1A2B3C4E5F60901A9B0C1D1 /* ResolutionConfigSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResolutionConfigSection.swift; sourceTree = "<group>"; };
-		D27C1F7764AE4F0AED2FD03D /* LauncherConfigSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LauncherConfigSection.swift; sourceTree = "<group>"; };
-		DB696FC72AFAE5DA0037EB2F /* PinCreationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinCreationView.swift; sourceTree = "<group>"; };
-		DD3735C5328F7A6ABD2D1248 /* DPIConfigSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DPIConfigSheetView.swift; sourceTree = "<group>"; };
-		E1A2B3C4E5F60701A9B0C1D1 /* GameEntryRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameEntryRowView.swift; sourceTree = "<group>"; };
-		E1A2B3C4E5F60701A9B0C1D3 /* GameConfigurationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameConfigurationView.swift; sourceTree = "<group>"; };
-		E1A2B3C4E5F60701A9B0C2D1 /* GameEntryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameEntryDetailView.swift; sourceTree = "<group>"; };
-		E1A2B3C4E5F60701A9B0C2D3 /* GameVariantPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameVariantPickerView.swift; sourceTree = "<group>"; };
-		E1A2B3C4E5F60701A9B0C2D5 /* GameConfigPreviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameConfigPreviewSheet.swift; sourceTree = "<group>"; };
-		E1A2B3C4E5F60701A9B0C3D1 /* GameConfigBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameConfigBannerView.swift; sourceTree = "<group>"; };
-		E1A2B3C4E5F60901A9B0C1D1 /* ConsoleRunHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleRunHistoryView.swift; sourceTree = "<group>"; };
-		E1A2B3C4E5F60901A9B0C1D3 /* ConsoleLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleLogView.swift; sourceTree = "<group>"; };
-		E2699006F97F862815633C9F /* MetalConfigSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalConfigSection.swift; sourceTree = "<group>"; };
-		EAE15F0C1EF1F06C7DB73DF5 /* SettingItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingItemView.swift; sourceTree = "<group>"; };
-		EBD00A21534D48ADAE68040E /* WhiskyUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhiskyUITests.swift; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0A2D9 /* WhiskyUITestsGameDB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhiskyUITestsGameDB.swift; sourceTree = "<group>"; };
-		C1A2B3C4E5F60601A9B0A1D9 /* UITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestSupport.swift; sourceTree = "<group>"; };
-		EEA5A2452A31DD65008274AE /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		F1A2B3C4E5F60801A9B0C1D0 /* ControllerMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerMonitor.swift; sourceTree = "<group>"; };
-		G1A2B3C4E5F60901A9B0C1D1 /* DependencyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DependencyManager.swift; sourceTree = "<group>"; };
-		AB5DECAF20260818000000D5 /* RemediationExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemediationExecutor.swift; sourceTree = "<group>"; };
-		AB5DECAF20260818000000D1 /* QuickLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickLaunch.swift; sourceTree = "<group>"; };
-		G1A2B3C4E5F60901A9B0C1D3 /* Winetricks+Install.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Winetricks+Install.swift"; sourceTree = "<group>"; };
-		H1A2B3C4E5F61001A9B0C1D1 /* LaunchTimeBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Whisky/Views/Common/LaunchTimeBanner.swift; sourceTree = SOURCE_ROOT; };
-		H1A2B3C4E5F61101A9B0C1D1 /* DependencyConfigSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DependencyConfigSection.swift; sourceTree = "<group>"; };
-		H1A2B3C4E5F61101A9B0C1D3 /* DependencyInstallSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DependencyInstallSheet.swift; sourceTree = "<group>"; };
-		I1A2B3C4E5F61201A9B0C1D1 /* SteamDownloadMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SteamDownloadMonitor.swift; sourceTree = "<group>"; };
-		2B94A3D15B907CF55C906C9A /* AppSteamClientDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSteamClientDriver.swift; sourceTree = "<group>"; };
-		J1A2B3C4E5F61301A9B0C1D1 /* TroubleshootingWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TroubleshootingWizardView.swift; sourceTree = "<group>"; };
-		J1A2B3C4E5F61301A9B0C1D3 /* ProgressRailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressRailView.swift; sourceTree = "<group>"; };
-		J1A2B3C4E5F61301A9B0C1D5 /* SymptomPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymptomPickerView.swift; sourceTree = "<group>"; };
-		J1A2B3C4E5F61301A9B0C1D7 /* StepCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepCardView.swift; sourceTree = "<group>"; };
-		J1A2B3C4E5F61301A9B0C1D9 /* FixPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixPreviewView.swift; sourceTree = "<group>"; };
-		J1A2B3C4E5F61301A9B0C2D1 /* FixVerifyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixVerifyView.swift; sourceTree = "<group>"; };
-		J1A2B3C4E5F61301A9B0C2D3 /* BranchExplanationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchExplanationView.swift; sourceTree = "<group>"; };
-		J1A2B3C4E5F61301A9B0C2D5 /* SessionResumeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionResumeView.swift; sourceTree = "<group>"; };
-		J1A2B3C4E5F61301A9B0C2D7 /* EscalationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EscalationView.swift; sourceTree = "<group>"; };
-		K1A2B3C4E5F61401A9B0C1D1 /* TroubleshootingHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TroubleshootingHistoryView.swift; sourceTree = "<group>"; };
-		K1A2B3C4E5F61401A9B0C1D3 /* TroubleshootingTargetPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TroubleshootingTargetPicker.swift; sourceTree = "<group>"; };
-		K1A2B3C4E5F61401A9B0C1D5 /* TroubleshootingEntryBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TroubleshootingEntryBanner.swift; sourceTree = "<group>"; };
-		DA60C3E7B4689DA7A654FA56 /* LibrarySidebarCounts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySidebarCounts.swift; sourceTree = "<group>"; };
-		2B41617DD7FB4DA644AAFB89 /* DiagnosticLogRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogRenderer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		066A6C008BD365E667C9F242 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				12DEDCF97DB77E9F6714B8F1 /* Cocoa.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		6E40494F29CCA19C006E3F1B /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				8C2AEFC82AED79B700CB568F /* WhiskyKit in Frameworks */,
-				6E064B1229DD32A200D9A2D2 /* Sparkle in Frameworks */,
-				7A0510A32F5A000000000003 /* PostHog in Frameworks */,
-				EB58FB552A499896002DC184 /* SemanticVersion in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		6E70A4952A9A2197007799E9 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -376,71 +48,9 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		6EFDF6472AAE2DA800EF622F /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				8CB681E72AED7CD00018D319 /* WhiskyKit in Frameworks */,
-				6EFDF64C2AAE2DA800EF622F /* QuickLookThumbnailing.framework in Frameworks */,
-				6EFDF64E2AAE2DA800EF622F /* Quartz.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		6365C4BF2B1AA69500AAE1FD /* Extensions */ = {
-			isa = PBXGroup;
-			children = (
-				6E40498229CCA91B006E3F1B /* Bottle+Extensions.swift */,
-				6365C4C02B1AA69D00AAE1FD /* Animation+Extensions.swift */,
-				AA2516958D60EC8937A2AF71 /* LaunchResult+Toast.swift */,
-			);
-			path = Extensions;
-			sourceTree = "<group>";
-		};
-		63FFDE822ADEFADF00178665 /* Common */ = {
-			isa = PBXGroup;
-			children = (
-				63FFDE852ADF0C7700178665 /* BottomBar.swift */,
-				6330DD952B1B0EA4007A625A /* RenameView.swift */,
-				67D278502BC5907E006F9A1E /* ActionView.swift */,
-			);
-			path = Common;
-			sourceTree = "<group>";
-		};
-		6E17B6422AF3FD6E00831173 /* Pins */ = {
-			isa = PBXGroup;
-			children = (
-				6E17B6452AF3FDC100831173 /* PinView.swift */,
-				6E2B25C02B0E20F50084A67A /* PinAddView.swift */,
-				DB696FC72AFAE5DA0037EB2F /* PinCreationView.swift */,
-			);
-			path = Pins;
-			sourceTree = "<group>";
-		};
-		6E17B6472AF3FE2E00831173 /* Programs */ = {
-			isa = PBXGroup;
-			children = (
-				6E355E5929D782B2002D83BE /* ProgramsView.swift */,
-				6E355E5D29D7D85D002D83BE /* ProgramView.swift */,
-				6E17B6482AF4118F00831173 /* EnvironmentArgView.swift */,
-				8C73E1332AF472FC00B6FB45 /* ProgramMenuView.swift */,
-				A1B2C3D4E5F60718A9B0C1D7 /* ProgramOverrideSettingsView.swift */,
-				E1A2B3C4E5F60901A9B0C1D1 /* ConsoleRunHistoryView.swift */,
-				E1A2B3C4E5F60901A9B0C1D3 /* ConsoleLogView.swift */,
-			);
-			path = Programs;
-			sourceTree = "<group>";
-		};
-		F1A2B3C4E5F61501A9B0C1E3 /* MenuBar */ = {
-			isa = PBXGroup;
-			children = (
-				F1A2B3C4E5F61501A9B0C1E1 /* WhiskyMenuBarView.swift */,
-			);
-			path = MenuBar;
-			sourceTree = "<group>";
-		};
 		6E2FB15F2B589A9000E344C6 /* Libraries */ = {
 			isa = PBXGroup;
 			children = (
@@ -451,55 +61,14 @@
 			path = Libraries;
 			sourceTree = "<group>";
 		};
-		6E355E5629D78202002D83BE /* Bottle */ = {
-			isa = PBXGroup;
-			children = (
-				C1A2B3C4E5F60601A9B0C1D9 /* AudioConfigSection.swift */,
-				C1A2B3C4E5F60601A9B0F2D9 /* LibraryView.swift */,
-				F2A3B4C5D6E70819A0B1C2D4 /* LibraryView+Menu.swift */,
-				C1A2B3C4E5F60601A9B0F1D9 /* LibraryCard.swift */,
-				B82D9168CA8E401CA33A0002 /* LibraryGameSheet.swift */,
-				C1A2B3C4E5F60601A9B0D1D9 /* DiscordConfigSection.swift */,
-				6E40498029CCA8B0006E3F1B /* BottleView.swift */,
-				C1A2B3C4E5F60601A9B0B1D9 /* BottleActionBar.swift */,
-				6365C4C22B1AA8CD00AAE1FD /* BottleListEntry.swift */,
-				6E50D98429CDF25B008C39F6 /* BottleCreationView.swift */,
-				6E355E5729D78249002D83BE /* ConfigView.swift */,
-				DD3735C5328F7A6ABD2D1248 /* DPIConfigSheetView.swift */,
-				EAE15F0C1EF1F06C7DB73DF5 /* SettingItemView.swift */,
-				258BF9104045ED48882E009D /* WineConfigSection.swift */,
-				A1B2C3D4E5F60718A9B0C1D3 /* DLLOverrideEditor.swift */,
-				A1B2C3D4E5F60718A9B0C1D5 /* DLLOverrideConfigSection.swift */,
-				H1A2B3C4E5F61101A9B0C1D1 /* DependencyConfigSection.swift */,
-				E2699006F97F862815633C9F /* MetalConfigSection.swift */,
-				3724CE6DD2C1B22D80442DB6 /* PerformanceConfigSection.swift */,
-				6E182FC92B0BF64E00AADE81 /* WinetricksView.swift */,
-				AB0BCABC2B61036E00E21C31 /* RunningProcessesView.swift */,
-				6E17B6422AF3FD6E00831173 /* Pins */,
-				D27C1F7764AE4F0AED2FD03D /* LauncherConfigSection.swift */,
-				000C327847E981AEF33EFB61 /* InputConfigSection.swift */,
-				407A01251379955919903C3F /* CleanupConfigSection.swift */,
-				B1C2D3E4F5A60402A9B0C1E1 /* BackendPickerView.swift */,
-				B1C2D3E4F5A60402A9B0C1E3 /* GraphicsConfigSection.swift */,
-				F2A3B4C5D6E70819A0B1C2D6 /* GraphicsConfigSection+Notices.swift */,
-				D1A2B3C4E5F60901A9B0C1D1 /* ResolutionConfigSection.swift */,
-				B1C2D3E4F5A60402A9B0C1E5 /* DXVKSettingsView.swift */,
-			);
-			path = Bottle;
-			sourceTree = "<group>";
-		};
 		6E40494929CCA19C006E3F1B = {
 			isa = PBXGroup;
 			children = (
 				A0C031010000000000000002 /* ThirdParty */,
-				6E40495429CCA19C006E3F1B /* Whisky */,
 				6E70A4992A9A2197007799E9 /* WhiskyCmd */,
-				6EFDF64F2AAE2DA800EF622F /* WhiskyThumbnail */,
 				8CB681E42AED7C6F0018D319 /* WhiskyKit */,
 				6E2FB15F2B589A9000E344C6 /* Libraries */,
 				6E40495329CCA19C006E3F1B /* Products */,
-				6E5967692A9A424900D64F70 /* Frameworks */,
-				D3952A6226A091D6E4B67C1D /* WhiskyUITests */,
 			);
 			indentWidth = 4;
 			sourceTree = "<group>";
@@ -513,126 +82,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		6E40495429CCA19C006E3F1B /* Whisky */ = {
-			isa = PBXGroup;
-			children = (
-				EEA5A2452A31DD65008274AE /* AppDelegate.swift */,
-				6365C4BF2B1AA69500AAE1FD /* Extensions */,
-				6E5197D029D7200700CF655E /* Utils */,
-				6E5197CE29D71FE800CF655E /* View Models */,
-				6E5197CD29D71FCD00CF655E /* Views */,
-				6E40495929CCA19C006E3F1B /* Assets.xcassets */,
-				6E899D1129CFC41D00A4A083 /* Info.plist */,
-				6E40495E29CCA19C006E3F1B /* Whisky.entitlements */,
-				6E40495B29CCA19C006E3F1B /* Preview Content */,
-				6EB58AC82AEACE5E00B1ED3F /* Localizable.xcstrings */,
-				C1A2B3C4E5F60601A9B0E1D9 /* WhiskyAudioTest.exe */,
-			);
-			path = Whisky;
-			sourceTree = "<group>";
-		};
-		6E40495B29CCA19C006E3F1B /* Preview Content */ = {
-			isa = PBXGroup;
-			children = (
-				6E40495C29CCA19C006E3F1B /* Preview Assets.xcassets */,
-			);
-			path = "Preview Content";
-			sourceTree = "<group>";
-		};
-		6E49E01F2AECB7D000009CAC /* Settings */ = {
-			isa = PBXGroup;
-			children = (
-				6E49E0202AECB7DB00009CAC /* SettingsView.swift */,
-				D4E5F6A7B8C90113A9B0C1F5 /* GPTKSettingsSection.swift */,
-			);
-			path = Settings;
-			sourceTree = "<group>";
-		};
-		6E5197CD29D71FCD00CF655E /* Views */ = {
-			isa = PBXGroup;
-			children = (
-				C1A2B3C4E5F60601A9B0C1DA /* Audio */,
-				63FFDE822ADEFADF00178665 /* Common */,
-				D1A2B3C4E5F60504A9B0C1D6 /* Diagnostics */,
-				E1A2B3C4E5F60701A9B0C1D4 /* GameDB */,
-				H1A2B3C4E5F61101A9B0C1D4 /* Install */,
-				J1A2B3C4E5F61301A9B0C1DA /* Troubleshooting */,
-				6E49E01F2AECB7D000009CAC /* Settings */,
-				6E6C0CF02A419A5800356232 /* Setup */,
-				6E17B6472AF3FE2E00831173 /* Programs */,
-				6E355E5629D78202002D83BE /* Bottle */,
-				F1A2B3C4E5F61501A9B0C1E3 /* MenuBar */,
-				6E40495529CCA19C006E3F1B /* WhiskyApp.swift */,
-				6E40495729CCA19C006E3F1B /* ContentView.swift */,
-				C1A2B3C4E5F60601A9B0A3D9 /* ContentView+Sidebar.swift */,
-				6E064B1329DD331F00D9A2D2 /* SparkleView.swift */,
-				6E7C07BF2AAF570100F6E66B /* FileOpenView.swift */,
-				FADF69F903E9EA676A27FC69 /* Common */,
-				8797408D60F55718DFC61664 /* DiagnosticsPickerSheet.swift */,
-				DB85C8A3D3900AA9A7DDCE72 /* MigrateBottlesSheet.swift */,
-			);
-			path = Views;
-			sourceTree = "<group>";
-		};
-		6E5197CE29D71FE800CF655E /* View Models */ = {
-			isa = PBXGroup;
-			children = (
-				6E50D98229CD6066008C39F6 /* BottleVM.swift */,
-				B1A2C3D4E5F60302A9B0C1D2 /* ProcessesViewModel.swift */,
-				D7B1C2E3F4A50801A9B0E1F2 /* LibraryModel.swift */,
-				A021C0DE0000000000000002 /* MacOSLibraryServices.swift */,
-				DA60C3E7B4689DA7A654FA56 /* LibrarySidebarCounts.swift */,
-			);
-			path = "View Models";
-			sourceTree = "<group>";
-		};
-		6E5197D029D7200700CF655E /* Utils */ = {
-			isa = PBXGroup;
-			children = (
-				6E621CEE2A5F631200C9AAB3 /* Winetricks.swift */,
-				6F2BCF2BAEDF0AA7B418E096 /* Winetricks+InstalledVerbs.swift */,
-				G1A2B3C4E5F60901A9B0C1D3 /* Winetricks+Install.swift */,
-				6E70A4A02A9A280C007799E9 /* WhiskyCmd.swift */,
-				6E7C07BD2AAE7B0100F6E66B /* ProgramShortcut.swift */,
-				6763D8F52BC6314100651D27 /* Constants.swift */,
-				7A0510A42F5A000000000004 /* Telemetry.swift */,
-				F1A2B3C4E5F61601A9B0C1F1 /* SparkleUpdaterDelegate.swift */,
-				366E8BD2A51FD444160DFC10 /* LauncherDetection.swift */,
-				D4E5F6A7B8C90113A9B0C1F3 /* GPTKDiskImage.swift */,
-				AA88CFEB38031323229CD377 /* LauncherDiagnostics.swift */,
-				G1A2B3C4E5F60901A9B0C1D1 /* DependencyManager.swift */,
-				AB5DECAF20260818000000D5 /* RemediationExecutor.swift */,
-				AB5DECAF20260818000000D1 /* QuickLaunch.swift */,
-				F1A2B3C4E5F60801A9B0C1D0 /* ControllerMonitor.swift */,
-				I1A2B3C4E5F61201A9B0C1D1 /* SteamDownloadMonitor.swift */,
-				2B94A3D15B907CF55C906C9A /* AppSteamClientDriver.swift */,
-			);
-			path = Utils;
-			sourceTree = "<group>";
-		};
-		6E5967692A9A424900D64F70 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				6EFDF64B2AAE2DA800EF622F /* QuickLookThumbnailing.framework */,
-				6EFDF64D2AAE2DA800EF622F /* Quartz.framework */,
-				D2AE67B5A9BF87CFB8ECCE66 /* OS X */,
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		6E6C0CF02A419A5800356232 /* Setup */ = {
-			isa = PBXGroup;
-			children = (
-				6EF557972A410599001A4F09 /* SetupView.swift */,
-				6E6C0CF12A419A6800356232 /* WelcomeView.swift */,
-				6E6C0CF32A419A7600356232 /* RosettaView.swift */,
-				6E6C0CF52A419A8300356232 /* WhiskyWineDownloadView.swift */,
-				6EFA17E70000000000000002 /* WhiskyWineDownloadFormatting.swift */,
-				6E6C0CF72A419A8C00356232 /* WhiskyWineInstallView.swift */,
-			);
-			path = Setup;
-			sourceTree = "<group>";
-		};
 		6E70A4992A9A2197007799E9 /* WhiskyCmd */ = {
 			isa = PBXGroup;
 			children = (
@@ -640,115 +89,6 @@
 				1A2B3C4E2E0107F000AABBCC /* TextTable.swift */,
 			);
 			path = WhiskyCmd;
-			sourceTree = "<group>";
-		};
-		6EFDF64F2AAE2DA800EF622F /* WhiskyThumbnail */ = {
-			isa = PBXGroup;
-			children = (
-				6EFDF6502AAE2DA800EF622F /* ThumbnailProvider.swift */,
-				6EFDF6522AAE2DA800EF622F /* Info.plist */,
-				6EFDF6532AAE2DA800EF622F /* WhiskyThumbnail.entitlements */,
-				6EFDF6652AAE303300EF622F /* Icons.xcassets */,
-			);
-			path = WhiskyThumbnail;
-			sourceTree = "<group>";
-		};
-		C1A2B3C4E5F60601A9B0C1DA /* Audio */ = {
-			isa = PBXGroup;
-			children = (
-				C1A2B3C4E5F60601A9B0C2D5 /* AudioDeviceHistoryView.swift */,
-				C1A2B3C4E5F60601A9B0C2D3 /* AudioDeviceListView.swift */,
-				C1A2B3C4E5F60601A9B0C1D7 /* AudioFindingsView.swift */,
-				C1A2B3C4E5F60601A9B0C1D5 /* AudioSettingsView.swift */,
-				C1A2B3C4E5F60601A9B0C1D1 /* AudioStatusView.swift */,
-				C1A2B3C4E5F60601A9B0C1D3 /* AudioTestButtonsView.swift */,
-				C1A2B3C4E5F60601A9B0C2D1 /* AudioTroubleshootingWizardView.swift */,
-				ADA9ADA587AF95DCFEC04F25 /* AudioAlertTracker.swift */,
-			);
-			path = Audio;
-			sourceTree = "<group>";
-		};
-		D1A2B3C4E5F60504A9B0C1D6 /* Diagnostics */ = {
-			isa = PBXGroup;
-			children = (
-				D1A2B3C4E5F60504A9B0C1E2 /* DiagnosisHistoryView.swift */,
-				D1A2B3C4E5F60504A9B0C1E0 /* DiagnosticExportSheet.swift */,
-				D1A2B3C4E5F60504A9B0C1D0 /* DiagnosticsView.swift */,
-				D1A2B3C4E5F60504A9B0C1D4 /* LogViewerView.swift */,
-				2B41617DD7FB4DA644AAFB89 /* DiagnosticLogRenderer.swift */,
-				D1A2B3C4E5F60504A9B0C1D2 /* RemediationCardView.swift */,
-			);
-			path = Diagnostics;
-			sourceTree = "<group>";
-		};
-		D2AE67B5A9BF87CFB8ECCE66 /* OS X */ = {
-			isa = PBXGroup;
-			children = (
-				61747C7BF48347DA75C30397 /* Cocoa.framework */,
-			);
-			name = "OS X";
-			sourceTree = "<group>";
-		};
-		D3952A6226A091D6E4B67C1D /* WhiskyUITests */ = {
-			isa = PBXGroup;
-			children = (
-				EBD00A21534D48ADAE68040E /* WhiskyUITests.swift */,
-				C1A2B3C4E5F60601A9B0A2D9 /* WhiskyUITestsGameDB.swift */,
-				C1A2B3C4E5F60601A9B0A1D9 /* UITestSupport.swift */,
-				4D93508A9C8E5B94200BA068 /* Info.plist */,
-			);
-			name = WhiskyUITests;
-			path = WhiskyUITests;
-			sourceTree = "<group>";
-		};
-		E1A2B3C4E5F60701A9B0C1D4 /* GameDB */ = {
-			isa = PBXGroup;
-			children = (
-				E1A2B3C4E5F60701A9B0C3D1 /* GameConfigBannerView.swift */,
-				E1A2B3C4E5F60701A9B0C2D5 /* GameConfigPreviewSheet.swift */,
-				E1A2B3C4E5F60701A9B0C1D3 /* GameConfigurationView.swift */,
-				E1A2B3C4E5F60701A9B0C2D1 /* GameEntryDetailView.swift */,
-				E1A2B3C4E5F60701A9B0C1D1 /* GameEntryRowView.swift */,
-				E1A2B3C4E5F60701A9B0C2D3 /* GameVariantPickerView.swift */,
-			);
-			path = GameDB;
-			sourceTree = "<group>";
-		};
-		FADF69F903E9EA676A27FC69 /* Common */ = {
-			isa = PBXGroup;
-			children = (
-				H1A2B3C4E5F61001A9B0C1D1 /* LaunchTimeBanner.swift */,
-				4E2D80EAABBB985BAED42548 /* StatusToast.swift */,
-			);
-			name = Common;
-			path = Common;
-			sourceTree = "<group>";
-		};
-		H1A2B3C4E5F61101A9B0C1D4 /* Install */ = {
-			isa = PBXGroup;
-			children = (
-				H1A2B3C4E5F61101A9B0C1D3 /* DependencyInstallSheet.swift */,
-			);
-			path = Install;
-			sourceTree = "<group>";
-		};
-		J1A2B3C4E5F61301A9B0C1DA /* Troubleshooting */ = {
-			isa = PBXGroup;
-			children = (
-				J1A2B3C4E5F61301A9B0C1D1 /* TroubleshootingWizardView.swift */,
-				J1A2B3C4E5F61301A9B0C1D3 /* ProgressRailView.swift */,
-				J1A2B3C4E5F61301A9B0C1D5 /* SymptomPickerView.swift */,
-				J1A2B3C4E5F61301A9B0C1D7 /* StepCardView.swift */,
-				J1A2B3C4E5F61301A9B0C1D9 /* FixPreviewView.swift */,
-				J1A2B3C4E5F61301A9B0C2D1 /* FixVerifyView.swift */,
-				J1A2B3C4E5F61301A9B0C2D3 /* BranchExplanationView.swift */,
-				J1A2B3C4E5F61301A9B0C2D5 /* SessionResumeView.swift */,
-				J1A2B3C4E5F61301A9B0C2D7 /* EscalationView.swift */,
-				K1A2B3C4E5F61401A9B0C1D1 /* TroubleshootingHistoryView.swift */,
-				K1A2B3C4E5F61401A9B0C1D3 /* TroubleshootingTargetPicker.swift */,
-				K1A2B3C4E5F61401A9B0C1D5 /* TroubleshootingEntryBanner.swift */,
-			);
-			path = Troubleshooting;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -786,13 +126,7 @@
 				LastSwiftUpdateCheck = 1500;
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
-					6E40495129CCA19C006E3F1B = {
-						CreatedOnToolsVersion = 14.2;
-					};
 					6E70A4972A9A2197007799E9 = {
-						CreatedOnToolsVersion = 15.0;
-					};
-					6EFDF6492AAE2DA800EF622F = {
 						CreatedOnToolsVersion = 15.0;
 					};
 				};
@@ -829,10 +163,8 @@
 			);
 			mainGroup = 6E40494929CCA19C006E3F1B;
 			packageReferences = (
-				6E064B1029DD32A200D9A2D2 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				EB58FB532A499896002DC184 /* XCRemoteSwiftPackageReference "SemanticVersion" */,
 				6E5967682A9A421800D64F70 /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
-				7A0510A12F5A000000000001 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				8C2AEFC62AED79B700CB568F /* XCLocalSwiftPackageReference "WhiskyKit" */,
 			);
 			productRefGroup = 6E40495329CCA19C006E3F1B /* Products */;
@@ -844,215 +176,7 @@
 		};
 /* End PBXProject section */
 
-/* Begin PBXResourcesBuildPhase section */
-		524B4B5B065198F1240C698F /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		6E40495029CCA19C006E3F1B /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A0C031010000000000000001 /* ThirdParty in Resources */,
-				6E40495D29CCA19C006E3F1B /* Preview Assets.xcassets in Resources */,
-				6EB58AC92AEACE5E00B1ED3F /* Localizable.xcstrings in Resources */,
-				C1A2B3C4E5F60601A9B0E1D8 /* WhiskyAudioTest.exe in Resources */,
-				6E40495A29CCA19C006E3F1B /* Assets.xcassets in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		6EFDF6482AAE2DA800EF622F /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				6EFDF6662AAE303300EF622F /* Icons.xcassets in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		7A0510A22F5A0000000000F1 /* Fill Missing Translations */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/scripts/fill-missing-translations.py",
-			);
-			name = "Fill Missing Translations";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# Untranslated keys would otherwise render as raw identifiers in every\n# non-English UI; see the header of the script.\n/usr/bin/python3 \"${SRCROOT}/scripts/fill-missing-translations.py\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n";
-		};
-		6E50D98129CD0EAF008C39F6 /* SwiftLint */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = SwiftLint;
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# Skip SwiftLint in CI - it's handled by the CI workflow\nif [ \"$CI\" = \"true\" ] || [ \"$SKIP_SWIFTLINT_BUILD_PHASE\" = \"YES\" ]; then\n    echo \"Skipping SwiftLint (CI environment detected)\"\n    exit 0\nfi\n\nexport PATH=\"$PATH:/opt/homebrew/bin\"\nif which swiftlint > /dev/null; then\n    echo \"Running SwiftLint\"\n    swiftlint --strict\nelse\n    echo \"error: SwiftLint not installed, download from https://github.com/realm/SwiftLint\"\n    exit 1\nfi\n";
-		};
-/* End PBXShellScriptBuildPhase section */
-
 /* Begin PBXSourcesBuildPhase section */
-		6D4C085C5FF0ACC12D17C11B /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				E7BB70E85616CF51250E10FB /* WhiskyUITests.swift in Sources */,
-				C1A2B3C4E5F60601A9B0A2D8 /* WhiskyUITestsGameDB.swift in Sources */,
-				C1A2B3C4E5F60601A9B0A1D8 /* UITestSupport.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		6E40494E29CCA19C006E3F1B /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				EEA5A2462A31DD65008274AE /* AppDelegate.swift in Sources */,
-				6763D8F62BC6314100651D27 /* Constants.swift in Sources */,
-				7A0510A52F5A000000000005 /* Telemetry.swift in Sources */,
-				F1A2B3C4E5F61601A9B0C1F2 /* SparkleUpdaterDelegate.swift in Sources */,
-				6E70A4A12A9A280C007799E9 /* WhiskyCmd.swift in Sources */,
-				6E40495829CCA19C006E3F1B /* ContentView.swift in Sources */,
-				C1A2B3C4E5F60601A9B0A3D8 /* ContentView+Sidebar.swift in Sources */,
-				67D278512BC5907E006F9A1E /* ActionView.swift in Sources */,
-				6EF557982A410599001A4F09 /* SetupView.swift in Sources */,
-				6E355E5A29D782B2002D83BE /* ProgramsView.swift in Sources */,
-				DB696FC82AFAE5DA0037EB2F /* PinCreationView.swift in Sources */,
-				6E7C07BE2AAE7B0100F6E66B /* ProgramShortcut.swift in Sources */,
-				6E355E5829D78249002D83BE /* ConfigView.swift in Sources */,
-				2E9E4AD3124BDF8D5238BE32 /* DPIConfigSheetView.swift in Sources */,
-				E24B756A38C48A1EE4374F25 /* SettingItemView.swift in Sources */,
-				744CFC7F2B2281370D39A466 /* WineConfigSection.swift in Sources */,
-				A1B2C3D4E5F60718A9B0C1D2 /* DLLOverrideEditor.swift in Sources */,
-				A1B2C3D4E5F60718A9B0C1D4 /* DLLOverrideConfigSection.swift in Sources */,
-				52513FA35312809A9760BCB2 /* MetalConfigSection.swift in Sources */,
-				C08ECD035DDFEDB70ACA1D1B /* PerformanceConfigSection.swift in Sources */,
-				63FFDE862ADF0C7700178665 /* BottomBar.swift in Sources */,
-				6E6C0CF62A419A8300356232 /* WhiskyWineDownloadView.swift in Sources */,
-				6EFA17E70000000000000001 /* WhiskyWineDownloadFormatting.swift in Sources */,
-				6365C4C32B1AA8CD00AAE1FD /* BottleListEntry.swift in Sources */,
-				6E50D98529CDF25B008C39F6 /* BottleCreationView.swift in Sources */,
-				6E182FCA2B0BF64E00AADE81 /* WinetricksView.swift in Sources */,
-				6330DD962B1B0EA4007A625A /* RenameView.swift in Sources */,
-				AB0BCABD2B61036E00E21C31 /* RunningProcessesView.swift in Sources */,
-				F1A2B3C4E5F61501A9B0C1E2 /* WhiskyMenuBarView.swift in Sources */,
-				6E17B6492AF4118F00831173 /* EnvironmentArgView.swift in Sources */,
-				6E6C0CF42A419A7600356232 /* RosettaView.swift in Sources */,
-				6E6C0CF82A419A8C00356232 /* WhiskyWineInstallView.swift in Sources */,
-				6365C4C12B1AA69D00AAE1FD /* Animation+Extensions.swift in Sources */,
-				6E40498329CCA91B006E3F1B /* Bottle+Extensions.swift in Sources */,
-				6E621CEF2A5F631300C9AAB3 /* Winetricks.swift in Sources */,
-				6F2BCF2BAEDFAAA7B418E096 /* Winetricks+InstalledVerbs.swift in Sources */,
-				6E17B6462AF3FDC100831173 /* PinView.swift in Sources */,
-				6E064B1429DD331F00D9A2D2 /* SparkleView.swift in Sources */,
-				6E40495629CCA19C006E3F1B /* WhiskyApp.swift in Sources */,
-				8C73E1342AF472FC00B6FB45 /* ProgramMenuView.swift in Sources */,
-				A1B2C3D4E5F60718A9B0C1D6 /* ProgramOverrideSettingsView.swift in Sources */,
-				E1A2B3C4E5F60901A9B0C1D0 /* ConsoleRunHistoryView.swift in Sources */,
-				E1A2B3C4E5F60901A9B0C1D2 /* ConsoleLogView.swift in Sources */,
-				6E50D98329CD6066008C39F6 /* BottleVM.swift in Sources */,
-				B1A2C3D4E5F60302A9B0C1D3 /* ProcessesViewModel.swift in Sources */,
-				D7B1C2E3F4A50801A9B0E1F3 /* LibraryModel.swift in Sources */,
-				A021C0DE0000000000000001 /* MacOSLibraryServices.swift in Sources */,
-				63FBC2457D95CB0A0B6016A1 /* LibrarySidebarCounts.swift in Sources */,
-				6E2B25C12B0E20F50084A67A /* PinAddView.swift in Sources */,
-				6E49E0212AECB7DB00009CAC /* SettingsView.swift in Sources */,
-				D4E5F6A7B8C90113A9B0C1F4 /* GPTKSettingsSection.swift in Sources */,
-				6E7C07C02AAF570100F6E66B /* FileOpenView.swift in Sources */,
-				6E6C0CF22A419A6800356232 /* WelcomeView.swift in Sources */,
-				6E40498129CCA8B0006E3F1B /* BottleView.swift in Sources */,
-				C1A2B3C4E5F60601A9B0B1D8 /* BottleActionBar.swift in Sources */,
-				6E355E5E29D7D85D002D83BE /* ProgramView.swift in Sources */,
-				954F64484BFDF7786A5B184E /* LauncherDetection.swift in Sources */,
-				D4E5F6A7B8C90113A9B0C1F2 /* GPTKDiskImage.swift in Sources */,
-				689B4F6DF3B8006E89E1395F /* LauncherDiagnostics.swift in Sources */,
-				160B41C4006351293AAEEF27 /* LauncherConfigSection.swift in Sources */,
-				F748991F03BA464CFCDA99F3 /* StatusToast.swift in Sources */,
-				H1A2B3C4E5F61001A9B0C1D0 /* LaunchTimeBanner.swift in Sources */,
-				FBD19F7BAD838BE3ABB2CCC2 /* LaunchResult+Toast.swift in Sources */,
-				77A2EE1594CEE1B55E88AFAB /* InputConfigSection.swift in Sources */,
-				1A8BB6C8C6FC24E0837A3C59 /* CleanupConfigSection.swift in Sources */,
-				B1C2D3E4F5A60402A9B0C1E0 /* BackendPickerView.swift in Sources */,
-				B1C2D3E4F5A60402A9B0C1E2 /* GraphicsConfigSection.swift in Sources */,
-				F2A3B4C5D6E70819A0B1C2D5 /* GraphicsConfigSection+Notices.swift in Sources */,
-				D1A2B3C4E5F60901A9B0C1D0 /* ResolutionConfigSection.swift in Sources */,
-				B1C2D3E4F5A60402A9B0C1E4 /* DXVKSettingsView.swift in Sources */,
-				D1A2B3C4E5F60504A9B0C1D1 /* DiagnosticsView.swift in Sources */,
-				D1A2B3C4E5F60504A9B0C1D3 /* RemediationCardView.swift in Sources */,
-				D1A2B3C4E5F60504A9B0C1D5 /* LogViewerView.swift in Sources */,
-				737B76A63405E92C1830DD28 /* DiagnosticLogRenderer.swift in Sources */,
-				D1A2B3C4E5F60504A9B0C1E1 /* DiagnosticExportSheet.swift in Sources */,
-				D1A2B3C4E5F60504A9B0C1E3 /* DiagnosisHistoryView.swift in Sources */,
-				C1A2B3C4E5F60601A9B0C1D0 /* AudioStatusView.swift in Sources */,
-				C1A2B3C4E5F60601A9B0C1D2 /* AudioTestButtonsView.swift in Sources */,
-				C1A2B3C4E5F60601A9B0C1D4 /* AudioSettingsView.swift in Sources */,
-				C1A2B3C4E5F60601A9B0C1D6 /* AudioFindingsView.swift in Sources */,
-				C1A2B3C4E5F60601A9B0C1D8 /* AudioConfigSection.swift in Sources */,
-				C1A2B3C4E5F60601A9B0F2D8 /* LibraryView.swift in Sources */,
-				F2A3B4C5D6E70819A0B1C2D3 /* LibraryView+Menu.swift in Sources */,
-				C1A2B3C4E5F60601A9B0F1D8 /* LibraryCard.swift in Sources */,
-				B82D9168CA8E401CA33A0001 /* LibraryGameSheet.swift in Sources */,
-				C1A2B3C4E5F60601A9B0D1D8 /* DiscordConfigSection.swift in Sources */,
-				C1A2B3C4E5F60601A9B0C2D0 /* AudioTroubleshootingWizardView.swift in Sources */,
-				C1A2B3C4E5F60601A9B0C2D2 /* AudioDeviceListView.swift in Sources */,
-				C1A2B3C4E5F60601A9B0C2D4 /* AudioDeviceHistoryView.swift in Sources */,
-				D6EEECF2BAE764BAE529B9BA /* AudioAlertTracker.swift in Sources */,
-				484A57DAD0A7634094236533 /* DiagnosticsPickerSheet.swift in Sources */,
-				C16DA5430762A5F33C8714AA /* MigrateBottlesSheet.swift in Sources */,
-				E1A2B3C4E5F60701A9B0C1D0 /* GameEntryRowView.swift in Sources */,
-				E1A2B3C4E5F60701A9B0C1D2 /* GameConfigurationView.swift in Sources */,
-				E1A2B3C4E5F60701A9B0C2D0 /* GameEntryDetailView.swift in Sources */,
-				E1A2B3C4E5F60701A9B0C2D2 /* GameVariantPickerView.swift in Sources */,
-				E1A2B3C4E5F60701A9B0C2D4 /* GameConfigPreviewSheet.swift in Sources */,
-				E1A2B3C4E5F60701A9B0C3D0 /* GameConfigBannerView.swift in Sources */,
-				F1A2B3C4E5F60801A9B0C1D1 /* ControllerMonitor.swift in Sources */,
-				G1A2B3C4E5F60901A9B0C1D0 /* DependencyManager.swift in Sources */,
-				AB5DECAF20260818000000D4 /* RemediationExecutor.swift in Sources */,
-				AB5DECAF20260818000000D0 /* QuickLaunch.swift in Sources */,
-				G1A2B3C4E5F60901A9B0C1D2 /* Winetricks+Install.swift in Sources */,
-				H1A2B3C4E5F61101A9B0C1D0 /* DependencyConfigSection.swift in Sources */,
-				H1A2B3C4E5F61101A9B0C1D2 /* DependencyInstallSheet.swift in Sources */,
-				I1A2B3C4E5F61201A9B0C1D0 /* SteamDownloadMonitor.swift in Sources */,
-				129146529D772EC1C559C0CB /* AppSteamClientDriver.swift in Sources */,
-				J1A2B3C4E5F61301A9B0C1D0 /* TroubleshootingWizardView.swift in Sources */,
-				J1A2B3C4E5F61301A9B0C1D2 /* ProgressRailView.swift in Sources */,
-				J1A2B3C4E5F61301A9B0C1D4 /* SymptomPickerView.swift in Sources */,
-				J1A2B3C4E5F61301A9B0C1D6 /* StepCardView.swift in Sources */,
-				J1A2B3C4E5F61301A9B0C1D8 /* FixPreviewView.swift in Sources */,
-				J1A2B3C4E5F61301A9B0C2D0 /* FixVerifyView.swift in Sources */,
-				J1A2B3C4E5F61301A9B0C2D2 /* BranchExplanationView.swift in Sources */,
-				J1A2B3C4E5F61301A9B0C2D4 /* SessionResumeView.swift in Sources */,
-				J1A2B3C4E5F61301A9B0C2D6 /* EscalationView.swift in Sources */,
-				K1A2B3C4E5F61401A9B0C1D0 /* TroubleshootingHistoryView.swift in Sources */,
-				K1A2B3C4E5F61401A9B0C1D2 /* TroubleshootingTargetPicker.swift in Sources */,
-				K1A2B3C4E5F61401A9B0C1D4 /* TroubleshootingEntryBanner.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		6E70A4942A9A2197007799E9 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1062,18 +186,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		6EFDF6462AAE2DA800EF622F /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				6EFDF6512AAE2DA800EF622F /* ThumbnailProvider.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		6E40497529CCA19D006E3F1B /* Debug */ = {
@@ -1197,82 +310,6 @@
 			};
 			name = Release;
 		};
-		6E40497829CCA19D006E3F1B /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ARCHS = arm64;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = Whisky/Whisky.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 58;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_ASSET_PATHS = "\"Whisky/Preview Content\"";
-				DEVELOPMENT_TEAM = Z7JS58F8U3;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Whisky/Info.plist;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Whisky needs to access Terminal to launcher processes in a Terminal window.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "A Windows application is trying to access the camera.";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © Whisky";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "A Windows application is trying to access the microphone.";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 0.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.daydalek.Maltoria;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_STRICT_CONCURRENCY = complete;
-				SWIFT_VERSION = 6.0;
-			};
-			name = Debug;
-		};
-		6E40497929CCA19D006E3F1B /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ARCHS = arm64;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = Whisky/Whisky.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 58;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_ASSET_PATHS = "\"Whisky/Preview Content\"";
-				DEVELOPMENT_TEAM = Z7JS58F8U3;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Whisky/Info.plist;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Whisky needs to access Terminal to launcher processes in a Terminal window.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "A Windows application is trying to access the camera.";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © Whisky";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "A Windows application is trying to access the microphone.";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 0.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.daydalek.Maltoria;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_STRICT_CONCURRENCY = complete;
-				SWIFT_VERSION = 6.0;
-			};
-			name = Release;
-		};
 		6E70A49C2A9A2197007799E9 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1324,105 +361,6 @@
 			};
 			name = Release;
 		};
-		6EFDF6582AAE2DA800EF622F /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CODE_SIGN_ENTITLEMENTS = WhiskyThumbnail/WhiskyThumbnail.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 58;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = Z7JS58F8U3;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = WhiskyThumbnail/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = WhiskyThumbnail;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@executable_path/../../../../Frameworks",
-				);
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.daydalek.Maltoria.WhiskyThumbnail;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				SKIP_INSTALL = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_STRICT_CONCURRENCY = complete;
-				SWIFT_VERSION = 6.0;
-			};
-			name = Debug;
-		};
-		6EFDF6592AAE2DA800EF622F /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CODE_SIGN_ENTITLEMENTS = WhiskyThumbnail/WhiskyThumbnail.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 58;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = Z7JS58F8U3;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = WhiskyThumbnail/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = WhiskyThumbnail;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@executable_path/../../../../Frameworks",
-				);
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.daydalek.Maltoria.WhiskyThumbnail;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_STRICT_CONCURRENCY = complete;
-				SWIFT_VERSION = 6.0;
-			};
-			name = Release;
-		};
-		EC7088CF22CF6A8529158E5E /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = WhiskyUITests/Info.plist;
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.daydalek.MaltoriaUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = Whisky;
-			};
-			name = Release;
-		};
-		ED4162A74330FA06C2F299B6 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = WhiskyUITests/Info.plist;
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.daydalek.MaltoriaUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = Whisky;
-			};
-			name = Debug;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1435,38 +373,11 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		6E40497729CCA19D006E3F1B /* Build configuration list for PBXNativeTarget "Whisky" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				6E40497829CCA19D006E3F1B /* Debug */,
-				6E40497929CCA19D006E3F1B /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		6E70A49E2A9A2197007799E9 /* Build configuration list for PBXNativeTarget "WhiskyCmd" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				6E70A49C2A9A2197007799E9 /* Debug */,
 				6E70A49D2A9A2197007799E9 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		6EFDF6572AAE2DA800EF622F /* Build configuration list for PBXNativeTarget "WhiskyThumbnail" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				6EFDF6582AAE2DA800EF622F /* Debug */,
-				6EFDF6592AAE2DA800EF622F /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		D4DFB8BA3AC5AF4B9425DC4D /* Build configuration list for PBXNativeTarget "WhiskyUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				EC7088CF22CF6A8529158E5E /* Release */,
-				ED4162A74330FA06C2F299B6 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -1481,28 +392,12 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		6E064B1029DD32A200D9A2D2 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sparkle-project/Sparkle";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.6.0;
-			};
-		};
 		6E5967682A9A421800D64F70 /* XCRemoteSwiftPackageReference "swift-argument-parser" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/apple/swift-argument-parser.git";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 1.2.3;
-			};
-		};
-		7A0510A12F5A000000000001 /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/PostHog/posthog-ios.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 3.58.0;
 			};
 		};
 		EB58FB532A499896002DC184 /* XCRemoteSwiftPackageReference "SemanticVersion" */ = {
@@ -1516,16 +411,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		6E064B1129DD32A200D9A2D2 /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 6E064B1029DD32A200D9A2D2 /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
-		};
-		7A0510A22F5A000000000002 /* PostHog */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 7A0510A12F5A000000000001 /* XCRemoteSwiftPackageReference "posthog-ios" */;
-			productName = PostHog;
-		};
 		6E59676A2A9A424900D64F70 /* ArgumentParser */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 6E5967682A9A421800D64F70 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
@@ -1536,23 +421,10 @@
 			package = EB58FB532A499896002DC184 /* XCRemoteSwiftPackageReference "SemanticVersion" */;
 			productName = SemanticVersion;
 		};
-		8C2AEFC72AED79B700CB568F /* WhiskyKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = WhiskyKit;
-		};
 		8C2AEFC92AED79CD00CB568F /* WhiskyKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 8C2AEFC62AED79B700CB568F /* XCLocalSwiftPackageReference "WhiskyKit" */;
 			productName = WhiskyKit;
-		};
-		8CB681E62AED7CD00018D319 /* WhiskyKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = WhiskyKit;
-		};
-		EB58FB542A499896002DC184 /* SemanticVersion */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = EB58FB532A499896002DC184 /* XCRemoteSwiftPackageReference "SemanticVersion" */;
-			productName = SemanticVersion;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

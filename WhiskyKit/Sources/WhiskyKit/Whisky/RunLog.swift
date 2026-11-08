@@ -50,6 +50,13 @@ public struct RunLogEntry: Codable, Identifiable, Equatable, Sendable {
     /// Whether WINEDEBUG output was captured during this run.
     public var hasWineDebugOutput: Bool = false
 
+    /// Whether the run's log reports a failed `ChangeDisplaySettings` call.
+    ///
+    /// Stamped when the process exits. Low-resolution legacy titles request
+    /// modes the macOS driver cannot satisfy; the failure is the signal the
+    /// legacy fullscreen suggestion keys off.
+    public var displayModeChangeFailed: Bool = false
+
     /// Whether the program is still running (no end time recorded yet).
     public var isRunning: Bool {
         endTime == nil
@@ -71,6 +78,22 @@ public struct RunLogEntry: Codable, Identifiable, Equatable, Sendable {
         self.startTime = Date()
         self.logFileName = logFileName
         self.programName = programName
+    }
+
+    /// Entries written before `displayModeChangeFailed` existed decode as
+    /// `false` instead of failing the whole history load.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        startTime = try container.decode(Date.self, forKey: .startTime)
+        endTime = try container.decodeIfPresent(Date.self, forKey: .endTime)
+        exitCode = try container.decodeIfPresent(Int32.self, forKey: .exitCode)
+        logFileName = try container.decode(String.self, forKey: .logFileName)
+        programName = try container.decode(String.self, forKey: .programName)
+        activeWineDebugPreset = try container.decodeIfPresent(String.self, forKey: .activeWineDebugPreset)
+        hasWineDebugOutput = try container.decodeIfPresent(Bool.self, forKey: .hasWineDebugOutput) ?? false
+        displayModeChangeFailed = try container.decodeIfPresent(Bool.self, forKey: .displayModeChangeFailed)
+            ?? false
     }
 }
 
@@ -112,11 +135,16 @@ public struct RunLogHistory: Codable, Equatable, Sendable {
     ///   - id: The UUID of the entry to update.
     ///   - exitCode: The process exit code.
     ///   - hasWineDebug: Whether WINEDEBUG output was captured.
-    public mutating func markCompleted(id: UUID, exitCode: Int32, hasWineDebug: Bool) {
+    ///   - displayModeChangeFailed: Whether the run's log reports a failed
+    ///     `ChangeDisplaySettings` call.
+    public mutating func markCompleted(
+        id: UUID, exitCode: Int32, hasWineDebug: Bool, displayModeChangeFailed: Bool = false
+    ) {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         entries[index].endTime = Date()
         entries[index].exitCode = exitCode
         entries[index].hasWineDebugOutput = hasWineDebug
+        entries[index].displayModeChangeFailed = displayModeChangeFailed
     }
 
     /// Resolves all log file names to full URLs in the given logs folder.
@@ -239,5 +267,44 @@ public enum RunLogStore {
         } catch {
             return 0
         }
+    }
+}
+
+/// Detects a failed `NtUserChangeDisplaySettings` call in a finished run's log.
+///
+/// Wine reports mode-change rejections as
+/// `err:system:NtUserChangeDisplaySettings Changing ... returned -2.` where the
+/// number is a `DISP_CHANGE_*` code (`-2` is `DISP_CHANGE_BADMODE`, the legacy
+/// fullscreen case). A zero result is a successful change, so only nonzero
+/// values flag the entry.
+public enum DisplayModeFailure {
+    /// How many tail bytes of a log are scanned; the failure line can appear
+    /// anywhere, but logs grow unbounded while the interesting runs fail early.
+    static let scanLimit = 512 * 1024
+
+    /// Returns `true` when the log text contains a failed display-mode change.
+    public static func detect(logText: String) -> Bool {
+        for line in logText.split(separator: "\n") where line.contains("NtUserChangeDisplaySettings") {
+            guard let returned = line.range(of: "returned ") else { continue }
+            let tail = line[returned.upperBound...]
+            let number = tail.prefix(while: { $0 == "-" || $0.isNumber })
+            if let code = Int(number), code != 0 {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Returns `true` when the log file's tail contains a failed display-mode
+    /// change. Missing or unreadable logs answer `false`.
+    public static func detect(logFileURL: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: logFileURL) else { return false }
+        defer { try? handle.close() }
+        let end = handle.seekToEndOfFile()
+        handle.seek(toFileOffset: end > UInt64(scanLimit) ? end - UInt64(scanLimit) : 0)
+        guard let text = String(data: handle.readDataToEndOfFile(), encoding: .utf8) else {
+            return false
+        }
+        return detect(logText: text)
     }
 }

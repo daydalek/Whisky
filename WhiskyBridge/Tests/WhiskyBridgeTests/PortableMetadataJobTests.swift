@@ -110,6 +110,102 @@ private final class SlowCharacterProtocol: URLProtocol, @unchecked Sendable {
     Issue.record("Stale metadata job did not fail")
 }
 
+@Test @MainActor func metadataSyncCachesMatchedCharacterPortraits() async throws {
+    let fixture = try MetadataFixture()
+    defer { fixture.remove() }
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [SyncPortraitProtocol.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let folder = fixture.bottle.appendingPathComponent("Games/Test")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    var library = FolderGameLibrary()
+    library.automaticMetadata = true
+    library.roots = ["Games"]
+    library.initializedRoots = ["Games"]
+    library.knownFolders = ["Games/Test"]
+    library.pendingMetadata = ["Games/Test"]
+    try library.save(bottleURL: fixture.bottle)
+    let jobs = BridgeJobStore()
+    let service = LibraryMetadataService(jobs: jobs, session: session, networkAccess: {})
+    var params = fixture.params
+    params["automatic"] = .bool(true)
+    params["includeCharacters"] = .bool(true)
+    params["sources"] = .array([.string("bangumi")])
+    let synced = try await waitForMetadataJob(
+        service.call("metadata.sync", params: params, workspace: fixture.workspace),
+        jobs: jobs
+    )
+    #expect(synced.object?["matched"] == .integer(1))
+    let folderEntry = try #require(try await fixture.workspace.entries(in: fixture.bottle)
+        .first { $0.source == .folder })
+    let store = GameMetadataStore(directory: folderEntry.metadataDirectory, networkAccess: {})
+    let portrait = try #require(URL(string: "https://fixture.example/portrait.png"))
+    let cached = try #require(store.cachedCoverURL(for: portrait))
+    #expect(try Data(contentsOf: cached) == pngPixel)
+}
+
+@Test @MainActor func libraryEntriesSchedulesPortraitRepairForStoredCasts() async throws {
+    let fixture = try MetadataFixture()
+    defer { fixture.remove() }
+    let entry = try await fixture.workspace.entry(fixture.params)
+    let store = GameMetadataStore(directory: entry.metadataDirectory, networkAccess: {})
+    let portrait = try #require(URL(string: "https://fixture.example/portrait.png"))
+    var metadata = GameMetadata(source: .bangumi, sourceID: "42", title: "Test")
+    metadata.characters = [GameCharacter(id: "7", name: "Hero", imageURL: portrait)]
+    try await store.save(metadata, for: entry.metadataIdentity)
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [SyncPortraitProtocol.self]
+    let session = URLSession(configuration: configuration)
+    defer { session.invalidateAndCancel() }
+    let service = ApplicationService(workspace: fixture.workspace, metadataSession: session)
+    defer { Task { await service.shutdown() } }
+    let encoded = try await service.call("library.entries", params: fixture.params)
+    let records = try #require(try encoded.decoded([EntryRecord].self))
+    #expect(records.first?.metadata?.characters?.count == 1)
+    #expect(records.first?.characterImages?.isEmpty != false)
+    for _ in 0 ..< 150 {
+        if let cached = store.cachedCoverURL(for: portrait) {
+            #expect(try Data(contentsOf: cached) == pngPixel)
+            return
+        }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    Issue.record("Portrait repair did not cache the stored cast image")
+}
+
+private final class SyncPortraitProtocol: URLProtocol, @unchecked Sendable {
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        guard let url = request.url else { return }
+        let isImage = url.host == "fixture.example"
+        let isCharacters = url.path.hasSuffix("/characters")
+        let data = if isImage {
+            pngPixel
+        } else if isCharacters {
+            Data(
+                #"[{"id":7,"name":"Hero","relation":"主角","images":{"large":"https://fixture.example/portrait.png"}}]"#
+                    .utf8
+            )
+        } else {
+            Data(#"{"data":[{"id":42,"name":"Test","name_cn":"Test"}]}"#.utf8)
+        }
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": isImage ? "image/png" : "application/json"]
+        )
+        else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
 @Test @MainActor func portableMetadataSearchCachesThumbnailsAndSyncRetainsConcurrentFolderEdits() async throws {
     let fixture = try MetadataFixture()
     defer { fixture.remove() }

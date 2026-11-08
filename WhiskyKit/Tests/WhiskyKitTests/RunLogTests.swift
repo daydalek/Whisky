@@ -298,4 +298,18 @@ final class RunLogTests: XCTestCase {
         let size = RunLogStore.totalLogSize(in: tempDir.appending(path: "nonexistent"))
         XCTAssertEqual(size, 0)
     }
+
+    func testLegacyEntryWithoutDisplayModeFlagDecodesFalse() throws {
+        // Entries written before `displayModeChangeFailed` existed must still decode.
+        let dict: [String: Any] = [
+            "id": UUID().uuidString,
+            "startTime": Date(),
+            "logFileName": "legacy.log",
+            "programName": "legacy.exe"
+        ]
+        let data = try PropertyListSerialization.data(fromPropertyList: dict, format: .binary, options: 0)
+        let decoded = try PropertyListDecoder().decode(RunLogEntry.self, from: data)
+        XCTAssertFalse(decoded.displayModeChangeFailed)
+        XCTAssertNil(decoded.endTime)
+    }
 }

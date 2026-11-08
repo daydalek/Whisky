@@ -22,7 +22,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE="${SCRIPT_DIR}/whisky_audio_test.c"
 OUTPUT="${SCRIPT_DIR}/WhiskyAudioTest.exe"
-DEST_DIR="${SCRIPT_DIR}/../Whisky/Resources"
+DEST_DIR="${SCRIPT_DIR}/../Libraries"
 COMPILER="x86_64-w64-mingw32-gcc"
 
 if ! command -v "${COMPILER}" &>/dev/null; then
@@ -40,5 +40,5 @@ if [ -d "${DEST_DIR}" ]; then
     cp "${OUTPUT}" "${DEST_DIR}/WhiskyAudioTest.exe"
     echo "Copied to ${DEST_DIR}/WhiskyAudioTest.exe"
 else
-    echo "Warning: ${DEST_DIR} does not exist. Copy manually to Whisky/Resources/."
+    echo "Warning: ${DEST_DIR} does not exist. Copy manually to Libraries/."
 fi

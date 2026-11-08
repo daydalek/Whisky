@@ -85,6 +85,12 @@ public struct ProgramOverrides: Codable, Equatable, Sendable {
 
     // MARK: - Display
 
+    /// Whether Wine's emulated display mode changes are enabled. `nil` inherits from bottle.
+    ///
+    /// Written to `HKCU\Software\Wine\X11 Driver\EmulateModeset` at launch: a
+    /// failed `ChangeDisplaySettings` (e.g. a 640×480 request macOS cannot
+    /// satisfy) then scales the emulated monitor instead of erroring out.
+    public var emulateModeset: Bool?
     /// Whether Wine's virtual desktop mode is enabled. `nil` inherits from bottle.
     public var virtualDesktopEnabled: Bool?
     /// The display resolution preset. `nil` inherits from bottle.
@@ -127,6 +133,7 @@ public struct ProgramOverrides: Codable, Equatable, Sendable {
             && allowBackgroundEvents == nil
             && disableControllerMapping == nil
             && useButtonLabels == nil
+            && emulateModeset == nil
             && virtualDesktopEnabled == nil
             && resolutionPreset == nil
             && customResolutionWidth == nil
@@ -157,6 +164,7 @@ public struct ProgramOverrides: Codable, Equatable, Sendable {
         self.allowBackgroundEvents = try container.decodeIfPresent(Bool.self, forKey: .allowBackgroundEvents)
         self.disableControllerMapping = try container.decodeIfPresent(Bool.self, forKey: .disableControllerMapping)
         self.useButtonLabels = try container.decodeIfPresent(Bool.self, forKey: .useButtonLabels)
+        self.emulateModeset = try container.decodeIfPresent(Bool.self, forKey: .emulateModeset)
         self.virtualDesktopEnabled = try container.decodeIfPresent(Bool.self, forKey: .virtualDesktopEnabled)
         self.resolutionPreset = container.decodeLenientIfPresent(ResolutionPreset.self, forKey: .resolutionPreset)
         self.customResolutionWidth = try container.decodeIfPresent(Int.self, forKey: .customResolutionWidth)

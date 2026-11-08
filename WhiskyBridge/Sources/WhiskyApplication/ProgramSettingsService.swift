@@ -77,6 +77,10 @@ public enum ProgramSettingsService {
         if let date = raw["lastDiagnosisDate"] as? Date {
             payload["lastDiagnosisDate"] = .integer(Int64(date.timeIntervalSince1970))
         }
+        payload["legacyFullscreenDismissed"] = .bool(raw["legacyFullscreenDismissed"] as? Bool ?? false)
+        payload["displayModeChangeFailed"] = .bool(
+            (try? displayModeChangeFailed(executable: executable, containerURL: container)) ?? false
+        )
         return .object(payload)
     }
 
@@ -87,6 +91,20 @@ public enum ProgramSettingsService {
               .propertyList(from: Data(contentsOf: source), format: nil) as? [String: Any]
         else { throw BridgeFailure("invalid_settings", "Program storage is unreadable or too large") }
         return raw
+    }
+
+    /// The newest run-history entry's failed display-mode flag, stamped by the
+    /// launch layer when `ChangeDisplaySettings` rejects a mode. A clean latest
+    /// run clears the suggestion even when older runs failed.
+    private static func displayModeChangeFailed(executable: URL, containerURL: URL) throws -> Bool {
+        let url = containerURL.appendingPathComponent("Program Settings")
+            .appendingPathComponent(executable.lastPathComponent)
+            .appendingPathExtension("run-history.plist")
+        let raw = try load(url)
+        guard let entries = raw["entries"] as? [[String: Any]], let latest = entries.last else {
+            return false
+        }
+        return latest["displayModeChangeFailed"] as? Bool ?? false
     }
 
     private static func validateStored(_ raw: [String: Any]) throws {

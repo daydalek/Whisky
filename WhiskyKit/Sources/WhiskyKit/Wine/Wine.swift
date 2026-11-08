@@ -383,12 +383,14 @@ public class Wine {
             }
         }
 
-        // Update the run log entry with exit information
+        // Update the run log entry with exit information. The display-mode
+        // failure flag feeds the legacy fullscreen suggestion on the next read.
         var updatedHistory = RunLogStore.load(for: programName, in: bottle.url)
         updatedHistory.markCompleted(
             id: runLogEntry.id,
             exitCode: exitCode,
-            hasWineDebug: launch.environment.keys.contains("WINEDEBUG")
+            hasWineDebug: launch.environment.keys.contains("WINEDEBUG"),
+            displayModeChangeFailed: DisplayModeFailure.detect(logFileURL: logFileURL)
         )
         RunLogStore.save(updatedHistory, for: programName, in: bottle.url)
 

@@ -28,6 +28,12 @@ pub(crate) struct ProgramSettingsDto {
     pub(crate) defaults: OverridesDto,
     #[serde(default)]
     pub(crate) available: bool,
+    /// The user permanently dismissed the legacy fullscreen suggestion.
+    #[serde(default)]
+    pub(crate) legacy_fullscreen_dismissed: bool,
+    /// The latest finished run logged a failed `ChangeDisplaySettings` call.
+    #[serde(default)]
+    pub(crate) display_mode_change_failed: bool,
 }
 
 impl ProgramSettingsDto {
@@ -67,9 +73,18 @@ impl ProgramSettingsDto {
     }
 
     pub(crate) fn display_enabled(&self) -> bool {
-        self.overrides
-            .as_ref()
-            .is_some_and(|overrides| overrides.virtual_desktop_enabled.is_some())
+        self.overrides.as_ref().is_some_and(|overrides| {
+            overrides.virtual_desktop_enabled.is_some() || overrides.emulate_modeset.is_some()
+        })
+    }
+
+    /// Whether the legacy fullscreen prompt should pop for this program: the
+    /// latest run failed a display-mode change, the fix is not already forced
+    /// on, and the user has not permanently dismissed the suggestion.
+    pub(crate) fn legacy_fullscreen_suggested(&self) -> bool {
+        self.display_mode_change_failed
+            && !self.legacy_fullscreen_dismissed
+            && self.overrides.as_ref().and_then(|o| o.emulate_modeset) != Some(true)
     }
 
     pub(crate) fn dll_enabled(&self) -> bool {
@@ -115,6 +130,8 @@ pub(crate) struct OverridesDto {
     pub(crate) disable_controller_mapping: Option<bool>,
     #[serde(default)]
     pub(crate) use_button_labels: Option<bool>,
+    #[serde(default)]
+    pub(crate) emulate_modeset: Option<bool>,
     #[serde(default)]
     pub(crate) virtual_desktop_enabled: Option<bool>,
     #[serde(default)]
@@ -162,6 +179,8 @@ pub(crate) struct RunEntryDto {
     pub(crate) duration: Option<f64>,
     #[serde(default)]
     pub(crate) has_wine_debug_output: bool,
+    #[serde(default)]
+    pub(crate) display_mode_change_failed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -506,6 +525,7 @@ pub(crate) fn settings_patch(
             "allowBackgroundEvents": overrides.allow_background_events,
             "disableControllerMapping": overrides.disable_controller_mapping,
             "useButtonLabels": overrides.use_button_labels,
+            "emulateModeset": overrides.emulate_modeset,
             "virtualDesktopEnabled": overrides.virtual_desktop_enabled,
             "resolutionPreset": overrides.resolution_preset,
             "customResolutionWidth": overrides.custom_resolution_width,

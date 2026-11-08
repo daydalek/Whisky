@@ -715,6 +715,8 @@ pub(crate) struct WhiskyApp {
     pub(crate) active_backends: HashMap<String, String>,
     /// The clipboard preflight awaiting a decision, if any.
     pub(crate) clipboard_prompt: Option<ClipboardPrompt>,
+    /// The post-run legacy fullscreen suggestion awaiting a decision, if any.
+    pub(crate) legacy_fullscreen_prompt: Option<LegacyFullscreenPrompt>,
     pub(crate) bridge: BridgeSupervisor,
     pub(crate) bridge_status: BridgeStatus,
     pub(crate) service_methods: BTreeSet<String>,
@@ -729,6 +731,19 @@ pub(crate) struct CoverBatch {
     pub(crate) done: usize,
     pub(crate) total: usize,
     generation: u64,
+}
+
+/// The legacy fullscreen suggestion surfaced after a run logs a failed
+/// display-mode change. `enable` is the dialog switch draft — it only becomes
+/// the program override when the user applies it.
+#[derive(Clone, Debug)]
+pub(crate) struct LegacyFullscreenPrompt {
+    pub(crate) container: String,
+    pub(crate) executable: String,
+    pub(crate) program_name: String,
+    /// The library entry the finished run belongs to, for the restart button.
+    pub(crate) entry_id: String,
+    pub(crate) enable: bool,
 }
 
 impl WhiskyApp {
@@ -910,6 +925,7 @@ impl WhiskyApp {
             runtime: RuntimeTable::default(),
             active_backends: HashMap::new(),
             clipboard_prompt: None,
+            legacy_fullscreen_prompt: None,
             bridge,
             bridge_status: BridgeStatus::Locating,
             service_methods: BTreeSet::new(),
@@ -935,6 +951,7 @@ impl WhiskyApp {
         self.rating_edits.clear();
         self.hidden_edits.clear();
         self.clipboard_prompt = None;
+        self.legacy_fullscreen_prompt = None;
         self.bottle_dialog = None;
         self.bottle_operation = None;
         self.pending_path_action = None;
@@ -1070,6 +1087,7 @@ impl WhiskyApp {
                     // A pending clipboard token belongs to a session that is
                     // gone; re-launching from the card gets a fresh one.
                     self.clipboard_prompt = None;
+                    self.legacy_fullscreen_prompt = None;
                     if self.entries.is_empty() {
                         self.load_error = reason;
                     }
@@ -1223,13 +1241,18 @@ impl WhiskyApp {
                         // `lastSessionEndedAt` when a session ends, and the
                         // recent sort only sees it after the entries are
                         // re-read (Swift: `LibraryModel.consume`).
-                        let exited = update.entries.iter().any(|entry| {
-                            RuntimeState::from_wire(&entry.state) == RuntimeState::Idle
-                                && self
-                                    .runtime
-                                    .entry(&entry.id)
-                                    .is_some_and(|previous| previous.state.is_active())
-                        });
+                        let exited_ids: Vec<String> = update
+                            .entries
+                            .iter()
+                            .filter(|entry| {
+                                RuntimeState::from_wire(&entry.state) == RuntimeState::Idle
+                                    && self
+                                        .runtime
+                                        .entry(&entry.id)
+                                        .is_some_and(|previous| previous.state.is_active())
+                            })
+                            .map(|entry| entry.id.clone())
+                            .collect();
                         let container = update.container.clone();
                         for entry in &update.entries {
                             if entry.state == "idle" {
@@ -1237,7 +1260,23 @@ impl WhiskyApp {
                             }
                         }
                         self.runtime.apply(update);
-                        if exited
+                        // Each finished run re-reads its settings: the newest
+                        // run-history entry carries the display-mode failure
+                        // flag, and the probe only prompts when the fix is
+                        // neither applied nor permanently dismissed.
+                        for entry_id in &exited_ids {
+                            let executable = self
+                                .entries
+                                .iter()
+                                .find(|entry| entry.id == *entry_id)
+                                .and_then(|entry| entry.executable.as_ref())
+                                .and_then(|path| path.to_str());
+                            if let Some(executable) = executable {
+                                self.bridge
+                                    .probe_legacy_fullscreen(&container, executable, entry_id);
+                            }
+                        }
+                        if !exited_ids.is_empty()
                             && self
                                 .preview
                                 .toggles
@@ -1286,6 +1325,22 @@ impl WhiskyApp {
             BridgeEvent::ClipboardPrompt(prompt) => {
                 if !self.demo {
                     self.clipboard_prompt = Some(prompt);
+                }
+            }
+            BridgeEvent::LegacyFullscreenPrompt {
+                container,
+                executable,
+                program_name,
+                entry_id,
+            } => {
+                if !self.demo {
+                    self.legacy_fullscreen_prompt = Some(LegacyFullscreenPrompt {
+                        container,
+                        executable,
+                        program_name,
+                        entry_id,
+                        enable: true,
+                    });
                 }
             }
             BridgeEvent::RuntimeFailed { reason } => {
@@ -5460,6 +5515,7 @@ impl WhiskyApp {
             "allowBackgroundEvents" => overrides.allow_background_events = Some(value),
             "disableControllerMapping" => overrides.disable_controller_mapping = Some(value),
             "useButtonLabels" => overrides.use_button_labels = Some(value),
+            "emulateModeset" => overrides.emulate_modeset = Some(value),
             "virtualDesktopEnabled" => overrides.virtual_desktop_enabled = Some(value),
             _ => {}
         }
@@ -5520,12 +5576,14 @@ impl WhiskyApp {
                 overrides.use_button_labels = None;
             }
             "display" if on => {
+                overrides.emulate_modeset = defaults.emulate_modeset;
                 overrides.virtual_desktop_enabled = defaults.virtual_desktop_enabled;
                 overrides.resolution_preset = defaults.resolution_preset;
                 overrides.custom_resolution_width = defaults.custom_resolution_width;
                 overrides.custom_resolution_height = defaults.custom_resolution_height;
             }
             "display" => {
+                overrides.emulate_modeset = None;
                 overrides.virtual_desktop_enabled = None;
                 overrides.resolution_preset = None;
                 overrides.custom_resolution_width = None;
@@ -6496,6 +6554,56 @@ impl WhiskyApp {
     pub(crate) fn dismiss_clipboard(&mut self, cx: &mut Context<Self>) {
         self.clipboard_prompt = None;
         cx.notify();
+    }
+
+    /// Apply the dialog's switch as the program override. The optional
+    /// relaunch targets the entry whose finished run raised the suggestion.
+    pub(crate) fn legacy_fullscreen_apply(&mut self, relaunch: bool, cx: &mut Context<Self>) {
+        let Some(prompt) = self.legacy_fullscreen_prompt.take() else {
+            return;
+        };
+        self.bridge.save_program_settings(
+            &prompt.container,
+            &prompt.executable,
+            json!({ "overrides": { "emulateModeset": prompt.enable } }),
+        );
+        if relaunch {
+            self.runtime
+                .set_state(&prompt.entry_id, RuntimeState::Preparing);
+            self.bridge.launch(
+                &prompt.container,
+                &prompt.entry_id,
+                Some(&prompt.executable),
+            );
+        }
+        cx.notify();
+    }
+
+    /// Permanently silence the suggestion for this program. The manual switch
+    /// in program settings stays reachable afterwards.
+    pub(crate) fn legacy_fullscreen_dismiss_forever(&mut self, cx: &mut Context<Self>) {
+        let Some(prompt) = self.legacy_fullscreen_prompt.take() else {
+            return;
+        };
+        self.bridge.save_program_settings(
+            &prompt.container,
+            &prompt.executable,
+            json!({ "legacyFullscreenDismissed": true }),
+        );
+        cx.notify();
+    }
+
+    pub(crate) fn dismiss_legacy_fullscreen(&mut self, cx: &mut Context<Self>) {
+        self.legacy_fullscreen_prompt = None;
+        cx.notify();
+    }
+
+    /// The dialog switch edits a draft; nothing is written until apply. The
+    /// caller (`program_switch`) notifies.
+    pub(crate) fn legacy_fullscreen_set_enable(&mut self, enable: bool) {
+        if let Some(prompt) = self.legacy_fullscreen_prompt.as_mut() {
+            prompt.enable = enable;
+        }
     }
     pub(crate) fn navigate(&mut self, page: PreviewPage, cx: &mut Context<Self>) {
         if page != self.preview.page {

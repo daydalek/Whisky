@@ -27,7 +27,7 @@ final class WhiskyWineSetupDiagnosticsTests: XCTestCase {
 
         let report = diagnostics.reportString(stage: "download", error: "boom")
 
-        XCTAssertTrue(report.contains("WhiskyWine Setup Diagnostics"))
+        XCTAssertTrue(report.contains("Wine Setup Diagnostics"))
         XCTAssertTrue(report.contains("https://github.com/daydalek/Whisky/issues"))
         XCTAssertTrue(report.contains("Stage: download"))
         XCTAssertTrue(report.contains("Error: boom"))
@@ -51,7 +51,7 @@ final class WhiskyWineSetupDiagnosticsTests: XCTestCase {
         let lines = WhiskyWineSetupDiagnostics.versionSectionLines(for: info)
 
         XCTAssertEqual(lines.first, "[VERSION]")
-        XCTAssertTrue(lines.contains("WhiskyWine: 3.0.0"))
+        XCTAssertTrue(lines.contains("Wine: 3.0.0"))
         XCTAssertTrue(lines.contains("DXVK: 1.10.3"))
     }
 
@@ -60,7 +60,7 @@ final class WhiskyWineSetupDiagnosticsTests: XCTestCase {
 
         let lines = WhiskyWineSetupDiagnostics.versionSectionLines(for: info)
 
-        XCTAssertTrue(lines.contains("WhiskyWine: 3.0.0"))
+        XCTAssertTrue(lines.contains("Wine: 3.0.0"))
         XCTAssertFalse(lines.contains(where: { $0.hasPrefix("DXVK:") }))
     }
 
@@ -77,7 +77,7 @@ final class WhiskyWineSetupDiagnosticsTests: XCTestCase {
         let lines = WhiskyWineSetupDiagnostics.versionSectionLines(for: nil)
 
         XCTAssertEqual(lines.first, "[VERSION]")
-        XCTAssertFalse(lines.contains(where: { $0.hasPrefix("WhiskyWine:") }))
+        XCTAssertFalse(lines.contains(where: { $0.hasPrefix("Wine:") }))
         XCTAssertFalse(lines.contains(where: { $0.hasPrefix("DXVK:") }))
     }
 

@@ -18,7 +18,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 APP_DIR="${WHISKY_GPUI_APP_DIR:-${REPO_ROOT}/dist/Maltoria.app}"
 CONTENTS="${APP_DIR}/Contents"
-ICONSET_SRC="${REPO_ROOT}/Whisky/Assets.xcassets/AppIcon.appiconset"
+ICONSET_SRC="${REPO_ROOT}/apps/whisky-gpui/resources/AppIcon.appiconset"
 
 # Preserve previous artifacts before starting an expensive compilation.
 if [[ -e "${APP_DIR}" || -L "${APP_DIR}" ]]; then
@@ -47,7 +47,7 @@ cp "${HELPER_BIN}" "${CONTENTS}/Resources/whisky-bridge"
 for resource in cabextract winetricks verbs.txt; do
     cp "${REPO_ROOT}/Libraries/${resource}" "${CONTENTS}/Resources/${resource}"
 done
-cp "${REPO_ROOT}/Whisky/Resources/WhiskyAudioTest.exe" "${CONTENTS}/Resources/WhiskyAudioTest.exe"
+cp "${REPO_ROOT}/Libraries/WhiskyAudioTest.exe" "${CONTENTS}/Resources/WhiskyAudioTest.exe"
 cp -R "${REPO_ROOT}/WhiskyBridge/.build/release/WhiskyKit_WhiskyKit.bundle" \
     "${CONTENTS}/Resources/WhiskyKit_WhiskyKit.bundle"
 chmod +x "${CONTENTS}/MacOS/whisky-gpui" "${CONTENTS}/Resources/whisky-bridge" \
@@ -135,7 +135,7 @@ for file in "${CONTENTS}/MacOS/whisky-gpui" "${CONTENTS}/Resources/whisky-bridge
         codesign --force --sign - "$file"
     fi
 done
-ENTITLEMENTS="${REPO_ROOT}/Whisky/Whisky.entitlements"
+ENTITLEMENTS="${REPO_ROOT}/apps/whisky-gpui/Maltoria.entitlements"
 if [[ -f "${ENTITLEMENTS}" ]]; then
     codesign --force --sign - --entitlements "${ENTITLEMENTS}" "${APP_DIR}"
 else

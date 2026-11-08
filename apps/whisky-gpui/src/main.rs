@@ -118,11 +118,10 @@ impl Render for WhiskyApp {
         let notification = Presence::new("notice-presence", self.notice.is_some())
             .transition(self.timing(NOTICE_MS))
             .sample(window, cx);
-        let mut root = row()
+        let mut root = col()
             .track_focus(&self.focus_handle)
             .relative()
             .size_full()
-            .items_start()
             .overflow_hidden()
             .bg(rgb(crate::theme::bg()))
             .font_family(platform::UI_FONT)
@@ -186,6 +185,8 @@ impl Render for WhiskyApp {
                     }
                 } else if this.bottle_dialog.is_some() {
                     this.dismiss_bottle_dialog(cx);
+                } else if this.legacy_fullscreen_prompt.is_some() {
+                    this.legacy_fullscreen_prompt = None;
                 } else if this.setup_dialog && !this.setup_installing {
                     this.dismiss_setup(cx);
                 } else if this.about {
@@ -202,36 +203,41 @@ impl Render for WhiskyApp {
                 this.focus_handle.focus(window, cx);
                 cx.notify();
             }))
+            // The toolbar spans the window's full width so the sidebar's right
+            // border starts below it, never slicing the traffic light cluster.
             .child(
                 div()
-                    .w(px(sw))
-                    .min_w(px(sw))
-                    .h_full()
-                    .overflow_hidden()
-                    .flex_shrink_0()
-                    .child(
-                        div()
-                            .w(px(self.sidebar.layout_width()))
-                            .h_full()
-                            .child(self.sidebar(cx)),
-                    ),
+                    .relative()
+                    .child(self.toolbar(platform::traffic_light_padding(0., 18., fullscreen), cx)),
             )
             .child(
-                col()
-                    .relative()
+                row()
                     .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .child(backdrop)
+                    .min_h_0()
+                    .items_start()
                     .child(
-                        div().relative().child(
-                            self.toolbar(
-                                platform::traffic_light_padding(sw, 18., fullscreen),
-                                cx,
+                        div()
+                            .w(px(sw))
+                            .min_w(px(sw))
+                            .h_full()
+                            .overflow_hidden()
+                            .flex_shrink_0()
+                            .child(
+                                div()
+                                    .w(px(self.sidebar.layout_width()))
+                                    .h_full()
+                                    .child(self.sidebar(cx)),
                             ),
-                        ),
                     )
-                    .child(div().relative().flex_1().min_h_0().w_full().child(body)),
+                    .child(
+                        col()
+                            .relative()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .child(backdrop)
+                            .child(div().relative().flex_1().min_h_0().w_full().child(body)),
+                    ),
             );
         if presence.should_render() {
             if let Some(index) = self.detail {
@@ -246,6 +252,9 @@ impl Render for WhiskyApp {
         }
         if self.clipboard_prompt.is_some() {
             root = root.child(self.clipboard_dialog(ww, wh, cx));
+        }
+        if self.legacy_fullscreen_prompt.is_some() {
+            root = root.child(self.legacy_fullscreen_dialog(ww, wh, cx));
         }
         if self.bottle_dialog.is_some() {
             root = root.child(self.bottle_dialog_view(ww, wh, window, cx));

@@ -998,6 +998,17 @@ impl WhiskyApp {
             cx,
         )];
         if enabled {
+            let emulate_modeset = overrides
+                .and_then(|value| value.emulate_modeset)
+                .or(defaults.emulate_modeset)
+                .unwrap_or(false);
+            children.push(self.program_switch(
+                "ps-emulate-modeset".into(),
+                "旧版全屏兼容",
+                emulate_modeset,
+                |this, on| this.set_program_override_bool("emulateModeset", on),
+                cx,
+            ));
             let virtual_desktop = overrides
                 .and_then(|value| value.virtual_desktop_enabled)
                 .or(defaults.virtual_desktop_enabled)
@@ -3408,6 +3419,133 @@ impl WhiskyApp {
                                     .primary()
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.resolve_clipboard(ClipboardDecision::Clear, cx);
+                                    })),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// Post-run suggestion: the latest log recorded a rejected display-mode
+    /// change, so the dialog offers the program-scoped compatibility switch
+    /// directly. "不再建议" writes the permanent dismissal.
+    pub(crate) fn legacy_fullscreen_dialog(
+        &self,
+        width: f32,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(prompt) = &self.legacy_fullscreen_prompt else {
+            return div().into_any_element();
+        };
+        let detail = format!(
+            "「{}」上次运行时请求切换显示模式被 Wine 拒绝，全屏可能未生效。\
+             需要低分辨率全屏的旧游戏可通过「旧版全屏兼容」修复；该开关仅作用于此程序。",
+            prompt.program_name
+        );
+        let pw = 480_f32.min(width - 48.);
+        let ph = 300_f32.min(height - 48.);
+        let enable = prompt.enable;
+        div()
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .bg(rgba(crate::theme::overlay()))
+            .child(
+                div()
+                    .id("legacy-fullscreen-dismiss")
+                    .absolute()
+                    .inset_0()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.dismiss_legacy_fullscreen(cx);
+                    })),
+            )
+            .child(
+                col()
+                    .id("legacy-fullscreen-dialog-card")
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .absolute()
+                    .left(px((width - pw) / 2.))
+                    .top(px((height - ph) / 2.))
+                    .w(px(pw))
+                    .h(px(ph))
+                    .rounded(px(RADIUS_LG))
+                    .overflow_hidden()
+                    .bg(rgb(crate::theme::surface()))
+                    .border_1()
+                    .border_color(rgba(crate::theme::surface_border()))
+                    .shadow_xl()
+                    .child(
+                        row()
+                            .flex_shrink_0()
+                            .h(px(46.))
+                            .px(px(16.))
+                            .gap(px(12.))
+                            .border_b_1()
+                            .border_color(rgba(crate::theme::surface_border()))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("检测到全屏切换失败"),
+                            )
+                            .child(
+                                Button::new("legacy-fullscreen-close")
+                                    .label("×")
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.dismiss_legacy_fullscreen(cx);
+                                    })),
+                            ),
+                    )
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_h_0()
+                            .px(px(18.))
+                            .py(px(14.))
+                            .gap(px(10.))
+                            .child(muted(detail).line_height(relative(1.5)).line_clamp(4))
+                            .child(self.program_switch(
+                                "legacy-fullscreen-switch".into(),
+                                "旧版全屏兼容",
+                                enable,
+                                |this, on| this.legacy_fullscreen_set_enable(on),
+                                cx,
+                            )),
+                    )
+                    .child(
+                        row()
+                            .flex_shrink_0()
+                            .justify_end()
+                            .gap(px(8.))
+                            .px(px(16.))
+                            .py(px(12.))
+                            .border_t_1()
+                            .border_color(rgba(crate::theme::surface_border()))
+                            .child(
+                                Button::new("legacy-fullscreen-never")
+                                    .label("不再建议")
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.legacy_fullscreen_dismiss_forever(cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("legacy-fullscreen-apply")
+                                    .label("应用")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.legacy_fullscreen_apply(false, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("legacy-fullscreen-restart")
+                                    .label("应用并重启")
+                                    .primary()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.legacy_fullscreen_apply(true, cx);
                                     })),
                             ),
                     ),
