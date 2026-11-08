@@ -17,8 +17,8 @@
 //
 
 import Foundation
-import XCTest
 @testable import WhiskyKit
+import XCTest
 
 @MainActor
 final class AudioTroubleshootingEngineTests: XCTestCase {
@@ -56,7 +56,7 @@ final class AudioTroubleshootingEngineTests: XCTestCase {
 
         var observedStateDuringExecution: AudioTroubleshootingEngine.WizardState?
 
-        engine.fixExecutor = { actionId in
+        engine.fixExecutor = { _ in
             observedStateDuringExecution = engine.wizardState
             expectation.fulfill()
         }
@@ -68,7 +68,10 @@ final class AudioTroubleshootingEngineTests: XCTestCase {
         // Verify that during execution, state was .applyingFix
         XCTAssertEqual(
             observedStateDuringExecution,
-            .applyingFix(fixDescription: "Clear Wine cached audio device mappings and restart", actionId: "reset-audio-state")
+            .applyingFix(
+                fixDescription: "Clear Wine cached audio device mappings and restart",
+                actionId: "reset-audio-state"
+            )
         )
 
         // After task completes, state transitions to askingDidItWork
@@ -95,7 +98,10 @@ final class AudioTroubleshootingEngineTests: XCTestCase {
         engine.applyFix(actionId: "reset-audio-state")
         XCTAssertEqual(
             engine.wizardState,
-            .applyingFix(fixDescription: "Clear Wine cached audio device mappings and restart", actionId: "reset-audio-state")
+            .applyingFix(
+                fixDescription: "Clear Wine cached audio device mappings and restart",
+                actionId: "reset-audio-state"
+            )
         )
 
         // Immediate duplicate click while still applying

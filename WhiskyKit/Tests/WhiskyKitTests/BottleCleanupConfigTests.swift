@@ -75,9 +75,24 @@ final class BottleCleanupConfigTests: XCTestCase {
 
     @MainActor
     func testApplicationShutdownServicePolicies() {
-        let bottle1 = Bottle(bottleUrl: URL(filePath: "/tmp/b1"), inFlight: false, isAvailable: true, cleanInvalidPins: false)
-        let bottle2 = Bottle(bottleUrl: URL(filePath: "/tmp/b2"), inFlight: false, isAvailable: true, cleanInvalidPins: false)
-        let bottle3 = Bottle(bottleUrl: URL(filePath: "/tmp/b3"), inFlight: false, isAvailable: true, cleanInvalidPins: false)
+        let bottle1 = Bottle(
+            bottleUrl: URL(filePath: "/tmp/b1"),
+            inFlight: false,
+            isAvailable: true,
+            cleanInvalidPins: false
+        )
+        let bottle2 = Bottle(
+            bottleUrl: URL(filePath: "/tmp/b2"),
+            inFlight: false,
+            isAvailable: true,
+            cleanInvalidPins: false
+        )
+        let bottle3 = Bottle(
+            bottleUrl: URL(filePath: "/tmp/b3"),
+            inFlight: false,
+            isAvailable: true,
+            cleanInvalidPins: false
+        )
 
         bottle1.settings.killOnQuit = .inherit
         bottle2.settings.killOnQuit = .alwaysKill

@@ -115,7 +115,7 @@ public struct BottleInputConfig: Codable, Equatable {
             Bool.self,
             forKey: .disableControllerMapping
         ) ?? false
-        self.useButtonLabels = (try container.decodeIfPresent(
+        self.useButtonLabels = try (container.decodeIfPresent(
             Bool.self,
             forKey: .useButtonLabels
         ) ?? false) || legacyMapping

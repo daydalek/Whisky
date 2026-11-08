@@ -206,10 +206,11 @@ public final class Program: ObservableObject, Equatable, Hashable, Identifiable 
     }
 
     /// A separate region profile for each executable identity in a bottle.
-    nonisolated public static func upscaleRegionProfileURL(for url: URL, bottleURL: URL) -> URL {
+    public nonisolated static func upscaleRegionProfileURL(for url: URL, bottleURL: URL) -> URL {
         bottleURL.appending(path: "Program Settings/Upscale Regions")
             .appending(path: settingsIdentity(
-                for: url.standardizedFileURL.resolvingSymlinksInPath(), bottleURL: bottleURL))
+                for: url.standardizedFileURL.resolvingSymlinksInPath(), bottleURL: bottleURL
+            ))
             .appendingPathExtension("regions")
     }
 

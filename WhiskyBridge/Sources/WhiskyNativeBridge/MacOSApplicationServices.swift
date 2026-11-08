@@ -86,7 +86,7 @@ public final class MacOSApplicationServices: NativeApplicationServices {
                 "winetricks.verbs",
                 "winetricks.install"
             ] + (WhiskyWineInstaller.isGDICoreMLInstalled() ? ["gdi.coreml"] : [])
-            + RuntimeService.capabilities : [])
+                + RuntimeService.capabilities : [])
     }
 
     public var methods: [String] {

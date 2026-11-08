@@ -247,7 +247,8 @@ public final class Bottle: ObservableObject, Equatable, Hashable, Identifiable, 
             return true
         }
         guard let effectiveCache = cache ?? WinetricksVerbCache.load(from: url),
-              effectiveCache.hasVCRedist else {
+              effectiveCache.hasVCRedist
+        else {
             return false
         }
         return settings.synchronizeVCRedistStatus(with: effectiveCache)

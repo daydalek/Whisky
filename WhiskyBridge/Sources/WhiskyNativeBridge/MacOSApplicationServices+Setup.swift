@@ -93,86 +93,92 @@ extension MacOSApplicationServices {
                 return .object(["installed": .bool(true)])
             }
         case "setup.install":
-            return try jobs.start(name: "setup.install") { progress in
-                progress(.object(["stage": .string("checking")]))
-                let manifest = try await DistributionConfig.fetchWineManifest(useCache: false)
-                let url = try DistributionConfig.librariesURL(for: manifest)
-
-                // Skip the download when the installed runtime is already current.
-                let force = params["force"].map {
-                    if case .bool(true) = $0 {
-                        true
-                    } else {
-                        false
-                    }
-                } ?? false
-                if !force, WhiskyWineInstaller.isWhiskyWineInstalled(),
-                   let local = WhiskyWineInstaller.whiskyWineVersion(), !(local < manifest.version) {
-                    // A current runtime can still hold no GPTK payload when
-                    // Libraries was replaced outside this path.
-                    await Task.detached(priority: .utility) {
-                        _ = GPTKImporter.deployStoredPayloadIfCapable()
-                    }.value
-                    return Self.setupStatus()
-                }
-
-                // A previously fetched archive whose hash still verifies
-                // skips the download entirely.
-                var archive = await Self.reusableArchive(sha256: manifest.sha256)
-                if archive == nil {
-                    progress(.object(["stage": .string("downloading")]))
-                    archive = try await Self.downloadArchive(from: url) { received, total in
-                        progress(.object([
-                            "stage": .string("downloading"),
-                            "received": .integer(received),
-                            "total": .integer(total)
-                        ]))
-                    }
-                }
-                guard let archive else {
-                    throw BridgeFailure("download_failed", "Wine runtime download produced no archive")
-                }
-                if let expected = manifest.sha256 {
-                    progress(.object(["stage": .string("verifying")]))
-                    // Hashed off the main actor — the archive is well over a
-                    // hundred megabytes.
-                    let matches = await Task.detached(priority: .userInitiated) {
-                        WhiskyWineInstaller.sha256(ofFileAt: archive) == expected
-                    }.value
-                    guard matches else {
-                        ResumableDownloader.discardArtifacts(at: archive)
-                        throw BridgeFailure(
-                            "checksum_mismatch",
-                            "Downloaded Wine runtime failed its SHA-256 check"
-                        )
-                    }
-                }
-
-                progress(.object(["stage": .string("installing")]))
-                // Extraction is synchronous and can take a while; keep the
-                // helper's actor free so `jobs.get` keeps answering.
-                let installed = try await Task.detached(priority: .userInitiated) {
-                    try WhiskyWineInstaller.install(from: archive)
-                    WhiskyWineInstaller.cleanupTarball(at: archive)
-                    let installed = WhiskyWineInstaller.isWhiskyWineInstalled()
-                    if installed {
-                        // The install replaced Libraries, so any deployed GPTK
-                        // payload went with it; the store outlives it and
-                        // redeploys here.
-                        GPTKImporter.deployStoredPayloadIfCapable()
-                    }
-                    return installed
-                }.value
-                guard installed else {
-                    throw BridgeFailure(
-                        "install_failed",
-                        "The Wine runtime was extracted but is not usable"
-                    )
-                }
-                return Self.setupStatus()
-            }
+            return try await installWineRuntime(params: params)
         default:
             throw BridgeFailure("method_unavailable", "Native method is unavailable")
+        }
+    }
+
+    /// Downloads, verifies and installs the published Wine runtime in a job so
+    /// progress events keep flowing to the frontend.
+    private func installWineRuntime(params: [String: JSONValue]) async throws -> JSONValue {
+        try jobs.start(name: "setup.install") { progress in
+            progress(.object(["stage": .string("checking")]))
+            let manifest = try await DistributionConfig.fetchWineManifest(useCache: false)
+            let url = try DistributionConfig.librariesURL(for: manifest)
+
+            // Skip the download when the installed runtime is already current.
+            let force = params["force"].map {
+                if case .bool(true) = $0 {
+                    true
+                } else {
+                    false
+                }
+            } ?? false
+            if !force, WhiskyWineInstaller.isWhiskyWineInstalled(),
+               let local = WhiskyWineInstaller.whiskyWineVersion(), !(local < manifest.version) {
+                // A current runtime can still hold no GPTK payload when
+                // Libraries was replaced outside this path.
+                await Task.detached(priority: .utility) {
+                    _ = GPTKImporter.deployStoredPayloadIfCapable()
+                }.value
+                return Self.setupStatus()
+            }
+
+            // A previously fetched archive whose hash still verifies
+            // skips the download entirely.
+            var archive = await Self.reusableArchive(sha256: manifest.sha256)
+            if archive == nil {
+                progress(.object(["stage": .string("downloading")]))
+                archive = try await Self.downloadArchive(from: url) { received, total in
+                    progress(.object([
+                        "stage": .string("downloading"),
+                        "received": .integer(received),
+                        "total": .integer(total)
+                    ]))
+                }
+            }
+            guard let archive else {
+                throw BridgeFailure("download_failed", "Wine runtime download produced no archive")
+            }
+            if let expected = manifest.sha256 {
+                progress(.object(["stage": .string("verifying")]))
+                // Hashed off the main actor — the archive is well over a
+                // hundred megabytes.
+                let matches = await Task.detached(priority: .userInitiated) {
+                    WhiskyWineInstaller.sha256(ofFileAt: archive) == expected
+                }.value
+                guard matches else {
+                    ResumableDownloader.discardArtifacts(at: archive)
+                    throw BridgeFailure(
+                        "checksum_mismatch",
+                        "Downloaded Wine runtime failed its SHA-256 check"
+                    )
+                }
+            }
+
+            progress(.object(["stage": .string("installing")]))
+            // Extraction is synchronous and can take a while; keep the
+            // helper's actor free so `jobs.get` keeps answering.
+            let installed = try await Task.detached(priority: .userInitiated) {
+                try WhiskyWineInstaller.install(from: archive)
+                WhiskyWineInstaller.cleanupTarball(at: archive)
+                let installed = WhiskyWineInstaller.isWhiskyWineInstalled()
+                if installed {
+                    // The install replaced Libraries, so any deployed GPTK
+                    // payload went with it; the store outlives it and
+                    // redeploys here.
+                    GPTKImporter.deployStoredPayloadIfCapable()
+                }
+                return installed
+            }.value
+            guard installed else {
+                throw BridgeFailure(
+                    "install_failed",
+                    "The Wine runtime was extracted but is not usable"
+                )
+            }
+            return Self.setupStatus()
         }
     }
 
@@ -221,7 +227,7 @@ extension MacOSApplicationServices {
                 let total = update.expectedBytes ?? 0
                 Task { @MainActor in progress(received, total) }
             })
-        } catch ResumableDownloadError.httpStatus(let code) {
+        } catch let ResumableDownloadError.httpStatus(code) {
             throw BridgeFailure("download_failed", "Wine runtime download returned HTTP \(code)")
         }
         let size = Int64((try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)

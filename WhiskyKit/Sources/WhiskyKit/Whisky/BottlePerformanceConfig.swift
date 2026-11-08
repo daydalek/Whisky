@@ -52,7 +52,7 @@ public struct BottlePerformanceConfig: Codable, Equatable {
 
     public static func == (lhs: BottlePerformanceConfig, rhs: BottlePerformanceConfig) -> Bool {
         lhs.shaderCacheEnabled == rhs.shaderCacheEnabled &&
-        lhs.vcRedistInstalled == rhs.vcRedistInstalled &&
-        lhs.disableAppNap == rhs.disableAppNap
+            lhs.vcRedistInstalled == rhs.vcRedistInstalled &&
+            lhs.disableAppNap == rhs.disableAppNap
     }
 }

@@ -211,7 +211,7 @@ public extension WinetricksService {
         logger.info("winetricks install '\(verb)' exited with status \(exitCode)")
         continuation.yield(.completed(exitCode: exitCode))
 
-        if exitCode == 0 && (verb == "vcrun2019" || verb == "vcrun2022") {
+        if exitCode == 0, verb == "vcrun2019" || verb == "vcrun2022" {
             await MainActor.run {
                 bottle.settings.vcRedistInstalled = true
             }

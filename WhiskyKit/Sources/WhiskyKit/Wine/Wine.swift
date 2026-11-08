@@ -292,6 +292,22 @@ public class Wine {
         }
     }
 
+    /// Disables App Nap while Wine launches when the bottle opted in.
+    ///
+    /// This token is held while the `wine start` launcher process runs. The actual
+    /// game process continues as a child of wineserver after the launcher exits. Full
+    /// App Nap prevention for the entire game session would require tracking wineserver,
+    /// but this provides protection during the critical startup/initialization phase.
+    @MainActor
+    private static func beginActivityIfNeeded(for bottle: Bottle) -> NSObjectProtocol? {
+        bottle.settings.disableAppNap
+            ? ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .idleSystemSleepDisabled],
+                reason: "Wine process running for \(bottle.settings.name)"
+            )
+            : nil
+    }
+
     /// Runs a program once `prepare` has prepared the bottle for it.
     ///
     /// The public entry point prepares from its parameters. ``Program`` passes
@@ -318,16 +334,7 @@ public class Wine {
         // (FileOpenView/BottleView/ProgramMenuView).
 
         // Disable App Nap if requested to prevent macOS from throttling Wine processes.
-        // Note: This token is held while the `wine start` launcher process runs. The actual
-        // game process continues as a child of wineserver after the launcher exits. Full
-        // App Nap prevention for the entire game session would require tracking wineserver,
-        // but this provides protection during the critical startup/initialization phase.
-        let activityToken: NSObjectProtocol? = bottle.settings.disableAppNap
-            ? ProcessInfo.processInfo.beginActivity(
-                options: [.userInitiated, .idleSystemSleepDisabled],
-                reason: "Wine process running for \(bottle.settings.name)"
-            )
-            : nil
+        let activityToken = beginActivityIfNeeded(for: bottle)
         defer {
             if let token = activityToken {
                 ProcessInfo.processInfo.endActivity(token)
@@ -719,7 +726,7 @@ public class Wine {
 
     /// Run a `wineserver` command with the given arguments and return the output result
     @MainActor
-    internal static func runWineserver(_ args: [String], bottle: Bottle) async throws -> String {
+    static func runWineserver(_ args: [String], bottle: Bottle) async throws -> String {
         if let asyncRunner = wineserverAsyncRunner {
             return try await asyncRunner(args, bottle)
         }
@@ -911,46 +918,41 @@ public class Wine {
         let deadline = Date().addingTimeInterval(timeout)
 
         // 1. Send kill signal (-k) to wineserver
-        let killProcess = Process()
-        killProcess.executableURL = wineserverBinary
-        killProcess.arguments = ["-k"]
-        killProcess.currentDirectoryURL = dir
-        killProcess.environment = env
-        killProcess.standardOutput = FileHandle.nullDevice
-        killProcess.standardError = FileHandle.nullDevice
-        do {
-            try killProcess.run()
-        } catch {
-            Logger.wineKit.error("Failed to kill bottle '\(bottle.settings.name)': \(error.localizedDescription)")
-            return
-        }
-        while killProcess.isRunning, Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
-        }
-        if killProcess.isRunning {
-            killProcess.terminate()
-        }
+        runWineserverSync(
+            arguments: ["-k"], env: env, dir: dir, deadline: deadline, bottleName: bottle.settings.name
+        )
 
         // 2. Wait for wineserver and child processes to fully terminate (-w)
         guard Date() < deadline else { return }
-        let waitProcess = Process()
-        waitProcess.executableURL = wineserverBinary
-        waitProcess.arguments = ["-w"]
-        waitProcess.currentDirectoryURL = dir
-        waitProcess.environment = env
-        waitProcess.standardOutput = FileHandle.nullDevice
-        waitProcess.standardError = FileHandle.nullDevice
+        runWineserverSync(
+            arguments: ["-w"], env: env, dir: dir, deadline: deadline, bottleName: bottle.settings.name
+        )
+    }
+
+    /// Runs `wineserver` with `arguments` and waits until it exits or `deadline` passes.
+    private static func runWineserverSync(
+        arguments: [String], env: [String: String], dir: URL, deadline: Date, bottleName: String
+    ) {
+        let process = Process()
+        process.executableURL = wineserverBinary
+        process.arguments = arguments
+        process.currentDirectoryURL = dir
+        process.environment = env
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
         do {
-            try waitProcess.run()
+            try process.run()
         } catch {
-            Logger.wineKit.error("Failed to wait on bottle '\(bottle.settings.name)': \(error.localizedDescription)")
+            Logger.wineKit.error(
+                "Failed to run wineserver \(arguments) for '\(bottleName)': \(error.localizedDescription)"
+            )
             return
         }
-        while waitProcess.isRunning, Date() < deadline {
+        while process.isRunning, Date() < deadline {
             Thread.sleep(forTimeInterval: 0.05)
         }
-        if waitProcess.isRunning {
-            waitProcess.terminate()
+        if process.isRunning {
+            process.terminate()
         }
     }
 
@@ -1545,8 +1547,15 @@ public extension Wine {
     /// running in parallel never share a logs folder.
     @TaskLocal internal static var logsFolderOverride: URL?
 
-    @TaskLocal internal static var wineserverSyncRunner: (@Sendable (_ args: [String], _ environment: [String: String], _ timeout: TimeInterval) throws -> Void)?
-    @TaskLocal internal static var wineserverAsyncRunner: (@MainActor @Sendable (_ args: [String], _ bottle: Bottle) async throws -> String)?
+    @TaskLocal internal static var wineserverSyncRunner: (@Sendable (
+        _ args: [String],
+        _ environment: [String: String],
+        _ timeout: TimeInterval
+    ) throws -> Void)?
+    @TaskLocal internal static var wineserverAsyncRunner: (@MainActor @Sendable (
+        _ args: [String],
+        _ bottle: Bottle
+    ) async throws -> String)?
 
     /// Creates a new log file in `folder`, named for `date`, and opens it for writing.
     ///

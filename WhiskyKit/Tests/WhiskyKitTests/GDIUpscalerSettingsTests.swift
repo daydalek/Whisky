@@ -73,14 +73,20 @@ final class GDIUpscalerSettingsTests: XCTestCase {
                 settings.gdiUpscaler = algorithm
                 var builder = EnvironmentBuilder()
                 _ = settings.populateBottleManagedLayer(builder: &builder, builtinD3D12IsD3DMetal: false)
-                XCTAssertEqual(builder.resolve().environment["WINE_GDI_UPSCALER"],
-                               upscalerValue[algorithm] ?? algorithm.rawValue)
-                XCTAssertEqual(builder.resolve().environment["WINE_GDI_NEURAL_MODEL"],
-                               [.realesrgan, .adaptiveRealesrgan, .adaptiveAnime4kRealesrgan].contains(algorithm)
-                               ? "animevideov3" : "realcugan")
-                XCTAssertEqual(builder.resolve().environment["WINE_GDI_ADAPTIVE_FAST"],
-                               [.adaptiveAnime4k, .adaptiveAnime4kRealesrgan].contains(algorithm)
-                               ? "anime4k" : "metalfx")
+                XCTAssertEqual(
+                    builder.resolve().environment["WINE_GDI_UPSCALER"],
+                    upscalerValue[algorithm] ?? algorithm.rawValue
+                )
+                XCTAssertEqual(
+                    builder.resolve().environment["WINE_GDI_NEURAL_MODEL"],
+                    [.realesrgan, .adaptiveRealesrgan, .adaptiveAnime4kRealesrgan].contains(algorithm)
+                        ? "animevideov3" : "realcugan"
+                )
+                XCTAssertEqual(
+                    builder.resolve().environment["WINE_GDI_ADAPTIVE_FAST"],
+                    [.adaptiveAnime4k, .adaptiveAnime4kRealesrgan].contains(algorithm)
+                        ? "anime4k" : "metalfx"
+                )
                 XCTAssertEqual(builder.resolve().environment["WINE_METALFX"], algorithm == .metalfx ? "spatial" : "off")
                 XCTAssertEqual(settings.graphicsBackend, backend)
                 XCTAssertFalse(settings.frameGeneration)
@@ -142,12 +148,16 @@ final class GDIUpscalerSettingsTests: XCTestCase {
             )
             let env = trial.resolve().environment
             XCTAssertEqual(env["WINE_GDI_UPSCALER"], upscalerValue[algorithm] ?? algorithm.rawValue)
-            XCTAssertEqual(env["WINE_GDI_NEURAL_MODEL"],
-                           [.realesrgan, .adaptiveRealesrgan, .adaptiveAnime4kRealesrgan].contains(algorithm)
-                           ? "animevideov3" : "realcugan")
-            XCTAssertEqual(env["WINE_GDI_ADAPTIVE_FAST"],
-                           [.adaptiveAnime4k, .adaptiveAnime4kRealesrgan].contains(algorithm)
-                           ? "anime4k" : "metalfx")
+            XCTAssertEqual(
+                env["WINE_GDI_NEURAL_MODEL"],
+                [.realesrgan, .adaptiveRealesrgan, .adaptiveAnime4kRealesrgan].contains(algorithm)
+                    ? "animevideov3" : "realcugan"
+            )
+            XCTAssertEqual(
+                env["WINE_GDI_ADAPTIVE_FAST"],
+                [.adaptiveAnime4k, .adaptiveAnime4kRealesrgan].contains(algorithm)
+                    ? "anime4k" : "metalfx"
+            )
             XCTAssertEqual(env["WINE_METALFX"], algorithm == .metalfx ? "spatial" : "off")
             XCTAssertEqual(env["WINE_GDI_CACHE_MODE"], "off")
         }
@@ -216,8 +226,11 @@ final class GDIUpscalerSettingsTests: XCTestCase {
         try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: game)
 
         let direct = Wine.constructWineEnvironment(for: bottle, targetURL: game)
-        XCTAssertEqual(direct["WINE_GDI_CACHE_DIRECTORY"], FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: "Library/Caches/com.isaacmarovitz.Whisky/GDIUpscaler").path)
+        XCTAssertEqual(
+            direct["WINE_GDI_CACHE_DIRECTORY"],
+            FileManager.default.homeDirectoryForCurrentUser
+                .appending(path: "Library/Caches/com.isaacmarovitz.Whisky/GDIUpscaler").path
+        )
         XCTAssertEqual(
             direct["WINE_GDI_CACHE_GAME"],
             game.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false)
@@ -243,7 +256,10 @@ final class GDIUpscalerSettingsTests: XCTestCase {
         let profile = Program.upscaleRegionProfileURL(for: first, bottleURL: bottle)
         XCTAssertEqual(profile, Program.upscaleRegionProfileURL(for: first, bottleURL: bottle))
         XCTAssertNotEqual(profile, Program.upscaleRegionProfileURL(for: second, bottleURL: bottle))
-        XCTAssertNotEqual(profile, Program.upscaleRegionProfileURL(for: first, bottleURL: URL(fileURLWithPath: "/tmp/bottle-b")))
+        XCTAssertNotEqual(
+            profile,
+            Program.upscaleRegionProfileURL(for: first, bottleURL: URL(fileURLWithPath: "/tmp/bottle-b"))
+        )
         XCTAssertEqual(profile.pathExtension, "regions")
     }
 
@@ -258,8 +274,10 @@ final class GDIUpscalerSettingsTests: XCTestCase {
             for: bottle, environment: ["WINE_GDI_UPSCALER_PICK": "off"], targetURL: game,
             recommendedBackend: .wined3d, builtinD3D12IsD3DMetal: false
         )
-        XCTAssertEqual(env["WINE_GDI_UPSCALER_EXCLUDE_PROFILE"],
-            Program.upscaleRegionProfileURL(for: game, bottleURL: root).path(percentEncoded: false))
+        XCTAssertEqual(
+            env["WINE_GDI_UPSCALER_EXCLUDE_PROFILE"],
+            Program.upscaleRegionProfileURL(for: game, bottleURL: root).path(percentEncoded: false)
+        )
         XCTAssertEqual(env["WINE_GDI_UPSCALER_PICK"], "off")
     }
 

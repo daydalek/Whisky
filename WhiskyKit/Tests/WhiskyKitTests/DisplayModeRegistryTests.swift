@@ -98,9 +98,9 @@ struct DisplayModeRegistryTests {
 struct DisplayModeFailureTests {
     @Test func badModeLineIsDetected() {
         let log = """
-            0024:err:system:NtUserChangeDisplaySettings Changing L"\\\\.\\DISPLAY1" display settings \
-            returned -2.
-            """
+        0024:err:system:NtUserChangeDisplaySettings Changing L"\\\\.\\DISPLAY1" display settings \
+        returned -2.
+        """
         #expect(DisplayModeFailure.detect(logText: log))
     }
 
@@ -116,9 +116,9 @@ struct DisplayModeFailureTests {
 
     @Test func unrelatedLinesAreNotDetected() {
         let log = """
-            0024:err:module:import_dll Library missing.dll not found
-            0024:fixme:system:NtUserDisplayConfigGetDeviceInfo unimplemented
-            """
+        0024:err:module:import_dll Library missing.dll not found
+        0024:fixme:system:NtUserDisplayConfigGetDeviceInfo unimplemented
+        """
         #expect(!DisplayModeFailure.detect(logText: log))
     }
 
@@ -136,9 +136,9 @@ struct DisplayModeFailureTests {
         let url = URL.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }
         let log = """
-            0024:fixme:whatever first line
-            0024:err:system:NtUserChangeDisplaySettings Changing L"X" display settings returned -2.
-            """
+        0024:fixme:whatever first line
+        0024:err:system:NtUserChangeDisplaySettings Changing L"X" display settings returned -2.
+        """
         try Data(log.utf8).write(to: url)
         #expect(DisplayModeFailure.detect(logFileURL: url))
     }

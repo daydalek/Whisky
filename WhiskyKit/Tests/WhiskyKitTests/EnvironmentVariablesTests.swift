@@ -260,8 +260,11 @@ final class EnvironmentVariablesTests: XCTestCase {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
         let bottle = Bottle(bottleUrl: tempDir, inFlight: false, isAvailable: true)
-        bottle.settings.userEnvironment = ["MY_BOTTLE_VAR": "bottle", "SHARED_VAR": "bottle",
-                                           "9INVALID-KEY": "nope"]
+        bottle.settings.userEnvironment = [
+            "MY_BOTTLE_VAR": "bottle",
+            "SHARED_VAR": "bottle",
+            "9INVALID-KEY": "nope"
+        ]
 
         let env = Wine.constructWineEnvironment(
             for: bottle,

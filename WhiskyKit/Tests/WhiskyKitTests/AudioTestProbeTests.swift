@@ -17,8 +17,8 @@
 //
 
 import Foundation
-import XCTest
 @testable import WhiskyKit
+import XCTest
 
 final class AudioTestProbeTests: XCTestCase {
     func testAudioTestCheckOutcomeMapping() {
@@ -42,8 +42,14 @@ final class AudioTestProbeTests: XCTestCase {
 
     func testAudioTestCheckDirectEvaluationOfProbeResults() {
         let check = AudioTestCheck()
+        assertPassedProbeEvaluation(check: check)
+        assertWarningProbeEvaluation(check: check)
+        assertErrorProbeEvaluation(check: check)
+        assertSkippedProbeEvaluation(check: check)
+    }
 
-        // 1. Passed probe result -> .pass, high confidence, evidence preserved
+    /// Passed probe result -> .pass, high confidence, evidence preserved.
+    private func assertPassedProbeEvaluation(check: AudioTestCheck) {
         let passedProbe = AudioProbeResult(
             probeId: "wine-audio-test",
             status: .passed,
@@ -60,8 +66,10 @@ final class AudioTestProbeTests: XCTestCase {
             "API: waveOut\nSample rate: 44100 Hz\nChannels: 2"
         )
         XCTAssertNil(passCheck.evidence["findings"])
+    }
 
-        // 2. Warning probe result with findings -> .fail, high confidence
+    /// Warning probe result with findings -> .fail, high confidence.
+    private func assertWarningProbeEvaluation(check: AudioTestCheck) {
         let finding = AudioFinding(
             id: "wine-audio-test-error",
             description: "Wine audio test failed via waveOut",
@@ -83,8 +91,10 @@ final class AudioTestProbeTests: XCTestCase {
         XCTAssertEqual(warnCheck.evidence["status"], "warning")
         XCTAssertEqual(warnCheck.evidence["detail"], "API: waveOut\nError code: 32")
         XCTAssertEqual(warnCheck.evidence["findings"], finding.description)
+    }
 
-        // 3. Error probe result -> .error, high confidence
+    /// Error probe result -> .error, high confidence.
+    private func assertErrorProbeEvaluation(check: AudioTestCheck) {
         let errorProbe = AudioProbeResult(
             probeId: "wine-audio-test",
             status: .error,
@@ -96,8 +106,10 @@ final class AudioTestProbeTests: XCTestCase {
         XCTAssertEqual(errCheck.confidence, .high)
         XCTAssertEqual(errCheck.evidence["status"], "error")
         XCTAssertEqual(errCheck.evidence["detail"], "Error launching Wine process")
+    }
 
-        // 4. Skipped probe result -> .unknown, low confidence
+    /// Skipped probe result -> .unknown, low confidence.
+    private func assertSkippedProbeEvaluation(check: AudioTestCheck) {
         let skippedProbe = AudioProbeResult(
             probeId: "wine-audio-test",
             status: .skipped,
@@ -211,7 +223,7 @@ final class AudioTestProbeTests: XCTestCase {
 
         XCTAssertEqual(decoded.status, "ok")
         XCTAssertEqual(decoded.api, "waveOut")
-        XCTAssertEqual(decoded.sampleRate, 44100)
+        XCTAssertEqual(decoded.sampleRate, 44_100)
         XCTAssertEqual(decoded.channels, 2)
         XCTAssertEqual(decoded.beep, false)
     }

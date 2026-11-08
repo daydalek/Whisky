@@ -224,6 +224,7 @@ public struct BottleSettings: Codable, Equatable {
     }
 
     public init(from decoder: Decoder) throws {
+        self.init()
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.fileVersion = try container.decodeIfPresent(SemanticVersion.self, forKey: .fileVersion) ?? Self
             .defaultFileVersion
@@ -234,6 +235,12 @@ public struct BottleSettings: Codable, Equatable {
             .decodeIfPresent(BottleMetalConfig.self, forKey: .metalConfig) ?? BottleMetalConfig()
         self.dxvkConfig = try container
             .decodeIfPresent(BottleDXVKConfig.self, forKey: .dxvkConfig) ?? BottleDXVKConfig()
+        try decodeOptionalConfigs(from: decoder)
+    }
+
+    /// Decodes the configuration groups that older settings files may omit entirely.
+    private mutating func decodeOptionalConfigs(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
         self.performanceConfig = try container.decodeIfPresent(
             BottlePerformanceConfig.self,
             forKey: .performanceConfig
@@ -1267,8 +1274,6 @@ public struct BottleSettings: Codable, Equatable {
         }
     }
 
-    /// Populates the audio layer of the environment builder.
-    ///
     // MARK: - Deprecated Environment Variable API
 
     /// Populates a Wine environment dictionary based on these settings.

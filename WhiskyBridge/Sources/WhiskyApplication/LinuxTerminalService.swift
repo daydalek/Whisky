@@ -34,26 +34,33 @@ struct LinuxTerminalService {
         }
     }
 
+    /// One known terminal emulator, in preference order.
+    struct Choice: Sendable {
+        let id: String
+        let name: String
+        let prefix: [String]
+    }
+
     typealias Launcher = @Sendable (URL, [String], [String: String]) throws -> Void
     let searchPaths: [URL]
     let environment: [String: String]
     var launch: Launcher = Self.launchProcess
-    static let choices: [(id: String, name: String, prefix: [String])] = [
-        ("x-terminal-emulator", "系统终端", ["-e"]),
-        ("gnome-terminal", "GNOME Terminal", ["--"]),
-        ("kgx", "GNOME Console", ["--"]),
-        ("konsole", "Konsole", ["-e"]),
-        ("xfce4-terminal", "Xfce Terminal", ["-e"]),
-        ("mate-terminal", "MATE Terminal", ["-e"]),
-        ("lxterminal", "LXTerminal", ["-e"]),
-        ("tilix", "Tilix", ["-e"]),
-        ("alacritty", "Alacritty", ["-e"]),
-        ("ghostty", "Ghostty", ["-e"]),
-        ("kitty", "kitty", []),
-        ("wezterm", "WezTerm", ["start", "--"]),
-        ("foot", "Foot", []),
-        ("xterm", "XTerm", ["-e"]),
-        ("urxvt", "rxvt-unicode", ["-e"])
+    static let choices: [Choice] = [
+        Choice(id: "x-terminal-emulator", name: "系统终端", prefix: ["-e"]),
+        Choice(id: "gnome-terminal", name: "GNOME Terminal", prefix: ["--"]),
+        Choice(id: "kgx", name: "GNOME Console", prefix: ["--"]),
+        Choice(id: "konsole", name: "Konsole", prefix: ["-e"]),
+        Choice(id: "xfce4-terminal", name: "Xfce Terminal", prefix: ["-e"]),
+        Choice(id: "mate-terminal", name: "MATE Terminal", prefix: ["-e"]),
+        Choice(id: "lxterminal", name: "LXTerminal", prefix: ["-e"]),
+        Choice(id: "tilix", name: "Tilix", prefix: ["-e"]),
+        Choice(id: "alacritty", name: "Alacritty", prefix: ["-e"]),
+        Choice(id: "ghostty", name: "Ghostty", prefix: ["-e"]),
+        Choice(id: "kitty", name: "kitty", prefix: []),
+        Choice(id: "wezterm", name: "WezTerm", prefix: ["start", "--"]),
+        Choice(id: "foot", name: "Foot", prefix: []),
+        Choice(id: "xterm", name: "XTerm", prefix: ["-e"]),
+        Choice(id: "urxvt", name: "rxvt-unicode", prefix: ["-e"])
     ]
     /// Emulators that cannot connect to a Wayland-only desktop.
     private static let x11Only: Set<String> = ["xterm", "uxterm", "urxvt"]

@@ -29,9 +29,15 @@ enum ProgramSettingsCodec {
     ]
     static let choices: [String: Set<String>] = Dictionary(uniqueKeysWithValues:
         ContainerConfiguration.fields.compactMap { field in
-            guard ["graphicsBackend", "dxvkHud", "enhancedSync", "resolutionPreset",
-                   "gdiUpscaler", "gdiUpscalerCache"].contains(field.id),
-                  case let .choice(options) = field.input
+            guard [
+                "graphicsBackend",
+                "dxvkHud",
+                "enhancedSync",
+                "resolutionPreset",
+                "gdiUpscaler",
+                "gdiUpscalerCache"
+            ].contains(field.id),
+                case let .choice(options) = field.input
             else { return nil }
             return (field.id, Set(options.map(\.id)))
         }
@@ -121,7 +127,8 @@ enum ProgramSettingsCodec {
     static func patch(_ patch: [String: JSONValue], into raw: inout [String: Any]) throws {
         guard patch.keys.allSatisfy({
             ["locale", "arguments", "environment", "overrides", "legacyFullscreenDismissed"].contains($0)
-        }) else {
+        })
+        else {
             throw BridgeFailure("invalid_params", "Unknown program setting")
         }
         if let value = patch["legacyFullscreenDismissed"] {

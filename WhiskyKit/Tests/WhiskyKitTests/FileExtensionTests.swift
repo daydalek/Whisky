@@ -385,7 +385,7 @@ final class FileManagerReplaceDLLsTests: XCTestCase {
     }
 
     func testReplaceDLLsInstallsMissingShimOriginal() throws {
-        let fm = FileManager.default
+        let fileManager = FileManager.default
         let payload = sourceDir.appending(path: "payload")
         let prefix = destinationDir.appending(path: "prefix")
         let pairs: [(arch: String, dest: String)] = [("x64", "system32"), ("x32", "syswow64")]
@@ -393,35 +393,49 @@ final class FileManagerReplaceDLLsTests: XCTestCase {
         for (arch, destName) in pairs {
             let src = payload.appending(path: arch)
             let dest = prefix.appending(path: destName)
-            try fm.createDirectory(at: src, withIntermediateDirectories: true)
-            try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: src, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: dest, withIntermediateDirectories: true)
             try Data("shim-\(arch) d3d11_original".utf8).write(to: src.appending(path: "d3d11.dll"))
             try Data("payload-\(arch)".utf8).write(to: src.appending(path: "d3d11_original.dll"))
             try Data("old-\(arch)".utf8).write(to: dest.appending(path: "d3d11.dll"))
 
-            try fm.replaceDLLs(in: dest, withContentsIn: src)
+            try fileManager.replaceDLLs(in: dest, withContentsIn: src)
 
-            XCTAssertEqual(try String(contentsOf: dest.appending(path: "d3d11.dll"), encoding: .utf8),
-                           "shim-\(arch) d3d11_original")
-            XCTAssertEqual(try String(contentsOf: dest.appending(path: "d3d11_original.dll"), encoding: .utf8),
-                           "payload-\(arch)")
-            XCTAssertEqual(try String(contentsOf: src.appending(path: "d3d11.dll"), encoding: .utf8),
-                           "shim-\(arch) d3d11_original")
-            XCTAssertEqual(try String(contentsOf: src.appending(path: "d3d11_original.dll"), encoding: .utf8),
-                           "payload-\(arch)")
+            XCTAssertEqual(
+                try String(contentsOf: dest.appending(path: "d3d11.dll"), encoding: .utf8),
+                "shim-\(arch) d3d11_original"
+            )
+            XCTAssertEqual(
+                try String(contentsOf: dest.appending(path: "d3d11_original.dll"), encoding: .utf8),
+                "payload-\(arch)"
+            )
+            XCTAssertEqual(
+                try String(contentsOf: src.appending(path: "d3d11.dll"), encoding: .utf8),
+                "shim-\(arch) d3d11_original"
+            )
+            XCTAssertEqual(
+                try String(contentsOf: src.appending(path: "d3d11_original.dll"), encoding: .utf8),
+                "payload-\(arch)"
+            )
 
             try Data("shim2-\(arch) d3d11_original".utf8).write(to: src.appending(path: "d3d11.dll"))
             try Data("payload2-\(arch)".utf8).write(to: src.appending(path: "d3d11_original.dll"))
 
-            try fm.replaceDLLs(in: dest, withContentsIn: src)
+            try fileManager.replaceDLLs(in: dest, withContentsIn: src)
 
-            XCTAssertEqual(try String(contentsOf: dest.appending(path: "d3d11.dll"), encoding: .utf8),
-                           "shim2-\(arch) d3d11_original")
-            XCTAssertEqual(try String(contentsOf: dest.appending(path: "d3d11_original.dll"), encoding: .utf8),
-                           "payload2-\(arch)")
+            XCTAssertEqual(
+                try String(contentsOf: dest.appending(path: "d3d11.dll"), encoding: .utf8),
+                "shim2-\(arch) d3d11_original"
+            )
+            XCTAssertEqual(
+                try String(contentsOf: dest.appending(path: "d3d11_original.dll"), encoding: .utf8),
+                "payload2-\(arch)"
+            )
             for name in ["d3d11.dll.orig", "d3d11_original.dll.orig"] {
-                XCTAssertFalse(fm.fileExists(atPath: dest.appending(path: name).path(percentEncoded: false)),
-                               "\(name) must not be created without makeOriginalCopy")
+                XCTAssertFalse(
+                    fileManager.fileExists(atPath: dest.appending(path: name).path(percentEncoded: false)),
+                    "\(name) must not be created without makeOriginalCopy"
+                )
             }
         }
     }
@@ -432,10 +446,14 @@ final class FileManagerReplaceDLLsTests: XCTestCase {
 
         try FileManager.default.replaceDLLs(in: destinationDir, withContentsIn: sourceDir)
 
-        XCTAssertEqual(try String(contentsOf: destinationDir.appending(path: "d3d11.dll"), encoding: .utf8),
-                       "shim d3d11_original")
-        XCTAssertEqual(try String(contentsOf: destinationDir.appending(path: "d3d11_original.dll"),
-                                  encoding: .utf8), "payload")
+        XCTAssertEqual(
+            try String(contentsOf: destinationDir.appending(path: "d3d11.dll"), encoding: .utf8),
+            "shim d3d11_original"
+        )
+        XCTAssertEqual(try String(
+            contentsOf: destinationDir.appending(path: "d3d11_original.dll"),
+            encoding: .utf8
+        ), "payload")
     }
 
     func testReplaceDLLsMakeOriginalCopyBacksUpOnlyExisting() throws {
@@ -448,8 +466,10 @@ final class FileManagerReplaceDLLsTests: XCTestCase {
         try FileManager.default.replaceDLLs(in: destinationDir, withContentsIn: sourceDir, makeOriginalCopy: true)
 
         XCTAssertEqual(try String(contentsOf: destShim, encoding: .utf8), "new-shim d3d11_original")
-        XCTAssertEqual(try String(contentsOf: destShim.appendingPathExtension("orig"), encoding: .utf8),
-                       "old-shim")
+        XCTAssertEqual(
+            try String(contentsOf: destShim.appendingPathExtension("orig"), encoding: .utf8),
+            "old-shim"
+        )
         XCTAssertEqual(try String(contentsOf: destOriginal, encoding: .utf8), "payload")
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: destOriginal.appendingPathExtension("orig").path(percentEncoded: false)))

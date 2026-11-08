@@ -136,7 +136,7 @@ struct AudioInputChallengerStressTests {
 
         // Wait up to 2 seconds for fix-A to complete execution and transition state under parallel test load
         let deadline = ContinuousClock.now + .seconds(2)
-        while engine.wizardState != .askingDidItWork && ContinuousClock.now < deadline {
+        while engine.wizardState != .askingDidItWork, ContinuousClock.now < deadline {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
 
@@ -255,13 +255,12 @@ struct AudioInputChallengerStressTests {
         let recorder = AsyncWineserverCallRecorder()
 
         // Bind mock wineserver async runner
+        // Even in an empty folder without Wine prefix or registry, resetAudioState must succeed
+        let resetAudioState = { try? await Wine.resetAudioState(bottle: bottle) }
         await Wine.$wineserverAsyncRunner.withValue({ args, _ in
             recorder.record(args: args)
             return ""
-        }) {
-            // Even in an empty folder without Wine prefix or registry, resetAudioState must succeed
-            try? await Wine.resetAudioState(bottle: bottle)
-        }
+        }, operation: resetAudioState)
 
         let calls = recorder.recordedCalls
         #expect(calls.count == 2, "Expected exactly two wineserver calls (-k and -w)")
@@ -308,9 +307,9 @@ struct AudioInputChallengerStressTests {
         defer { cleanup() }
 
         await withTaskGroup(of: Void.self) { group in
-            for i in 0 ..< 50 {
+            for index in 0 ..< 50 {
                 group.addTask {
-                    let state = InputRegistryState(commandActsAsControl: i % 2 == 0)
+                    let state = InputRegistryState(commandActsAsControl: index % 2 == 0)
                     try? state.save(to: dir)
                     _ = InputRegistryState.load(from: dir)
                 }
@@ -378,12 +377,12 @@ struct AudioInputChallengerStressTests {
         let bools = [false, true]
         for compat in bools {
             for hidapi in bools {
-                for bg in bools {
+                for background in bools {
                     for labels in bools {
                         var config = BottleInputConfig()
                         config.controllerCompatibilityMode = compat
                         config.disableHIDAPI = hidapi
-                        config.allowBackgroundEvents = bg
+                        config.allowBackgroundEvents = background
                         config.useButtonLabels = labels
 
                         // Invariant: disableControllerMapping == useButtonLabels
@@ -402,31 +401,36 @@ struct AudioInputChallengerStressTests {
         }
     }
 
+    private struct MigrationCase {
+        let legacy: Bool?
+        let modern: Bool?
+        let expected: Bool
+    }
+
     @Test("BottleInputConfig: Legacy plist migration truth table")
     func legacyMigrationTruthTable() throws {
-        let cases: [(legacy: Bool?, modern: Bool?, expected: Bool)] = [
-            (legacy: nil, modern: nil, expected: false),
-            (legacy: false, modern: false, expected: false),
-            (legacy: true, modern: false, expected: true),
-            (legacy: false, modern: true, expected: true),
-            (legacy: true, modern: true, expected: true),
-            (legacy: true, modern: nil, expected: true),
-            (legacy: false, modern: nil, expected: false)
+        let cases: [MigrationCase] = [
+            MigrationCase(legacy: nil, modern: nil, expected: false),
+            MigrationCase(legacy: false, modern: false, expected: false),
+            MigrationCase(legacy: true, modern: false, expected: true),
+            MigrationCase(legacy: false, modern: true, expected: true),
+            MigrationCase(legacy: true, modern: true, expected: true),
+            MigrationCase(legacy: true, modern: nil, expected: true),
+            MigrationCase(legacy: false, modern: nil, expected: false)
         ]
 
-        for (legacy, modern, expected) in cases {
+        for testCase in cases {
             var dict: [String: Any] = [:]
-            if let legacy { dict["disableControllerMapping"] = legacy }
-            if let modern { dict["useButtonLabels"] = modern }
+            if let legacy = testCase.legacy { dict["disableControllerMapping"] = legacy }
+            if let modern = testCase.modern { dict["useButtonLabels"] = modern }
 
             let data = try PropertyListSerialization.data(fromPropertyList: dict, format: .xml, options: 0)
             let decoded = try PropertyListDecoder().decode(BottleInputConfig.self, from: data)
 
-            #expect(
-                decoded.useButtonLabels == expected,
-                "Migration failed for legacy=\(String(describing: legacy)), modern=\(String(describing: modern))"
-            )
-            #expect(decoded.disableControllerMapping == expected)
+            let message = "Migration failed for legacy=\(String(describing: testCase.legacy)), "
+                + "modern=\(String(describing: testCase.modern))"
+            #expect(decoded.useButtonLabels == testCase.expected, "\(message)")
+            #expect(decoded.disableControllerMapping == testCase.expected)
         }
     }
 
@@ -440,7 +444,10 @@ struct AudioInputChallengerStressTests {
         let dict = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any]
 
         #expect(dict?["useButtonLabels"] as? Bool == true)
-        #expect(dict?["disableControllerMapping"] == nil, "disableControllerMapping must NEVER appear in serialized output")
+        #expect(
+            dict?["disableControllerMapping"] == nil,
+            "disableControllerMapping must NEVER appear in serialized output"
+        )
     }
 
     @Test("BottleInputConfig: Environment variables generation matches SDL specifications")
@@ -483,16 +490,25 @@ struct AudioInputChallengerStressTests {
 
     // MARK: - Challenge 5: AudioTestCheck DI Outcome Mapping & Parameter Configurations
 
+    private struct OutcomeExpectation {
+        let status: ProbeStatus
+        let outcome: CheckOutcome
+        let confidence: ConfidenceTier
+    }
+
     @Test("AudioTestCheck: Outcome and confidence mapping for all ProbeStatus values")
     func audioTestCheckExhaustiveOutcomeMapping() {
-        let expectations: [(ProbeStatus, CheckOutcome, ConfidenceTier)] = [
-            (.passed, .pass, .high),
-            (.warning, .fail, .high),
-            (.error, .error, .high),
-            (.skipped, .unknown, .low)
+        let expectations: [OutcomeExpectation] = [
+            OutcomeExpectation(status: .passed, outcome: .pass, confidence: .high),
+            OutcomeExpectation(status: .warning, outcome: .fail, confidence: .high),
+            OutcomeExpectation(status: .error, outcome: .error, confidence: .high),
+            OutcomeExpectation(status: .skipped, outcome: .unknown, confidence: .low)
         ]
 
-        for (status, expectedOutcome, expectedConfidence) in expectations {
+        for expectation in expectations {
+            let status = expectation.status
+            let expectedOutcome = expectation.outcome
+            let expectedConfidence = expectation.confidence
             #expect(AudioTestCheck.outcome(for: status) == expectedOutcome)
 
             let probeResult = AudioProbeResult(
@@ -606,4 +622,5 @@ struct AudioInputChallengerStressTests {
         #expect(result.summary == "Probe executed custom exe")
     }
 }
+
 // swiftlint:enable file_length

@@ -221,7 +221,10 @@ public extension Wine {
             try AudioRegistryState.factoryDefault.save(to: bottle.url)
             logger.info("Stamped factory default audio registry state marker")
         } catch {
-            logger.error("Failed to save audio registry state marker for '\(bottle.settings.name)': \(error.localizedDescription)")
+            logger.error("""
+            Failed to save audio registry state marker for '\(bottle.settings.name)': \
+            \(error.localizedDescription)
+            """)
         }
 
         logger.info("Audio state reset complete for bottle '\(bottle.settings.name)'")

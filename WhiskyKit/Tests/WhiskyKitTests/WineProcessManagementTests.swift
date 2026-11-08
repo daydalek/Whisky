@@ -107,7 +107,8 @@ final class WineProcessManagementTests: XCTestCase {
     /// followed by wineserver with -w to wait until processes exit, and injects the bottle's WINEPREFIX.
     @MainActor
     func testKillBottleAndWaitExecutesKillThenWait() async throws {
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("test-shutdown-\(UUID().uuidString)")
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test-shutdown-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -115,11 +116,10 @@ final class WineProcessManagementTests: XCTestCase {
 
         let recorder = WineserverCallRecorder()
 
-        Wine.$wineserverSyncRunner.withValue({ args, env, timeout in
+        let killBottle = { Wine.killBottleAndWait(bottle: bottle, timeout: 5) }
+        Wine.$wineserverSyncRunner.withValue({ args, env, _ in
             recorder.record(args: args, env: env)
-        }) {
-            Wine.killBottleAndWait(bottle: bottle, timeout: 5)
-        }
+        }, operation: killBottle)
 
         let executedArgs = recorder.recordedArgs
         let executedEnvs = recorder.recordedEnvs

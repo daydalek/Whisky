@@ -27,7 +27,7 @@ extension ApplicationService {
         let container = try workspace.resolve(params)
         switch method {
         case "launchers.read":
-            return Self.encodeLaunchers(try LauncherSettings.load(bottleURL: container))
+            return try Self.encodeLaunchers(LauncherSettings.load(bottleURL: container))
         case "launchers.setAutoStart":
             // Resolving through the workspace keeps the flag keyed to a real
             // entry's `metadataIdentity`, not a client-guessed string.

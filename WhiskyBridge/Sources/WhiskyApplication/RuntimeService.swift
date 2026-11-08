@@ -65,7 +65,7 @@ public final class RuntimeService {
         policyLoader: (@MainActor (URL) throws -> ClipboardPolicySnapshot)? = nil,
         beforeLaunch: (@MainActor (LibraryEntry) -> Void)? = nil,
         backendResolver:
-            (@MainActor (LibraryEntry, URL?) -> (backend: String, fallbackFrom: String?)?)? = nil
+        (@MainActor (LibraryEntry, URL?) -> (backend: String, fallbackFrom: String?)?)? = nil
     ) {
         runtime = LibraryRuntimeController(driver: driver, launchTimeout: launchTimeout)
         self.clipboard = clipboard

@@ -280,7 +280,7 @@ public enum RunLogStore {
 public enum DisplayModeFailure {
     /// How many tail bytes of a log are scanned; the failure line can appear
     /// anywhere, but logs grow unbounded while the interesting runs fail early.
-    static let scanLimit = 512 * 1024
+    static let scanLimit = 512 * 1_024
 
     /// Returns `true` when the log text contains a failed display-mode change.
     public static func detect(logText: String) -> Bool {

@@ -218,7 +218,10 @@ public struct BottleGraphicsConfig: Codable, Equatable {
             let legacy = (try? container.decodeIfPresent(Bool.self, forKey: .metalFXSpatial)) ?? false
             self.gdiUpscaler = legacy ? .metalfx : .off
         }
-        self.gdiUpscalerExcludedRegions = (try? container.decodeIfPresent(String.self, forKey: .gdiUpscalerExcludedRegions)) ?? ""
+        self.gdiUpscalerExcludedRegions = (try? container.decodeIfPresent(
+            String.self,
+            forKey: .gdiUpscalerExcludedRegions
+        )) ?? ""
         self.gdiUpscalerCache =
             container.decodeLenientIfPresent(GDIUpscalerCacheMode.self, forKey: .gdiUpscalerCache) ?? .memory
         // Off for a bottle written before the key existed, which is the same

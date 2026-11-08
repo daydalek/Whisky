@@ -347,8 +347,11 @@ final class BottleSettingsTests: XCTestCase {
 
     func testMalformedBottleEnvironmentDecodesToEmpty() throws {
         // A non-dictionary `environment` value must not fail the whole decode.
-        let malformed: [[String: Any]] = [["environment": 42], ["environment": ["A", "B"]],
-                                        ["environment": ["K": 7]]]
+        let malformed: [[String: Any]] = [
+            ["environment": 42],
+            ["environment": ["A", "B"]],
+            ["environment": ["K": 7]]
+        ]
         for document in malformed {
             let bytes = try PropertyListSerialization.data(
                 fromPropertyList: document,
@@ -774,16 +777,27 @@ final class BottleSettingsTests: XCTestCase {
         encoder.outputFormat = .xml
         let resaved = try XCTUnwrap(String(data: encoder.encode(decoded), encoding: .utf8))
 
+        assertNoDeadFieldsInReencodedPlist(resaved)
+    }
+
+    /// Asserts a re-encoded settings plist contains none of the purged fields.
+    private func assertNoDeadFieldsInReencodedPlist(_ resaved: String) {
         // Re-saved plist must NOT contain dead fields
         XCTAssertFalse(resaved.contains("<key>gpuMemoryLimit</key>"), "Dead field gpuMemoryLimit must not be encoded")
-        XCTAssertFalse(resaved.contains("<key>disableShaderOptimizations</key>"), "Dead field disableShaderOptimizations must not be encoded")
+        XCTAssertFalse(
+            resaved.contains("<key>disableShaderOptimizations</key>"),
+            "Dead field disableShaderOptimizations must not be encoded"
+        )
         XCTAssertFalse(resaved.contains("<key>networkTimeout</key>"), "Dead field networkTimeout must not be encoded")
         // In dxvkConfig dict, dxvk key must be absent
         if let dxvkConfigRange = resaved.range(of: "<key>dxvkConfig</key>") {
             let substring = String(resaved[dxvkConfigRange.lowerBound...])
             if let dictEndRange = substring.range(of: "</dict>") {
                 let dxvkDictContent = String(substring[..<dictEndRange.upperBound])
-                XCTAssertFalse(dxvkDictContent.contains("<key>dxvk</key>"), "Dead field dxvk in dxvkConfig must not be encoded")
+                XCTAssertFalse(
+                    dxvkDictContent.contains("<key>dxvk</key>"),
+                    "Dead field dxvk in dxvkConfig must not be encoded"
+                )
             }
         }
     }
