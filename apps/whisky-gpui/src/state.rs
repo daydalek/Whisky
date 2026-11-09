@@ -415,6 +415,7 @@ impl PreviewState {
                 ("single-title", preferences::DEFAULT_SINGLE_LINE_TITLES),
                 ("center-cover-text", preferences::DEFAULT_CENTER_WIDE_COVER_TEXT),
                 ("blurred-fill", preferences::DEFAULT_BLURRED_COVER_FILL),
+                ("backdrop-fill", preferences::DEFAULT_BACKDROP_FILL),
                 ("scrape-characters", preferences::DEFAULT_SCRAPE_CHARACTERS),
                 ("shader", true),
                 ("appnap", true),
@@ -672,6 +673,9 @@ pub(crate) struct WhiskyApp {
     pub(crate) cover_upscale: crate::upscale::Factor,
     /// Which network enlarges the covers.
     pub(crate) cover_engine: crate::upscale::Engine,
+    /// Backdrop blur level for the ambient fill and the detail panel tint;
+    /// zero draws the artwork as it arrived.
+    pub(crate) backdrop_blur: u8,
     /// Derivatives already prepared, keyed by cover path, passes and engine.
     cover_derivatives: RefCell<
         HashMap<(std::path::PathBuf, u8, crate::upscale::Engine), Option<std::path::PathBuf>>,
@@ -913,6 +917,7 @@ impl WhiskyApp {
             artwork_cache: crate::artwork::ArtworkCache::new(cx),
             cover_upscale: crate::upscale::Factor::from_raw(preferences::DEFAULT_COVER_UPSCALE),
             cover_engine: crate::upscale::Engine::from_raw(preferences::DEFAULT_COVER_UPSCALE_ENGINE),
+            backdrop_blur: preferences::DEFAULT_BACKDROP_BLUR,
             cover_derivatives: RefCell::new(HashMap::new()),
             cover_jobs: RefCell::new(std::collections::HashSet::new()),
             cover_batch: None,
@@ -3438,6 +3443,7 @@ impl WhiskyApp {
             "single-title" => Some(preferences::SINGLE_LINE_TITLES),
             "center-cover-text" => Some(preferences::CENTER_WIDE_COVER_TEXT),
             "blurred-fill" => Some(preferences::BLURRED_COVER_FILL),
+            "backdrop-fill" => Some(preferences::BACKDROP_FILL),
             "scrape-characters" => Some(preferences::SCRAPE_CHARACTERS),
             "kill" => Some(preferences::KILL_ON_TERMINATE),
             "menubar" => Some(preferences::SHOW_MENU_BAR_EXTRA),
@@ -3535,6 +3541,24 @@ impl WhiskyApp {
     /// Back to the filled shelf the control otherwise overrides.
     pub(crate) fn reset_cover_width(&mut self, cx: &mut Context<Self>) {
         self.set_cover_width(crate::library_layout::AUTOMATIC_COVER_WIDTH, cx);
+    }
+
+    /// Live value from the backdrop blur control; the debounced persist
+    /// merges a drag into one write, and each level maps to a cached decode
+    /// variant so the drag itself decodes nothing.
+    pub(crate) fn set_backdrop_blur(&mut self, value: f64, cx: &mut Context<Self>) {
+        let level = crate::artwork::blur_level(value);
+        if self.backdrop_blur == level {
+            return;
+        }
+        self.backdrop_blur = level;
+        self.persist(preferences::BACKDROP_BLUR, json!(i64::from(level)), cx);
+        cx.notify();
+    }
+
+    /// Back to the default blur level.
+    pub(crate) fn reset_backdrop_blur(&mut self, cx: &mut Context<Self>) {
+        self.set_backdrop_blur(f64::from(preferences::DEFAULT_BACKDROP_BLUR), cx);
     }
 
     /// The file the shelf should draw for a cover: a prepared derivative once
@@ -3955,6 +3979,12 @@ impl WhiskyApp {
             self.cover_width = crate::library_layout::chosen_cover_width(number as f32)
                 .unwrap_or(crate::library_layout::AUTOMATIC_COVER_WIDTH);
         }
+        if let Some(number) = values
+            .get(preferences::BACKDROP_BLUR)
+            .and_then(serde_json::Value::as_f64)
+        {
+            self.backdrop_blur = crate::artwork::blur_level(number);
+        }
         if let Some(raw) = values
             .get(preferences::COVER_UPSCALE)
             .and_then(serde_json::Value::as_str)
@@ -3977,6 +4007,7 @@ impl WhiskyApp {
             (preferences::SINGLE_LINE_TITLES, "single-title"),
             (preferences::CENTER_WIDE_COVER_TEXT, "center-cover-text"),
             (preferences::BLURRED_COVER_FILL, "blurred-fill"),
+            (preferences::BACKDROP_FILL, "backdrop-fill"),
             (preferences::SCRAPE_CHARACTERS, "scrape-characters"),
             (preferences::REFRESH_AFTER_EXIT, "refresh"),
             (preferences::DETAIL_BLURRED_BACKGROUND, "blur"),

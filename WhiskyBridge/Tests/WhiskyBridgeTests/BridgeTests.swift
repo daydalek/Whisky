@@ -323,10 +323,12 @@ private struct Fixture {
     let strings = try #require(schema.object?["strings"]?.object)
     let numbers = try #require(schema.object?["numbers"]?.object)
     #expect(numbers["libraryCoverWidth"] == .number(0))
+    #expect(numbers["libraryBackdropBlur"] == .number(2))
     for key in [
         "offlineMode", "killOnTerminate", "showMenuBarExtra", "checkWhiskyWineUpdates",
         "libraryRefreshAfterExit", "libraryDetailBlurredBackground", "librarySingleLineTitles",
-        "libraryCenterWideCoverText", "libraryMixedCoverLayout", "libraryBlurredCoverFill"
+        "libraryCenterWideCoverText", "libraryMixedCoverLayout", "libraryBlurredCoverFill",
+        "libraryBackdropFill"
     ] {
         #expect(booleans[key] != nil)
     }

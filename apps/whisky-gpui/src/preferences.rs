@@ -54,6 +54,9 @@ pub(crate) const TERMINAL_VALUES: [&str; 5] =
 pub(crate) const COVER_FILL_VALUES: [&str; 2] = ["blurred", "theme"];
 /// `LibraryDetailLayoutStyle` raw values (`LibraryGameSheet.swift:25`).
 pub(crate) const DETAIL_LAYOUT_VALUES: [&str; 2] = ["hero", "split"];
+/// Backdrop blur level names, indexed by the `libraryBackdropBlur` level.
+pub(crate) const BACKDROP_BLUR_NAMES: [&str; crate::artwork::BLUR_LEVELS as usize] =
+    ["清晰", "轻微", "中等", "较强", "最强"];
 
 pub(crate) const DISPLAY_MODE: &str = "libraryDisplayMode";
 pub(crate) const SHOW_HIDDEN: &str = "libraryShowHiddenGames";
@@ -86,6 +89,12 @@ pub(crate) const SIDEBAR_MODE: &str = "librarySidebarMode";
 /// Which collapsed presentation (`icons` or `hidden`) the collapse action
 /// and `ToggleSidebar` use; remembered across launches.
 pub(crate) const SIDEBAR_COLLAPSED_STYLE: &str = "librarySidebarCollapsedStyle";
+/// Whether the ambient backdrop fills the window with the hovered artwork.
+/// GPUI-only like `libraryCoverWidth`.
+pub(crate) const BACKDROP_FILL: &str = "libraryBackdropFill";
+/// Backdrop blur level: 0 draws the sharp image, `artwork::BLUR_LEVELS - 1`
+/// the heaviest. GPUI-only like `libraryCoverWidth`.
+pub(crate) const BACKDROP_BLUR: &str = "libraryBackdropBlur";
 
 /// SwiftUI defaults, used before the bridge answers and for keys the bridge
 /// does not expose.
@@ -117,6 +126,9 @@ pub(crate) const DEFAULT_KILL_ON_TERMINATE: bool = true;
 pub(crate) const DEFAULT_SHOW_MENU_BAR_EXTRA: bool = false;
 pub(crate) const DEFAULT_OFFLINE_MODE: bool = false;
 pub(crate) const DEFAULT_CHECK_UPDATES: bool = true;
+pub(crate) const DEFAULT_BACKDROP_FILL: bool = true;
+/// Mid-range: text stays legible while the art still reads as art.
+pub(crate) const DEFAULT_BACKDROP_BLUR: u8 = 2;
 
 /// Index of a `LibraryDisplayMode` raw value; unknown values keep the default.
 pub(crate) fn mode_index(raw: &str) -> Option<usize> {
@@ -191,6 +203,8 @@ mod tests {
         assert_eq!(OFFLINE_MODE, "offlineMode");
         assert_eq!(CHECK_UPDATES, "checkWhiskyWineUpdates");
         assert_eq!(DEFAULT_BOTTLE_LOCATION, "defaultBottleLocation");
+        assert_eq!(BACKDROP_FILL, "libraryBackdropFill");
+        assert_eq!(BACKDROP_BLUR, "libraryBackdropBlur");
     }
 
     #[test]
@@ -282,5 +296,7 @@ mod tests {
         assert!(!DEFAULT_SHOW_MENU_BAR_EXTRA);
         assert!(!DEFAULT_OFFLINE_MODE);
         assert!(DEFAULT_CHECK_UPDATES);
+        assert!(DEFAULT_BACKDROP_FILL);
+        assert_eq!(DEFAULT_BACKDROP_BLUR, 2);
     }
 }

@@ -11,6 +11,30 @@ const MAX_DECODES: usize = 2;
 const MAX_QUEUED: usize = 64;
 const MAX_SOURCE_BYTES: u64 = 128 * 1024 * 1024;
 const EDGES: [u32; 7] = [128, 256, 512, 768, 1024, 1536, 2048];
+/// Blur levels the backdrop control can pick; level 0 is the sharp image.
+pub(crate) const BLUR_LEVELS: u8 = 5;
+/// Blur erases high-frequency detail, so variants decode at a small fixed
+/// edge instead of the display edge — cheap to compute and ~25× less memory.
+const BLUR_EDGE: u32 = 384;
+/// `fast_blur` sigma per level at `BLUR_EDGE` resolution.
+const BLUR_SIGMAS: [f32; BLUR_LEVELS as usize - 1] = [1.4, 2.8, 5.0, 8.0];
+
+/// The level a stored number selects, clamped to the supported range.
+pub(crate) fn blur_level(value: f64) -> u8 {
+    if value.is_finite() {
+        value.round().clamp(0., f64::from(BLUR_LEVELS - 1)) as u8
+    } else {
+        0
+    }
+}
+
+/// Sigma applied at decode resolution; level 0 draws the sharp image.
+fn blur_sigma(level: u8) -> Option<f32> {
+    level
+        .checked_sub(1)
+        .and_then(|index| BLUR_SIGMAS.get(usize::from(index)))
+        .copied()
+}
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct Key {
@@ -18,6 +42,7 @@ struct Key {
     upscale_variant: bool,
     resolved: PathBuf,
     edge: u32,
+    blur: u8,
     length: u64,
     modified_ns: u128,
 }
@@ -76,7 +101,7 @@ fn size_allowed(total_bytes: u64, width: u32, height: u32) -> bool {
     width != 0 && height != 0 && total_bytes <= MAX_SOURCE_BYTES
 }
 
-fn decode(path: &Path, edge: u32) -> Option<Arc<RenderImage>> {
+fn decode(path: &Path, edge: u32, blur: u8) -> Option<Arc<RenderImage>> {
     let mut reader = image::ImageReader::open(path)
         .ok()?
         .with_guessed_format()
@@ -100,6 +125,9 @@ fn decode(path: &Path, edge: u32) -> Option<Arc<RenderImage>> {
         decoded = decoded.resize(edge, edge, image::imageops::FilterType::Triangle);
     }
     let mut rgba = decoded.to_rgba8();
+    if let Some(sigma) = blur_sigma(blur) {
+        rgba = image::imageops::fast_blur(&rgba, sigma);
+    }
     for pixel in rgba.pixels_mut() {
         pixel.0.swap(0, 2);
     }
@@ -182,6 +210,7 @@ impl ArtworkCache {
         upscale_variant: bool,
         resolved: PathBuf,
         edge: u32,
+        blur: u8,
         view: EntityId,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -192,6 +221,7 @@ impl ArtworkCache {
             upscale_variant,
             resolved,
             edge,
+            blur,
             length,
             modified_ns,
         };
@@ -252,6 +282,7 @@ impl ArtworkCache {
                     && candidate.original == key.original
                     && candidate.upscale_variant == key.upscale_variant
                     && candidate.edge == key.edge
+                    && candidate.blur == key.blur
             })
             .cloned()
             .collect();
@@ -306,9 +337,10 @@ impl ArtworkCache {
             let job_key = key.clone();
             let resolved = key.resolved.clone();
             let edge = key.edge;
+            let blur = key.blur;
             let task = cx.spawn(async move |this, cx| {
                 let decoded = cx
-                    .background_spawn(async move { decode(&resolved, edge) })
+                    .background_spawn(async move { decode(&resolved, edge, blur) })
                     .await;
                 let _ = this.update(cx, |cache, cx| cache.complete(&job_key, decoded, cx));
             });
@@ -365,6 +397,7 @@ pub(crate) struct Artwork {
     source: PathBuf,
     resolver: Option<Box<dyn Fn(&Path, &mut App) -> PathBuf>>,
     fit: ObjectFit,
+    blur: u8,
     style: StyleRefinement,
 }
 impl Artwork {
@@ -374,6 +407,7 @@ impl Artwork {
             source,
             resolver: None,
             fit: ObjectFit::Contain,
+            blur: 0,
             style: StyleRefinement::default(),
         }
     }
@@ -386,6 +420,12 @@ impl Artwork {
     }
     pub(crate) fn object_fit(mut self, fit: ObjectFit) -> Self {
         self.fit = fit;
+        self
+    }
+    /// A blurred variant: a separate cache entry decoded at `BLUR_EDGE` with
+    /// the level's sigma applied once, off the render thread.
+    pub(crate) fn blur(mut self, level: u8) -> Self {
+        self.blur = level;
         self
     }
 }
@@ -402,6 +442,7 @@ impl IntoElement for Artwork {
         let corners = computed.corner_radii;
         let own_opacity = computed.opacity.unwrap_or(1.);
         let fit = self.fit;
+        let blur = self.blur;
         let cache = self.cache;
         let original = self.source;
         let upscale_variant = self.resolver.is_some();
@@ -417,14 +458,26 @@ impl IntoElement for Artwork {
                     let path = resolver
                         .as_ref()
                         .map_or_else(|| original.clone(), |resolve| resolve(&original, cx));
-                    let edge = target_edge(
+                    let mut edge = target_edge(
                         f32::from(bounds.size.width),
                         f32::from(bounds.size.height),
                         window.scale_factor(),
                     );
+                    if blur > 0 {
+                        edge = edge.min(BLUR_EDGE);
+                    }
                     let view = window.current_view();
                     cache.update(cx, |cache, cx| {
-                        cache.request(&original, upscale_variant, path, edge, view, window, cx)
+                        cache.request(
+                            &original,
+                            upscale_variant,
+                            path,
+                            edge,
+                            blur,
+                            view,
+                            window,
+                            cx,
+                        )
                     })
                 },
                 move |bounds, image: Option<Arc<RenderImage>>, window, _| {
@@ -449,9 +502,9 @@ impl IntoElement for Artwork {
 #[cfg(test)]
 mod tests {
     use super::{
-        ArtworkCache, CACHE_BYTES, CACHE_ENTRIES, Entry, Key, MAX_QUEUED, MAX_SOURCE_BYTES,
-        decode,
-        eviction_keys, render_image_bytes, size_allowed, target_edge, visible,
+        ArtworkCache, BLUR_LEVELS, CACHE_BYTES, CACHE_ENTRIES, Entry, Key, MAX_QUEUED,
+        MAX_SOURCE_BYTES, blur_level, decode, eviction_keys, render_image_bytes, size_allowed,
+        target_edge, visible,
     };
     use gpui_kit::{Bounds, EntityId, RenderImage, Task, point, px, size};
     use std::collections::{HashMap, HashSet, VecDeque};
@@ -467,11 +520,24 @@ mod tests {
         length: u64,
         modified_ns: u128,
     ) -> Key {
+        blurred_key(original, upscale_variant, resolved, edge, 0, length, modified_ns)
+    }
+
+    fn blurred_key(
+        original: &str,
+        upscale_variant: bool,
+        resolved: &str,
+        edge: u32,
+        blur: u8,
+        length: u64,
+        modified_ns: u128,
+    ) -> Key {
         Key {
             original: PathBuf::from(original),
             upscale_variant,
             resolved: PathBuf::from(resolved),
             edge,
+            blur,
             length,
             modified_ns,
         }
@@ -612,14 +678,14 @@ mod tests {
         let dir = temp_dir("resize");
         let path = dir.join("cover.png");
         write_png(&path, 3600, 4800, image::Rgba([9, 30, 60, 255]));
-        let image = decode(&path, 512).unwrap();
+        let image = decode(&path, 512, 0).unwrap();
         let size = image.size(0);
         assert_eq!(size.width.0, 384);
         assert_eq!(size.height.0, 512);
         assert_eq!(render_image_bytes(&image), 384 * 512 * 4);
         let small = dir.join("small.png");
         write_png(&small, 16, 12, image::Rgba([9, 30, 60, 255]));
-        let image = decode(&small, 512).unwrap();
+        let image = decode(&small, 512, 0).unwrap();
         let size = image.size(0);
         assert_eq!(size.width.0, 16);
         assert_eq!(size.height.0, 12);
@@ -631,8 +697,42 @@ mod tests {
         let dir = temp_dir("extensionless");
         let path = dir.join("a1b2c3");
         write_png(&path, 32, 32, image::Rgba([1, 2, 3, 255]));
-        let image = decode(&path, 128).unwrap();
+        let image = decode(&path, 128, 0).unwrap();
         assert_eq!(image.size(0).width.0, 32);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn blur_level_rounds_and_clamps_to_the_supported_range() {
+        assert_eq!(blur_level(0.), 0);
+        assert_eq!(blur_level(1.6), 2);
+        assert_eq!(blur_level(2.), 2);
+        assert_eq!(blur_level(99.), BLUR_LEVELS - 1);
+        assert_eq!(blur_level(-3.), 0);
+        assert_eq!(blur_level(f64::NAN), 0);
+    }
+
+    #[test]
+    fn blurred_decode_keeps_size_and_softens_edges() {
+        let dir = temp_dir("blur");
+        let path = dir.join("step.png");
+        let mut buffer = image::RgbaImage::from_pixel(64, 32, image::Rgba([0, 0, 0, 255]));
+        for y in 0..32 {
+            for x in 32..64 {
+                buffer.put_pixel(x, y, image::Rgba([255, 255, 255, 255]));
+            }
+        }
+        buffer.save(&path).unwrap();
+        // The level-0 variant keeps the hard edge at x=32.
+        let sharp = decode(&path, 128, 0).unwrap();
+        let sharp_bytes = sharp.as_bytes(0).unwrap();
+        let edge_at = |bytes: &[u8]| bytes[(16 * 64 + 32) * 4];
+        assert_eq!(edge_at(sharp_bytes), 255);
+        // The blurred variant lands between the two halves (BGRA symmetric).
+        let blurred = decode(&path, 128, 2).unwrap();
+        assert_eq!(blurred.size(0).width.0, 64);
+        let blurred_bytes = blurred.as_bytes(0).unwrap();
+        assert!(edge_at(blurred_bytes) > 20 && edge_at(blurred_bytes) < 235);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -641,7 +741,7 @@ mod tests {
         let dir = temp_dir("bgra");
         let path = dir.join("red.png");
         write_png(&path, 4, 2, image::Rgba([255, 0, 0, 128]));
-        let image = decode(&path, 128).unwrap();
+        let image = decode(&path, 128, 0).unwrap();
         let bytes = image.as_bytes(0).unwrap();
         assert_eq!(&bytes[..4], &[0, 0, 255, 128]);
         std::fs::remove_dir_all(&dir).unwrap();
@@ -650,10 +750,10 @@ mod tests {
     #[test]
     fn decode_rejects_missing_corrupt_and_oversized_sources() {
         let dir = temp_dir("reject");
-        assert_eq!(decode(&dir.join("missing.png"), 128), None);
+        assert_eq!(decode(&dir.join("missing.png"), 128, 0), None);
         let corrupt = dir.join("corrupt.png");
         std::fs::write(&corrupt, b"not an image").unwrap();
-        assert_eq!(decode(&corrupt, 128), None);
+        assert_eq!(decode(&corrupt, 128, 0), None);
         assert!(!size_allowed(MAX_SOURCE_BYTES + 1, 10, 10));
         assert!(!size_allowed(4, 0, 10));
         assert!(!size_allowed(4, 10, 0));
@@ -739,6 +839,21 @@ mod tests {
         assert!(cache.entries.contains_key(&other_variant));
         assert_eq!(cache.bytes, 40 * 1024 * 1024 + 8);
         assert!(cache.supersede(&new).is_empty());
+    }
+
+    #[test]
+    fn supersede_keeps_sibling_blur_levels_cached() {
+        let mut cache = cache();
+        let old = blurred_key("/a.png", false, "/a.png", 384, 2, 1, 1);
+        let sibling = blurred_key("/a.png", false, "/a.png", 384, 3, 1, 1);
+        cache.entries.insert(old.clone(), entry(1024, 1, true));
+        cache
+            .entries
+            .insert(sibling.clone(), entry(1024, 2, true));
+        let released = cache.supersede(&blurred_key("/a.png", false, "/a.png", 384, 2, 2, 2));
+        assert_eq!(released.len(), 1);
+        assert!(!cache.entries.contains_key(&old));
+        assert!(cache.entries.contains_key(&sibling));
     }
 
     #[test]

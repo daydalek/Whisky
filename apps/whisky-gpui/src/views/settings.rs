@@ -10,6 +10,20 @@ use gpui_kit::{prelude::*, *};
 use crate::controls::{col, muted, row};
 use crate::preferences;
 use crate::state::WhiskyApp;
+use crate::theme::*;
+
+const BLUR_SLIDER_WIDTH: f32 = 132.;
+const BLUR_SLIDER_THUMB: f32 = 12.;
+
+/// The blur level under the pointer, snapped to the decode variants the
+/// artwork cache can produce.
+fn blur_level_at(x: f32, bounds: [f32; 2]) -> f64 {
+    let max = f32::from(crate::artwork::BLUR_LEVELS - 1);
+    if bounds[1] <= 0. {
+        return 0.;
+    }
+    f64::from(((x - bounds[0]) / bounds[1] * max).round().clamp(0., max))
+}
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 const COVER_UPSCALE_LABEL: &str = "封面超分";
@@ -78,6 +92,136 @@ impl WhiskyApp {
                     .label(action)
                     .disabled(disabled)
                     .on_click(cx.listener(|this, _, _, cx| this.start_cover_batch(cx))),
+            )
+            .into_any_element()
+    }
+
+    /// Stepped backdrop blur. Each notch is a cached decode variant, so a
+    /// drag only swaps which prepared image the backdrop draws — it never
+    /// queues work mid-level. Disabled while the fill toggle is off.
+    fn backdrop_blur_row(&self, cx: &Context<Self>) -> AnyElement {
+        let enabled = self.flag("backdrop-fill");
+        let max = crate::artwork::BLUR_LEVELS - 1;
+        let level = self.backdrop_blur.min(max);
+        let fraction = f32::from(level) / f32::from(max);
+        let thumb = fraction * BLUR_SLIDER_WIDTH - BLUR_SLIDER_THUMB / 2.;
+        let ticks: Vec<AnyElement> = (1..max)
+            .map(|index| {
+                let offset = BLUR_SLIDER_WIDTH * f32::from(index) / f32::from(max);
+                div()
+                    .absolute()
+                    .left(px(offset - 1.))
+                    .top(px(BLUR_SLIDER_THUMB / 2. + 0.5 + 1.))
+                    .size(px(3.))
+                    .rounded_full()
+                    .bg(rgba(round_btn_border()))
+                    .into_any_element()
+            })
+            .collect();
+        // Hit testing needs the track's window position; prepaint is the only
+        // place GPUI hands it out.
+        let bounds = std::rc::Rc::new(std::cell::Cell::new([0f32; 2]));
+        let measured = bounds.clone();
+        let down = bounds.clone();
+        let moved = bounds.clone();
+        let mut track = div()
+            .id("backdrop-blur-track")
+            .relative()
+            .w(px(BLUR_SLIDER_WIDTH))
+            .h(px(BLUR_SLIDER_THUMB + 6.))
+            .opacity(if enabled { 1. } else { 0.4 })
+            .child(
+                canvas(
+                    move |bounds, _, _| {
+                        measured.set([
+                            f32::from(bounds.origin.x),
+                            f32::from(bounds.size.width),
+                        ]);
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(0.))
+                    .top(px(BLUR_SLIDER_THUMB / 2. + 0.5))
+                    .h(px(5.))
+                    .w_full()
+                    .rounded_full()
+                    .bg(rgba(round_btn_bg())),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(0.))
+                    .top(px(BLUR_SLIDER_THUMB / 2. + 0.5))
+                    .h(px(5.))
+                    .w(px(BLUR_SLIDER_WIDTH * fraction))
+                    .rounded_full()
+                    .bg(rgb(ACCENT)),
+            )
+            .children(ticks)
+            .child(
+                div()
+                    .absolute()
+                    .left(px(thumb.clamp(0., BLUR_SLIDER_WIDTH - BLUR_SLIDER_THUMB)))
+                    .top(px(3.))
+                    .size(px(BLUR_SLIDER_THUMB))
+                    .rounded_full()
+                    .bg(rgb(0xffffff))
+                    .border_1()
+                    .border_color(rgba(round_btn_border())),
+            );
+        if enabled {
+            track = track
+                .cursor_pointer()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                        cx.stop_propagation();
+                        if event.click_count >= 2 {
+                            this.reset_backdrop_blur(cx);
+                            return;
+                        }
+                        this.set_backdrop_blur(
+                            blur_level_at(f32::from(event.position.x), down.get()),
+                            cx,
+                        );
+                    }),
+                )
+                .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, _, cx| {
+                    if !event.dragging() {
+                        return;
+                    }
+                    this.set_backdrop_blur(
+                        blur_level_at(f32::from(event.position.x), moved.get()),
+                        cx,
+                    );
+                }));
+        }
+        row()
+            .py(px(10.))
+            .gap(px(16.))
+            .items_center()
+            .child(
+                col()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(4.))
+                    .child("背景模糊")
+                    .child(
+                        muted("填充背景的高斯模糊强度；最左侧为清晰原图，拖动即切换。")
+                            .line_height(relative(1.4)),
+                    ),
+            )
+            .child(track)
+            .child(
+                muted(crate::preferences::BACKDROP_BLUR_NAMES[usize::from(level)])
+                    .w(px(30.))
+                    .text_size(px(11.)),
             )
             .into_any_element()
     }
@@ -342,6 +486,13 @@ impl WhiskyApp {
                             cx,
                         ),
                         self.toggle("single-title", "单行显示标题", "", cx),
+                        self.toggle(
+                            "backdrop-fill",
+                            "图片填充背景",
+                            "悬停时用游戏封面填充窗口与详情页背景；关闭后使用主题纯色。",
+                            cx,
+                        ),
+                        self.backdrop_blur_row(cx),
                         #[cfg(any(target_os = "macos", target_os = "linux"))]
                         self.choice_pairs(
                             "cover-upscale",
@@ -367,13 +518,13 @@ impl WhiskyApp {
                             "横版封面上的标题与信息居中对齐。",
                             cx,
                         ),
-                        // The SwiftUI-only display preferences (detail blur,
-                        // blurred cover fill, fill style, detail layout) are
-                        // deliberately absent here: this renderer has no blur
-                        // primitive, crops covers with object-fit so a fill
-                        // never shows, and implements one detail layout. They
-                        // stay in the shared preference schema and still
-                        // affect the SwiftUI app.
+                        // The SwiftUI-only display preferences (blurred cover
+                        // fill, fill style, detail layout) stay absent: this
+                        // renderer crops covers with object-fit so a fill never
+                        // shows, and implements one detail layout. They stay in
+                        // the shared preference schema and still affect the
+                        // SwiftUI app. Backdrop blur is a GPUI decode variant
+                        // driven by the `libraryBackdrop*` keys above.
                         self.toggle(
                             "motion",
                             "界面动画",

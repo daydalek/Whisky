@@ -972,6 +972,9 @@ impl WhiskyApp {
     pub(crate) fn backdrop(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         // Per-image channels preserve continuous blending even during rapid A → B → C hovers.
         let mut layers = div().absolute().size_full().overflow_hidden().bg(rgb(bg()));
+        if !self.flag("backdrop-fill") {
+            return layers.into_any_element();
+        }
         for i in 0..self.games().len() {
             let target = if self.hovered.is_some() && self.ambient_index == i {
                 0.24_f32
@@ -990,6 +993,7 @@ impl WhiskyApp {
             {
                 layers = layers.child(
                     self.artwork_image(path)
+                        .blur(self.backdrop_blur)
                         .absolute()
                         .size_full()
                         .object_fit(ObjectFit::Cover)
@@ -1765,7 +1769,12 @@ impl WhiskyApp {
         let Some(g) = self.game(index) else {
             return div().into_any_element();
         };
-        let backdrop = self.ambient_art(index);
+        // The detail tint follows the same fill/blur choice as the window backdrop.
+        let backdrop = if self.flag("backdrop-fill") {
+            self.ambient_art(index)
+        } else {
+            None
+        };
         // The hero cover is a fixed 190 points wide.
         let artwork = self.artwork(index);
         let mut badges = row().gap(px(8.)).mt(px(8.));
@@ -1844,6 +1853,7 @@ impl WhiskyApp {
                             .when_some(backdrop, |d, path| {
                                 d.child(
                                     self.artwork_image(path)
+                                        .blur(self.backdrop_blur)
                                         .size_full()
                                         .object_fit(ObjectFit::Cover)
                                         .opacity(if is_dark() { 0.22 } else { 0.12 }),

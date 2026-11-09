@@ -34,7 +34,7 @@ public final class PreferencesService {
         "checkWhiskyWineUpdates": true, "libraryRefreshAfterExit": true,
         "libraryDetailBlurredBackground": true, "librarySingleLineTitles": false,
         "libraryCenterWideCoverText": false, "libraryMixedCoverLayout": true, "libraryBlurredCoverFill": true,
-        "libraryMetadataScrapeCharacters": true
+        "libraryMetadataScrapeCharacters": true, "libraryBackdropFill": true
     ]
     /// String-backed preferences. Values mirror the Swift enums (`LibraryDisplayMode`,
     /// `LibrarySort`, `LibraryDetailLayoutStyle`) and `TerminalApp` raw values.
@@ -57,8 +57,9 @@ public final class PreferencesService {
     private static let pathKeys = ["defaultBottleLocation"]
     /// Numeric preferences. `libraryCoverWidth` is the cover size control: zero
     /// asks the shelf to divide the row, a value is the width every cover keeps.
+    /// `libraryBackdropBlur` is the GPUI backdrop blur level; zero is sharp.
     private static let numbers: [String: Double] = [
-        "libraryCoverWidth": 0
+        "libraryCoverWidth": 0, "libraryBackdropBlur": 2
     ]
     public init(defaults: UserDefaults, defaultBottleDirectory: URL) {
         self.defaults = defaults
