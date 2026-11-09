@@ -19,12 +19,12 @@
 import Foundation
 
 public enum DistributionConfig {
-    public static let projectRepository = "daydalek/Whisky"
+    public static let projectRepository = "daydalek/Maltoria"
     public static let projectURL = "https://github.com/\(projectRepository)"
     public static let issuesURL = "\(projectURL)/issues"
 
     /// Base URL for GitHub Pages distribution
-    public static let baseURL = "https://daydalek.github.io/Whisky"
+    public static let baseURL = "https://daydalek.github.io/Maltoria"
 
     /// Public static manifest maintained by the Wine release CI.
     public static let versionPlistURL =

@@ -7,7 +7,7 @@
   <summary>Manage Wine containers and Windows games</summary>
   <description><p>Maltoria manages Wine containers and a game library. The Wine runtime downloads separately.</p></description>
   <launchable type="desktop-id">com.daydalek.Maltoria.desktop</launchable>
-  <url type="homepage">https://github.com/daydalek/Whisky</url>
+  <url type="homepage">https://github.com/daydalek/Maltoria</url>
   <provides><binary>whisky</binary></provides>
   <content_rating type="oars-1.1"/>
 </component>

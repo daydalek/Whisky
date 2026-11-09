@@ -7,9 +7,9 @@
   > [frankea/Whisky](https://github.com/frankea/Whisky),原本基于
   > [Isaac Marovitz (whisky-app/whisky)](https://github.com/whisky-app/whisky),并增强了作为视觉小说管理器和运行时环境的兼容性和功能.
 
-  [![CI](https://img.shields.io/github/actions/workflow/status/daydalek/Whisky/CI.yml?style=for-the-badge)](https://github.com/daydalek/Whisky/actions)
-  [![Releases](https://img.shields.io/github/v/release/daydalek/Whisky?include_prereleases&style=for-the-badge)](https://github.com/daydalek/Whisky/releases)
-  [![Issues](https://img.shields.io/github/issues/daydalek/Whisky?style=for-the-badge)](https://github.com/daydalek/Whisky/issues)
+  [![CI](https://img.shields.io/github/actions/workflow/status/daydalek/Maltoria/CI.yml?style=for-the-badge)](https://github.com/daydalek/Maltoria/actions)
+  [![Releases](https://img.shields.io/github/v/release/daydalek/Maltoria?include_prereleases&style=for-the-badge)](https://github.com/daydalek/Maltoria/releases)
+  [![Issues](https://img.shields.io/github/issues/daydalek/Maltoria?style=for-the-badge)](https://github.com/daydalek/Maltoria/issues)
   [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=for-the-badge)](./LICENSE)
 </div>
 
@@ -21,10 +21,10 @@
 <!-- 每次发布新版本后,请同步更新下表中的版本号与直链. -->
 | 平台 | 安装包 |
 | --- | --- |
-| macOS (Apple Silicon) | [Maltoria-0.5.0-arm64.zip](https://github.com/daydalek/Whisky/releases/download/vn-v0.5.0/Maltoria-0.5.0-arm64.zip) |
-| Linux · deb (Ubuntu 24.04) | [whisky_0.5.0_amd64.deb](https://github.com/daydalek/Whisky/releases/download/linux-v0.5.0/whisky_0.5.0_amd64.deb) |
-| Linux · rpm (Fedora 44) | [whisky-0.5.0-1.x86_64.rpm](https://github.com/daydalek/Whisky/releases/download/linux-v0.5.0/whisky-0.5.0-1.x86_64.rpm) |
-| Linux · AppImage | [Maltoria-0.5.0-x86_64.AppImage](https://github.com/daydalek/Whisky/releases/download/linux-v0.5.0/Maltoria-0.5.0-x86_64.AppImage) |
+| macOS (Apple Silicon) | [Maltoria-0.5.0-arm64.zip](https://github.com/daydalek/Maltoria/releases/download/vn-v0.5.0/Maltoria-0.5.0-arm64.zip) |
+| Linux · deb (Ubuntu 24.04) | [whisky_0.5.0_amd64.deb](https://github.com/daydalek/Maltoria/releases/download/linux-v0.5.0/whisky_0.5.0_amd64.deb) |
+| Linux · rpm (Fedora 44) | [whisky-0.5.0-1.x86_64.rpm](https://github.com/daydalek/Maltoria/releases/download/linux-v0.5.0/whisky-0.5.0-1.x86_64.rpm) |
+| Linux · AppImage | [Maltoria-0.5.0-x86_64.AppImage](https://github.com/daydalek/Maltoria/releases/download/linux-v0.5.0/Maltoria-0.5.0-x86_64.AppImage) |
 
 由于缺少Apple开发者证书,目前应用以ad-hoc方式签名,打开时会提示无法验证应用安全性,请至设置-隐私与安全性中信任应用.
 
@@ -84,7 +84,7 @@ rm -rf ~/.local/share/whisky
 
 - **许可证 (License)**：本项目遵循 **[GNU General Public License v3.0 (GPL-3.0-or-later)](./LICENSE)** 开源许可证发布。
 - **应用源代码来源 (Application Source Attribution)**：
-  - 本仓库（[daydalek/Whisky](https://github.com/daydalek/Whisky)）fork 自 **[frankea/Whisky](https://github.com/frankea/Whisky)**。
+  - 本仓库（[daydalek/Maltoria](https://github.com/daydalek/Maltoria)）fork 自 **[frankea/Whisky](https://github.com/frankea/Whisky)**。
   - 上游项目最初由 **[Isaac Marovitz](https://github.com/IsaacMarovitz)** 创建并发布于 **[whisky-app/whisky](https://github.com/whisky-app/whisky)**。
 - **Wine 运行库源代码来源 (Wine Runtime Source Attribution)**：
   - 本项目配套下载的 Wine 运行库由 **[daydalek/ge-proton-macos-wine-poc](https://github.com/daydalek/ge-proton-macos-wine-poc)** 构建并发布，基于 **CodeWeavers CrossOver Wine 26.3 开源核心** 与 **GE-Proton ([GloriousEggroll/proton-ge-custom](https://github.com/GloriousEggroll/proton-ge-custom))** 多媒体补丁移植.

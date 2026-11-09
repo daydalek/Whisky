@@ -24,7 +24,7 @@ final class DistributionConfigTests: XCTestCase {
     // MARK: - Base URL Tests
 
     func testBaseURL() {
-        XCTAssertEqual(DistributionConfig.baseURL, "https://daydalek.github.io/Whisky")
+        XCTAssertEqual(DistributionConfig.baseURL, "https://daydalek.github.io/Maltoria")
     }
 
     func testBaseURLIsHTTPS() {
@@ -58,7 +58,7 @@ final class DistributionConfigTests: XCTestCase {
     // MARK: - Appcast URL Tests
 
     func testAppcastURL() {
-        let expectedURL = "https://daydalek.github.io/Whisky/appcast.xml"
+        let expectedURL = "https://daydalek.github.io/Maltoria/appcast.xml"
         XCTAssertEqual(DistributionConfig.appcastURL, expectedURL)
     }
 

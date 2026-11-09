@@ -54,7 +54,7 @@ jobs:
             --target WhiskyKit \
             --disable-indexing \
             --transform-for-static-hosting \
-            --hosting-base-path Whisky \
+            --hosting-base-path Maltoria \
             --output-path ../docs
 
       - name: Stage distribution files

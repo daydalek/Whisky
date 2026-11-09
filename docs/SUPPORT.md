@@ -7,9 +7,9 @@ best-effort and free. This page sets honest expectations and points you at the f
 
 Most problems already have an answer:
 
-1. Install this fork's ZIP from [Releases](https://github.com/daydalek/Whisky/releases).
+1. Install this fork's ZIP from [Releases](https://github.com/daydalek/Maltoria/releases).
    Check the version in **Whisky → About**.
-2. **Search [existing issues](https://github.com/daydalek/Whisky/issues?q=is%3Aissue).**
+2. **Search [existing issues](https://github.com/daydalek/Maltoria/issues?q=is%3Aissue).**
 3. **Check the troubleshooting docs:**
    [Launcher](LauncherTroubleshooting.md) · [Steam](SteamCompatibility.md) · [Stability](StabilityTroubleshooting.md).
 4. **For a specific game**, check the [bundled Game Database](../WhiskyCore/Sources/WhiskyCore/Resources/GameDB.json)
@@ -19,9 +19,9 @@ Most problems already have an answer:
 
 | You have… | Go to |
 |-----------|-------|
-| A reproducible app bug | [New issue → Bug Report](https://github.com/daydalek/Whisky/issues/new/choose) |
-| A game that won't run right | [New issue → Game Compatibility Report](https://github.com/daydalek/Whisky/issues/new/choose) |
-| An idea | [New issue → Feature Request](https://github.com/daydalek/Whisky/issues/new/choose) |
+| A reproducible app bug | [New issue → Bug Report](https://github.com/daydalek/Maltoria/issues/new/choose) |
+| A game that won't run right | [New issue → Game Compatibility Report](https://github.com/daydalek/Maltoria/issues/new/choose) |
+| An idea | [New issue → Feature Request](https://github.com/daydalek/Maltoria/issues/new/choose) |
 | A security report | See [`SECURITY.md`](../SECURITY.md) — **do not** open a public issue |
 | A "how do I…" question | The troubleshooting docs and the Game Support wiki first |
 

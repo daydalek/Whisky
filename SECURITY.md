@@ -18,7 +18,7 @@ If you discover a security vulnerability in Maltoria, please report it responsib
 1. **Do not** open a public GitHub issue for security vulnerabilities
 2. **Use** GitHub's private vulnerability reporting feature via the **Security** tab of this repository:
    - Navigate to **Security** → **Report a vulnerability**
-   - Or use this direct link: [Report a vulnerability](https://github.com/daydalek/Whisky/security/advisories/new)
+   - Or use this direct link: [Report a vulnerability](https://github.com/daydalek/Maltoria/security/advisories/new)
 3. **Include** the following information in your report:
    - Description of the vulnerability
    - Steps to reproduce the issue

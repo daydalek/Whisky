@@ -7,7 +7,7 @@ this document and that directory under `Contents/Resources/ThirdParty/`.
 
 ## Application ancestry
 
-This fork, <https://github.com/daydalek/Whisky>, derives from
+This fork, <https://github.com/daydalek/Maltoria>, derives from
 <https://github.com/frankea/Whisky> and the original project by Isaac Marovitz,
 <https://github.com/whisky-app/Whisky>. Their contributions and the contributions
 of the Whisky authors remain covered by the original file notices and

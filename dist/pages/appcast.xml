@@ -2,7 +2,7 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>Maltoria</title>
-        <link>https://daydalek.github.io/Whisky/appcast.xml</link>
+        <link>https://daydalek.github.io/Maltoria/appcast.xml</link>
         <description>Maltoria update feed (disabled in this fork)</description>
         <language>en</language>
     </channel>

@@ -146,7 +146,7 @@ def deb(bundle, manifest, version, output, workspace):
     control.write_text(f'Package: whisky\nVersion: {version}\nArchitecture: {ARCHITECTURES[manifest["architecture"]][0]}\n'
         'Maintainer: Maltoria contributors <noreply@github.com>\nSection: games\nPriority: optional\n'
         f'Installed-Size: {installed}\nDepends: ' + ', '.join(DEPENDENCIES['deb']) + '\n'
-        'Recommends: fonts-noto-cjk, mesa-vulkan-drivers\nHomepage: https://github.com/daydalek/Whisky\n'
+        'Recommends: fonts-noto-cjk, mesa-vulkan-drivers\nHomepage: https://github.com/daydalek/Maltoria\n'
         'Description: Wine container and Windows game library manager\n'
         ' Wine runtimes download separately into the user data directory.\n')
     control.chmod(0o644)
@@ -176,7 +176,7 @@ Version: {version}
 Release: 1
 Summary: Wine container and Windows game library manager
 License: GPL-3.0-or-later
-URL: https://github.com/daydalek/Whisky
+URL: https://github.com/daydalek/Maltoria
 BuildArch: {ARCHITECTURES[manifest['architecture']][1]}
 AutoReqProv: no
 Requires: {', '.join(sorted(set(requires)))}

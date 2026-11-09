@@ -1,208 +1,1193 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Maltoria — Run Windows games and apps on macOS via Wine</title>
-<meta name="description" content="Maltoria is a native Wine wrapper for macOS with DXMT and DXVK graphics backends. Community fork of Whisky (frankea/Whisky, originally whisky-app/whisky). Apple Silicon.">
-<meta name="author" content="daydalek">
-<meta name="theme-color" content="#1d1d1f" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
-<link rel="canonical" href="https://daydalek.github.io/Whisky/">
-<link rel="icon" href="favicon.ico">
-<link rel="mask-icon" href="favicon.svg" color="#333333">
-
-<!-- Open Graph / Twitter Card -->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maltoria — Visual Novels, Beyond Windows</title>
+<meta name="description" content="Maltoria 是面向视觉小说玩家打造的游戏库管理器与专属调优 Wine 运行时，支持 macOS (Apple Silicon) 与 Linux，集成多数据源刮削、驱动级 AI 超分与 GE-Proton 多媒体修复。">
+<link rel="canonical" href="https://daydalek.github.io/Maltoria/">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://daydalek.github.io/Whisky/">
-<meta property="og:title" content="Maltoria — Run Windows games and apps on macOS via Wine">
-<meta property="og:description" content="Native Wine wrapper for macOS with DXMT and DXVK backends. Community fork of Whisky (frankea/Whisky, originally whisky-app/whisky).">
-<meta property="og:image" content="https://raw.githubusercontent.com/daydalek/Whisky/main/images/og-card.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Maltoria — Run Windows games and apps on macOS, using Wine. Apple Silicon, macOS 15+, GPL v3.">
+<meta property="og:title" content="Maltoria — Visual Novels, Beyond Windows">
+<meta property="og:description" content="为视觉小说玩家打造的游戏库与 Wine 运行时，支持 macOS 与 Linux。">
+<meta property="og:url" content="https://daydalek.github.io/Maltoria/">
+<meta property="og:image" content="https://raw.githubusercontent.com/daydalek/Maltoria/main/images/og-card.png">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Maltoria — Run Windows games and apps on macOS via Wine">
-<meta name="twitter:description" content="Native Wine wrapper for macOS with DXMT and DXVK backends. Community fork of Whisky.">
-<meta name="twitter:image" content="https://raw.githubusercontent.com/daydalek/Whisky/main/images/og-card.png">
-
-<!-- JSON-LD -->
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  "name": "Maltoria",
-  "operatingSystem": "macOS 15.0+",
-  "applicationCategory": "GameApplication",
-  "applicationSubCategory": "Wine wrapper",
-  "softwareVersion": "3.6.0",
-  "license": "https://www.gnu.org/licenses/gpl-3.0.html",
-  "downloadUrl": "https://github.com/daydalek/Whisky/releases/latest",
-  "url": "https://github.com/daydalek/Whisky",
-  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
-}
-</script>
-
+<link rel="icon" href="assets/logo.png">
 <style>
-:root {
-  color-scheme: light dark;
-  --bg: #fbfbfd;
-  --fg: #1d1d1f;
-  --muted: #6e6e73;
-  --accent: #ce8b41;
-  --rule: #d2d2d7;
-  --code-bg: #f5f5f7;
-  --link: #0066cc;
-}
-@media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1d1d1f;
-    --fg: #f5f5f7;
-    --muted: #a1a1a6;
-    --rule: #424245;
-    --code-bg: #2c2c2e;
-    --link: #2997ff;
+    --bg: #0b0912;
+    --bg-elevated: #120f1d;
+    --bg-card: rgba(24, 19, 38, 0.65);
+    --bg-card-hover: rgba(32, 25, 50, 0.82);
+    --line: rgba(255, 255, 255, 0.08);
+    --line-bright: rgba(255, 255, 255, 0.16);
+    --line-gold: rgba(246, 184, 90, 0.38);
+    --text: #f7f4fc;
+    --text-secondary: #d3cde0;
+    --muted: #9e96b0;
+    --gold: #f6b85a;
+    --gold-light: #ffd98e;
+    --peach: #ff8f70;
+    --violet: #a67cff;
+    --cyan: #6bd5e1;
+    --grad: linear-gradient(110deg, #ffe08c 0%, #f6b85a 30%, #ff8f70 68%, #b983ff 100%);
+    --grad-subtle: linear-gradient(135deg, rgba(246, 184, 90, 0.16) 0%, rgba(255, 143, 112, 0.08) 50%, rgba(166, 124, 255, 0.14) 100%);
+    --shadow-lg: 0 32px 80px -16px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.1);
   }
-}
-* { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
-body {
-  background: var(--bg);
-  color: var(--fg);
-  font: 17px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-}
-main { max-width: 740px; margin: 0 auto; padding: 80px 24px; }
-header { margin-bottom: 48px; }
-h1 { font-size: 48px; line-height: 1.05; margin: 0 0 8px 0; letter-spacing: -0.02em; }
-h2 { font-size: 24px; margin: 48px 0 12px 0; letter-spacing: -0.01em; }
-.tagline { font-size: 21px; color: var(--muted); margin: 0; }
-p { margin: 0 0 16px 0; }
-a { color: var(--link); text-decoration: none; }
-a:hover { text-decoration: underline; }
-ul { padding-left: 22px; }
-li { margin: 4px 0; }
-pre, code {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 14.5px;
-}
-pre {
-  background: var(--code-bg);
-  padding: 14px 16px;
-  border-radius: 8px;
-  overflow-x: auto;
-  margin: 12px 0;
-}
-code { background: var(--code-bg); padding: 2px 6px; border-radius: 4px; }
-pre code { background: none; padding: 0; }
-.cta {
-  display: inline-block;
-  background: var(--accent);
-  color: white;
-  padding: 12px 22px;
-  border-radius: 8px;
-  font-weight: 500;
-  margin: 8px 12px 8px 0;
-}
-.cta:hover { text-decoration: none; opacity: 0.9; }
-.cta.secondary {
-  background: transparent;
-  color: var(--fg);
-  border: 1px solid var(--rule);
-}
-hr { border: 0; border-top: 1px solid var(--rule); margin: 56px 0; }
-.muted { color: var(--muted); font-size: 14px; }
-.notice {
-  background: var(--code-bg);
-  border-left: 3px solid var(--accent);
-  padding: 12px 16px;
-  border-radius: 4px;
-  margin: 16px 0;
-}
-img.screenshot {
-  max-width: 100%;
-  border-radius: 8px;
-  border: 1px solid var(--rule);
-  margin: 16px 0;
-}
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    overflow-x: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(166, 124, 255, 0.14), transparent 70%),
+      radial-gradient(ellipse 60% 40% at 85% 25%, rgba(246, 184, 90, 0.08), transparent 65%),
+      radial-gradient(ellipse 60% 45% at 15% 65%, rgba(255, 143, 112, 0.07), transparent 65%);
+  }
+
+  /* Subtle background grid pattern */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 80% 70% at 50% 20%, #000 20%, transparent 100%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 20%, #000 20%, transparent 100%);
+  }
+
+  a { color: inherit; text-decoration: none; }
+  img { display: block; max-width: 100%; }
+  .wrap { position: relative; z-index: 1; max-width: 1160px; margin: 0 auto; padding: 0 28px; }
+  .grad-text {
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Navigation */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 60;
+    transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+    border-bottom: 1px solid transparent;
+  }
+  nav.solid {
+    background: rgba(11, 9, 18, 0.78);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border-color: var(--line);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  }
+  nav .wrap { display: flex; align-items: center; gap: 12px; height: 66px; }
+  nav .brand-link { display: inline-flex; align-items: center; gap: 11px; font-weight: 750; font-size: 16.5px; letter-spacing: 0.2px; }
+  nav .logo { width: 30px; height: 30px; border-radius: 8px; box-shadow: 0 2px 12px rgba(246, 184, 90, 0.28); }
+  nav .version-pill {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--gold-light);
+    background: rgba(246, 184, 90, 0.12);
+    border: 1px solid rgba(246, 184, 90, 0.28);
+    padding: 2px 9px;
+    border-radius: 999px;
+    letter-spacing: 0.02em;
+  }
+  nav .links {
+    margin-left: auto;
+    display: flex;
+    gap: 26px;
+    align-items: center;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  nav .links a:not(.gh) {
+    position: relative;
+    padding: 4px 0;
+    transition: color 0.2s;
+  }
+  nav .links a:not(.gh):hover { color: var(--text); }
+  nav .links a:not(.gh)::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: -2px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--grad);
+    transform: scaleX(0);
+    transition: transform 0.22s ease;
+  }
+  nav .links a:not(.gh):hover::after { transform: scaleX(1); }
+  nav .gh {
+    color: var(--text);
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    padding: 7px 15px;
+    border: 1px solid var(--line-bright);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    font-weight: 550;
+    transition: all 0.2s ease;
+  }
+  nav .gh:hover {
+    border-color: var(--gold);
+    background: rgba(246, 184, 90, 0.1);
+    transform: translateY(-1px);
+  }
+
+  /* Hero */
+  .hero {
+    position: relative;
+    padding: 148px 0 30px;
+    text-align: center;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: -90px 0 0;
+    z-index: 0;
+    background: url(assets/demo-immersive.jpg) center top / cover no-repeat;
+    filter: blur(80px) saturate(1.55);
+    opacity: 0.36;
+    transform: scale(1.22);
+  }
+  .hero::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background:
+      radial-gradient(circle at 50% 26%, rgba(246, 184, 90, 0.14), transparent 55%),
+      linear-gradient(180deg, rgba(11, 9, 18, 0.18) 0%, rgba(11, 9, 18, 0.72) 60%, var(--bg) 96%);
+  }
+  .hero > .wrap { position: relative; z-index: 1; }
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+    backdrop-filter: blur(12px);
+  }
+  .hero-badge .spark {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--gold);
+    box-shadow: 0 0 10px var(--gold);
+  }
+  .hero .logo-big {
+    width: 96px;
+    height: 96px;
+    border-radius: 24px;
+    margin: 0 auto 24px;
+    box-shadow: 0 18px 56px rgba(246, 160, 90, 0.36), 0 0 0 1px rgba(255, 255, 255, 0.16);
+    transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .hero .logo-big:hover { transform: scale(1.05) rotate(-2deg); }
+  .hero h1 {
+    font-size: clamp(54px, 7vw, 82px);
+    font-weight: 850;
+    letter-spacing: -2.4px;
+    line-height: 1.04;
+  }
+  .hero .en {
+    margin-top: 12px;
+    font-size: 18px;
+    letter-spacing: 0.2em;
+    color: var(--gold);
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .hero .sub {
+    max-width: 680px;
+    margin: 22px auto 0;
+    font-size: 17.5px;
+    color: var(--text-secondary);
+    line-height: 1.75;
+  }
+  .cta {
+    margin-top: 34px;
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 13px 28px;
+    border-radius: 999px;
+    font-weight: 650;
+    font-size: 15px;
+    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease, border-color 0.2s ease, background 0.2s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn-primary {
+    background: var(--grad);
+    color: #1e0e24;
+    box-shadow: 0 12px 36px rgba(246, 160, 90, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  }
+  .btn-primary:hover {
+    box-shadow: 0 16px 46px rgba(246, 160, 90, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  }
+  .btn-ghost {
+    border: 1px solid var(--line-bright);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text);
+    backdrop-filter: blur(10px);
+  }
+  .btn-ghost:hover {
+    border-color: var(--gold);
+    background: rgba(246, 184, 90, 0.09);
+  }
+
+  .hero-pills {
+    margin-top: 24px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .hero-pills span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid var(--line);
+  }
+  .hero-pills span b { color: var(--text-secondary); font-weight: 600; }
+
+  /* Window Frame */
+  .win {
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: var(--shadow-lg), 0 0 110px rgba(166, 124, 255, 0.11);
+    background: #171321;
+  }
+  .win img { width: 100%; height: auto; display: block; }
+  .hero .win {
+    margin: 56px auto 0;
+    max-width: 1060px;
+    cursor: zoom-in;
+    transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.45s ease;
+  }
+  .hero .win:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 40px 110px -12px rgba(0, 0, 0, 0.82), 0 0 130px rgba(246, 184, 90, 0.16);
+  }
+
+  /* Section Commons */
+  section { padding: 130px 0 0; position: relative; }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    letter-spacing: 0.18em;
+    color: var(--gold);
+    text-transform: uppercase;
+    font-weight: 650;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 18px;
+    height: 1.5px;
+    border-radius: 2px;
+    background: var(--grad);
+  }
+  .center .eyebrow::after {
+    content: "";
+    width: 18px;
+    height: 1.5px;
+    border-radius: 2px;
+    background: var(--grad);
+  }
+  h2 {
+    font-size: clamp(32px, 4.2vw, 44px);
+    line-height: 1.18;
+    letter-spacing: -0.9px;
+    font-weight: 800;
+    margin-top: 14px;
+  }
+  .lead {
+    margin-top: 16px;
+    color: var(--muted);
+    font-size: 16.5px;
+    max-width: 610px;
+    line-height: 1.75;
+  }
+  .center { text-align: center; }
+  .center .lead { margin-left: auto; margin-right: auto; }
+
+  /* 4-Step Flow */
+  .flow {
+    margin-top: 56px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    position: relative;
+  }
+  .flow::before {
+    content: "";
+    position: absolute;
+    top: 42px;
+    left: 12%;
+    right: 12%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold), var(--peach), var(--violet), transparent);
+    opacity: 0.5;
+    z-index: 0;
+  }
+  .step {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    padding: 26px 20px 24px;
+    border-radius: 18px;
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(12px);
+    transition: transform 0.28s ease, border-color 0.28s ease, background 0.28s ease;
+  }
+  .step:hover {
+    transform: translateY(-5px);
+    border-color: rgba(246, 184, 90, 0.35);
+    background: var(--bg-card-hover);
+  }
+  .step .dot {
+    width: 52px;
+    height: 52px;
+    border-radius: 15px;
+    margin: 0 auto 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(145deg, rgba(246, 184, 90, 0.16), rgba(166, 124, 255, 0.12));
+    border: 1px solid rgba(246, 184, 90, 0.3);
+    color: var(--gold-light);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  .step .num {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--gold);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+  }
+  .step h3 { font-size: 16.5px; font-weight: 720; color: var(--text); }
+  .step p { margin-top: 8px; font-size: 13.5px; color: var(--muted); line-height: 1.6; }
+
+  /* View Switcher */
+  .tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 5px;
+    margin-top: 34px;
+    padding: 6px;
+    border: 1px solid var(--line-bright);
+    border-radius: 999px;
+    background: rgba(20, 16, 32, 0.75);
+    backdrop-filter: blur(12px);
+  }
+  .tab {
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 550;
+    padding: 8px 22px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 0.2s, background 0.2s, transform 0.15s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.on {
+    background: var(--grad);
+    color: #211027;
+    font-weight: 700;
+    box-shadow: 0 4px 18px rgba(246, 184, 90, 0.28);
+  }
+  .stage { margin: 32px auto 0; max-width: 1020px; }
+  .stage .win { position: relative; aspect-ratio: 1600 / 1027; }
+  .stage img {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transform: scale(1.01);
+    transition: opacity 0.45s ease, transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+    cursor: zoom-in;
+    pointer-events: none;
+  }
+  .stage img.on {
+    opacity: 1;
+    transform: scale(1);
+    pointer-events: auto;
+  }
+  .stage-bar {
+    margin-top: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--text-secondary);
+    font-size: 14.5px;
+    min-height: 28px;
+  }
+  .stage-bar .hint {
+    font-size: 12px;
+    color: var(--muted);
+    padding: 2px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  /* View Feature Pills */
+  .view-highlights {
+    margin-top: 26px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+  }
+  .view-pill {
+    font-size: 13px;
+    color: var(--muted);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--line);
+    padding: 6px 14px;
+    border-radius: 999px;
+  }
+  .view-pill b { color: var(--text-secondary); font-weight: 600; }
+
+  /* Alternating Rows */
+  .row {
+    display: grid;
+    grid-template-columns: 5fr 7fr;
+    gap: 60px;
+    align-items: center;
+  }
+  .row.flip { grid-template-columns: 7fr 5fr; }
+  .row.flip .txt { order: 2; }
+  .row .win {
+    cursor: zoom-in;
+    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.4s ease, border-color 0.3s ease;
+  }
+  .row .win:hover {
+    transform: translateY(-5px);
+    border-color: rgba(246, 184, 90, 0.35);
+    box-shadow: 0 38px 95px -14px rgba(0, 0, 0, 0.78), 0 0 90px rgba(246, 184, 90, 0.14);
+  }
+  .txt ul { list-style: none; margin-top: 24px; display: grid; gap: 13px; }
+  .txt li {
+    position: relative;
+    padding-left: 24px;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.65;
+  }
+  .txt li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.6em;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--grad);
+    box-shadow: 0 0 10px rgba(246, 184, 90, 0.45);
+  }
+  .txt li b { color: var(--text); font-weight: 650; }
+
+  /* Metadata Sources Cards */
+  .source-grid {
+    margin-top: 26px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .source-card {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 12px 15px;
+    border-radius: 13px;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.035);
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+  }
+  .source-card:hover {
+    border-color: var(--line-gold);
+    background: rgba(246, 184, 90, 0.07);
+    transform: translateY(-2px);
+  }
+  .source-card .s-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 14.5px;
+    font-weight: 680;
+    color: var(--text);
+  }
+  .source-card .s-tag {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--gold);
+    background: rgba(246, 184, 90, 0.12);
+    padding: 1px 8px;
+    border-radius: 999px;
+  }
+  .source-card .s-desc {
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+  .source-card.wide { grid-column: span 2; }
+
+  .meta-categories {
+    margin-top: 16px;
+    padding: 13px 16px;
+    border-radius: 13px;
+    border: 1px dashed rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.02);
+    font-size: 13px;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .meta-categories strong { color: var(--text-secondary); font-weight: 600; margin-right: 4px; }
+  .meta-chip {
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: rgba(166, 124, 255, 0.12);
+    border: 1px solid rgba(166, 124, 255, 0.26);
+    color: #dfd0ff;
+    font-size: 12px;
+    font-weight: 550;
+  }
+
+  /* Deep Tech / Bento Grid */
+  .bento {
+    margin-top: 48px;
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 20px;
+    text-align: left;
+  }
+  .bento-card {
+    grid-column: span 6;
+    padding: 30px 30px 28px;
+    border-radius: 20px;
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(14px);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: transform 0.28s ease, border-color 0.28s ease, background 0.28s ease;
+  }
+  .bento-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--grad-subtle);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+  }
+  .bento-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(246, 184, 90, 0.32);
+    background: var(--bg-card-hover);
+  }
+  .bento-card:hover::before { opacity: 1; }
+  .bento-card > * { position: relative; z-index: 1; }
+  .bento-card.span-7 { grid-column: span 7; }
+  .bento-card.span-5 { grid-column: span 5; }
+  .bento-card.span-4 { grid-column: span 4; }
+  .bento-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .bento-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(246, 184, 90, 0.12);
+    border: 1px solid rgba(246, 184, 90, 0.28);
+    color: var(--gold-light);
+  }
+  .bento-badge {
+    font-size: 11.5px;
+    font-weight: 650;
+    padding: 3px 11px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--line-bright);
+    color: var(--text-secondary);
+  }
+  .bento-card h3 {
+    font-size: 20px;
+    font-weight: 750;
+    color: var(--text);
+    letter-spacing: -0.3px;
+  }
+  .bento-card p {
+    margin-top: 10px;
+    font-size: 14.5px;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+  .tech-tags {
+    margin-top: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .tech-tags span {
+    font-size: 12px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    padding: 4px 10px;
+    border-radius: 7px;
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid var(--line);
+    color: var(--text-secondary);
+  }
+
+  /* Platforms Download */
+  .plat {
+    margin-top: 46px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    text-align: left;
+  }
+  .plat-card {
+    padding: 34px 36px;
+    border: 1px solid var(--line-bright);
+    border-radius: 22px;
+    background: linear-gradient(160deg, rgba(30, 24, 48, 0.72), rgba(16, 13, 26, 0.85));
+    backdrop-filter: blur(16px);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: border-color 0.25s ease, transform 0.25s ease;
+  }
+  .plat-card:hover {
+    border-color: var(--line-gold);
+    transform: translateY(-3px);
+  }
+  .plat-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .plat-head h3 {
+    font-size: 22px;
+    font-weight: 780;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .plat-head small {
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--gold-light);
+    background: rgba(246, 184, 90, 0.12);
+    border: 1px solid rgba(246, 184, 90, 0.35);
+    border-radius: 999px;
+    padding: 2px 11px;
+  }
+  .plat-sub { color: var(--muted); font-size: 14px; margin-top: 6px; }
+  .plat-card ul { list-style: none; margin-top: 22px; }
+  .plat-card li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 0;
+    border-top: 1px solid var(--line);
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .plat-card li .pkg-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .plat-card li .pkg-badge {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--line);
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+  .plat-card li a {
+    color: var(--text);
+    font-weight: 650;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.2s;
+  }
+  .plat-card li a:hover { color: var(--gold); }
+  .note {
+    margin-top: 18px;
+    padding: 12px 14px;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--line);
+    font-size: 12.8px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .note b { color: var(--text-secondary); }
+  code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    background: rgba(255, 255, 255, 0.07);
+    padding: 2px 7px;
+    border-radius: 6px;
+    color: var(--gold-light);
+  }
+
+  /* Footer */
+  footer {
+    margin-top: 140px;
+    border-top: 1px solid var(--line);
+    padding: 44px 0 64px;
+    font-size: 13.5px;
+    color: var(--muted);
+    background: rgba(8, 6, 14, 0.6);
+  }
+  footer .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px 36px;
+    justify-content: space-between;
+    align-items: center;
+  }
+  footer .links { display: flex; flex-wrap: wrap; gap: 24px; }
+  footer a { color: var(--text-secondary); transition: color 0.2s; }
+  footer a:hover { color: var(--gold); }
+  footer .copy {
+    flex-basis: 100%;
+    font-size: 12.5px;
+    color: #777188;
+    line-height: 1.7;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  /* Lightbox */
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: none;
+    background: rgba(7, 5, 12, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    align-items: center;
+    justify-content: center;
+    padding: 4vmin;
+    cursor: zoom-out;
+  }
+  .lightbox.open { display: flex; }
+  .lightbox img {
+    max-width: 100%;
+    max-height: 92vh;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 30px 100px rgba(0, 0, 0, 0.85);
+  }
+
+  /* Reveal Animation */
+  .reveal {
+    opacity: 0;
+    transform: translateY(26px);
+    transition: opacity 0.75s cubic-bezier(0.22, 1, 0.36, 1), transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .reveal.in { opacity: 1; transform: none; }
+
+  @media (max-width: 920px) {
+    .row, .row.flip { grid-template-columns: 1fr; gap: 34px; }
+    .row.flip .txt { order: 0; }
+    .flow { grid-template-columns: 1fr 1fr; }
+    .flow::before { display: none; }
+    .bento-card, .bento-card.span-7, .bento-card.span-5, .bento-card.span-4 { grid-column: span 12; }
+    .plat { grid-template-columns: 1fr; }
+    nav .links a:not(.gh) { display: none; }
+    section { padding-top: 95px; }
+  }
+  @media (max-width: 560px) {
+    .flow { grid-template-columns: 1fr; }
+    .source-grid { grid-template-columns: 1fr; }
+    .source-card.wide { grid-column: span 1; }
+    .tab { padding: 7px 14px; font-size: 13px; }
+    .plat-card { padding: 24px 22px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+    html { scroll-behavior: auto; }
+  }
 </style>
 </head>
 <body>
-<main>
+<nav id="nav">
+  <div class="wrap">
+    <a class="brand-link" href="#">
+      <img class="logo" src="assets/logo.png" alt="Maltoria">
+      <span>Maltoria</span>
+    </a>
+    <span class="version-pill">v0.5.0</span>
+    <div class="links">
+      <a href="#views">浏览视图</a>
+      <a href="#library">游戏库</a>
+      <a href="#metadata">多数据源</a>
+      <a href="#runtime">Wine 核心</a>
+      <a href="#download">下载</a>
+      <a class="gh" href="https://github.com/daydalek/Maltoria" target="_blank" rel="noopener">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</nav>
 
-<header>
-  <h1>Maltoria</h1>
-  <p class="tagline">Run Windows games and applications on macOS, using Wine.</p>
+<header class="hero">
+  <div class="wrap">
+    <div class="hero-badge">
+      <span class="spark"></span>
+      <span>专为视觉小说打磨</span>
+    </div>
+    <img class="logo-big" src="assets/logo.png" alt="Maltoria">
+    <h1><span class="grad-text">Maltoria</span></h1>
+    <p class="en">Visual Novels, Beyond Windows</p>
+    <p class="sub">在 macOS 与 Linux 上，像整理封面墙一样收藏你的每一段故事。</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="#download">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        下载 v0.5.0
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/daydalek/Maltoria" target="_blank" rel="noopener">查看应用源码</a>
+    </div>
+    <div class="hero-pills">
+      <span><b>macOS</b> Apple Silicon</span>
+      <span><b>Linux</b> x86_64</span>
+      <span><b>开源</b> GPL-3.0</span>
+    </div>
+    <div class="win" data-full="assets/demo-immersive.jpg">
+      <img src="assets/demo-immersive.jpg" alt="Maltoria 沉浸式游戏库">
+    </div>
+  </div>
 </header>
 
-<p>Maltoria is a native macOS app that wraps Wine with a clean native interface. It ships the DXMT (Direct3D 11 to Metal) and DXVK (Direct3D to Vulkan) graphics translation layers, and includes built-in compatibility for Steam, Epic, EA App, Battle.net, and other launchers.</p>
+<section>
+  <div class="wrap center reveal">
+    <p class="eyebrow">From folder to shelf</p>
+    <h2>从一堆安装目录，<br>到一座属于你的游戏库</h2>
+    
+    <div class="flow">
+      <div class="step">
+        <div class="dot"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+        <span class="num">Step 01</span>
+        <h3>扫描入库</h3>
+        <p>指定文件夹，批量发现已有游戏</p>
+      </div>
+      <div class="step">
+        <div class="dot"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></div>
+        <span class="num">Step 02</span>
+        <h3>自动刮削</h3>
+        <p>多个数据源，补全封面与资料</p>
+      </div>
+      <div class="step">
+        <div class="dot"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 8l-9-5-9 5v8l9 5 9-5V8z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg></div>
+        <span class="num">Step 03</span>
+        <h3>独立运行</h3>
+        <p>每个游戏拥有隔离的 Wine 容器</p>
+      </div>
+      <div class="step">
+        <div class="dot"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></div>
+        <span class="num">Step 04</span>
+        <h3>沉浸浏览</h3>
+        <p>多种视图，记录每次游玩</p>
+      </div>
+    </div>
+  </div>
+</section>
 
-<div class="notice">
-<strong>Community fork of Whisky.</strong> Maltoria is maintained by <a href="https://github.com/daydalek">@daydalek</a> and derives from <a href="https://github.com/frankea/Whisky">frankea/Whisky</a>. The original <a href="https://github.com/whisky-app/whisky">whisky-app/whisky</a> was archived in April 2025. Not affiliated with the original project or getwhisky.app.
-</div>
+<section id="views">
+  <div class="wrap center reveal">
+    <p class="eyebrow">Many ways to browse</p>
+    <h2>一个库，多种浏览方式</h2>
+    <p class="lead">按当下的心情，一键切换。</p>
+    <div class="tabs" id="tabs">
+      <button class="tab on" data-i="0">沉浸</button>
+      <button class="tab" data-i="1">画廊</button>
+      <button class="tab" data-i="2">网格</button>
+      <button class="tab" data-i="3">列表</button>
+      <button class="tab" data-i="4">双列</button>
+      <button class="tab" data-i="5">设置</button>
+    </div>
+    <div class="stage">
+      <div class="win" id="stage">
+        <img class="on" src="assets/demo-immersive.jpg" alt="沉浸视图">
+        <img src="assets/demo-gallery.jpg" alt="画廊视图" loading="lazy">
+        <img src="assets/demo-grid-layout.jpg" alt="网格视图" loading="lazy">
+        <img src="assets/demo-list-layout.jpg" alt="列表视图" loading="lazy">
+        <img src="assets/demo-duallist-layout.jpg" alt="双列列表视图" loading="lazy">
+        <img src="assets/demo-settings.jpg" alt="偏好与外观设置" loading="lazy">
+      </div>
+      <div class="stage-bar">
+        <span id="cap"></span>
+        
+      </div>
+    </div>
+  </div>
+</section>
 
-<p>
-  <a class="cta" href="https://github.com/daydalek/Whisky/releases/latest">Download for macOS</a>
-  <a class="cta secondary" href="https://github.com/daydalek/Whisky">View on GitHub</a>
-</p>
+<section id="metadata">
+  <div class="wrap row flip reveal">
+    <div class="txt">
+      <p class="eyebrow">Metadata &amp; Sources</p>
+      <h2>多种数据源，<br><span class="grad-text">自动刮削</span></h2>
+      <p class="lead">自动匹配中日英条目，也可按类别自由搭配来源。</p>
+      <div class="sources" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:26px">
+        <a class="meta-chip" href="https://bgm.tv/" target="_blank" rel="noopener">Bangumi</a>
+        <a class="meta-chip" href="https://vndb.org/" target="_blank" rel="noopener">VNDB</a>
+        <a class="meta-chip" href="https://store.steampowered.com/" target="_blank" rel="noopener">Steam</a>
+        <a class="meta-chip" href="https://www.ymgal.games/" target="_blank" rel="noopener">月幕 Galgame</a>
+        <a class="meta-chip" href="https://developer.nextmoe.dev/" target="_blank" rel="noopener">NextMoe</a>
+      </div>
+    </div>
+    <div class="win" data-full="assets/demo-manage-folder-to-scan.jpg">
+      <img src="assets/demo-manage-folder-to-scan.jpg" alt="文件夹扫描与数据源管理" loading="lazy">
+    </div>
+  </div>
+</section>
 
-<img class="screenshot" src="https://raw.githubusercontent.com/daydalek/Whisky/main/images/new-bottle-screenshot.png" alt="Creating a new Wine bottle in Maltoria" loading="lazy" width="1200">
-<img class="screenshot" src="https://raw.githubusercontent.com/daydalek/Whisky/main/images/config-screenshot.png" alt="Maltoria bottle configuration — graphics backend, Wine, and performance settings" loading="lazy" width="1200">
+<section id="library">
+  <div class="wrap row reveal">
+    <div class="txt">
+      <p class="eyebrow">Library &amp; Journal</p>
+      <h2>每部作品都有档案，<br>每次陪伴都有记录</h2>
+      <p class="lead">简介、评分、角色与声优一应俱全，游玩时长自动统计。</p>
+      <ul>
+        <li><b>游玩日历</b> — 累计时长与近期活动</li>
+        <li><b>角色与声优</b> — 自动获取并缓存</li>
+        <li><b>自由编辑</b> — 资料与封面随心调整</li>
+      </ul>
+    </div>
+    <div class="win" data-full="assets/demo-content.jpg">
+      <img src="assets/demo-content.jpg" alt="游戏详情与档案" loading="lazy">
+    </div>
+  </div>
+</section>
 
-<h2>Install</h2>
-<p>Download the latest build from <a href="https://github.com/daydalek/Whisky/releases">GitHub Releases</a>, extract <code>Maltoria.app</code> and drag it into Applications.</p>
-<p class="muted">Note: the upstream <code>brew install --cask frankea/whisky/whisky</code> cask installs Whisky, not this fork.</p>
+<section id="runtime">
+  <div class="wrap row flip reveal">
+    <div class="txt">
+      <p class="eyebrow">Custom Wine Runtime</p>
+      <h2>专为视觉小说调校的<br>Wine 运行时</h2>
+      <p class="lead">把复杂的兼容问题留在幕后，让游戏直接跑起来。</p>
+      <ul>
+        <li><b>OP 与过场动画</b> — 视频正常播放，告别黑屏</li>
+        <li><b>实时画面超分</b> — 老游戏在高分屏上也清晰</li>
+        <li><b>独立 Bottle</b> — 每个游戏互不干扰</li>
+      </ul>
+    </div>
+    <div class="win" data-full="assets/demo-bottle.jpg">
+      <img src="assets/demo-bottle.jpg" alt="Bottle 容器与运行时管理" loading="lazy">
+    </div>
+  </div>
+</section>
 
-<h2>Requirements</h2>
-<ul>
-  <li>Apple Silicon Mac (M1, M2, M3, M4)</li>
-  <li>macOS Sequoia 15.0 or later</li>
-  <li>~800 MB disk space for the bundled Wine runtime (a ~313 MB download)</li>
-</ul>
+<section id="download">
+  <div class="wrap center reveal">
+    <p class="eyebrow">Download</p>
+    <h2>开始使用 <span class="grad-text">Maltoria</span></h2>
+    <p class="lead">v0.5.0 · 免费开源</p>
+    <div class="plat">
+      <div class="plat-card">
+        <div>
+          <div class="plat-head">
+            <h3>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.33c.64-.78 1.08-1.86.96-2.94-.93.04-2.06.62-2.72 1.4-.58.68-1.1 1.79-.96 2.84 1.04.08 2.08-.52 2.72-1.3z"/></svg>
+              macOS
+            </h3>
+            <small>vn-v0.5.0 · arm64</small>
+          </div>
+          <p class="plat-sub">Apple Silicon</p>
+          <ul>
+            <li>
+              <span class="pkg-type"><span class="pkg-badge">.zip</span> 应用程序包</span>
+              <a href="https://github.com/daydalek/Maltoria/releases/download/vn-v0.5.0/Maltoria-0.5.0-arm64.zip">
+                Maltoria-0.5.0-arm64.zip
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M7 17L17 7M17 7H8M17 7V16"/></svg>
+              </a>
+            </li>
+          </ul>
+        </div>
+        <p class="note">首次打开如遇安全提示，请前往「系统设置 → 隐私与安全性」点击「仍要打开」。</p>
+      </div>
 
-<h2>What's included</h2>
-<ul>
-  <li>Wine 11 with macOS-specific patches</li>
-  <li>DXMT (Direct3D 11 to Metal) and DXVK (Direct3D to Vulkan) translation layers, selectable per bottle</li>
-  <li>Launcher compatibility profiles for Steam, Epic, EA App, Battle.net, Rockstar, and more</li>
-  <li>Stability diagnostics with one-click crash report export</li>
-  <li>Game compatibility database with 80+ pre-configured entries</li>
-  <li>Signed and notarized DMG; Sparkle delivers in-app updates</li>
-</ul>
+      <div class="plat-card">
+        <div>
+          <div class="plat-head">
+            <h3>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9 10h.01M15 10h.01M9.5 15a3.5 3.5 0 0 0 5 0"/></svg>
+              Linux
+            </h3>
+            <small>linux-v0.5.0 · x86_64</small>
+          </div>
+          <p class="plat-sub">x86_64</p>
+          <ul>
+            <li>
+              <span class="pkg-type"><span class="pkg-badge">.deb</span> Ubuntu 24.04+</span>
+              <a href="https://github.com/daydalek/Maltoria/releases/download/linux-v0.5.0/whisky_0.5.0_amd64.deb">
+                whisky_0.5.0_amd64.deb
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M7 17L17 7M17 7H8M17 7V16"/></svg>
+              </a>
+            </li>
+            <li>
+              <span class="pkg-type"><span class="pkg-badge">.rpm</span> Fedora 44+</span>
+              <a href="https://github.com/daydalek/Maltoria/releases/download/linux-v0.5.0/whisky-0.5.0-1.x86_64.rpm">
+                whisky-0.5.0-1.x86_64.rpm
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M7 17L17 7M17 7H8M17 7V16"/></svg>
+              </a>
+            </li>
+            <li>
+              <span class="pkg-type"><span class="pkg-badge">AppImage</span> 免安装便携版</span>
+              <a href="https://github.com/daydalek/Maltoria/releases/download/linux-v0.5.0/Maltoria-0.5.0-x86_64.AppImage">
+                Maltoria-0.5.0-x86_64.AppImage
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M7 17L17 7M17 7H8M17 7V16"/></svg>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
-<h2>Graphics backends</h2>
-<p>Maltoria translates Direct3D to the Mac GPU with translation layers you pick per bottle:</p>
-<ul>
-  <li><strong>DXMT</strong> (the default behind "Recommended"): Direct3D 11 to Metal, deployed per bottle so one bottle's choice never affects another. The fast path for modern DirectX 11 titles.</li>
-  <li><strong>DXVK</strong>: Direct3D to Vulkan (via MoltenVK), a broad-compatibility fallback for titles DXMT doesn't handle. Pinned at the macOS-compatible 1.10.3 <em>by design</em>: the DXVK 2.x line needs Vulkan features macOS doesn't expose, so a higher version number simply wouldn't run here.</li>
-  <li><strong>D3DMetal</strong>: Apple's layer from the Game Porting Toolkit. The current engine can't execute it, and Maltoria says so in the picker instead of silently falling back to something slower. Real support (an engine that runs it, with your own imported GPTK payload) is in active development.</li>
-</ul>
-<p class="muted"><strong>Anti-cheat:</strong> games using kernel-level anti-cheat (EAC, BattlEye, and similar) generally do not run under any Wine-based wrapper on macOS, including Maltoria. This is a Wine-wide limitation, not specific to this fork.</p>
+<footer>
+  <div class="wrap">
+    <span>
+      <b>Maltoria</b> · Fork 自 <a href="https://github.com/frankea/Whisky" target="_blank" rel="noopener">frankea/Whisky</a>，上游由 <a href="https://github.com/IsaacMarovitz" target="_blank" rel="noopener">Isaac Marovitz</a> 创建 · 刮削架构致谢 <a href="https://github.com/GoldenPotato137/PotatoVN" target="_blank" rel="noopener">PotatoVN</a>
+    </span>
+    <div class="links">
+      <a href="https://github.com/daydalek/Maltoria" target="_blank" rel="noopener">应用仓库</a>
+      <a href="https://github.com/daydalek/ge-proton-macos-wine-poc" target="_blank" rel="noopener">Wine 运行时仓库</a>
+      <a href="https://github.com/daydalek/Maltoria/releases" target="_blank" rel="noopener">全部版本</a>
+      <a href="https://github.com/daydalek/Maltoria/issues" target="_blank" rel="noopener">问题反馈</a>
+    </div>
+    <p class="copy">Maltoria 以 GPL-3.0 发布。截图中的游戏为演示数据。</p>
+  </div>
+</footer>
 
-<h2>News</h2>
-<ul>
-  <li><strong>2026-08-04: Whisky 3.6.0 released.</strong> The first fully localized release: the entire app is translated in all 22 supported languages, from Arabic to Vietnamese, with translations managed on <a href="https://crowdin.com/project/frankea-whisky">Crowdin</a>. Also new: a Steam games library inside bottles, a Game Porting Toolkit import flow, and <code>whisky games</code> / <code>whisky launch</code> command line tools.</li>
-  <li><strong>2026-07-30: Whisky 3.5.2 released.</strong> Bottles missing from the library are recovered at startup, the graphics backend picker only offers what the engine can run, and first-run engine setup works in day-first locales.</li>
-  <li><strong>2026-07-24: Whisky 3.5.1 released.</strong> Winetricks now ships inside the app, so bottle dependency installs (VC++, .NET, DirectX, fonts) work out of the box.</li>
-  <li><strong>2026-06-14: Whisky 3.5.0 released.</strong> Optional menu bar extra, inline descriptions across bottle configuration, and program scanning off the main thread.</li>
-  <li><strong>2026-06-13: Whisky 3.4.0 released.</strong> DXMT arrives as a selectable per-bottle graphics backend, alongside Wine Libraries 3.1.1.</li>
-</ul>
-<p class="muted">Full history in the <a href="https://github.com/daydalek/Whisky/blob/main/CHANGELOG.md">changelog</a>. Release announcements also ship in-app via Sparkle.</p>
+<div class="lightbox" id="lightbox"><img id="lightbox-img" alt=""></div>
+<script>
+  const nav = document.getElementById('nav');
+  const onScroll = () => nav.classList.toggle('solid', scrollY > 24);
+  onScroll();
+  addEventListener('scroll', onScroll, { passive: true });
 
-<h2>Documentation</h2>
-<ul>
-  <li><a href="documentation/whiskykit/">WhiskyKit API documentation</a> — DocC-generated reference for the framework</li>
-  <li><a href="https://github.com/daydalek/Whisky/blob/main/docs/AUDIT.md">Upstream issue audit</a> — per-issue accounting against the archived upstream</li>
-  <li><a href="https://github.com/daydalek/Whisky/blob/main/docs/LauncherTroubleshooting.md">Launcher troubleshooting</a></li>
-  <li><a href="https://github.com/daydalek/Whisky/blob/main/docs/StabilityTroubleshooting.md">Stability troubleshooting</a></li>
-  <li><a href="https://github.com/daydalek/Whisky/blob/main/WhiskyKit/Sources/WhiskyKit/GameDatabase/Resources/GameDB.json">Bundled game configurations</a> — 80+ curated per-game setups, browsable in-app under Game Configurations</li>
-</ul>
+  // View switcher
+  const caps = [
+    '沉浸 — 大幅精选画面与继续游玩',
+    '画廊 — 封面墙与游戏档案并排',
+    '网格 — 紧凑封面墙，快速浏览',
+    '列表 — 按游玩时间顺序查看',
+    '双列 — 宽屏下一次看更多',
+    '设置 — 视图、模糊背景与封面超分'
+  ];
+  const tabs = [...document.querySelectorAll('.tab')];
+  const imgs = [...document.querySelectorAll('#stage img')];
+  const cap = document.getElementById('cap');
+  let cur = 0, timer;
 
-<hr>
+  function show(i) {
+    cur = i;
+    tabs.forEach((t, k) => t.classList.toggle('on', k === i));
+    imgs.forEach((m, k) => m.classList.toggle('on', k === i));
+    cap.textContent = caps[i];
+  }
+  function auto() {
+    clearInterval(timer);
+    timer = setInterval(() => show((cur + 1) % tabs.length), 5200);
+  }
+  tabs.forEach((t, i) => t.addEventListener('click', () => { show(i); auto(); }));
+  show(0);
+  auto();
 
-<p class="muted">Maltoria is GPL v3 licensed. Source code, releases, and issue tracker on <a href="https://github.com/daydalek/Whisky">GitHub</a>. Maltoria is possible thanks to <a href="https://github.com/Gcenx/DXVK-macOS">DXVK-macOS</a>, <a href="https://github.com/marzent/wine-msync">msync</a>, <a href="https://github.com/KhronosGroup/MoltenVK">MoltenVK</a>, <a href="https://github.com/sparkle-project/Sparkle">Sparkle</a>, <a href="https://www.codeweavers.com/crossover">CrossOver</a>, and Apple's D3DMetal.</p>
+  // Lightbox
+  const lb = document.getElementById('lightbox');
+  const lbImg = document.getElementById('lightbox-img');
+  const open = src => {
+    if (!src) return;
+    lbImg.src = src;
+    lb.classList.add('open');
+  };
+  document.querySelectorAll('[data-full]').forEach(w => {
+    w.addEventListener('click', () => open(w.dataset.full));
+  });
+  imgs.forEach(m => m.addEventListener('click', () => open(m.src)));
+  lb.addEventListener('click', () => lb.classList.remove('open'));
+  addEventListener('keydown', e => {
+    if (e.key === 'Escape') lb.classList.remove('open');
+  });
 
-</main>
+  // Scroll reveal
+  const io = new IntersectionObserver(es => es.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('in');
+      io.unobserve(e.target);
+    }
+  }), { threshold: 0.1 });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+</script>
 </body>
 </html>

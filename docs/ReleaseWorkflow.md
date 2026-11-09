@@ -1,13 +1,13 @@
 # Release Workflow
 
-This document describes the current release paths for `daydalek/Whisky` and its companion Wine runtime.
+This document describes the current release paths for `daydalek/Maltoria` and its companion Wine runtime.
 
 ## Release streams
 
 | Stream | Repository | Tags | Main artifact |
 | --- | --- | --- | --- |
-| Whisky app | `daydalek/Whisky` | `vn-vX.Y.Z`, `app-vX.Y.Z`, or `vX.Y.Z` | `Whisky-X.Y.Z-arm64.zip` |
-| Whisky Linux GPUI | `daydalek/Whisky` | `linux-vX.Y.Z` | deb, rpm and AppImage |
+| Whisky app | `daydalek/Maltoria` | `vn-vX.Y.Z`, `app-vX.Y.Z`, or `vX.Y.Z` | `Whisky-X.Y.Z-arm64.zip` |
+| Whisky Linux GPUI | `daydalek/Maltoria` | `linux-vX.Y.Z` | deb, rpm and AppImage |
 | Wine Libraries | `daydalek/ge-proton-macos-wine-poc` | `vX.Y.Z` | `Libraries.tar.gz` |
 
 The app workflow publishes prereleases with ad-hoc signatures. Users download and replace the app manually. The current Wine runtime requires macOS 27+ on Apple Silicon with Rosetta 2; the app target itself has a macOS 15.0 deployment target.
@@ -56,7 +56,7 @@ Use a suitable numeric build number. Output goes to a fresh directory under `bui
 
 Current ZIP releases use ad-hoc signatures and require the user's Gatekeeper approval where applicable. Apple notarization is a separate distribution step.
 
-The current app upgrade path is manual download from [app Releases](https://github.com/daydalek/Whisky/releases). `dist/pages/appcast.xml` is an empty feed for this fork.
+The current app upgrade path is manual download from [app Releases](https://github.com/daydalek/Maltoria/releases). `dist/pages/appcast.xml` is an empty feed for this fork.
 
 `UpdateHomebrewTap.yml` is scoped to `github.repository == 'frankea/Whisky'` and updates the upstream maintainer's tap. This fork distributes its app through GitHub Releases.
 
@@ -98,11 +98,11 @@ The shared runtime installs at `~/Library/Application Support/com.daydalek.Malto
 
 | Purpose | URL |
 | --- | --- |
-| App downloads | `https://github.com/daydalek/Whisky/releases` |
-| App ZIP example | `https://github.com/daydalek/Whisky/releases/download/vn-vX.Y.Z/Whisky-X.Y.Z-arm64.zip` |
+| App downloads | `https://github.com/daydalek/Maltoria/releases` |
+| App ZIP example | `https://github.com/daydalek/Maltoria/releases/download/vn-vX.Y.Z/Whisky-X.Y.Z-arm64.zip` |
 | Active Wine manifest | `https://raw.githubusercontent.com/daydalek/ge-proton-macos-wine-poc/runtime-channel/WhiskyWineVersion.plist` |
 | Wine archive example | `https://github.com/daydalek/ge-proton-macos-wine-poc/releases/download/vX.Y.Z/Libraries.tar.gz` |
-| Configured Sparkle feed | `https://daydalek.github.io/Whisky/appcast.xml` |
+| Configured Sparkle feed | `https://daydalek.github.io/Maltoria/appcast.xml` |
 
 `dist/pages/WhiskyWineVersion.plist` is a static Pages file. The app's active Wine update source is the `runtime-channel` URL defined in `DistributionConfig`.
 
