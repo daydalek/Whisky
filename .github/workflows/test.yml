@@ -192,7 +192,7 @@ jobs:
           set -euo pipefail
           tarball=build/reliability/linux-release/artifacts/maltoria-linux-x86_64.tar.gz
           test -f "$tarball" || { echo "missing release tarball: $tarball"; exit 1; }
-          test "$(find build/reliability/linux-release -name '*.tar.gz' | wc -l)" -eq 1 \
+          test "$(find build/reliability/linux-release/artifacts -maxdepth 1 -name 'maltoria-linux-*.tar.gz' | wc -l)" -eq 1 \
             || { echo "expected exactly one tarball"; exit 1; }
           mkdir -p build/reliability/linux-bundle
           tar -xzf "$tarball" -C build/reliability/linux-bundle

@@ -11,6 +11,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 import urllib.request
 import zipfile
 import tarfile
@@ -95,18 +96,25 @@ def source_archive(item, cache):
             raise ValueError('Corrupt cached source archive: ' + str(supplied))
         shutil.copyfile(supplied, target)
         return target
-    with tempfile.NamedTemporaryFile(dir=sources, delete=False) as output:
-        temporary = Path(output.name)
-        try:
-            request = urllib.request.Request(item['url'], headers={'User-Agent': 'Whisky-source-build/1'})
-            with urllib.request.urlopen(request, timeout=120) as response:
-                shutil.copyfileobj(response, output)
-            output.flush()
-            if digest(temporary) != item['sha256']:
-                raise ValueError('Source checksum mismatch: ' + item['url'])
-            temporary.replace(target)
-        finally:
-            temporary.unlink(missing_ok=True)
+    for attempt in range(3):
+        if attempt:
+            time.sleep(10 * attempt)
+        with tempfile.NamedTemporaryFile(dir=sources, delete=False) as output:
+            temporary = Path(output.name)
+            try:
+                request = urllib.request.Request(item['url'], headers={'User-Agent': 'Whisky-source-build/1'})
+                with urllib.request.urlopen(request, timeout=120) as response:
+                    shutil.copyfileobj(response, output)
+                output.flush()
+                if digest(temporary) != item['sha256']:
+                    raise ValueError('Source checksum mismatch: ' + item['url'])
+                temporary.replace(target)
+                return target
+            except (urllib.error.URLError, TimeoutError, ConnectionError):
+                if attempt == 2:
+                    raise
+            finally:
+                temporary.unlink(missing_ok=True)
     return target
 
 

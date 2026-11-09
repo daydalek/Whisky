@@ -14,6 +14,7 @@ import struct
 import subprocess
 import tarfile
 import tempfile
+import time
 import urllib.request
 
 HERE = Path(__file__).resolve().parent
@@ -212,18 +213,25 @@ def download(item, cache):
     cache.mkdir(parents=True, exist_ok=True)
     if target.exists() and digest(target) == item['sha256']:
         return target
-    with tempfile.NamedTemporaryFile(dir=cache, delete=False) as stream:
-        temporary = Path(stream.name)
-        try:
-            request = urllib.request.Request(item['url'], headers={'User-Agent': 'Maltoria-build/1'})
-            with urllib.request.urlopen(request, timeout=120) as response:
-                shutil.copyfileobj(response, stream)
-            stream.flush()
-            if digest(temporary) != item['sha256']:
-                raise ValueError('Packaging tool checksum mismatch: ' + item['url'])
-            temporary.replace(target)
-        finally:
-            temporary.unlink(missing_ok=True)
+    for attempt in range(3):
+        if attempt:
+            time.sleep(10 * attempt)
+        with tempfile.NamedTemporaryFile(dir=cache, delete=False) as stream:
+            temporary = Path(stream.name)
+            try:
+                request = urllib.request.Request(item['url'], headers={'User-Agent': 'Maltoria-build/1'})
+                with urllib.request.urlopen(request, timeout=120) as response:
+                    shutil.copyfileobj(response, stream)
+                stream.flush()
+                if digest(temporary) != item['sha256']:
+                    raise ValueError('Packaging tool checksum mismatch: ' + item['url'])
+                temporary.replace(target)
+                return target
+            except (urllib.error.URLError, TimeoutError, ConnectionError):
+                if attempt == 2:
+                    raise
+            finally:
+                temporary.unlink(missing_ok=True)
     return target
 
 
