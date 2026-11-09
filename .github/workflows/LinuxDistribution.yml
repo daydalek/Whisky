@@ -234,7 +234,9 @@ jobs:
             smoke "$FORMAT"
       - name: Collect runtime evidence
         if: always()
-        run: docker cp whisky-format-test:/evidence format-evidence || true
+        run: |
+          docker cp whisky-format-test:/evidence format-evidence || true
+          sudo chmod -R a+rX format-evidence || true
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:

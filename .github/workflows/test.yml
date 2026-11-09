@@ -251,6 +251,13 @@ jobs:
               --output /evidence 2>&1 | \
             tee build/reliability/smoke-wayland.log
 
+      - name: Normalize evidence permissions
+        # The containers write fixture-* directories mode 0700 as their own
+        # uid; the artifact upload runs as the runner user and cannot scan
+        # them otherwise.
+        if: always()
+        run: sudo chmod -R a+rX build/reliability/evidence-x11 build/reliability/evidence-wayland || true
+
       - name: Upload raw logs and evidence
         if: always()
         uses: actions/upload-artifact@v4
