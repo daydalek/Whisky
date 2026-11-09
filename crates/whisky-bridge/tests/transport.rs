@@ -68,7 +68,7 @@ for line in sys.stdin:
         Client::spawn(
             &python_binary(),
             &["-u".into(), self.0.to_string_lossy().into(), mode.into()],
-            Duration::from_secs(2),
+            Duration::from_secs(10),
         )
         .unwrap()
     }

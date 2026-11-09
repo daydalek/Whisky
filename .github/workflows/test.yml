@@ -146,7 +146,7 @@ jobs:
       - name: Setup Swift
         uses: swift-actions/setup-swift@v2
         with:
-          swift-version: 'latest'
+          swift-version: '6.4.0'
 
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
