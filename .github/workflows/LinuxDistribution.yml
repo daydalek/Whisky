@@ -96,7 +96,7 @@ jobs:
         uses: actions/upload-artifact@v7.0.2
         with:
           name: linux-gpui-release
-          path: /tmp/linux-release-task/artifacts/whisky-linux-*.tar.gz
+          path: /tmp/linux-release-task/artifacts/maltoria-linux-*.tar.gz
           compression-level: 0
           if-no-files-found: error
       - name: Preserve build and ABI diagnostics
@@ -139,7 +139,7 @@ jobs:
           PACKAGE_VERSION: ${{ needs.build.outputs.version }}
         run: |
           python3 -m unittest discover -s scripts/distribution -p 'test_*.py' -v
-          python3 scripts/distribution/package-linux.py --archive input/whisky-linux-x86_64.tar.gz \
+          python3 scripts/distribution/package-linux.py --archive input/maltoria-linux-x86_64.tar.gz \
             --version "$PACKAGE_VERSION" --output packages
       - uses: actions/upload-artifact@v7.0.2
         with:
