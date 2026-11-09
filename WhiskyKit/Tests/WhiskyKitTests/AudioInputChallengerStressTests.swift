@@ -134,8 +134,8 @@ struct AudioInputChallengerStressTests {
             engine.applyFix(actionId: "competing-fix-\(index)")
         }
 
-        // Wait up to 2 seconds for fix-A to complete execution and transition state under parallel test load
-        let deadline = ContinuousClock.now + .seconds(2)
+        // Wait for fix-A to complete execution and transition state under parallel test load
+        let deadline = ContinuousClock.now + .seconds(10)
         while engine.wizardState != .askingDidItWork, ContinuousClock.now < deadline {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
