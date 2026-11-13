@@ -28,6 +28,8 @@ public final class MacOSApplicationServices: NativeApplicationServices {
     var bottles: [URL: (Data, Bottle)] = [:]
     private let wineEnabled: Bool
     let jobs: BridgeJobStore
+    /// Registry of external Wine engines; injectable for isolated tests.
+    let engineStore: WineEngineStore
     private lazy var driver = WineLibraryRuntimeDriver(
         bottleResolver: { [weak self] in self?.bottle($0) },
         driverFactory: { MonitoredSteamClientDriver(bottle: $0) }
@@ -62,10 +64,16 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         }
     )
 
-    public init(wineEnabled: Bool, preferencesDomain: String = "com.daydalek.Maltoria", jobs: BridgeJobStore) {
+    public init(
+        wineEnabled: Bool,
+        preferencesDomain: String = "com.daydalek.Maltoria",
+        jobs: BridgeJobStore,
+        engineStore: WineEngineStore = .shared
+    ) {
         WhiskyDataIdentity.configure("com.daydalek.Maltoria")
         self.wineEnabled = wineEnabled
         self.jobs = jobs
+        self.engineStore = engineStore
         WhiskyPreferences.configureSharedDomain(preferencesDomain)
     }
 
@@ -127,7 +135,13 @@ public final class MacOSApplicationServices: NativeApplicationServices {
             "programs.run",
             "winetricks.catalog",
             "winetricks.installed",
-            "winetricks.install"
+            "winetricks.install",
+            "wine.engines.list",
+            "wine.engines.register",
+            "wine.engines.remove",
+            "wine.engines.selection",
+            "wine.engines.select",
+            "wine.engines.setFeatureOverride"
         ] + RuntimeService.methods : [])
     }
 
@@ -205,6 +219,7 @@ public final class MacOSApplicationServices: NativeApplicationServices {
         case "programs": return try await programsCall(method, params: params, workspace: workspace)
         case "entry": return try await entryMove(params, workspace: workspace)
         case "winetricks": return try await winetricksCall(method, params: params, workspace: workspace)
+        case "wine": return try await wineEnginesCall(method, params: params, workspace: workspace)
         case "runtime": return try await runtimeService.call(method, params: params, workspace: workspace)
         default: throw BridgeFailure("method_unavailable", "Native method is unavailable")
         }
@@ -232,6 +247,7 @@ extension MacOSApplicationServices {
         _ = try workspace.containers()
         let name = try params.text("name")
         let parent = try params.path("parent")
+        let engineID = params["engineID"]?.string ?? WineEngine.managedID
         guard let version = try WinVersion(rawValue: params.text("windowsVersion")) else {
             throw BridgeFailure("invalid_params", "Unknown Windows version")
         }
@@ -245,7 +261,9 @@ extension MacOSApplicationServices {
                     destinationDirectory: parent
                         .appendingPathComponent(UUID().uuidString),
                     registry: BottleData(registryURL: workspace
-                        .registry)
+                        .registry),
+                    engineID: engineID,
+                    engineStore: self.engineStore
                 )
                 result.bottle.isAvailable = true
                 result.bottle.inFlight = false
@@ -263,6 +281,11 @@ extension MacOSApplicationServices {
                 case .registrySaveFailed: "registry_write_failed"
                 }
                 throw BridgeFailure(code, "Bottle creation failed: \(code)")
+            } catch let error as WineEngineError {
+                throw BridgeFailure(
+                    Self.engineErrorCode(error),
+                    error.errorDescription ?? "The selected Wine engine is unavailable"
+                )
             }
         }
     }

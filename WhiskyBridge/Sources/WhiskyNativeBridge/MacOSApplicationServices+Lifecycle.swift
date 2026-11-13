@@ -338,7 +338,7 @@ extension MacOSApplicationServices {
     /// terminal app. Opening a `.command` document avoids AppleScript
     /// automation prompts for the helper process.
     private func openTerminal(bottle: Bottle) throws {
-        let environment = Wine.generateTerminalEnvironmentCommand(bottle: bottle)
+        let environment = try Wine.generateTerminalEnvironmentCommand(bottle: bottle)
         let script = """
         #!/bin/bash
         \(environment)

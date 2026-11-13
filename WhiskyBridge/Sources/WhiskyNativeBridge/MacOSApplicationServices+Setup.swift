@@ -33,7 +33,7 @@ extension MacOSApplicationServices {
     ) async throws -> JSONValue {
         switch method {
         case "setup.status":
-            return Self.setupStatus()
+            return self.setupStatus()
         case "setup.gptk.status":
             return await Task.detached(priority: .utility) {
                 // Status reads stand in for the old settings page's task:
@@ -122,7 +122,7 @@ extension MacOSApplicationServices {
                 await Task.detached(priority: .utility) {
                     _ = GPTKImporter.deployStoredPayloadIfCapable()
                 }.value
-                return Self.setupStatus()
+                return self.setupStatus()
             }
 
             // A previously fetched archive whose hash still verifies
@@ -178,7 +178,7 @@ extension MacOSApplicationServices {
                     "The Wine runtime was extracted but is not usable"
                 )
             }
-            return Self.setupStatus()
+            return self.setupStatus()
         }
     }
 
@@ -201,7 +201,9 @@ extension MacOSApplicationServices {
         let matches = await Task.detached(priority: .userInitiated) {
             WhiskyWineInstaller.sha256(ofFileAt: archive) == expected
         }.value
-        if matches { return archive }
+        if matches {
+            return archive
+        }
         ResumableDownloader.discardArtifacts(at: archive)
         return nil
     }
@@ -235,13 +237,21 @@ extension MacOSApplicationServices {
         return destination
     }
 
-    private static func setupStatus() -> JSONValue {
+    private func setupStatus() -> JSONValue {
         let installed = WhiskyWineInstaller.isWhiskyWineInstalled()
         let version = WhiskyWineInstaller.whiskyWineVersion().map { version in
             "\(version.major).\(version.minor).\(version.patch)"
         }
+        // Registered external engines count toward "a usable Wine exists":
+        // containers bound to them work without the managed runtime, so the
+        // UI must not force the managed install flow on their account.
+        let externalUsable = engineStore.list().contains {
+            !$0.isManaged && $0.isAvailable
+        }
         return .object([
             "installed": .bool(installed),
+            "managedInstalled": .bool(installed),
+            "anyEngineAvailable": .bool(installed || externalUsable),
             "version": version.map(JSONValue.string) ?? .null,
             "path": .string(WhiskyWineInstaller.applicationFolder.path),
             "rosettaInstalled": .bool(Rosetta2.isRosettaInstalled),

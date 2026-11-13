@@ -54,6 +54,24 @@ public final class RuntimeService {
         Set(configured.values.map(\.bottleURL))
     }
 
+    /// True while anything under `container` is preparing, launching or
+    /// running — or while its process state cannot be determined
+    /// (`queryFailureBottles`, fail-closed). Callers use this to refuse
+    /// mutations that must not race a launch, like engine re-selection.
+    public func containerIsBusy(_ container: URL) -> Bool {
+        let launch = runtime.state.launch
+        if launch.queryFailureBottles.contains(container) {
+            return true
+        }
+        if launch.steamRunning[container]?.isEmpty == false
+            || launch.steamLaunching[container]?.isEmpty == false {
+            return true
+        }
+        return configured.values.contains { entry in
+            entry.bottleURL == container && launch.state(for: entry) != .idle
+        }
+    }
+
     private var sequence: UInt64 = 0
     private var eventBuffer: [(UInt64, JSONValue)] = []
     private var observer: Task<Void, Never>?

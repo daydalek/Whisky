@@ -40,7 +40,7 @@ public final class BridgeJobStore {
         !tasks.isEmpty
     }
 
-    var hasLifecycleOperation: Bool {
+    public var hasLifecycleOperation: Bool {
         tasks.keys.contains {
             records[$0]?.name.hasPrefix("bottle.") == true || records[$0]?.name == "workspace.recover"
         }

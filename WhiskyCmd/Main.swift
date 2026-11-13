@@ -555,7 +555,7 @@ extension Whisky {
                 throw DomainError("A bottle with that name doesn't exist.")
             }
 
-            let envCmd = Wine.generateTerminalEnvironmentCommand(bottle: bottle)
+            let envCmd = try Wine.generateTerminalEnvironmentCommand(bottle: bottle)
             print(envCmd)
         }
     }
