@@ -25,7 +25,7 @@ import WhiskyBridgeProtocol
 /// server or exceeds the frontend's call timeout.
 @MainActor
 public final class LinuxWineProcessHost: ProcessSnapshotProviding {
-    public let host: LinuxWineHost
+    private let resolveHost: @MainActor (URL) throws -> LinuxWineHost
 
     private nonisolated static let services: Set<String> = [
         "services.exe", "winedevice.exe", "plugplay.exe", "svchost.exe",
@@ -37,10 +37,21 @@ public final class LinuxWineProcessHost: ProcessSnapshotProviding {
     ]
 
     public init(host: LinuxWineHost) {
-        self.host = host
+        resolveHost = { _ in host }
+    }
+
+    public init(resolveHost: @escaping @MainActor (URL) throws -> LinuxWineHost) {
+        self.resolveHost = resolveHost
+    }
+
+    public convenience init(engineStore: LinuxWineEngineStore) {
+        self.init { container in
+            try engineStore.resolveHost(for: container).host
+        }
     }
 
     public func listProcesses(in container: URL) async throws -> [ProcessRecord] {
+        let host = try resolveHost(container)
         guard try await host.probeServer(prefix: container) else { return [] }
         let result = try await host.run(
             host.loader,
@@ -54,6 +65,7 @@ public final class LinuxWineProcessHost: ProcessSnapshotProviding {
     }
 
     public func terminateProcess(in container: URL, pid: Int32, force: Bool) async throws {
+        let host = try resolveHost(container)
         var arguments = ["taskkill.exe", "/PID", String(pid)]
         if force {
             arguments.append("/F")
@@ -69,6 +81,7 @@ public final class LinuxWineProcessHost: ProcessSnapshotProviding {
     }
 
     public func terminateAllProcesses(in container: URL) async throws {
+        let host = try resolveHost(container)
         let result = try await host.run(
             host.wineserver,
             arguments: ["-k"],

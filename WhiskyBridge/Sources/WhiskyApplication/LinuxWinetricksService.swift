@@ -38,12 +38,14 @@ public final class LinuxWinetricksService {
     nonisolated static let categories: Set<String> = ["apps", "benchmarks", "dlls", "fonts", "games", "settings"]
 
     private let host: LinuxWineHost?
+    private let engineStore: LinuxWineEngineStore?
     private let jobs: BridgeJobStore?
     private let searchPaths: [URL]
     private let loadCatalog: @Sendable () throws -> Data
 
     public init(
         host: LinuxWineHost? = nil,
+        engineStore: LinuxWineEngineStore? = nil,
         jobs: BridgeJobStore? = nil,
         searchPaths: [URL] = [],
         loadCatalog: @escaping @Sendable () throws -> Data = {
@@ -51,6 +53,7 @@ public final class LinuxWinetricksService {
         }
     ) {
         self.host = host
+        self.engineStore = engineStore
         self.jobs = jobs
         self.searchPaths = searchPaths
         self.loadCatalog = loadCatalog
@@ -67,7 +70,7 @@ public final class LinuxWinetricksService {
     }
 
     public var canInstall: Bool {
-        host != nil && jobs != nil && winetricksExecutable != nil
+        (host != nil || engineStore != nil) && jobs != nil && winetricksExecutable != nil
     }
 
     public var capabilities: [String] {
@@ -118,32 +121,58 @@ public final class LinuxWinetricksService {
         params: [String: JSONValue],
         workspace: ApplicationWorkspace
     ) throws -> JSONValue {
-        guard let host, let jobs, let script = winetricksExecutable else {
+        guard let jobs, let script = winetricksExecutable else {
             throw BridgeFailure("method_unavailable", "Install winetricks on the host to install verbs")
         }
-        guard host.canExecute else {
-            throw BridgeFailure("runtime_unavailable", host.unavailableReason ?? "The Wine runtime cannot run")
-        }
         let container = try workspace.resolve(params)
-        let verbs = try Self.requestedVerbs(params)
-        let known = try knownVerbs()
-        if let unknown = verbs.first(where: { !known.contains($0) }) {
-            throw BridgeFailure("invalid_params", "Unknown winetricks verb: \(unknown)")
+        let resolvedHost: LinuxWineHost
+        let lease: LinuxWineEngineLease?
+        if let engineStore {
+            let resolved: (engine: LinuxWineEngine, host: LinuxWineHost, overrides: [String: String])
+            do {
+                resolved = try engineStore.resolveHost(for: container)
+            } catch let error as LinuxWineEngineStoreError {
+                throw BridgeFailure("runtime_unavailable", error.localizedDescription)
+            }
+            resolvedHost = resolved.host
+            lease = try engineStore.acquireSharedLease(for: resolved.engine.id)
+        } else if let host {
+            resolvedHost = host
+            lease = nil
+        } else {
+            throw BridgeFailure("method_unavailable", "Install winetricks on the host to install verbs")
         }
-        let system32 = container.appendingPathComponent("drive_c/windows/system32")
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: system32.path, isDirectory: &isDirectory),
-              isDirectory.boolValue
-        else {
-            throw BridgeFailure("prefix_invalid", "The Wine prefix is incomplete; recreate or repair the bottle")
+        guard resolvedHost.canExecute else {
+            lease?.release()
+            throw BridgeFailure("runtime_unavailable", resolvedHost.unavailableReason ?? "The Wine runtime cannot run")
+        }
+        let verbs: [String]
+        let known: Set<String>
+        do {
+            verbs = try Self.requestedVerbs(params)
+            known = try knownVerbs()
+            if let unknown = verbs.first(where: { !known.contains($0) }) {
+                throw BridgeFailure("invalid_params", "Unknown winetricks verb: \(unknown)")
+            }
+            let system32 = container.appendingPathComponent("drive_c/windows/system32")
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: system32.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue
+            else {
+                throw BridgeFailure("prefix_invalid", "The Wine prefix is incomplete; recreate or repair the bottle")
+            }
+        } catch {
+            lease?.release()
+            throw error
         }
         return try jobs.start(name: "winetricks.install") { progress in
-            try await Self.runInstall(
+            defer { lease?.release() }
+            return try await Self.runInstall(
                 verbs: verbs,
                 known: known,
                 container: container,
                 script: script,
-                host: host,
+                host: resolvedHost,
                 emit: progress
             )
         }
@@ -281,7 +310,7 @@ public final class LinuxWinetricksService {
             try? log.close()
             try? FileManager.default.removeItem(at: logURL)
         }
-        let process = Process()
+        let process = LinuxManagedProcess()
         process.executableURL = script
         process.arguments = ["--unattended", verb]
         process.environment = environment

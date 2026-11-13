@@ -29,9 +29,11 @@ import WhiskyCore
 public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
     public private(set) var snapshot = LibraryRuntimeDriverSnapshot()
     private let channel = RuntimeEventChannel<LibraryRuntimeDriverEvent>()
-    public let host: LinuxWineHost
+    public let host: LinuxWineHost?
+    private let engineStore: LinuxWineEngineStore?
     private let logDirectory: URL
-    private var processes: [String: Process] = [:]
+    private var processes: [String: LinuxManagedProcess] = [:]
+    private var leases: [String: LinuxWineEngineLease] = [:]
     private var entries: [String: LibraryEntry] = [:]
     private var observationTask: Task<Void, Never>?
     private var names: [String: Set<String>] = [:]
@@ -48,6 +50,13 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
 
     public init(host: LinuxWineHost, logDirectory: URL = HostPaths.logs()) {
         self.host = host
+        engineStore = nil
+        self.logDirectory = logDirectory
+    }
+
+    public init(engineStore: LinuxWineEngineStore, logDirectory: URL = HostPaths.logs()) {
+        host = nil
+        self.engineStore = engineStore
         self.logDirectory = logDirectory
     }
 
@@ -109,15 +118,27 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
         _ request: LibraryLaunchRequest, onStarted: @escaping @MainActor () -> Void
     ) async -> LaunchResult {
         let entry = request.entry
+        var heldLease: LinuxWineEngineLease?
         do {
-            let executable = try launchTarget(request)
+            let context = try resolveLaunchContext(for: entry.bottleURL)
+            heldLease = context.lease
+            let executable = try launchTarget(request, host: context.host)
             let configuration = try await LinuxLaunchConfiguration.load(
                 container: entry.bottleURL,
-                executable: executable
+                executable: executable,
+                engine: context.engine,
+                featureOverrides: context.overrides
             )
-            try await LinuxWineConfiguration.prepare(container: entry.bottleURL, host: host)
+            try await LinuxWineConfiguration.prepare(container: entry.bottleURL, host: context.host)
             try Task.checkCancellation()
-            let started = try spawn(entry, executable: executable, configuration: configuration)
+            let started = try spawn(
+                entry,
+                executable: executable,
+                configuration: configuration,
+                host: context.host,
+                lease: context.lease
+            )
+            heldLease = nil
             let process = started.process, run = started.history, exit = started.exit
             do {
                 let deadline = ContinuousClock.now + Self.startupWindow
@@ -133,6 +154,7 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
                     try run.finish(exitCode: -1)
                 }
                 processes.removeValue(forKey: entry.id)
+                leases.removeValue(forKey: entry.id)?.release()
                 throw error
             }
             if let status = exit.status, status != 0 {
@@ -148,11 +170,48 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
             }
             return .launchedSuccessfully(programName: entry.name)
         } catch {
+            heldLease?.release()
             return .launchFailed(programName: entry.name, errorDescription: error.localizedDescription)
         }
     }
 
-    private func launchTarget(_ request: LibraryLaunchRequest) throws -> URL {
+    private func resolveHost(for container: URL) throws -> LinuxWineHost {
+        if let engineStore {
+            do {
+                return try engineStore.resolveHost(for: container).host
+            } catch let error as LinuxWineEngineStoreError {
+                throw BridgeFailure("runtime_unavailable", error.localizedDescription)
+            }
+        }
+        guard let host else {
+            throw BridgeFailure("runtime_unavailable", "The Wine runtime is unavailable")
+        }
+        return host
+    }
+
+    private func resolveLaunchContext(for container: URL) throws -> (
+        host: LinuxWineHost,
+        engine: LinuxWineEngine?,
+        overrides: [String: String],
+        lease: LinuxWineEngineLease?
+    ) {
+        if let engineStore {
+            let resolved: (engine: LinuxWineEngine, host: LinuxWineHost, overrides: [String: String])
+            do {
+                resolved = try engineStore.resolveHost(for: container)
+            } catch let error as LinuxWineEngineStoreError {
+                throw BridgeFailure("runtime_unavailable", error.localizedDescription)
+            }
+            let lease = try engineStore.acquireSharedLease(for: resolved.engine.id)
+            return (resolved.host, resolved.engine, resolved.overrides, lease)
+        }
+        guard let host else {
+            throw BridgeFailure("runtime_unavailable", "The Wine runtime is unavailable")
+        }
+        return (host, nil, [:], nil)
+    }
+
+    private func launchTarget(_ request: LibraryLaunchRequest, host: LinuxWineHost) throws -> URL {
         guard host.canExecute else {
             throw BridgeFailure(
                 "runtime_unavailable",
@@ -168,8 +227,13 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
         return executable
     }
 
-    private func spawn(_ entry: LibraryEntry, executable: URL, configuration: LinuxLaunchConfiguration) throws
-        -> StartedWineProcess {
+    private func spawn(
+        _ entry: LibraryEntry,
+        executable: URL,
+        configuration: LinuxLaunchConfiguration,
+        host: LinuxWineHost,
+        lease: LinuxWineEngineLease?
+    ) throws -> StartedWineProcess {
         let process = host.process(
             host.loader,
             arguments: configuration.wineArguments(for: executable),
@@ -194,10 +258,14 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
         }
         do {
             try process.run()
-        } catch { try run.finish(exitCode: -1)
+        } catch {
+            try run.finish(exitCode: -1)
             throw error
         }
         processes[id] = process
+        if let lease {
+            leases[id] = lease
+        }
         histories[id] = run
         entries[id] = entry
         selections[entry.bottleURL, default: [:]][executable.lastPathComponent.lowercased()] = id
@@ -216,7 +284,12 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
 
     public func stop(_ entry: LibraryEntry) async {
         do {
-            let probe = LinuxWineProcessHost(host: host)
+            let probe = LinuxWineProcessHost(resolveHost: { [weak self] container in
+                guard let self else {
+                    throw BridgeFailure("runtime_unavailable", "The Wine runtime is unavailable")
+                }
+                return try self.resolveHost(for: container)
+            })
             let wanted = names[entry.id] ?? executableNames(for: entry)
             let targets = try await probe.listProcesses(in: entry.bottleURL)
                 .filter { $0.kind == "app" && wanted.contains($0.name.lowercased()) }
@@ -255,18 +328,19 @@ public final class LinuxWineRuntimeDriver: LibraryRuntimeDriver {
 
     /// `wine` arguments for a Windows file, relative to its own directory.
     nonisolated static func wineArguments(for executable: URL) -> [String] {
-        let name = executable.lastPathComponent
+        let path = executable.path
         switch executable.pathExtension.lowercased() {
-        case "msi": return ["msiexec", "/i", name]
-        case "bat", "cmd": return ["cmd", "/c", name]
-        case "exe", "com": return [name]
-        default: return ["start", "/unix", executable.path]
+        case "msi": return ["msiexec", "/i", path]
+        case "bat", "cmd": return ["cmd", "/c", path]
+        case "exe", "com": return [path]
+        default: return ["start", "/unix", path]
         }
     }
 
-    private func processDidTerminate(id: String, process: Process) {
+    private func processDidTerminate(id: String, process: LinuxManagedProcess) {
         guard processes[id] === process else { return }
         processes.removeValue(forKey: id)
+        leases.removeValue(forKey: id)?.release()
         if let run = histories.removeValue(forKey: id) {
             do {
                 try run.finish(exitCode: process.terminationStatus)
@@ -311,13 +385,18 @@ extension LinuxWineRuntimeDriver {
         guard !polling else { return }
         polling = true
         defer { polling = false }
-        let probe = LinuxWineProcessHost(host: host)
+        let probe = LinuxWineProcessHost(resolveHost: { [weak self] container in
+            guard let self else {
+                throw BridgeFailure("runtime_unavailable", "The Wine runtime is unavailable")
+            }
+            return try self.resolveHost(for: container)
+        })
         for container in Set(entries.values.map(\.bottleURL)) {
             let targets = entries.values.filter { $0.bottleURL == container }
             do {
                 let records = try await probe.listProcesses(in: container)
                 try Task.checkCancellation()
-                let runningNames = Set(records.map { $0.name.lowercased() })
+                let runningNames = Set(records.lazy.filter { $0.kind == "app" }.map { $0.name.lowercased() })
                 let candidates = Dictionary(uniqueKeysWithValues: targets.map { ($0.id, names[$0.id] ?? []) })
                 let matched = GameActivityClock.match(
                     executables: candidates,
@@ -367,7 +446,7 @@ extension LinuxWineRuntimeDriver {
 }
 
 private struct StartedWineProcess {
-    let process: Process
+    let process: LinuxManagedProcess
     let history: LinuxProgramRunHistory
     let exit: ExitRecorder
 }

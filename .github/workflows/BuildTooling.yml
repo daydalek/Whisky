@@ -24,3 +24,4 @@ jobs:
           ./build.sh list --json
           ./build.sh plan whisky-macos-gpui-arm64 --version 0.2.0 --json
           ./build.sh plan whisky-linux-amd64 --executor docker --json
+          ./build.sh plan whisky-linux-arm64 --executor docker --json

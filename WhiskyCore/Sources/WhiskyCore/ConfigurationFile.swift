@@ -220,6 +220,46 @@ public actor ConfigurationFile {
         }
     }
 
+    public nonisolated static func wineEngineBinding(
+        at metadataURL: URL
+    ) throws -> (engineID: String, featureOverrides: [String: String]) {
+        guard FileManager.default.fileExists(atPath: metadataURL.path) else {
+            return ("managed", [:])
+        }
+        guard try (metadataURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= 16 * 1_024 * 1_024
+        else { throw CocoaError(.fileReadTooLarge) }
+        var format = PropertyListSerialization.PropertyListFormat.binary
+        guard let document = try PropertyListSerialization.propertyList(
+            from: Data(contentsOf: metadataURL),
+            format: &format
+        ) as? [String: Any]
+        else { throw CocoaError(.fileReadCorruptFile) }
+        guard let wineConfig = document["wineConfig"] as? [String: Any] else {
+            return ("managed", [:])
+        }
+        let engineID = (wineConfig["engineID"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "managed"
+        let rawOverrides = wineConfig["featureOverrides"] as? [String: Any] ?? [:]
+        var overrides: [String: String] = [:]
+        for (key, value) in rawOverrides {
+            if let stringValue = value as? String {
+                overrides[key] = stringValue
+            }
+        }
+        return (engineID, overrides)
+    }
+
+    public func updateWineEngineBinding(engineID: String, featureOverrides: [String: String]) throws {
+        try mutate { document in
+            if let existing = document["wineConfig"], !(existing is [String: Any]) {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            var wineConfig = document["wineConfig"] as? [String: Any] ?? [:]
+            wineConfig["engineID"] = engineID
+            wineConfig["featureOverrides"] = featureOverrides
+            document["wineConfig"] = wineConfig
+        }
+    }
+
     func mutate(_ operation: (inout [String: Any]) throws -> Void) throws {
         try locking.withExclusiveLock(at: url.appendingPathExtension("lock")) {
             var (document, format) = try load()

@@ -47,6 +47,8 @@ class BuildTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build.plan(self.args('whisky-linux-amd64', '--compile-only'))
         with self.assertRaises(ValueError):
+            build.plan(self.args('whisky-linux-arm64', '--compile-only'))
+        with self.assertRaises(ValueError):
             build.plan(self.args('whisky-macos-gpui-arm64', '--version', '1.2;touch /tmp/x'))
 
     def test_runtime_validation_follows_packaging_and_recipe_cache_changes(self):
@@ -81,12 +83,31 @@ class BuildTests(unittest.TestCase):
         command = value['steps'][-1]['command']
         self.assertIn('package-linux.py', Path(command[1]).name)
         self.assertEqual(['deb', 'rpm', 'appimage'], command[command.index('--formats') + 1:])
+        self.assertEqual('maltoria-linux-x86_64.tar.gz', Path(command[command.index('--archive') + 1]).name)
         raw = build.plan(self.args('whisky-linux-amd64', '--formats', 'tar'))
         self.assertEqual(2, len(raw['steps']))
         docker = build.plan(self.args('whisky-linux-amd64', '--version', '0.2.0', '--formats', 'deb', '--executor', 'docker'))
         command = docker['steps'][-1]['command']
+        self.assertIn('linux/amd64', docker['steps'][0]['command'])
+        self.assertIn('linux/amd64', command)
         self.assertIn('0.2.0', command)
         self.assertEqual(['deb'], command[command.index('--formats') + 1:])
+
+    def test_linux_arm64_target_plans_aarch64_archive_and_docker_platform(self):
+        self.assertEqual('arm64', build.TARGETS['whisky-linux-arm64'][1])
+        value = build.plan(self.args('whisky-linux-arm64', '--version', '0.3.0', '--formats', 'deb'))
+        command = value['steps'][-1]['command']
+        self.assertEqual('maltoria-linux-aarch64.tar.gz', Path(command[command.index('--archive') + 1]).name)
+        self.assertEqual(['deb'], command[command.index('--formats') + 1:])
+        docker = build.plan(self.args('whisky-linux-arm64', '--version', '0.3.0', '--formats', 'deb', '--executor', 'docker'))
+        build_cmd = docker['steps'][0]['command']
+        run_cmd = docker['steps'][1]['command']
+        self.assertIn('linux/arm64', build_cmd)
+        self.assertTrue(any(':ubuntu24-arm64-' in token for token in build_cmd))
+        self.assertIn('linux/arm64', run_cmd)
+        self.assertIn('whisky-linux-arm64', run_cmd)
+        with self.assertRaises(ValueError):
+            build.plan(self.args('whisky-linux-arm64', '--install'))
 
     def test_macos_gpui_plan_adds_package_step_when_version_provided(self):
         self.assertEqual([name for name in build.TARGETS if name.startswith("whisky-macos-")],

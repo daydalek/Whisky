@@ -106,12 +106,30 @@ public struct FolderGameLibrary: Codable, Sendable {
                 options: [.skipsHiddenFiles]
             ) } catch {
                 onScanFailure(root, error)
+                let normalizedRootKey = Self.key(for: root, bottleURL: bottleURL)
+                if knownFolders.contains(normalizedRootKey),
+                   !isExcluded(root, key: normalizedRootKey, bottleURL: bottleURL) {
+                    found.insert(normalizedRootKey)
+                }
                 found.formUnion(knownFolders.filter {
                     let childURL = Self.url(for: $0, bottleURL: bottleURL)
                     return childURL.deletingLastPathComponent().standardizedFileURL.path
                         == root.standardizedFileURL.path
                         && !isExcluded(childURL, key: $0, bottleURL: bottleURL)
                 })
+                continue
+            }
+            if Self.isStandaloneGameRoot(root, children: children, bottleURL: bottleURL, fileManager: fileManager) {
+                let canonical = root.resolvingSymlinksInPath().standardizedFileURL.path
+                let normalizedRootKey = Self.key(for: root, bottleURL: bottleURL)
+                if !isSteamDirectory(canonical, steamDirectories: steamDirectories),
+                   !isExcluded(root, key: normalizedRootKey, bottleURL: bottleURL) {
+                    found.insert(normalizedRootKey)
+                    if firstScan, automaticMetadata {
+                        pendingMetadata.insert(normalizedRootKey)
+                    }
+                }
+                initializedRoots.insert(rootKey)
                 continue
             }
             for child in children {
@@ -187,6 +205,49 @@ public struct FolderGameLibrary: Codable, Sendable {
 
     public func executable(for folder: URL, bottleURL: URL) -> URL? {
         executables[Self.key(for: folder, bottleURL: bottleURL)].map { Self.url(for: $0, bottleURL: bottleURL) }
+    }
+
+    private static func isStandaloneGameRoot(
+        _ root: URL,
+        children: [URL],
+        bottleURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
+        let rootPath = root.standardizedFileURL.path
+        let bottlePath = bottleURL.standardizedFileURL.path
+        let driveCPath = bottleURL.appendingPathComponent("drive_c").standardizedFileURL.path
+        guard rootPath != bottlePath, rootPath != driveCPath else { return false }
+
+        var hasDirectExecutable = false
+        var childDirectories: [URL] = []
+        for child in children {
+            guard let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                  values.isSymbolicLink != true
+            else { continue }
+            if values.isDirectory == true {
+                childDirectories.append(child)
+            } else if child.pathExtension.lowercased() == "exe" {
+                hasDirectExecutable = true
+            }
+        }
+        guard hasDirectExecutable else { return false }
+
+        // Only treat the root itself as a single game when its child folders
+        // do not contain top-level game executables of their own.
+        return !childDirectories.contains { directory in
+            guard let nested = try? fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                options: [.skipsHiddenFiles]
+            ) else { return false }
+            return nested.contains { item in
+                guard let values = try? item.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                      values.isSymbolicLink != true,
+                      values.isDirectory != true
+                else { return false }
+                return item.pathExtension.lowercased() == "exe"
+            }
+        }
     }
 
     private static func location(_ bottle: URL) -> URL {

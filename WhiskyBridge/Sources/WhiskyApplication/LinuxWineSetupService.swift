@@ -95,7 +95,9 @@ public final class LinuxWineSetupService {
         self.download = download
     }
 
-    public static func defaultRoot(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+    public nonisolated static func defaultRoot(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
         let base = environment["XDG_DATA_HOME"].flatMap {
             $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil
         } ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share")
@@ -143,10 +145,13 @@ public final class LinuxWineSetupService {
         return try? JSONDecoder().decode(Installed.self, from: data)
     }
 
-    public func status() -> JSONValue {
+    public func status(anyEngineAvailable: Bool = false) -> JSONValue {
         let host = runtimeURL.flatMap { LinuxWineHost(runtimeURL: $0) }
+        let managedInstalled = host != nil
         return .object([
-            "installed": .bool(host != nil),
+            "installed": .bool(managedInstalled),
+            "managedInstalled": .bool(managedInstalled),
+            "anyEngineAvailable": .bool(managedInstalled || anyEngineAvailable),
             "restartRequired": .bool(false),
             "version": (externalRuntime == nil ? installed() : nil).map { .string($0.version.description) } ?? .null,
             "path": .string(runtimeURL?.path ?? root.appendingPathComponent("current").path),

@@ -99,4 +99,21 @@ struct ExecutableSelectionTests {
         }
         #expect(try FolderGameLibrary.load(bottleURL: bottle).executables.isEmpty)
     }
+
+    @Test func candidateFinderFindsRootExecutableBeforeDeepSubdirExhaustsLimit() throws {
+        let root = FileManager.default.temporaryDirectory
+            .resolvingSymlinksInPath()
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let deepDir = root.appendingPathComponent("aaa_redist/sub")
+        try FileManager.default.createDirectory(at: deepDir, withIntermediateDirectories: true)
+        for index in 0..<10 {
+            try Data([0x4D, 0x5A]).write(to: deepDir.appendingPathComponent("helper_\(index).exe"))
+        }
+        let mainExe = root.appendingPathComponent("Game.exe")
+        try Data([0x4D, 0x5A]).write(to: mainExe)
+
+        let candidates = ExecutableCandidateFinder.candidates(in: root, limit: 3)
+        #expect(candidates.map(\.standardizedFileURL.path).contains(mainExe.standardizedFileURL.path))
+    }
 }

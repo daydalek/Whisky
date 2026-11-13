@@ -24,13 +24,16 @@ import WhiskyCore
 @MainActor
 public final class LinuxApplicationServices: NativeApplicationServices {
     public typealias FileOpener = @Sendable (URL) throws -> Void
+    public typealias WineserverProbe = @Sendable (LinuxWineHost, URL) async throws -> Bool
 
-    private let runtimeService: RuntimeService?
+    let runtimeService: RuntimeService?
     private let wineHost: LinuxWineHost?
+    let engineStore: LinuxWineEngineStore?
     private let bottleCreation: LinuxBottleCreationService?
     private let winetricks: LinuxWinetricksService
     private let jobs: BridgeJobStore?
     private let openFile: FileOpener
+    let wineserverProbe: WineserverProbe
     private let searchPaths: [URL]
     private let picker: LinuxFilePicker
     private let terminals: LinuxTerminalService
@@ -48,25 +51,37 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         wineRuntimeURL: URL? = nil,
         jobs: BridgeJobStore? = nil,
         wineSetup: LinuxWineSetupService? = nil,
+        engineStore: LinuxWineEngineStore? = nil,
         shutdownContainers: (() throws -> [URL])? = nil,
         finalObservation: (() async -> Void)? = nil,
-        host: LinuxWineHost? = nil
+        host: LinuxWineHost? = nil,
+        wineserverProbe: WineserverProbe? = nil
     ) {
         runtimeService = runtime
         self.wineSetup = wineSetup
+        self.engineStore = engineStore
         self.shutdownContainers = shutdownContainers
         self.finalObservation = finalObservation
-        let host = host ?? wineRuntimeURL.flatMap { LinuxWineHost(runtimeURL: $0) }
-        wineHost = host
-        bottleCreation = host.flatMap { LinuxBottleCreationService(host: $0, jobs: jobs) }
+        self.wineserverProbe = wineserverProbe ?? { host, container in
+            try await host.probeServer(prefix: container)
+        }
+        let resolvedHost = host ?? wineRuntimeURL.flatMap { LinuxWineHost(runtimeURL: $0) }
+        wineHost = resolvedHost
+        if let engineStore {
+            bottleCreation = LinuxBottleCreationService(engineStore: engineStore, jobs: jobs)
+        } else {
+            bottleCreation = resolvedHost.flatMap { LinuxBottleCreationService(host: $0, jobs: jobs) }
+        }
         self.jobs = jobs
         self.preferences = preferences
         let paths = searchPaths ?? Self.defaultSearchPaths()
         self.searchPaths = paths
         let bundled = Bundle.main.executableURL.map { [$0.deletingLastPathComponent()] } ?? []
-        let wineBin = host.map { [$0.runtimeURL.appendingPathComponent("bin")] } ?? []
+        let managedRuntime = resolvedHost?.runtimeURL ?? engineStore?.managedEngine().runtimeURL
+        let wineBin = managedRuntime.map { [$0.appendingPathComponent("bin")] } ?? []
         winetricks = LinuxWinetricksService(
-            host: host,
+            host: resolvedHost,
+            engineStore: engineStore,
             jobs: jobs,
             searchPaths: bundled + wineBin + paths
         )
@@ -76,24 +91,30 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         self.openFile = openFile ?? Self.xdgOpen
     }
 
+    private var hasWineCapability: Bool {
+        wineHost != nil || engineStore != nil
+    }
+
     public var capabilities: [String] {
         var values = ["system.files", "system.picker", "system.terminal", "system.desktop", "programs.shortcut"]
-        if wineSetup != nil {
+        if wineSetup != nil || bottleCreation != nil {
             values.append("setup")
         }
-        if wineHost != nil {
+        if engineStore != nil {
+            values.append("wine.engines")
+        }
+        if hasWineCapability {
             values += winetricks.capabilities
             values.append("processes.read")
         }
         if bottleCreation != nil {
-            values.append("setup")
             values.append("bottle.tools")
             values.append("wine.configuration")
         }
         if bottleCreation?.canCreate == true {
             values.append("bottle.create")
         }
-        if wineHost != nil, jobs != nil {
+        if hasWineCapability, jobs != nil {
             values.append("programs.launch")
         }
         if runtimeService != nil {
@@ -107,17 +128,20 @@ public final class LinuxApplicationServices: NativeApplicationServices {
             "system.reveal", "system.open", "system.resources", "system.terminals",
             "bottle.tools", "bottle.cleanCache"
         ] + LinuxFilePicker.methods + LinuxDesktopService.methods
+        if engineStore != nil {
+            values += Self.engineMethods
+        }
         values += wineSetup?.methods ?? []
-        if wineHost != nil {
+        if hasWineCapability {
             values += winetricks.methods
         }
-        if bottleCreation != nil {
+        if bottleCreation != nil, !values.contains("setup.status") {
             values.append("setup.status")
         }
         if bottleCreation?.canCreate == true {
             values.append("bottle.create")
         }
-        if wineHost != nil, jobs != nil {
+        if hasWineCapability, jobs != nil {
             values.append("programs.run")
         }
         if runtimeService != nil {
@@ -132,12 +156,10 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         values: [String: ConfigurationValue],
         container: URL
     ) async throws {
-        guard let host = wineHost else {
-            throw BridgeFailure("capability_unavailable", "This setting requires the Wine host adapter")
-        }
-        guard host.canExecute else {
-            throw BridgeFailure("runtime_unavailable", host.unavailableReason ?? "The Wine runtime cannot run")
-        }
+        let resolved = try resolveContainerHost(for: container, missingCapability: true)
+        let lease = try resolved.engine.map { try engineStore!.acquireSharedLease(for: $0.id) }
+        defer { lease?.release() }
+        let host = resolved.host
         if field.id == "windowsVersion", case let .text(raw) = value {
             let version = raw == "winxp" ? "winxp64" : raw
             let result = try await host.run(
@@ -170,6 +192,9 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         guard methods.contains(method) else {
             throw BridgeFailure("method_unavailable", "Native method is unavailable")
         }
+        if Self.engineMethods.contains(method) {
+            return try await callEngineMethod(method, params: params, workspace: workspace)
+        }
         if LinuxDesktopService.methods.contains(method) {
             return try await desktop.call(method, params: params, workspace: workspace)
         }
@@ -199,20 +224,43 @@ public final class LinuxApplicationServices: NativeApplicationServices {
             return try await winetricks.call(method, params: params, workspace: workspace)
         case "setup":
             if let wineSetup, wineSetup.externalRuntime == nil || bottleCreation == nil || method != "setup.status" {
+                if method == "setup.status" {
+                    return wineSetup.status(anyEngineAvailable: engineStore?.anyEngineAvailable() ?? false)
+                }
                 return try wineSetup.call(method, params: params) { [weak self] in
-                    guard let host = self?.wineHost, host.canExecute else { return }
-                    for container in try workspace.containers() where await host.serverRunning(prefix: container) {
-                        throw BridgeFailure(
-                            "runtime_busy",
-                            "Close running Wine applications before updating the runtime"
-                        )
+                    guard let self else { return }
+                    let host = self.engineStore?.managedEngine().makeHost(environment: self.engineStore?.environment ?? ProcessInfo.processInfo.environment) ?? self.wineHost
+                    guard let host, host.canExecute else { return }
+                    for container in try workspace.containers() {
+                        if self.engineStore != nil, !self.containerUsesManagedEngine(container) {
+                            continue
+                        }
+                        if await host.serverRunning(prefix: container) {
+                            throw BridgeFailure(
+                                "runtime_busy",
+                                "Close running Wine applications before updating the runtime"
+                            )
+                        }
                     }
                 }
             }
             guard method == "setup.status", let bottleCreation else {
                 throw BridgeFailure("method_unavailable", "Setup method is unavailable")
             }
-            let host = bottleCreation.host
+            let anyEngine = engineStore?.anyEngineAvailable() ?? false
+            guard let host = bottleCreation.host, let runtimeURL = bottleCreation.runtimeURL else {
+                return .object([
+                    "installed": .bool(false),
+                    "managedInstalled": .bool(false),
+                    "anyEngineAvailable": .bool(anyEngine),
+                    "version": .null,
+                    "path": .string(wineSetup?.root.appendingPathComponent("current").path ?? LinuxWineSetupService.defaultRoot().appendingPathComponent("current").path),
+                    "canExecute": .bool(false),
+                    "translation": .null,
+                    "rosettaInstalled": .bool(false),
+                    "appleSilicon": .bool(false)
+                ])
+            }
             let version = await bottleCreation.wineVersion()
             let detail: String? = switch (version, host.translation) {
             case let (version?, .native): version
@@ -223,10 +271,13 @@ public final class LinuxApplicationServices: NativeApplicationServices {
             }
             return .object([
                 "installed": .bool(true),
+                "managedInstalled": .bool(true),
+                "anyEngineAvailable": .bool(true),
                 "version": detail.map(JSONValue.string) ?? .null,
-                "path": .string(bottleCreation.runtimeURL.path),
+                "path": .string(runtimeURL.path),
                 "canExecute": .bool(host.canExecute),
                 "translation": .string(host.translationDescription),
+                "runtimeArchitecture": .string(host.architecture),
                 "rosettaInstalled": .bool(false),
                 "appleSilicon": .bool(false)
             ])
@@ -244,7 +295,7 @@ public final class LinuxApplicationServices: NativeApplicationServices {
     /// a container must not leave its Wine processes running against a prefix
     /// that no longer exists.
     public func prepareContainerRemoval(_ container: URL) async throws {
-        guard let host = wineHost, host.canExecute else { return }
+        guard let host = resolveOptionalHost(for: container), host.canExecute else { return }
         guard try await host.probeServer(prefix: container) else { return }
         try await LinuxWineProcessHost(host: host).terminateAllProcesses(in: container)
     }
@@ -254,18 +305,18 @@ public final class LinuxApplicationServices: NativeApplicationServices {
     }
 
     public func prepareShutdown(applyExitPolicy: Bool) async throws {
-        guard applyExitPolicy, let host = wineHost else { return }
+        guard applyExitPolicy, hasWineCapability else { return }
         let globalKill = try preferences?.call("preferences.read", params: [:])
             .object?["killOnTerminate"]?.bool ?? true
         let containers = try shutdownContainers?() ?? Array(runtimeService?.containerURLs ?? [])
-        let processes = LinuxWineProcessHost(host: host)
         for container in Set(containers).sorted(by: { $0.path < $1.path }) {
             let metadata = try ProgramSettingsService.load(container.appendingPathComponent("Metadata.plist"))
             let cleanup = metadata["cleanupConfig"] as? [String: Any] ?? [:]
             let policy = cleanup["killOnQuit"] as? String ?? "inherit"
             guard policy == "always" || (policy == "inherit" && globalKill) else { continue }
+            guard let host = resolveOptionalHost(for: container), host.canExecute else { continue }
             if try await host.probeServer(prefix: container) {
-                try await processes.terminateAllProcesses(in: container)
+                try await LinuxWineProcessHost(host: host).terminateAllProcesses(in: container)
             }
         }
         await finalObservation?()
@@ -278,19 +329,16 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         let tool = try params.text("tool")
         switch tool {
         case "terminal":
-            let wineEnv = wineHost.map { $0.environment(prefix: container) } ?? [:]
+            let wineEnv = resolveOptionalHost(for: container)?.environment(prefix: container) ?? [:]
             return try terminals.open(
                 container: container,
                 preferred: terminalPreference(),
                 wineEnvironment: wineEnv
             )
         case "winecfg", "regedit", "control", "taskmgr":
-            guard let host = wineHost else {
-                throw BridgeFailure("method_unavailable", "This tool requires the Wine host adapter")
-            }
-            guard host.canExecute else {
-                throw BridgeFailure("runtime_unavailable", host.unavailableReason ?? "The Wine runtime cannot run")
-            }
+            let resolved = try resolveContainerHost(for: container, missingCapability: false)
+            let lease = try resolved.engine.map { try engineStore!.acquireSharedLease(for: $0.id) }
+            let host = resolved.host
             let process = host.process(
                 host.loader,
                 arguments: [tool],
@@ -299,10 +347,11 @@ public final class LinuxApplicationServices: NativeApplicationServices {
             )
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
-            process.terminationHandler = { _ in }
+            process.terminationHandler = { _ in lease?.release() }
             do {
                 try process.run()
             } catch {
+                lease?.release()
                 throw BridgeFailure("host_failed", "Could not start \(tool): \(error.localizedDescription)")
             }
             return .object(["accepted": .bool(true), "tool": .string(tool)])
@@ -335,13 +384,12 @@ public final class LinuxApplicationServices: NativeApplicationServices {
     }
 
     private func runProgram(params: [String: JSONValue], workspace: ApplicationWorkspace) throws -> JSONValue {
-        guard let host = wineHost, let jobs else {
+        guard let jobs else {
             throw BridgeFailure("method_unavailable", "Program execution requires the Wine runtime")
         }
-        guard host.canExecute else {
-            throw BridgeFailure("runtime_unavailable", host.unavailableReason ?? "The Wine runtime cannot run")
-        }
         let container = try workspace.resolve(params)
+        let resolved = try resolveContainerHost(for: container, missingCapability: false)
+        let host = resolved.host
         let executable = try params.path("executable")
         let runnable: Set = ["exe", "msi", "bat", "cmd", "com", "url"]
         guard runnable.contains(executable.pathExtension.lowercased()) else {
@@ -350,38 +398,81 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         guard FileManager.default.fileExists(atPath: executable.path) else {
             throw BridgeFailure("file_missing", "Selected file is unavailable")
         }
-        return try jobs.start(name: "programs.run") { _ in
-            let configuration = try await LinuxLaunchConfiguration.load(container: container, executable: executable)
-            try await LinuxWineConfiguration.prepare(container: container, host: host)
-            let history = try LinuxProgramRunHistory.begin(
-                container: container,
-                executable: executable,
-                logs: HostPaths.logs()
-            )
-            let result: LinuxWineHost.Output
-            do {
-                result = try await host.run(
-                    host.loader,
-                    arguments: configuration.wineArguments(for: executable),
-                    prefix: container,
-                    environment: configuration.environment,
-                    workingDirectory: executable.deletingLastPathComponent(),
-                    outputLimit: 32 * 1_024,
-                    logFile: history.log
+        let lease = try resolved.engine.map { try engineStore!.acquireSharedLease(for: $0.id) }
+        do {
+            return try jobs.start(name: "programs.run") { _ in
+                defer { lease?.release() }
+                let configuration = try await LinuxLaunchConfiguration.load(
+                    container: container,
+                    executable: executable,
+                    engine: resolved.engine,
+                    featureOverrides: resolved.overrides
                 )
-            } catch {
-                try history.finish(exitCode: -1)
-                throw error
+                try await LinuxWineConfiguration.prepare(container: container, host: host)
+                let history = try LinuxProgramRunHistory.begin(
+                    container: container,
+                    executable: executable,
+                    logs: HostPaths.logs()
+                )
+                let result: LinuxWineHost.Output
+                do {
+                    result = try await host.run(
+                        host.loader,
+                        arguments: configuration.wineArguments(for: executable),
+                        prefix: container,
+                        environment: configuration.environment,
+                        workingDirectory: executable.deletingLastPathComponent(),
+                        outputLimit: 32 * 1_024,
+                        logFile: history.log
+                    )
+                } catch {
+                    try history.finish(exitCode: -1)
+                    throw error
+                }
+                try history.finish(exitCode: result.status)
+                try Task.checkCancellation()
+                guard result.status == 0 else {
+                    let tail = result.output.split(whereSeparator: \.isNewline).suffix(4).joined(separator: " | ")
+                    let detail = tail.isEmpty ? "" : ": \(tail)"
+                    throw BridgeFailure("launch_failed", "Wine exited with status \(result.status)\(detail)")
+                }
+                return .object(["path": .string(executable.path)])
             }
-            try history.finish(exitCode: result.status)
-            try Task.checkCancellation()
-            guard result.status == 0 else {
-                let tail = result.output.split(whereSeparator: \.isNewline).suffix(4).joined(separator: " | ")
-                let detail = tail.isEmpty ? "" : ": \(tail)"
-                throw BridgeFailure("launch_failed", "Wine exited with status \(result.status)\(detail)")
-            }
-            return .object(["path": .string(executable.path)])
+        } catch {
+            lease?.release()
+            throw error
         }
+    }
+
+    private func resolveOptionalHost(for container: URL) -> LinuxWineHost? {
+        if let engineStore {
+            return try? engineStore.resolveHost(for: container).host
+        }
+        return wineHost
+    }
+
+    private func resolveContainerHost(
+        for container: URL,
+        missingCapability: Bool
+    ) throws -> (engine: LinuxWineEngine?, host: LinuxWineHost, overrides: [String: String]) {
+        if let engineStore {
+            do {
+                let resolved = try engineStore.resolveHost(for: container)
+                return (resolved.engine, resolved.host, resolved.overrides)
+            } catch let error as LinuxWineEngineStoreError {
+                throw BridgeFailure("runtime_unavailable", error.localizedDescription)
+            }
+        }
+        guard let host = wineHost else {
+            throw BridgeFailure(
+                missingCapability ? "capability_unavailable" : "method_unavailable",
+                missingCapability ? "This setting requires the Wine host adapter" : "This tool requires the Wine host adapter"
+            )
+        }
+        guard host.canExecute else {
+            throw BridgeFailure("runtime_unavailable", host.unavailableReason ?? "The Wine runtime cannot run")
+        }
+        return (nil, host, [:])
     }
 
     private func systemCall(
@@ -436,7 +527,7 @@ public final class LinuxApplicationServices: NativeApplicationServices {
     }
 
     private func locateTool(_ name: String) -> URL? {
-        if let host = wineHost {
+        if let host = wineHost ?? engineStore?.managedEngine().makeHost(environment: engineStore?.environment ?? ProcessInfo.processInfo.environment) {
             if name == "wine" {
                 return host.loader
             }
@@ -469,10 +560,9 @@ public final class LinuxApplicationServices: NativeApplicationServices {
         else {
             throw BridgeFailure("host_failed", "xdg-open is unavailable on this host")
         }
-        let process = Process()
+        let process = LinuxManagedProcess()
         process.executableURL = opener
         process.arguments = [url.path]
-        // Let Foundation reap the child process once xdg-open exits.
         process.terminationHandler = { _ in }
         try process.run()
     }

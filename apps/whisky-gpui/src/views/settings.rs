@@ -627,7 +627,6 @@ impl WhiskyApp {
                 ),
                 #[cfg(not(target_os = "linux"))]
                 self.gptk_section(cx),
-                #[cfg(not(target_os = "linux"))]
                 self.engines_section(cx),
             ],
         )
@@ -708,7 +707,6 @@ impl WhiskyApp {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
 impl WhiskyApp {
     /// 自定义 Wine 引擎: registered external engine trees. The managed row is
     /// immutable — install/update lives in the Wine 运行时 section — and
@@ -806,13 +804,19 @@ impl WhiskyApp {
                     .into_any_element(),
             );
             rows.push(
+                #[cfg(not(target_os = "linux"))]
                 muted("外部引擎仅做静态检测并以只读方式使用：不会在目录内写入、更新或部署 D3DMetal。每个容器可在其配置页绑定引擎。")
+                    .text_size(px(11.))
+                    .line_height(relative(1.4))
+                    .into_any_element(),
+                #[cfg(target_os = "linux")]
+                muted("外部引擎仅做静态检测并以只读方式使用：不会向目录内写入或更新任何文件。每个容器可在其配置页绑定引擎。")
                     .text_size(px(11.))
                     .line_height(relative(1.4))
                     .into_any_element(),
             );
         } else {
-            rows.push(self.info("当前服务", "自定义引擎需要 macOS Wine 宿主适配器"));
+            rows.push(self.info("当前服务", "自定义引擎需要兼容的 Wine 宿主适配器"));
         }
 
         self.section("wine-engines", "自定义 Wine 引擎", rows, cx)

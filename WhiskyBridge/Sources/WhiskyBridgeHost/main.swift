@@ -155,10 +155,11 @@ struct BridgeHost {
             releasesURL: environment["WHISKY_LINUX_WINE_RELEASES_URL"].flatMap(URL.init(string:))
         )
         let wineRuntimeURL = wineSetup?.runtimeURL
-        let wineDriver = wineRuntimeURL.flatMap { LinuxWineRuntimeDriver(runtimeURL: $0) }
+        let engineStore = wineSetup.map { LinuxWineEngineStore(setup: $0) }
+        let wineDriver = engineStore.map { LinuxWineRuntimeDriver(engineStore: $0) }
         let wineRuntimeService = wineDriver.map { RuntimeService(driver: $0) }
         let wineProcessService = ProcessService(
-            host: wineDriver.map { LinuxWineProcessHost(host: $0.host) }
+            host: engineStore.map { LinuxWineProcessHost(engineStore: $0) }
         )
         return ApplicationService(
             workspace: workspace,
@@ -168,6 +169,7 @@ struct BridgeHost {
                 wineRuntimeURL: wineRuntimeURL,
                 jobs: jobs,
                 wineSetup: wineSetup,
+                engineStore: engineStore,
                 shutdownContainers: { try workspace.containers() },
                 finalObservation: { await wineDriver?.poll() }
             ),

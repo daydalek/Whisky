@@ -137,6 +137,18 @@ public enum HostPaths {
             ?? home.appendingPathComponent(".local/state")
         return base.appendingPathComponent("whisky/logs", isDirectory: true)
     }
+
+    public static func wineEnginesRegistry(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        if let override = environment["WHISKY_WINE_ENGINES_REGISTRY"], !override.isEmpty {
+            return URL(fileURLWithPath: override)
+        }
+        let base = environment["XDG_CONFIG_HOME"].flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
+            ?? home.appendingPathComponent(".config")
+        return base.appendingPathComponent("whisky/Wine Engines.json")
+    }
 }
 
 public struct ContainerRecord: Codable, Sendable {

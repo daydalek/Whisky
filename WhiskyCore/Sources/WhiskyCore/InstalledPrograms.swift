@@ -65,9 +65,32 @@ public enum InstalledPrograms {
         blocklist: Set<URL>
     ) -> [URL] {
         var found: [URL] = []
+        var seenFiles = Set<URL>()
         let canonicalBlocklist = Set(blocklist.map { $0.resolvingSymlinksInPath().standardizedFileURL })
-        for folderName in ["Program Files", "Program Files (x86)", "Program Files (Arm)"] {
-            let folderURL = CaseInsensitivePath.resolve(base: driveC, components: [folderName])
+        let preferredFolders = ["Program Files", "Program Files (x86)", "Program Files (Arm)"]
+        let excludedRootFolders: Set<String> = ["windows", "programdata", "users"]
+
+        var scanRoots: [URL] = preferredFolders.map {
+            CaseInsensitivePath.resolve(base: driveC, components: [$0])
+        }
+        if let topLevel = try? FileManager.default.contentsOfDirectory(
+            at: driveC,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            let preferredNames = Set(preferredFolders.map { $0.lowercased() })
+            for child in topLevel.sorted(by: { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }) {
+                let lower = child.lastPathComponent.lowercased()
+                guard !preferredNames.contains(lower), !excludedRootFolders.contains(lower) else { continue }
+                guard let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                      values.isDirectory == true,
+                      values.isSymbolicLink != true
+                else { continue }
+                scanRoots.append(child)
+            }
+        }
+
+        for folderURL in scanRoots {
             let enumerator = FileManager.default.enumerator(
                 at: folderURL, includingPropertiesForKeys: [.isExecutableKey], options: [.skipsHiddenFiles]
             )
@@ -79,7 +102,8 @@ public enum InstalledPrograms {
                 // Skip known launcher helpers and crash reporters that pollute the list
                 let canonical = url.resolvingSymlinksInPath().standardizedFileURL
                 guard !noiseExecutableNames.contains(url.lastPathComponent.lowercased()),
-                      !canonicalBlocklist.contains(canonical)
+                      !canonicalBlocklist.contains(canonical),
+                      seenFiles.insert(canonical).inserted
                 else { continue }
                 found.append(url)
             }

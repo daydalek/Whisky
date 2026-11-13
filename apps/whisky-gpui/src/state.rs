@@ -88,6 +88,8 @@ pub(crate) struct ExecutablePickerState {
     pub(crate) folder: String,
     /// Play starts the game afterwards; the card menu only records the choice.
     pub(crate) launch_after: bool,
+    pub(crate) loading: bool,
+    pub(crate) error: Option<String>,
     pub(crate) candidates: Vec<CandidateDto>,
 }
 
@@ -1758,12 +1760,37 @@ impl WhiskyApp {
                     if !candidates.folder.is_empty() {
                         picker.folder = candidates.folder;
                     }
+                    picker.loading = false;
+                    picker.error = None;
                     picker.candidates = candidates.candidates;
                 }
+            }
+            BridgeEvent::CandidatesFailed { folder, reason } => {
+                if let Some(picker) = self.executable_picker.as_mut()
+                    && (picker.folder == folder || folder.is_empty())
+                {
+                    picker.loading = false;
+                    picker.error = Some(reason.clone());
+                }
+                self.show_notice(reason, cx);
             }
             BridgeEvent::WineEngines { list } => {
                 self.wine_engines = list.engines;
                 self.wine_engines_error = list.load_error;
+                if let Some(status) = self.setup_status.as_mut() {
+                    status.any_engine_available = Some(
+                        status.managed_installed.unwrap_or(status.installed)
+                            || self.wine_engines.iter().any(|engine| engine.available),
+                    );
+                }
+                let resolved = self.resolved_create_engine_id();
+                if self
+                    .wine_engines
+                    .iter()
+                    .any(|engine| engine.id == resolved && engine.available)
+                {
+                    self.preview.choices.insert("create-engine", resolved.into());
+                }
                 cx.notify();
             }
             BridgeEvent::WineEngineOpFailed { reason } => {
@@ -4824,7 +4851,7 @@ impl WhiskyApp {
         }
         #[cfg(not(target_os = "macos"))]
         {
-            Some(format!("{}/.local/share/maltoria/Bottles", home))
+            Some(format!("{}/.local/share/whisky/Bottles", home))
         }
     }
 
@@ -7020,25 +7047,22 @@ impl WhiskyApp {
         let Some(container) = self.selected_container() else {
             return;
         };
-        let entry_id = self
+        let program = self
             .programs
             .as_ref()
             .filter(|page| page.container == container)
             .and_then(|page| page.table.row(path))
-            .and_then(|program| self.program_entry_id(&container, program));
-        let Some(entry_id) = entry_id else {
-            self.show_notice("该程序没有可启动的游戏库条目", cx);
-            return;
-        };
+            .cloned();
+        let entry_id = program
+            .as_ref()
+            .and_then(|row| self.program_entry_id(&container, row));
         // Refresh the live entry set immediately before launch. The cached set
         // only suppresses redundant selection/connect work; a bottle configured
         // before this program was added would otherwise reject the launch.
         let _ = self.configured.ensure(&container);
         self.bridge.configure_runtime(&container);
-        let program_name = self
-            .programs
+        let program_name = program
             .as_ref()
-            .and_then(|page| page.table.row(path))
             .map(|p| p.name.clone())
             .unwrap_or_else(|| {
                 std::path::Path::new(path)
@@ -7046,9 +7070,17 @@ impl WhiskyApp {
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| path.to_owned())
             });
-        self.show_notice(format!("正在启动 {program_name}"), cx);
-        self.runtime.set_state(&entry_id, RuntimeState::Preparing);
-        self.bridge.launch(&container, &entry_id, Some(path));
+        if let Some(entry_id) = entry_id {
+            self.show_notice(format!("正在启动 {program_name}"), cx);
+            self.runtime.set_state(&entry_id, RuntimeState::Preparing);
+            self.bridge.launch(&container, &entry_id, Some(path));
+        } else if let Some(program) = program.filter(|p| p.available && !p.blocked) {
+            self.show_notice(format!("正在启动 {}", program.name), cx);
+            self.bridge.run_program(&container, &program.path, &program.name);
+        } else {
+            self.show_notice("该程序不可用或已被屏蔽", cx);
+            return;
+        }
         cx.notify();
     }
 
@@ -7087,6 +7119,8 @@ impl WhiskyApp {
             title,
             folder: folder.clone(),
             launch_after,
+            loading: true,
+            error: None,
             candidates: Vec::new(),
         });
         self.bridge.load_candidates(&container, &folder);
@@ -7444,11 +7478,27 @@ impl WhiskyApp {
         if let PreviewSheet::MoveEntry(index) = sheet {
             self.prepare_move_entry(index, cx);
         }
-        if sheet == PreviewSheet::CreateBottle
-            && self.service_available("wine.engines.list")
-            && self.wine_engines.is_empty()
-        {
-            self.bridge.load_wine_engines();
+        if sheet == PreviewSheet::CreateBottle {
+            if self
+                .create_bottle
+                .as_ref()
+                .is_some_and(|job| !job.running())
+            {
+                self.create_bottle = None;
+            }
+            if !self.wine_engines.is_empty() {
+                let resolved = self.resolved_create_engine_id();
+                if self
+                    .wine_engines
+                    .iter()
+                    .any(|engine| engine.id == resolved && engine.available)
+                {
+                    self.preview.choices.insert("create-engine", resolved.into());
+                }
+            }
+            if self.service_available("wine.engines.list") {
+                self.bridge.load_wine_engines();
+            }
         }
         if sheet == PreviewSheet::Winetricks {
             // A finished job is a result surface, not a permanent lock: opening
@@ -7491,6 +7541,43 @@ impl WhiskyApp {
     pub(crate) fn preview_single_line(&self) -> bool {
         self.flag("single-title")
     }
+    /// Resolves the Wine engine id used when creating a new bottle: honors the
+    /// current selection if it is available, otherwise prefers an available
+    /// managed runtime or falls back to the first available external engine.
+    pub(crate) fn resolved_create_engine_id(&self) -> String {
+        if let Some(choice) = self
+            .preview
+            .choices
+            .get("create-engine")
+            .filter(|id| !id.is_empty())
+        {
+            if self.wine_engines.is_empty()
+                || self
+                    .wine_engines
+                    .iter()
+                    .any(|engine| engine.id == choice.as_str() && engine.available)
+            {
+                return choice.to_string();
+            }
+        }
+        if self
+            .wine_engines
+            .iter()
+            .any(|engine| engine.id == "managed" && engine.available)
+        {
+            return "managed".to_owned();
+        }
+        if let Some(first) = self.wine_engines.iter().find(|engine| engine.available) {
+            return first.id.clone();
+        }
+        self.preview
+            .choices
+            .get("create-engine")
+            .filter(|id| !id.is_empty())
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "managed".to_owned())
+    }
+
     pub(crate) fn preview_dismiss(&mut self, cx: &mut Context<Self>) {
         // While a bottle is being created the sheet is the only in-progress
         // cue; keep it on screen until the job settles (the button becomes
@@ -7502,6 +7589,7 @@ impl WhiskyApp {
         {
             return;
         }
+        self.create_bottle = None;
         self.preview.sheet = None;
         self.preview.sheet_history.clear();
         // A dismissed picker chose nothing, so nothing is recorded or launched.

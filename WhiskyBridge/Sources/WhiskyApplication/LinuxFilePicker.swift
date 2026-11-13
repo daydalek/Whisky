@@ -124,7 +124,7 @@ struct LinuxFilePicker: Sendable {
                     throw BridgeFailure("invalid_params", "Expected a file name")
                 }
             }
-            guard let start = params["path"]?.string else { return name }
+            guard let start = params["path"]?.string, !start.isEmpty else { return name }
             guard start.hasPrefix("/"), !start.contains("\0") else {
                 throw BridgeFailure("invalid_params", "Expected an absolute start path")
             }

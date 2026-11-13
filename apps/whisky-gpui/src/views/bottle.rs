@@ -1234,7 +1234,7 @@ impl WhiskyApp {
             let play_path = path.clone();
             let pinned = program.pinned;
             let blocked = program.blocked;
-            let launchable = self.program_entry_id(&container, program).is_some();
+            let launchable = program.available && !program.blocked;
             let (top, bottom) = theme::placeholder_gradient();
             rows.push(
                 row()
@@ -1690,7 +1690,13 @@ impl WhiskyApp {
                 .into_any_element(),
         );
         rows.push(
+            #[cfg(not(target_os = "linux"))]
             muted("引擎更换不会迁移容器前缀；请先停止容器内所有进程。外部引擎只读使用，更新与 GPTK 部署仅作用于受管运行时。")
+                .text_size(px(11.))
+                .line_height(relative(1.4))
+                .into_any_element(),
+            #[cfg(target_os = "linux")]
+            muted("引擎更换不会迁移容器前缀；请先停止容器内所有进程。外部引擎只读使用，运行时更新仅作用于受管运行时。")
                 .text_size(px(11.))
                 .line_height(relative(1.4))
                 .into_any_element(),

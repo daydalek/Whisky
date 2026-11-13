@@ -35,7 +35,11 @@ public enum LibraryStorageLayout {
 
     /// SHA-256, used exclusively for compatibility with existing storage filenames.
     public static func key(_ value: String) -> String {
-        var bytes = Array(value.utf8)
+        sha256(Data(value.utf8))
+    }
+
+    public static func sha256(_ data: Data) -> String {
+        var bytes = Array(data)
         let bitCount = UInt64(bytes.count) * 8
         bytes.append(0x80)
         while bytes.count % 64 != 56 {

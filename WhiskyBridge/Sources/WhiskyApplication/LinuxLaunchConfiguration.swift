@@ -45,7 +45,12 @@ public struct LinuxLaunchConfiguration: Sendable, Equatable {
 
     /// Loads the configuration for `executable` in `container`. Unreadable
     /// optional files fall back to defaults; Wine still starts.
-    public static func load(container: URL, executable: URL?) async throws -> Self {
+    public static func load(
+        container: URL,
+        executable: URL?,
+        engine: LinuxWineEngine? = nil,
+        featureOverrides: [String: String] = [:]
+    ) async throws -> Self {
         let metadataURL = container.appendingPathComponent("Metadata.plist")
         let file = ConfigurationFile(url: metadataURL, locking: HostFileLock())
         let values = try await file.values(for: ContainerConfiguration.fields)
@@ -62,7 +67,9 @@ public struct LinuxLaunchConfiguration: Sendable, Equatable {
             values: values,
             bottleEnvironment: bottleEnvironment,
             bottleDLLOverrides: dllOverrides(metadata["customDLLOverrides"]),
-            program: program
+            program: program,
+            engine: engine,
+            featureOverrides: featureOverrides
         )
         // A dxvk.conf beside Metadata.plist tunes DXVK the same way it does
         // on macOS (`WineEnvironment`); the variable exists so the file is
@@ -103,8 +110,13 @@ public struct LinuxLaunchConfiguration: Sendable, Equatable {
         values: [String: ConfigurationValue],
         bottleEnvironment: [String: String],
         bottleDLLOverrides: [(String, String)],
-        program: [String: Any]
+        program: [String: Any],
+        engine: LinuxWineEngine? = nil,
+        featureOverrides: [String: String] = [:]
     ) -> Self {
+        let esyncAllowed = engine?.featureEnabled(.esync, overrides: featureOverrides) ?? true
+        let dxvkAllowed = engine?.featureEnabled(.dxvk, overrides: featureOverrides) ?? true
+        let dxvkAsyncAllowed = engine?.featureEnabled(.dxvkAsync, overrides: featureOverrides) ?? true
         var environment = ["WINEDEBUG": "fixme-all"]
         var overrides: [(String, String)] = []
         func text(_ key: String) -> String? {
@@ -135,7 +147,10 @@ public struct LinuxLaunchConfiguration: Sendable, Equatable {
         // the supported primitives are ESync and FSync. An imported `msync`
         // value degrades to ESync, the closest Linux equivalent.
         switch overrideText("enhancedSync") ?? text("enhancedSync") ?? "none" {
-        case "esync", "msync": environment["WINEESYNC"] = "1"
+        case "esync", "msync":
+            if esyncAllowed {
+                environment["WINEESYNC"] = "1"
+            }
         case "fsync": environment["WINEFSYNC"] = "1"
         default: break
         }
@@ -145,15 +160,19 @@ public struct LinuxLaunchConfiguration: Sendable, Equatable {
         let backend = overrideText("graphicsBackend") ?? text("graphicsBackend") ?? "recommended"
         switch backend {
         case "dxvk":
-            overrides += dxvkDLLs.map { ($0, "n,b") }
+            if dxvkAllowed {
+                overrides += dxvkDLLs.map { ($0, "n,b") }
+            }
         case "wined3d":
             overrides += dxvkDLLs.map { ($0, "b") }
         default:
             if let dxvk = overrideFlag("dxvk") {
-                overrides += dxvkDLLs.map { ($0, dxvk ? "n,b" : "b") }
+                if !dxvk || dxvkAllowed {
+                    overrides += dxvkDLLs.map { ($0, dxvk ? "n,b" : "b") }
+                }
             }
         }
-        if overrideFlag("dxvkAsync") ?? flag("dxvkAsync") ?? true {
+        if dxvkAsyncAllowed, overrideFlag("dxvkAsync") ?? flag("dxvkAsync") ?? true {
             environment["DXVK_ASYNC"] = "1"
         }
         switch overrideText("dxvkHud") ?? text("dxvkHud") ?? "off" {

@@ -1913,7 +1913,7 @@ impl WhiskyApp {
         };
         let folder = picker.folder.clone();
         let mut rows: Vec<AnyElement> = Vec::new();
-        if picker.candidates.is_empty() {
+        if picker.loading {
             rows.push(
                 row()
                     .gap(px(10.))
@@ -1923,6 +1923,10 @@ impl WhiskyApp {
                     .child(muted("正在递归扫描该文件夹下的可执行程序…"))
                     .into_any_element(),
             );
+        } else if let Some(reason) = picker.error.as_deref() {
+            rows.push(self.info("扫描失败", reason));
+        } else if picker.candidates.is_empty() {
+            rows.push(self.info("没有找到可启动的程序", "该文件夹下没有 .exe"));
         }
         for (i, candidate) in picker.candidates.iter().enumerate() {
             let path = candidate.path.clone();
@@ -2913,7 +2917,13 @@ impl WhiskyApp {
                         .default_bottle_location
                         .as_ref()
                         .map(|path| crate::create_bottle::display_bottle_location(path))
-                        .unwrap_or_else(|| "~/Library/Containers/com.daydalek.Maltoria/Bottles".to_owned());
+                        .unwrap_or_else(|| {
+                            if cfg!(target_os = "macos") {
+                                "~/Library/Containers/com.daydalek.Maltoria/Bottles".to_owned()
+                            } else {
+                                "~/.local/share/whisky/Bottles".to_owned()
+                            }
+                        });
                     self.form(
                         "create-bottle-scroll",
                         vec![self.section(
@@ -3749,17 +3759,11 @@ impl WhiskyApp {
                 #[cfg(not(target_os = "macos"))]
                 {
                     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
-                    format!("{}/.local/share/maltoria/Bottles", home)
+                    format!("{}/.local/share/whisky/Bottles", home)
                 }
             });
 
-        let engine_id = self
-            .preview
-            .choices
-            .get("create-engine")
-            .cloned()
-            .filter(|id| !id.is_empty())
-            .unwrap_or_else(|| "managed".into());
+        let engine_id = self.resolved_create_engine_id();
         self.bridge
             .create_bottle_with_engine(name, &parent, windows_version, &engine_id);
         // Keep the sheet open: the Started event switches it to the
@@ -4658,12 +4662,7 @@ impl WhiskyApp {
         if !self.service_available("wine.engines.list") || self.wine_engines.is_empty() {
             return div().into_any_element();
         }
-        let selected = self
-            .preview
-            .choices
-            .get("create-engine")
-            .cloned()
-            .unwrap_or_else(|| "managed".into());
+        let selected = self.resolved_create_engine_id();
         let label = self
             .wine_engines
             .iter()

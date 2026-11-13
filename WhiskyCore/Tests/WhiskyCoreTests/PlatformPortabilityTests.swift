@@ -62,6 +62,26 @@ struct PlatformPortabilityTests {
         #expect(found.map(\.lastPathComponent) == ["LAUNCH.EXE"])
     }
 
+    @Test func installedProgramsDiscoversCustomTopLevelGameFoldersWhileSkippingWindowsDirs() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let driveC = root.appendingPathComponent("drive_c")
+        let customGame = driveC.appendingPathComponent("Games/ActionTitle")
+        let windowsDir = driveC.appendingPathComponent("windows/system32")
+        let usersDir = driveC.appendingPathComponent("users/crossover/Desktop")
+        try FileManager.default.createDirectory(at: customGame, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: windowsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: usersDir, withIntermediateDirectories: true)
+
+        let gameExe = customGame.appendingPathComponent("ActionTitle.exe")
+        try Data([0x4D, 0x5A]).write(to: gameExe)
+        try Data([0x4D, 0x5A]).write(to: windowsDir.appendingPathComponent("cmd.exe"))
+        try Data([0x4D, 0x5A]).write(to: usersDir.appendingPathComponent("usertool.exe"))
+
+        let found = InstalledPrograms.discoverInstalledExecutables(driveC: driveC, blocklist: [])
+        #expect(found.map(\.lastPathComponent) == ["ActionTitle.exe"])
+    }
+
     @Test func platformFilteredConfigurationSchemaExcludesMacOSOnlySettingsOnLinux() {
         let linuxFields = ContainerConfiguration.fields(for: .linux)
         let linuxIDs = Set(linuxFields.map(\.id))

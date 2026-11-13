@@ -1,38 +1,51 @@
-# Custom Wine engines (macOS)
+# Custom Wine engines
 
-Maltoria's macOS GPUI app can run individual bottles on a locally installed,
-external Wine runtime instead of the managed Whisky Wine build. Engines are
-registered once in Settings and then bound per bottle; the managed runtime
-stays the default and is never silently replaced.
+Maltoria's GPUI app (macOS and Linux) can run individual bottles on a locally
+installed, external Wine runtime instead of the managed Whisky Wine build.
+Engines are registered once in Settings and then bound per bottle; the managed
+runtime stays the default and is never silently replaced.
 
-This applies to macOS only. Linux keeps the existing managed-runtime flow and
-the `--wine-runtime` / `WHISKY_WINE_RUNTIME` override unchanged.
+On Linux, `--wine-runtime` / `WHISKY_WINE_RUNTIME` and `WHISKY_WINE_FALLBACK_RUNTIME`
+continue to override the managed (`managed`) default engine, while additional
+external Linux Wine builds can be registered and bound per container via
+`wine.engines.*`.
 
 ## Accepted engine layouts
 
 Detection is static — nothing in the tree is ever executed to register it.
-Two layouts are accepted:
+Two layouts are accepted on both macOS and Linux:
 
-- **Standard root**: the directory itself contains `bin/` and `lib/`.
+- **Standard root**: the directory itself contains `bin/` and `lib/` (or `lib64/` on Linux).
 - **Nested `Wine/`**: the directory contains a `Wine/` subdirectory with
-  `bin/`/`lib/` inside; payload directories (DXVK, DXMT, D3DMetal,
+  `bin/`/`lib/` inside; on macOS, payload directories (DXVK, DXMT, D3DMetal,
   GDICoreML) found next to `Wine/` or inside it are detected as features.
 
 Required inside the effective root:
 
-- `bin/wine64` (preferred) or `bin/wine` — an executable Mach-O with at least
-  one `arm64` or `x86_64` slice.
-- `bin/wineserver` — executable Mach-O sharing at least one architecture
-  slice with the loader.
-- `lib/` — a directory (may be empty).
+- **macOS**:
+  - `bin/wine64` (preferred) or `bin/wine` — an executable Mach-O with at least
+    one `arm64` or `x86_64` slice.
+  - `bin/wineserver` — executable Mach-O sharing at least one architecture
+    slice with the loader.
+  - `lib/` — a directory (may be empty).
+- **Linux**:
+  - `bin/wine` (preferred) or `bin/wine64` — an executable ELF (`ET_EXEC` or
+    `ET_DYN`, e.g. `aarch64`, `x86_64`, or `i386`).
+  - `bin/wineserver` — executable ELF with a matching host architecture (`aarch64`
+    or `x86_64`, or `x86_64` paired with an `i386` loader on split 32/64 trees).
+  - `lib/` (or `lib64/`) — a directory.
+  - Foreign-architecture Linux trees (such as an `x86_64` engine on an `aarch64`
+    host without a binfmt/FEX/Box64 translator) still inspect and register with
+    `available: false` and an explicit translator diagnostic.
 
 Registration rejects, with a visible reason:
 
 - Missing root, loader, server, or `lib/` directory.
 - Non-executable files, shell scripts, or wrappers in place of the loader —
   scripts are never run or wrapped.
-- Non-Mach-O binaries (ELF, truncated files), `i386`-only binaries, and
-  loader/server pairs with no common architecture.
+- Wrong-format binaries (e.g. ELF on macOS, Mach-O or shell scripts on Linux,
+  truncated files), unsupported architectures (`i386`-only binaries), and
+  loader/server pairs with no compatible architecture.
 - Anything found by searching inside `.app` bundles — there is no recursive
   search; the directory must be the engine root itself.
 
@@ -41,10 +54,11 @@ to their canonical path, and registering the same root twice reuses the
 existing registration rather than duplicating it.
 
 The registry lives at
-`~/Library/Application Support/<bundle id>/Wine Engines.json` and is shared
-by the app, the bridge helper, and the CLI. A missing registry means "no
-external engines"; a corrupt one is reported to the UI instead of silently
-dropping entries.
+`~/Library/Application Support/<bundle id>/Wine Engines.json` on macOS, and at
+`$XDG_CONFIG_HOME/whisky/Wine Engines.json` (`~/.config/whisky/Wine Engines.json`,
+overridable via `WHISKY_WINE_ENGINES_REGISTRY`) on Linux. A missing registry
+means "no external engines"; a corrupt one is reported to the UI instead of
+silently dropping entries.
 
 ## Per-bottle lifecycle
 

@@ -129,4 +129,45 @@ struct FolderDiscoveryTests {
         library.roots = []
         #expect(library.scan(bottleURL: bottle, steamDirectories: []).isEmpty)
     }
+
+    @Test func standaloneGameRootIsEmittedWhenRootDirectlyContainsExecutable() throws {
+        let root = FileManager.default.temporaryDirectory
+            .resolvingSymlinksInPath()
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bottle = root.appendingPathComponent("Bottle")
+        let standalone = root.appendingPathComponent("StandaloneGame")
+        let contentDir = standalone.appendingPathComponent("Content")
+        try FileManager.default.createDirectory(at: bottle, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: contentDir, withIntermediateDirectories: true)
+        let gameExe = standalone.appendingPathComponent("StandaloneGame.exe")
+        try Data([0x4D, 0x5A]).write(to: gameExe)
+        try Data([0x00]).write(to: contentDir.appendingPathComponent("pack.dat"))
+
+        var library = FolderGameLibrary()
+        library.roots = [standalone.path]
+        let entries = library.scan(bottleURL: bottle, steamDirectories: [])
+        #expect(entries.count == 1)
+        #expect(entries.first?.name == "StandaloneGame")
+        if case let .program(url) = entries.first?.launch {
+            #expect(url.standardizedFileURL.path == standalone.standardizedFileURL.path)
+        } else {
+            Issue.record("Expected standalone folder program entry")
+        }
+        #expect(
+            ExecutableCandidateFinder.candidates(in: standalone).map(\.standardizedFileURL.path)
+                == [gameExe.standardizedFileURL.path]
+        )
+
+        try FileManager.default.removeItem(at: standalone)
+        var failures = 0
+        let offline = library.scan(bottleURL: bottle, steamDirectories: []) { _, _ in failures += 1 }
+        #expect(failures == 1)
+        #expect(offline.count == 1)
+        if case let .program(url) = offline.first?.launch {
+            #expect(url.standardizedFileURL.path == standalone.standardizedFileURL.path)
+        } else {
+            Issue.record("Expected preserved offline standalone entry")
+        }
+    }
 }

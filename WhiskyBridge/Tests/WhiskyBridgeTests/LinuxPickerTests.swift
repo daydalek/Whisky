@@ -82,6 +82,9 @@ private struct PickerFixture {
     let multiple = try await fixture.picker(text: fixture.root.path + "\0" + fixture.bin.path + "\0")
         .call("system.chooseFolders", params: [:])
     #expect(multiple.object?["paths"] == .array([.string(fixture.root.path), .string(fixture.bin.path)]))
+    let emptyStart = try await fixture.picker(text: fixture.root.path + "\0")
+        .call("system.chooseFolder", params: ["path": .string("")])
+    #expect(emptyStart.object?["path"] == .string(fixture.root.path))
 }
 
 @Test func linuxPickerSaveAddsTheRequestedExtensionAndCancelStaysDistinctFromFailure() async throws {

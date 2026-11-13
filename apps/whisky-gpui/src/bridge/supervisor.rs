@@ -436,6 +436,11 @@ pub(crate) enum BridgeEvent {
     Candidates {
         candidates: CandidatesDto,
     },
+    /// Scanning `.exe` candidates under a folder entry failed.
+    CandidatesFailed {
+        folder: String,
+        reason: String,
+    },
     /// `preferences.read` plus the `preferences.schema` allow-list.
     Preferences {
         values: serde_json::Value,
@@ -2985,7 +2990,7 @@ fn run_with_spawner_and_backoff<F, B>(
                             emit_event(&events, BridgeEvent::Candidates { candidates });
                         }
                         Err(CallFailure::Remote(reason)) => {
-                            emit_event(&events, BridgeEvent::RuntimeFailed { reason });
+                            emit_event(&events, BridgeEvent::CandidatesFailed { folder, reason });
                         }
                         Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
@@ -3960,10 +3965,11 @@ fn run_with_spawner_and_backoff<F, B>(
                     }
                 }
                 Some(Command::ChooseFolder(path)) => {
+                    let params = if path.is_empty() { json!({}) } else { json!({ "path": path }) };
                     match client
                         .call_with_timeout(
                             "system.chooseFolder",
-                            json!({ "path": path }),
+                            params,
                             PICKER_TIMEOUT,
                         )
                         .map_err(classify)
@@ -3979,10 +3985,11 @@ fn run_with_spawner_and_backoff<F, B>(
                     }
                 }
                 Some(Command::ChooseFolders { purpose, path }) => {
+                    let params = if path.is_empty() { json!({}) } else { json!({ "path": path }) };
                     match client
                         .call_with_timeout(
                             "system.chooseFolders",
-                            json!({ "path": path }),
+                            params,
                             PICKER_TIMEOUT,
                         )
                         .map_err(classify)
@@ -4049,7 +4056,7 @@ fn run_with_spawner_and_backoff<F, B>(
                     extensions,
                 }) => {
                     let mut params = json!({ "purpose": purpose, "mode": mode });
-                    if let Some(path) = &path {
+                    if let Some(path) = path.as_deref().filter(|value| !value.is_empty()) {
                         params["path"] = json!(path);
                     }
                     if let Some(name) = &name {
@@ -8285,6 +8292,56 @@ mod tests {
             1,
             "no respawn after a remote error"
         );
+        drop(supervisor);
+    }
+
+    #[test]
+    fn test_choose_folder_omits_empty_start_path() {
+        let server = whisky_bridge::MockBridgeServer::new_arc();
+        server
+            .state()
+            .lock()
+            .unwrap()
+            .methods
+            .push("system.chooseFolder".into());
+        server.set_response("system.chooseFolder", json!({ "path": "/opt/wine-arm64" }));
+
+        let (delays_tx, _delays_rx) = mpsc::channel::<Duration>();
+        let server_clone = server.clone();
+        let (supervisor, rx) = BridgeSupervisor::start_with_spawner_and_backoff(
+            move || Client::new_mock(server_clone.clone()).map_err(|e| e.to_string()),
+            recording_backoff(delays_tx),
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut connected = false;
+        while Instant::now() < deadline && !connected {
+            if let Ok(BridgeEvent::Status(BridgeStatus::Connected { .. })) = rx.try_recv() {
+                connected = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(connected);
+
+        supervisor.choose_folder("");
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut chosen = None;
+        while Instant::now() < deadline && chosen.is_none() {
+            if let Ok(BridgeEvent::FolderChosen { path }) = rx.try_recv() {
+                chosen = Some(path);
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert_eq!(chosen, Some(Some("/opt/wine-arm64".to_owned())));
+        let calls = server.recorded_calls();
+        let (_, params) = calls
+            .iter()
+            .find(|(method, _)| method == "system.chooseFolder")
+            .expect("system.chooseFolder must be called");
+        assert_eq!(params, &json!({}));
         drop(supervisor);
     }
 

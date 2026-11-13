@@ -70,7 +70,10 @@ public enum ExecutableCandidateFinder {
         let fileManager = FileManager.default
         var found: [URL] = []
         var directories: [(url: URL, depth: Int)] = [(folder, 0)]
-        while let directory = directories.popLast(), found.count < limit {
+        var cursor = 0
+        while cursor < directories.count, found.count < limit {
+            let directory = directories[cursor]
+            cursor += 1
             guard let items = try? fileManager.contentsOfDirectory(
                 at: directory.url,
                 includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey],

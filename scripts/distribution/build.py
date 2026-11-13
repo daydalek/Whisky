@@ -24,9 +24,13 @@ ROOT = Path(__file__).resolve().parents[2]
 TARGETS = {
     'whisky-macos-gpui-arm64': ('Darwin', 'arm64', 'GPUI · ad-hoc ZIP · 预发布', ('swift', 'cargo', 'iconutil', 'codesign', 'ditto')),
     'whisky-linux-amd64': ('Linux', 'x86_64', 'GPUI · Ubuntu 24.04 · tar.gz', ('swift', 'cargo', 'clang', 'patchelf', 'pkg-config')),
+    'whisky-linux-arm64': ('Linux', 'arm64', 'GPUI · Ubuntu 24.04 · tar.gz', ('swift', 'cargo', 'clang', 'patchelf', 'pkg-config')),
     'wine-macos-arm64': ('Darwin', 'arm64', 'Apple Silicon 主机 · x86_64 Wine/Rosetta · Libraries', ('cmake', 'pkg-config', 'xcrun')),
     'wine-linux-amd64': ('Linux', 'x86_64', 'Ubuntu 24.04 · new WoW64 · tar.gz', ('cc', 'make', 'patchelf', 'pkg-config', 'git')),
 }
+LINUX_APP_TARGETS = ('whisky-linux-amd64', 'whisky-linux-arm64')
+LINUX_DOCKER_ARCH = {'x86_64': 'amd64', 'arm64': 'arm64'}
+LINUX_RELEASE_ARCH = {'x86_64': 'x86_64', 'arm64': 'aarch64'}
 
 
 def positive(value):
@@ -89,8 +93,8 @@ def plan(args):
         raise ValueError('请选择构建目标，例如 ./build.sh plan whisky-linux-amd64')
     if args.install and (args.target != 'whisky-macos-gpui-arm64' or args.executor != 'native'):
         raise ValueError('--install 适用于原生 macOS GPUI 构建')
-    if args.formats and args.target != 'whisky-linux-amd64':
-        raise ValueError('--formats 适用于 whisky-linux-amd64')
+    if args.formats and args.target not in LINUX_APP_TARGETS:
+        raise ValueError('--formats 适用于 whisky-linux-amd64 / whisky-linux-arm64')
     is_wine = args.target.startswith('wine-')
     if args.compile_only and args.target != 'wine-linux-amd64':
         raise ValueError('--compile-only 适用于 wine-linux-amd64')
@@ -128,7 +132,7 @@ def plan(args):
         if args.install:
             step('部署到 /Applications/Maltoria.app', ['python3', ROOT / 'scripts/distribution/install-macos.py',
                  '--remove-source', app_dir])
-    elif args.target == 'whisky-linux-amd64':
+    elif args.target in LINUX_APP_TARGETS:
         version = args.version or '0.1.0'
         if not re.fullmatch(r'\d+\.\d+\.\d+', version):
             raise ValueError('请提供 --version X.Y.Z')
@@ -139,8 +143,9 @@ def plan(args):
              output / 'artifacts/Maltoria', '--output', output / 'elf-abi.json'])
         formats = [name for name in (args.formats or ['tar', 'deb', 'rpm', 'appimage']) if name != 'tar']
         if formats:
+            archive_arch = LINUX_RELEASE_ARCH[TARGETS[args.target][1]]
             step('Linux 安装包与 AppImage', ['python3', ROOT / 'scripts/distribution/package-linux.py',
-                '--archive', output / 'artifacts/maltoria-linux-x86_64.tar.gz', '--version', version,
+                '--archive', output / f'artifacts/maltoria-linux-{archive_arch}.tar.gz', '--version', version,
                 '--output', output / 'packages', '--formats', *formats])
     elif args.target == 'wine-macos-arm64':
         work = (args.work_dir or output / 'work').expanduser().resolve()
@@ -174,11 +179,13 @@ def plan(args):
             raise ValueError('Docker 执行器支持 Linux 目标；macOS 目标使用 Apple 主机')
         if args.work_dir or args.archive_cache:
             raise ValueError('Docker 执行器在持久化 /cache 下自动管理 Wine 工作目录和下载缓存')
+        docker_arch = LINUX_DOCKER_ARCH[TARGETS[args.target][1]]
+        docker_platform = 'linux/' + docker_arch
         dockerfile = ROOT / 'scripts/distribution' / ('wine.Dockerfile' if is_wine else 'app.Dockerfile')
         dependency_script = repo / ('scripts/linux/install-deps.sh' if is_wine else
                                     'apps/whisky-gpui/tools/install-linux-deps.sh')
         image_key = hashlib.sha256(dockerfile.read_bytes() + dependency_script.read_bytes()).hexdigest()[:16]
-        image = 'whisky-builder-' + ('wine' if is_wine else 'app') + ':ubuntu24-amd64-' + image_key
+        image = 'whisky-builder-' + ('wine' if is_wine else 'app') + f':ubuntu24-{docker_arch}-' + image_key
         cache = ROOT / 'build/distribution-cache/docker' / args.target
         inner = ['python3', '/workspace/scripts/distribution/build.py', 'run', args.target,
                  '--output', '/output/task', '--jobs', str(args.jobs), '--wine-repo', '/wine']
@@ -191,7 +198,7 @@ def plan(args):
         if is_wine:
             inner += ['--work-dir', '/cache/work/' + recipe_key(repo)]
         container_name = 'whisky-build-' + uuid.uuid4().hex[:12]
-        run = ['docker', 'run', '--rm', '--init', '--name', container_name, '--platform', 'linux/amd64',
+        run = ['docker', 'run', '--rm', '--init', '--name', container_name, '--platform', docker_platform,
                '--user', f'{os.getuid()}:{os.getgid()}',
                '--mount', mount(ROOT, '/workspace', readonly=True),
                '--mount', mount(output, '/output'),
@@ -211,7 +218,7 @@ def plan(args):
             workDirectory='/cache/work/' + recipe_key(repo) if is_wine else None,
             contextFiles={str(dockerfile): 'Dockerfile', str(dependency_script): 'install-deps.sh'},
             environment={}, steps=[
-            dict(name='缓存构建环境镜像', cwd=str(ROOT), command=['docker', 'build', '--platform', 'linux/amd64',
+            dict(name='缓存构建环境镜像', cwd=str(ROOT), command=['docker', 'build', '--platform', docker_platform,
                  '--file', str(context / 'Dockerfile'), '--tag', image, str(context)]),
             dict(name='容器内构建和验证', cwd=str(ROOT), command=run)])
     return result
@@ -235,7 +242,7 @@ def doctor(args):
         checks.append(dict(name='Ubuntu 24.04 构建基线', passed=bool(re.search(r'^ID=ubuntu$', release, re.M))
                            and bool(re.search(r'^VERSION_ID="?24\.04"?$', release, re.M))))
         checks.append(dict(name='Python 3.12+', passed=sys.version_info >= (3, 12)))
-        if args.target == 'whisky-linux-amd64':
+        if args.target in LINUX_APP_TARGETS:
             formats = args.formats or ['tar', 'deb', 'rpm', 'appimage']
             for name, tool in [('deb', 'dpkg-deb'), ('rpm', 'rpmbuild'), ('appimage', 'file')]:
                 if name in formats:
@@ -356,7 +363,7 @@ def menu(args):
     names = list(TARGETS)
     for index, name in enumerate(names, 1):
         print(f'  {index}. {name} · {TARGETS[name][2]}')
-    print('  Linux arm64 · 后续目标\n  0. 退出')
+    print('  0. 退出')
     selected = input('\n选择目标：').strip()
     if selected == '0':
         return
@@ -370,7 +377,7 @@ def menu(args):
         if executor not in ('1', '2'):
             raise ValueError('请选择 1 或 2')
         args.executor = 'docker' if executor == '2' else 'native'
-    if args.target == 'whisky-linux-amd64':
+    if args.target in LINUX_APP_TARGETS:
         args.version = args.version or input('安装包版本 X.Y.Z [0.1.0]：').strip() or '0.1.0'
         format_choice = input('格式：1. 全部  2. tar  3. deb  4. rpm  5. AppImage [1]：').strip() or '1'
         choices = {'1': ['tar', 'deb', 'rpm', 'appimage'], '2': ['tar'], '3': ['deb'],
@@ -416,7 +423,7 @@ def main(argv=None):
         if args.action == 'list':
             values = [dict(target=k, host=v[0], architecture=v[1], description=v[2]) for k, v in TARGETS.items()]
             print(json.dumps(values, ensure_ascii=False, indent=2) if args.json else
-                  '\n'.join(f"{v['target']:28} {v['description']}" for v in values) + '\nLinux arm64：后续目标')
+                  '\n'.join(f"{v['target']:28} {v['description']}" for v in values))
         elif args.action == 'menu':
             menu(args)
         elif not args.target:

@@ -194,7 +194,7 @@ struct LinuxTerminalService {
         _ arguments: [String],
         _ environment: [String: String]
     ) throws {
-        let process = Process()
+        let process = LinuxManagedProcess()
         process.executableURL = executable
         process.arguments = arguments
         process.environment = environment

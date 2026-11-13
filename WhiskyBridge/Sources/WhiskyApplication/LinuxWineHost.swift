@@ -60,15 +60,13 @@ public struct LinuxWineHost: Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         let runtimeURL = runtimeURL.resolvingSymlinksInPath()
-        let loader = runtimeURL.appendingPathComponent("bin/wine")
+        guard let loader = Self.resolveLoader(in: runtimeURL) else { return nil }
         let wineserver = runtimeURL.appendingPathComponent("bin/wineserver")
-        guard FileManager.default.isExecutableFile(atPath: loader.path),
-              FileManager.default.isExecutableFile(atPath: wineserver.path)
-        else { return nil }
+        guard FileManager.default.isExecutableFile(atPath: wineserver.path) else { return nil }
         self.runtimeURL = runtimeURL
         self.loader = loader
         self.wineserver = wineserver
-        library = runtimeURL.appendingPathComponent("lib")
+        library = Self.resolveLibrary(in: runtimeURL)
         inherited = environment
         let header = Self.elfHeader(loader)
         architecture = header.flatMap(Self.elfArchitecture) ?? "unknown"
@@ -79,6 +77,28 @@ public struct LinuxWineHost: Sendable {
             host: hostArchitecture,
             environment: environment
         )
+    }
+
+    static func resolveLoader(in runtimeURL: URL) -> URL? {
+        for candidate in ["bin/wine", "bin/wine64"] {
+            let url = runtimeURL.appendingPathComponent(candidate)
+            if FileManager.default.isExecutableFile(atPath: url.path) {
+                return url
+            }
+        }
+        return nil
+    }
+
+    static func resolveLibrary(in runtimeURL: URL) -> URL {
+        for candidate in ["lib", "lib64"] {
+            let url = runtimeURL.appendingPathComponent(candidate)
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                return url
+            }
+        }
+        return runtimeURL.appendingPathComponent("lib")
     }
 
     public var canExecute: Bool {
@@ -184,8 +204,8 @@ public struct LinuxWineHost: Sendable {
         arguments: [String],
         prefix: URL,
         environment extra: [String: String] = [:]
-    ) -> Process {
-        let process = Process()
+    ) -> LinuxManagedProcess {
+        let process = LinuxManagedProcess()
         if case let .emulator(emulator) = translation {
             process.executableURL = emulator
             process.arguments = [executable.path] + arguments
@@ -297,6 +317,36 @@ public struct LinuxWineHost: Sendable {
     }
 
     // MARK: - Architecture detection
+
+    public struct ELFInfo: Sendable, Equatable {
+        public let architecture: String?
+        public let isExecutableType: Bool
+        public let is64Bit: Bool
+        public let header: [UInt8]
+    }
+
+    public static func inspectELF(_ url: URL) -> ELFInfo? {
+        guard let header = elfHeader(url) else { return nil }
+        let eiClass = header[4]
+        let eiData = header[5]
+        guard eiClass == 1 || eiClass == 2, eiData == 1 else {
+            return ELFInfo(
+                architecture: nil,
+                isExecutableType: false,
+                is64Bit: false,
+                header: header
+            )
+        }
+        let type = UInt16(header[16]) | UInt16(header[17]) << 8
+        // Linux position-independent executables are ET_DYN (3); traditional executables are ET_EXEC (2).
+        let executableType = type == 2 || type == 3
+        return ELFInfo(
+            architecture: elfArchitecture(header),
+            isExecutableType: executableType,
+            is64Bit: eiClass == 2,
+            header: header
+        )
+    }
 
     private static func elfHeader(_ url: URL) -> [UInt8]? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
@@ -431,10 +481,10 @@ public struct LinuxWineHost: Sendable {
 /// Serializes cancellation with spawn so a pre-cancelled job cannot start a child later.
 private final class WineChildControl: @unchecked Sendable {
     private let lock = NSLock()
-    private let process: Process
+    private let process: LinuxManagedProcess
     private var cancelled = false
 
-    init(_ process: Process) {
+    init(_ process: LinuxManagedProcess) {
         self.process = process
     }
 
