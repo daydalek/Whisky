@@ -63,6 +63,13 @@ startup checks respect the update and offline preferences. Bundled Wine acts as
 a fallback; `WHISKY_WINE_RUNTIME` selects an externally managed fixed path.
 See the [Linux Wine update contract](../../docs/gpui-port/LINUX_WINE_UPDATES.md).
 
+### Custom Wine engines (macOS)
+
+On macOS, Settings can register local external Wine engine directories and each
+bottle can be bound to one — per-bottle selection, feature gating and
+confirmation rules are documented in
+[`docs/custom-wine-engines.md`](../../docs/custom-wine-engines.md).
+
 ### Linux cover upscaling
 
 Cover upscaling on Linux drives a locally installed `realcugan-ncnn-vulkan`
