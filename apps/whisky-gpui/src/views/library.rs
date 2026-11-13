@@ -275,9 +275,15 @@ impl WhiskyApp {
             return self.library_error_surface(error, cx);
         }
         if self.games().is_empty() && self.loading {
-            // The empty-state treatment, not a spinner overlay: content that
-            // already exists stays visible while a refresh is in flight.
-            return self.library_viewport(0, col().p(px(30.)).child(muted("Loading…")));
+            return col()
+                .size_full()
+                .items_center()
+                .justify_center()
+                .p(px(32.))
+                .gap(px(12.))
+                .child(Spinner::new().with_size(px(20.)))
+                .child(muted("正在加载游戏库…"))
+                .into_any_element();
         }
         match self.mode {
             1 => self.timeline(width, window, cx),
@@ -287,6 +293,155 @@ impl WhiskyApp {
             5 => self.staggered(width, window, cx),
             _ => self.shelf(width, window, cx),
         }
+    }
+
+    pub(crate) fn library_empty_surface(&self, cx: &mut Context<Self>) -> AnyElement {
+        let query = self.search.read(cx).value().trim().to_owned();
+        let hidden = self.hidden_count();
+        let no_bottles = !self.demo && self.bottles.is_empty();
+        let empty_scope = !self.demo && !no_bottles && self.scope_entry_count() == 0;
+
+        let (symbol, title, detail) = if no_bottles {
+            (
+                "package",
+                "还没有创建容器",
+                "容器是独立的 Windows 运行环境。先创建或导入一个容器，即可扫描游戏目录或直接拖入安装包运行。".to_owned(),
+            )
+        } else if empty_scope {
+            (
+                "folder-search",
+                if self.selected_bottle.is_some() {
+                    "此容器还没有游戏"
+                } else {
+                    "游戏库还是空的"
+                },
+                "添加游戏安装目录以自动扫描作品并匹配封面资料，或手动将单个 Windows 程序固定到游戏库。".to_owned(),
+            )
+        } else if !query.is_empty() {
+            (
+                "search-x",
+                "没有找到匹配的游戏",
+                format!("未找到与「{query}」匹配的游戏、开发商或年份，可尝试更换关键词。"),
+            )
+        } else if hidden > 0 && !self.show_hidden() {
+            (
+                "search-x",
+                "当前游戏均已隐藏",
+                format!("当前范围内共有 {hidden} 款已隐藏的游戏，开启「显示已隐藏」即可查看。"),
+            )
+        } else {
+            (
+                "search-x",
+                self.empty_library_message(),
+                "当前筛选条件下没有可显示的游戏条目。".to_owned(),
+            )
+        };
+
+        let mut actions = row().flex_wrap().justify_center().gap(px(10.)).mt(px(4.));
+        if no_bottles {
+            actions = actions
+                .child(
+                    Button::new("empty-create-bottle")
+                        .label("创建容器…")
+                        .primary()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.open_preview_sheet(crate::state::PreviewSheet::CreateBottle, cx);
+                        })),
+                )
+                .when(!self.demo, |d| {
+                    d.child(
+                        Button::new("empty-import-bottle")
+                            .label("导入已有容器…")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.begin_import_scan(None, cx);
+                            })),
+                    )
+                });
+        } else if empty_scope {
+            actions = actions
+                .child(
+                    Button::new("empty-scan-folders")
+                        .label("管理扫描文件夹…")
+                        .primary()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.open_preview_sheet(crate::state::PreviewSheet::Scan, cx);
+                        })),
+                )
+                .when(self.selected_bottle.is_some(), |d| {
+                    d.child(
+                        Button::new("empty-add-program")
+                            .label("添加程序…")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.command(crate::views::Command::AddProgram, cx);
+                            })),
+                    )
+                });
+        } else {
+            if !query.is_empty() {
+                actions = actions.child(
+                    Button::new("empty-clear-search")
+                        .label("清空搜索")
+                        .primary()
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.search.update(cx, |state, cx| state.clean(window, cx));
+                            cx.notify();
+                        })),
+                );
+            }
+            if hidden > 0 && !self.show_hidden() {
+                actions = actions.child(
+                    Button::new("empty-show-hidden")
+                        .label(format!("显示已隐藏（{hidden}）"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.command(crate::views::Command::Toggle("show-hidden"), cx);
+                        })),
+                );
+            }
+        }
+
+        col()
+            .w_full()
+            .min_h(px(360.))
+            .items_center()
+            .justify_center()
+            .p(px(32.))
+            .child(
+                col()
+                    .max_w(px(440.))
+                    .items_center()
+                    .gap(px(12.))
+                    .p(px(28.))
+                    .rounded(px(16.))
+                    .bg(rgba(section_bg()))
+                    .border_1()
+                    .border_color(rgba(section_border()))
+                    .child(
+                        div()
+                            .size(px(52.))
+                            .rounded(px(14.))
+                            .bg(rgba(accent_subtle_bg()))
+                            .border_1()
+                            .border_color(rgba(accent_subtle_border()))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(icon(symbol, 24.).text_color(rgb(accent_fg()))),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(17.))
+                            .font_weight(FontWeight::BOLD)
+                            .text_center()
+                            .child(title),
+                    )
+                    .child(
+                        muted(detail)
+                            .text_center()
+                            .line_height(relative(1.55)),
+                    )
+                    .child(actions),
+            )
+            .into_any_element()
     }
 
     pub(crate) fn library_error_surface(&self, reason: &str, cx: &mut Context<Self>) -> AnyElement {
@@ -299,12 +454,17 @@ impl WhiskyApp {
                 col()
                     .w(px(420.))
                     .gap(px(14.))
-                    .p(px(20.))
+                    .p(px(22.))
                     .rounded(px(RADIUS_LG))
                     .bg(rgb(crate::theme::surface()))
                     .border_1()
                     .border_color(rgba(surface_border()))
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Library unavailable"))
+                    .child(
+                        row()
+                            .gap(px(8.))
+                            .child(icon("triangle-alert", 18.).text_color(rgb(danger_fg())))
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child("无法读取游戏库")),
+                    )
                     .child(
                         muted(reason)
                             .line_height(relative(1.5))
@@ -313,7 +473,7 @@ impl WhiskyApp {
                     .child(
                         row().justify_end().child(
                             Button::new("library-retry")
-                                .label("Retry")
+                                .label("重试")
                                 .primary()
                                 .on_click(cx.listener(|this, _, _, cx| this.retry_library(cx))),
                         ),
@@ -426,7 +586,7 @@ impl WhiskyApp {
                 !self.settings && self.preview.page == PreviewPage::Library && self.selected_bottle.is_none(),
             )
             .tooltip(text_tip(format!(
-                "Library · {}",
+                "游戏库 · {}",
                 games.iter().filter(|game| !game.is_launcher).count()
             )))
             .on_click(cx.listener(|this, _, _, cx| this.select_bottle(None, cx))),
@@ -508,6 +668,7 @@ impl WhiskyApp {
                     .child(
                         round_button("appearance-toggle", self.appearance.icon_name())
                             .size(px(28.))
+                            .tooltip(text_tip(format!("切换外观（当前：{}）", self.appearance.label())))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.cycle_appearance(cx);
                             })),
@@ -515,6 +676,7 @@ impl WhiskyApp {
                     .child(
                         round_button("settings", "settings-2")
                             .size(px(28.))
+                            .tooltip(text_tip(crate::platform::SETTINGS_TIP))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.settings = !this.settings;
                                 cx.notify();
@@ -531,7 +693,7 @@ impl WhiskyApp {
         entries = entries.child(
             sidebar_row(
                 "library",
-                "Library",
+                "游戏库",
                 "layout-grid",
                 games.iter().filter(|game| !game.is_launcher).count(),
                 !self.settings && self.preview.page == PreviewPage::Library && self.selected_bottle.is_none(),
@@ -557,7 +719,7 @@ impl WhiskyApp {
             })),
         );
         entries = entries.child(
-            muted("Bottles")
+            muted("容器")
                 .text_size(px(11.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .mt(px(17.))
@@ -614,6 +776,7 @@ impl WhiskyApp {
                                             self.appearance.icon_name(),
                                         )
                                         .size(px(28.))
+                                        .tooltip(text_tip(format!("切换外观（当前：{}）", self.appearance.label())))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.cycle_appearance(cx);
                                         })),
@@ -621,6 +784,7 @@ impl WhiskyApp {
                                     .child(
                                         round_button("settings", "settings-2")
                                             .size(px(28.))
+                                            .tooltip(text_tip(crate::platform::SETTINGS_TIP))
                                             .on_click(cx.listener(|this, _, _, cx| {
                                                 this.settings = !this.settings;
                                                 cx.notify();
@@ -692,6 +856,7 @@ impl WhiskyApp {
     pub(crate) fn toolbar(&self, left_padding: f32, cx: &mut Context<Self>) -> impl IntoElement {
         // Classic stays hidden in GPUI; immersive is GPUI-only. Labelled
         // segments read better than bare icons: each mode names its layout.
+        let is_library = self.preview.page == PreviewPage::Library && !self.settings;
         let modes = self.library_mode_menu(cx);
         row()
             .h(px(52.))
@@ -723,66 +888,90 @@ impl WhiskyApp {
                         .context_menu(self.sidebar_mode_menu(cx)),
                 )
             })
+            .when(self.settings, |d| {
+                d.child(
+                    Button::new("settings-back")
+                        .label("‹ 返回")
+                        .ghost()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.settings = false;
+                            cx.notify();
+                        })),
+                )
+            })
             .child(
                 div()
                     .flex_1()
+                    .min_w_0()
+                    .truncate()
                     .text_size(px(15.))
                     .font_weight(FontWeight::BOLD)
                     .child(self.preview_title()),
             )
-            .child(
-                round_button("add", "plus").on_click(cx.listener(|this, _, _, cx| {
-                    this.open_preview_sheet(crate::state::PreviewSheet::CreateBottle, cx)
-                })),
-            )
-            .when(
-                self.preview.page == PreviewPage::Library && !self.settings,
-                |d| {
-                    d.child(modes)
-                },
-            )
+            .when(!self.settings, |d| {
+                d.child(
+                    round_button("add", "plus")
+                        .tooltip(text_tip("创建容器…"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.open_preview_sheet(crate::state::PreviewSheet::CreateBottle, cx)
+                        })),
+                )
+            })
+            .when(is_library, |d| d.child(modes))
             .when(
                 // The list owns both timeline layouts; the switch picks
                 // single or staggered columns.
-                self.preview.page == PreviewPage::Library
-                    && !self.settings
-                    && (self.mode == 1 || self.mode == crate::preferences::STAGGERED_MODE),
+                is_library && (self.mode == 1 || self.mode == crate::preferences::STAGGERED_MODE),
                 |d| d.child(self.timeline_layout_control(cx)),
             )
             .when(
                 // Only the shelf has a cover size; the timeline and the classic
                 // list draw fixed rows.
-                self.preview.page == PreviewPage::Library && !self.settings && self.mode == 0,
+                is_library && self.mode == 0,
                 |d| d.child(self.cover_size_control(cx)),
             )
-            .when(
-                self.preview.page == PreviewPage::Library && !self.settings,
-                |d| {
-                    let hidden = self.hidden_count();
-                    let label: SharedString = if hidden == 0 {
-                        "Hidden".into()
-                    } else {
-                        format!("Hidden · {hidden}").into()
-                    };
-                    d.child(
-                        Button::new("hidden-filter")
-                            .label(label)
-                            .rounded_full()
-                            .tooltip("显示或隐藏已隐藏的游戏")
-                            .when(self.show_hidden(), |button| button.primary())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.command(crate::views::Command::Toggle("show-hidden"), cx);
-                            })),
-                    )
-                },
-            )
-            .child(self.options_menu(cx))
-            .child(
-                div()
-                    .w(px(190.))
-                    .flex_shrink_0()
-                    .child(gpui_kit::component::input::Input::new(&self.search)),
-            )
+            .when(is_library, |d| {
+                let hidden = self.hidden_count();
+                let label: SharedString = if hidden == 0 {
+                    "已隐藏".into()
+                } else {
+                    format!("已隐藏 · {hidden}").into()
+                };
+                d.child(
+                    Button::new("hidden-filter")
+                        .label(label)
+                        .rounded_full()
+                        .tooltip("显示或隐藏已隐藏的游戏")
+                        .when(self.show_hidden(), |button| button.primary())
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.command(crate::views::Command::Toggle("show-hidden"), cx);
+                        })),
+                )
+            })
+            .when(!self.settings, |d| d.child(self.options_menu(cx)))
+            .when(is_library, |d| {
+                d.child(
+                    div()
+                        .w(px(190.))
+                        .flex_shrink_0()
+                        .child(
+                            gpui_kit::component::input::Input::new(&self.search)
+                                .prefix(icon("search", 13.).text_color(rgb(muted_color())))
+                                .cleanable(true),
+                        ),
+                )
+            })
+            .when(self.settings, |d| {
+                d.child(
+                    Button::new("settings-done")
+                        .label("完成")
+                        .primary()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.settings = false;
+                            cx.notify();
+                        })),
+                )
+            })
     }
 
     /// 单列/双列 segmented switch for the timeline family. The staggered rail
@@ -907,7 +1096,7 @@ impl WhiskyApp {
                             .h(px(5.))
                             .w_full()
                             .rounded_full()
-                            .bg(rgba(round_btn_bg())),
+                            .bg(rgba(slider_track_bg())),
                     )
                     .child(
                         div()
@@ -932,7 +1121,8 @@ impl WhiskyApp {
                             .rounded_full()
                             .bg(rgb(0xffffff))
                             .border_1()
-                            .border_color(rgba(round_btn_border())),
+                            .border_color(rgba(slider_thumb_border()))
+                            .shadow_xs(),
                     )
                     .on_mouse_down(
                         MouseButton::Left,
@@ -1112,7 +1302,7 @@ impl WhiskyApp {
             // affordance waits for hover, as it did before.
             .child(match self.runtime_state(index) {
                 Some(RuntimeState::Running) => {
-                    live_badge(self.runtime_badge_label(index, "Running"))
+                    live_badge(self.runtime_badge_label(index, "运行中"))
                     .absolute()
                     .top(px(9.))
                     .right(px(9.))
@@ -1163,19 +1353,27 @@ impl WhiskyApp {
             .size(px(30.))
             .rounded_full()
             // Fades in translucent and saturates to the accent as the card's
-            // hover peaks — the same grey→orange language as the text buttons.
+            // hover peaks — always keeping crisp white icon contrast on accent.
             .bg(rgba(mix_rgba(
                 play_circle_bg(),
-                fade_rgb(ACCENT, 0.95),
+                fade_rgb(ACCENT, 0.96),
                 amount,
             )))
+            .border_1()
+            .border_color(rgba(mix_rgba(
+                art_control_border(),
+                fade_rgb(0xffffff, 0.24),
+                amount,
+            )))
+            .text_color(rgb(mix_rgb(art_control_fg(), 0xffffff, amount)))
+            .shadow_sm()
             .opacity(amount)
             .child(icon("play", 15.));
         if let Some(action) = action {
             let view = cx.entity().downgrade();
             circle = circle
                 .cursor_pointer()
-                .hover(|s| s.bg(rgb(0xff9c3a)))
+                .hover(|s| s.bg(rgb(ACCENT_HOVER)).text_color(rgb(0xffffff)))
                 .on_click(move |_, _, cx| {
                     let _ = view.update(cx, |this, cx| {
                         this.perform_runtime_action(index, Some(action), cx)
@@ -1278,13 +1476,12 @@ impl WhiskyApp {
             ));
         }
         if indices.is_empty() {
-            content = content.child(muted(self.empty_library_message()).p(px(30.)));
+            return self.library_viewport(0, self.library_empty_surface(cx));
         }
         self.library_viewport(0, content)
     }
-    /// Default run button: grey glass at rest, orange under the pointer. The
-    /// timeline family passes a card-hover `lit` instead, so the accent
-    /// already rises as the cursor reaches the card.
+    /// Focal primary run button (Detail panel, Gallery summary, Immersive hero):
+    /// filled with the brand accent at rest so the primary CTA never reads as disabled.
     pub(crate) fn play_button(
         &self,
         id: impl Into<ElementId>,
@@ -1292,10 +1489,10 @@ impl WhiskyApp {
         demo_label: &'static str,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        self.play_button_toned(id, index, demo_label, 0., cx)
+        self.play_button_toned(id, index, demo_label, 1., cx)
     }
     /// A play button whose accent fades in with `lit` (0 idle → 1 hot). The
-    /// timeline family keeps a row of these calm: they stay muted glass until
+    /// timeline family keeps a row of these calm: they stay legible glass until
     /// their own card is hovered, so the accent lands where the cursor is.
     pub(crate) fn play_button_toned(
         &self,
@@ -1325,20 +1522,23 @@ impl WhiskyApp {
         if busy {
             button = button
                 .bg(rgba(hover_strong()))
-                .text_color(rgb(muted_color()))
+                .text_color(rgb(subtext()))
                 .child(Spinner::new().with_size(px(12.)))
                 .child(label);
         } else if enabled {
+            let is_destructive = matches!(action, Some(RuntimeAction::Stop | RuntimeAction::Cancel));
             let leading = match action {
                 Some(RuntimeAction::Cancel) => icon("x", 13.),
                 Some(RuntimeAction::Stop) => icon("square", 12.),
                 _ => icon("play", 13.),
             };
+            let active_rgb = if is_destructive { DANGER } else { ACCENT };
+            let hover_rgb = if is_destructive { 0xff736b } else { ACCENT_HOVER };
             button = button
-                .bg(rgba(mix_rgba(hover_strong(), fade_rgb(ACCENT, 1.), lit)))
-                .text_color(rgb(mix_rgb(muted_color(), 0xffffff, lit)))
+                .bg(rgba(mix_rgba(hover_strong(), fade_rgb(active_rgb, 1.), lit)))
+                .text_color(rgb(mix_rgb(subtext(), 0xffffff, lit)))
                 .cursor_pointer()
-                .hover(|s| s.bg(rgb(0xff9c3a)))
+                .hover(move |s| s.bg(rgb(hover_rgb)).text_color(rgb(0xffffff)))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if this.demo {
                         this.show_notice(DEMO_NOTICE, cx);
@@ -1354,8 +1554,11 @@ impl WhiskyApp {
                 _ => icon("play", 13.),
             };
             button = button
-                .bg(rgba(hover_strong()))
+                .bg(rgba(card_bg()))
+                .border_1()
+                .border_color(rgba(card_border()))
                 .text_color(rgb(muted_color()))
+                .opacity(0.65)
                 .child(leading.into_any_element())
                 .child(label);
         }
@@ -1403,7 +1606,15 @@ impl WhiskyApp {
         // Node → card links, collected while the rows build and painted by one
         // overlay canvas afterwards (the canvas has no hitboxes).
         let mut links = Vec::new();
+        let mut previous_group: Option<String> = None;
         for (position, (index, target)) in layout.cards.into_iter().enumerate() {
+            let group = self.staggered_group_label(index, position);
+            let rail_label = if position == 0 || group != previous_group {
+                group.clone().unwrap_or_default()
+            } else {
+                String::new()
+            };
+            previous_group = group;
             let rect = self.animated_rect(index, target, window, cx);
             let g = &games[index];
             let mut meta = row().flex_shrink_0().flex_wrap().gap(px(7.)).mt(px(3.));
@@ -1434,7 +1645,7 @@ impl WhiskyApp {
             }
             if let Some(state) = self.runtime_state(index) {
                 meta = if state == RuntimeState::Running {
-                    meta.child(live_badge(self.runtime_badge_label(index, "Running")))
+                    meta.child(live_badge(self.runtime_badge_label(index, "运行中")))
                 } else if state.is_active() {
                     meta.child(phase_badge(
                         self.runtime_badge_label(index, state.phase_label()),
@@ -1488,17 +1699,13 @@ impl WhiskyApp {
                                         .bg(rgba(surface_border())),
                                 )
                                 .child(
-                                    muted(if position == 0 {
-                                        "今天"
-                                    } else if position == 4 {
-                                        "更早"
-                                    } else {
-                                        ""
-                                    })
-                                    .absolute()
-                                    .top(px(4.))
-                                    .left_0()
-                                    .text_size(px(11.)),
+                                    muted(rail_label)
+                                        .absolute()
+                                        .top(px(4.))
+                                        .left_0()
+                                        .max_w(px(rail * 0.55 - 8.))
+                                        .truncate()
+                                        .text_size(px(11.)),
                                 )
                                 .child(
                                     div()
@@ -1567,11 +1774,16 @@ impl WhiskyApp {
                                 )
                                 .child(
                                     col()
+                                        .id(("timeline-body", index))
                                         .flex_1()
                                         .min_w_0()
                                         .justify_center()
                                         .h_full()
                                         .gap(px(8.))
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.open_detail(index, cx)
+                                        }))
                                         .child(
                                             div()
                                                 .text_size(px(19.))
@@ -1634,7 +1846,7 @@ impl WhiskyApp {
             );
         }
         if indices.is_empty() {
-            content = content.child(muted(self.empty_library_message()).p(px(30.)));
+            return self.library_viewport(1, self.library_empty_surface(cx));
         }
         content = content.child(
             canvas(
@@ -1658,6 +1870,13 @@ impl WhiskyApp {
             .flex_shrink_0();
         for (i, target) in layout.cards {
             let rect = self.animated_rect(i, target, window, cx);
+            let hover = transition(
+                ElementId::from(("classic-hover", i)),
+                if self.hovered == Some(i) { 1_f32 } else { 0. },
+                self.timing(HOVER_MS),
+                window,
+                cx,
+            );
             // The demo always rendered the studio line, even when it was empty.
             let studio = self
                 .game(i)
@@ -1684,12 +1903,12 @@ impl WhiskyApp {
                                     .truncate(),
                             )
                         })
-                        .child(self.play_button(("classic-play", i), i, "游玩", cx)),
+                        .child(self.play_button_toned(("classic-play", i), i, "游玩", hover, cx)),
                 );
             content = content.child(self.card_slot(i, rect, card));
         }
         if indices.is_empty() {
-            content = content.child(muted(self.empty_library_message()).p(px(30.)));
+            return self.library_viewport(2, self.library_empty_surface(cx));
         }
         self.library_viewport(2, content)
     }
@@ -1777,7 +1996,7 @@ impl WhiskyApp {
         };
         // The hero cover is a fixed 190 points wide.
         let artwork = self.artwork(index);
-        let mut badges = row().gap(px(8.)).mt(px(8.));
+        let mut badges = row().flex_wrap().gap(px(8.)).mt(px(8.));
         if self.demo {
             badges = badges
                 .child(badge("package", "galgame"))
@@ -1801,7 +2020,7 @@ impl WhiskyApp {
         }
         if let Some(state) = self.runtime_state(index) {
             badges = if state == RuntimeState::Running {
-                badges.child(live_badge(self.runtime_badge_label(index, "Running")))
+                badges.child(live_badge(self.runtime_badge_label(index, "运行中")))
             } else if state.is_active() {
                 badges.child(phase_badge(
                     self.runtime_badge_label(index, state.phase_label()),
@@ -1869,12 +2088,13 @@ impl WhiskyApp {
                             .justify_between()
                             .child(muted("游戏详情").text_color(rgb(subtext())))
                             .child(row().gap(px(8.)).child(self.game_options(index, cx)).child(
-                                round_button("detail-close", "x").size(px(27.)).on_click(
-                                    cx.listener(|this, _, _, cx| {
+                                round_button("detail-close", "x")
+                                    .size(px(27.))
+                                    .tooltip(text_tip("关闭（Esc）"))
+                                    .on_click(cx.listener(|this, _, _, cx| {
                                         this.detail_open = false;
                                         cx.notify();
-                                    }),
-                                ),
+                                    })),
                             )),
                     )
                     .child(
@@ -1955,7 +2175,20 @@ impl WhiskyApp {
                                                     .when(!self.demo, |d| {
                                                         d.child(
                                                             row()
+                                                                .flex_wrap()
                                                                 .gap(px(8.))
+                                                                .child(
+                                                                    Button::new("detail-run-settings")
+                                                                        .label("运行设置…")
+                                                                        .on_click(cx.listener(
+                                                                            move |this, _, _, cx| {
+                                                                                this.open_preview_sheet(
+                                                                                    crate::state::PreviewSheet::RunSettings(index),
+                                                                                    cx,
+                                                                                );
+                                                                            },
+                                                                        )),
+                                                                )
                                                                 .child(
                                                                     Button::new("detail-game-info")
                                                                         .label("游戏资料与封面…")
@@ -2287,12 +2520,12 @@ impl WhiskyApp {
                                                         .px(px(10.))
                                                         .py(px(3.))
                                                         .rounded_full()
-                                                        .bg(rgba(0xff891b22))
+                                                        .bg(rgba(accent_subtle_bg()))
                                                         .border_1()
-                                                        .border_color(rgba(0xff891b55))
+                                                        .border_color(rgba(accent_subtle_border()))
                                                         .text_size(px(11.))
                                                         .font_weight(FontWeight::SEMIBOLD)
-                                                        .text_color(rgb(ACCENT))
+                                                        .text_color(rgb(accent_fg()))
                                                         .child(r.to_owned()),
                                                 )
                                             }),
@@ -2428,14 +2661,14 @@ impl WhiskyApp {
                     row()
                         .gap(px(4.))
                         .items_center()
-                        .child(icon("mic", 11.).text_color(rgb(ACCENT)))
+                        .child(icon("mic", 11.).text_color(rgb(accent_fg())))
                         .child(
                             div()
                                 .flex_1()
                                 .min_w_0()
                                 .truncate()
                                 .text_size(px(11.))
-                                .text_color(rgb(ACCENT))
+                                .text_color(rgb(accent_fg()))
                                 .child(actor.to_owned()),
                         ),
                 );

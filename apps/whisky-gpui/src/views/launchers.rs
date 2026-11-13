@@ -25,7 +25,7 @@ impl WhiskyApp {
                 muted(if self.demo {
                     "Demo 模式没有启动器"
                 } else {
-                    "没有发现启动器。固定 steam.exe 等启动器程序,或在扫描文件夹中放入启动器目录后,它会出现在这里而不是游戏库中。"
+                    "没有发现启动器。固定 steam.exe 等启动器程序，或在扫描文件夹中放入启动器目录后，它会出现在这里而不是游戏库中。"
                 })
                 .line_height(relative(1.5))
                 .into_any_element(),
@@ -97,9 +97,9 @@ impl WhiskyApp {
                             .text_size(px(11.)),
                     )
                     .child(
-                        muted(format!("容器:{bottle}"))
+                        muted(format!("容器：{bottle}"))
                             .truncate()
-                            .text_size(px(10.)),
+                            .text_size(px(11.)),
                     ),
             )
             .child(

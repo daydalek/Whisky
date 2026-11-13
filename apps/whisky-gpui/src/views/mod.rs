@@ -251,17 +251,30 @@ impl WhiskyApp {
     }
     pub(crate) fn options_menu(&self, cx: &Context<Self>) -> AnyElement {
         let is_library = self.preview.page == PreviewPage::Library && !self.settings;
+        let has_bottle = self.selected_bottle.is_some() && !self.settings;
+        let sort_names = ["最近游玩", "名称", "容器"];
         let mut items = vec![];
+        let tooltip = if is_library {
+            let current_sort = sort_names.get(self.preview.sort).copied().unwrap_or("最近游玩");
+            let order = if self.reversed { " · 倒序" } else { "" };
+            SharedString::from(format!("排序与更多（当前：{current_sort}{order}）"))
+        } else {
+            SharedString::from("更多操作")
+        };
         if is_library {
             // Library view actions only; appearance, motion and layout
             // preferences live in the settings page's 游戏库 section, and
             // hidden-program filtering stays on its toolbar pill.
-            for (i, label) in ["最近游玩", "名称", "容器"].into_iter().enumerate() {
+            for (i, label) in sort_names.into_iter().enumerate() {
                 items.push(
-                    self.menu_item(label, Command::Sort(i), cx)
+                    self.menu_item(format!("按{label}排序"), Command::Sort(i), cx)
                         .checked(self.preview.sort == i),
                 );
             }
+            items.push(
+                self.menu_item("倒序排列", Command::Toggle("reverse-sort"), cx)
+                    .checked(self.reversed),
+            );
             items.push(MenuEntry::separator(cx.entity().downgrade()));
             if self.mode == 0 && self.cover_width > f32::EPSILON {
                 items.push(self.menu_item(
@@ -274,25 +287,32 @@ impl WhiskyApp {
             items.push(self.menu_item("扫描并同步游戏信息", Command::SyncMetadata, cx));
             items.push(self.menu_item("管理扫描文件夹…", Command::Sheet(PreviewSheet::Scan), cx));
             items.push(MenuEntry::separator(cx.entity().downgrade()));
-            items.push(self.menu_item("刷新", Command::RefreshLibrary, cx));
-        } else {
+            items.push(self.menu_item("刷新游戏库", Command::RefreshLibrary, cx));
+        } else if has_bottle {
             items.push(self.menu_item(
-                "Configure Bottle",
+                "容器配置",
                 Command::Page(PreviewPage::ConfigureBottle),
                 cx,
             ));
             items.push(self.menu_item("已安装的程序", Command::Page(PreviewPage::Programs), cx));
             items.push(self.menu_item("运行中的进程", Command::Page(PreviewPage::Processes), cx));
+            items.push(self.menu_item("游戏配置", Command::Page(PreviewPage::GameConfigs), cx));
             items.push(MenuEntry::separator(cx.entity().downgrade()));
+            items.push(self.menu_item("管理扫描文件夹…", Command::Sheet(PreviewSheet::Scan), cx));
             items.push(self.menu_item("Winetricks…", Command::Sheet(PreviewSheet::Winetricks), cx));
-            items.push(self.menu_item("复制容器…", Command::Sheet(PreviewSheet::CreateBottle), cx));
+            items.push(self.menu_item("创建新容器…", Command::Sheet(PreviewSheet::CreateBottle), cx));
+        } else {
+            items.push(self.menu_item("返回游戏库", Command::Page(PreviewPage::Library), cx));
+            items.push(self.menu_item("创建容器…", Command::Sheet(PreviewSheet::CreateBottle), cx));
+            items.push(MenuEntry::separator(cx.entity().downgrade()));
+            items.push(self.menu_item("刷新数据", Command::RefreshLibrary, cx));
         }
         Button::new("options-menu")
             .label("•••")
             .rounded_full()
             .w(px(34.))
             .h(px(34.))
-            .tooltip("更多")
+            .tooltip(tooltip)
             .dropdown_menu(move |mut menu, _, _| {
                 for item in &items {
                     menu = menu.item(item.build());
@@ -432,6 +452,7 @@ impl WhiskyApp {
             )
             .child(
                 Switch::new(key)
+                    .accessibility_label(label)
                     .checked(checked)
                     .disabled(!self.toggle_available(key))
                     .on_change(cx.listener(move |this, _, _, cx| {

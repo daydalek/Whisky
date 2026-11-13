@@ -10,8 +10,9 @@ use gpui_kit::{prelude::*, *};
 use serde_json::json;
 
 use crate::bridge::dto::{
-    AudioResultDto, CandidateDto, FoldersDto, GameDbMatchDto, MetadataCandidate,
-    MetadataSearchGroupDto, ProgramDto, SetupStatusDto, SystemInfoDto, TroubleshootingCheckDto,
+    AudioResultDto, CandidateDto, EngineFieldPolicyDto, FoldersDto, GameDbMatchDto,
+    MetadataCandidate, MetadataSearchGroupDto, ProgramDto, SetupStatusDto, SystemInfoDto,
+    TroubleshootingCheckDto, WineEngineDto, WineEngineSelectionDto,
 };
 use crate::bridge::{
     BottleCreateUpdate, BottleOperation, BottleOperationUpdate, BridgeEvent, BridgeStatus,
@@ -223,6 +224,75 @@ impl SidebarMode {
     }
 }
 
+/// What the Wine-engine dialog is asking the user to confirm.
+#[derive(Clone)]
+pub(crate) enum EngineDialogKind {
+    /// Enabling an `unverified` engine feature, then applying the value the
+    /// user asked for. `fingerprint` is bound at open time; the helper
+    /// rejects it if the engine changed meanwhile.
+    Feature {
+        feature: String,
+        apply: PendingEngineApply,
+        reason: String,
+        fingerprint: String,
+    },
+    /// Rebinding an existing prefix to another engine. The prefix is not
+    /// converted automatically — the warning says so before anything runs.
+    Select {
+        engine_name: String,
+    },
+}
+
+/// Where a confirmed feature action lands once its approval succeeds.
+#[derive(Clone)]
+pub(crate) enum PendingEngineApply {
+    /// `bottle.setConfiguration` for a bottle configuration-page field.
+    Config {
+        field: String,
+        value: serde_json::Value,
+    },
+    /// The open program-settings draft — never the bottle page. The
+    /// executable is bound at open time so an approval for one game never
+    /// mutates a draft the user has since opened for another.
+    ProgramDraft {
+        field: String,
+        value: serde_json::Value,
+        executable: String,
+    },
+}
+
+/// Outcome of re-checking a confirmed apply against the fresh selection.
+enum PendingVerdict {
+    /// Policy lets the requested value through — perform the write.
+    Ready,
+    /// Another unverified prerequisite gates it — confirm that next.
+    NextApproval(String),
+    /// A hard-unavailable prerequisite blocks it — drop the action.
+    Blocked,
+}
+
+/// A write queued behind a feature confirmation. The approval RPC goes out
+/// alone; the write the user asked for is applied only after the matching
+/// `EngineSelection` reply carries the approval — a stale, failed or
+/// cancelled approval performs no write at all.
+pub(crate) struct PendingEngineAction {
+    pub(crate) container: String,
+    pub(crate) engine_id: String,
+    pub(crate) feature: String,
+    pub(crate) fingerprint: String,
+    pub(crate) apply: PendingEngineApply,
+}
+
+/// Pending Wine-engine confirmation: approve runs the queued action, cancel
+/// drops it without touching the bottle.
+pub(crate) struct EngineDialogState {
+    pub(crate) kind: EngineDialogKind,
+    pub(crate) container: String,
+    /// Engine the action targets — the bound engine for a feature
+    /// confirmation, the candidate for a rebind.
+    pub(crate) engine_id: String,
+}
+
 /// The sidebar's modal actions. Rename and Duplicate read a text field;
 /// Remove asks whether the directory should be deleted as well.
 pub(crate) struct BottleDialogState {
@@ -287,6 +357,53 @@ impl GameInfoPage {
             && self.entry_id == entry_id
             && self.editor.generation == generation
             && self.editor.search_request == request
+    }
+}
+
+#[cfg(test)]
+mod setup_prompt_tests {
+    use super::WhiskyApp;
+    use crate::bridge::dto::SetupStatusDto;
+
+    fn status(installed: bool, managed: Option<bool>, any_engine: Option<bool>) -> Option<SetupStatusDto> {
+        Some(SetupStatusDto {
+            installed,
+            managed_installed: managed,
+            any_engine_available: any_engine,
+            version: None,
+            path: String::new(),
+            rosetta_installed: true,
+            apple_silicon: true,
+        })
+    }
+
+    #[test]
+    fn external_engine_availability_suppresses_managed_prompt() {
+        // installed:false / anyEngine:true — an external engine can run
+        // bottles, so no managed-install prompt.
+        assert!(!WhiskyApp::managed_install_prompt_needed(&status(
+            false,
+            Some(false),
+            Some(true),
+        )));
+        // Nothing at all → prompt.
+        assert!(WhiskyApp::managed_install_prompt_needed(&status(
+            false,
+            Some(false),
+            Some(false),
+        )));
+        // Managed installed → no prompt.
+        assert!(!WhiskyApp::managed_install_prompt_needed(&status(
+            true,
+            Some(true),
+            Some(true),
+        )));
+        // Legacy helper semantics: only `installed`, no new keys — installed
+        // is both the managed and the any-engine answer.
+        assert!(!WhiskyApp::managed_install_prompt_needed(&status(true, None, None)));
+        assert!(WhiskyApp::managed_install_prompt_needed(&status(false, None, None)));
+        // No status at all → prompt.
+        assert!(WhiskyApp::managed_install_prompt_needed(&None));
     }
 }
 
@@ -590,6 +707,22 @@ pub(crate) struct WhiskyApp {
     pub(crate) game_info: Option<GameInfoPage>,
     /// The sidebar's rename/duplicate/remove dialog.
     pub(crate) bottle_dialog: Option<BottleDialogState>,
+    /// `wine.engines.list` — the managed row plus registered externals.
+    /// Empty when the helper predates the API (`service_available` gates UI).
+    pub(crate) wine_engines: Vec<WineEngineDto>,
+    /// Registry corruption or a failed management call, shown in Settings.
+    pub(crate) wine_engines_error: Option<String>,
+    /// `wine.engines.selection` per container path, refreshed on config load
+    /// and after every selection/override mutation.
+    pub(crate) engine_selections: HashMap<String, WineEngineSelectionDto>,
+    /// The pending unverified-feature / engine-rebind confirmation.
+    pub(crate) engine_dialog: Option<EngineDialogState>,
+    /// The write queued behind an in-flight `setFeatureOverride` approval,
+    /// applied only when the matching reply confirms it landed.
+    pub(crate) pending_engine_action: Option<PendingEngineAction>,
+    /// When set, the next `FolderChosen` registers a Wine engine instead of
+    /// updating the default bottle location.
+    engine_folder_pending: bool,
     /// The lifecycle operation currently in flight, if any.
     pub(crate) bottle_operation: Option<(BottleOperation, String)>,
     /// A file/folder/save picker whose reply drives a bottle action.
@@ -766,7 +899,7 @@ impl WhiskyApp {
     ) -> Self {
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle, cx);
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search programs"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("搜索游戏…"));
         let subscription = cx.observe(&search, |_, _, cx| cx.notify());
         let preview = PreviewState::new(window, cx);
         let dependency_search = preview.inputs["dependency-search"].clone();
@@ -865,6 +998,12 @@ impl WhiskyApp {
             external_opens: std::collections::VecDeque::new(),
             game_info: None,
             bottle_dialog: None,
+            wine_engines: Vec::new(),
+            wine_engines_error: None,
+            engine_selections: HashMap::new(),
+            engine_dialog: None,
+            pending_engine_action: None,
+            engine_folder_pending: false,
             bottle_operation: None,
             pending_path_action: None,
             select_after_refresh: None,
@@ -1057,7 +1196,7 @@ impl WhiskyApp {
                 let reason = match &status {
                     BridgeStatus::Failed { reason, .. } => Some(reason.clone()),
                     BridgeStatus::Stopped => {
-                        Some("The bridge helper is not running.".to_owned())
+                        Some("桥接服务未运行。".to_owned())
                     }
                     _ => None,
                 };
@@ -1098,6 +1237,9 @@ impl WhiskyApp {
                     self.configured.clear();
                     self.rating_edits.clear();
                     self.hidden_edits.clear();
+                    // An approval request in flight has no session left to
+                    // answer it; its queued write must not fire on reconnect.
+                    self.pending_engine_action = None;
                     // A pending clipboard token belongs to a session that is
                     // gone; re-launching from the card gets a fresh one.
                     self.clipboard_prompt = None;
@@ -1231,7 +1373,12 @@ impl WhiskyApp {
                 }
             }
             BridgeEvent::FolderChosen { path } => {
-                if let Some(path) = path {
+                if self.engine_folder_pending {
+                    self.engine_folder_pending = false;
+                    if let Some(path) = path {
+                        self.bridge.register_wine_engine(&path, None);
+                    }
+                } else if let Some(path) = path {
                     self.default_bottle_location = Some(path.clone());
                     self.persist(preferences::DEFAULT_BOTTLE_LOCATION, json!(path), cx);
                     self.show_notice("已更新默认容器位置", cx);
@@ -1612,6 +1759,91 @@ impl WhiskyApp {
                         picker.folder = candidates.folder;
                     }
                     picker.candidates = candidates.candidates;
+                }
+            }
+            BridgeEvent::WineEngines { list } => {
+                self.wine_engines = list.engines;
+                self.wine_engines_error = list.load_error;
+                cx.notify();
+            }
+            BridgeEvent::WineEngineOpFailed { reason } => {
+                if !self.demo {
+                    self.show_notice(reason, cx);
+                }
+            }
+            BridgeEvent::EngineSelection {
+                container,
+                selection,
+            } => {
+                // The reply is tagged with its container: a stale readback for
+                // a previously selected bottle lands in its own slot and never
+                // leaks into the page the user is looking at.
+                let applies_pending = self
+                    .pending_engine_action
+                    .as_ref()
+                    .is_some_and(|pending| pending.container == container)
+                    && self.engine_action_confirmed(&selection);
+                let verdict = if applies_pending {
+                    self.pending_engine_action.as_ref().map(|pending| {
+                        self.pending_apply_verdict(&selection, &pending.apply)
+                    })
+                } else {
+                    None
+                };
+                self.engine_selections.insert(container, *selection);
+                match verdict {
+                    Some(PendingVerdict::Ready) => {
+                        if let Some(pending) = self.pending_engine_action.take() {
+                            self.apply_pending_engine_action(pending, cx);
+                        }
+                    }
+                    // One prerequisite approved but the value still needs
+                    // another: re-open the confirmation for the NEXT unmet
+                    // feature, the same apply stays queued behind it.
+                    Some(PendingVerdict::NextApproval(next_feature)) => {
+                        if let Some(pending) = self.pending_engine_action.take() {
+                            let fingerprint = self
+                                .engine_selections
+                                .get(&pending.container)
+                                .and_then(|selection| selection.engine.fingerprint.clone())
+                                .unwrap_or_default();
+                            self.engine_dialog = Some(EngineDialogState {
+                                kind: EngineDialogKind::Feature {
+                                    feature: next_feature.clone(),
+                                    apply: pending.apply,
+                                    reason: "此选项还有一个未验证的特性".to_owned(),
+                                    fingerprint,
+                                },
+                                container: pending.container,
+                                engine_id: pending.engine_id,
+                            });
+                        }
+                    }
+                    // Hard-missing prerequisite surfaced after approval —
+                    // nothing can make the write valid; drop it.
+                    Some(PendingVerdict::Blocked) => {
+                        self.pending_engine_action = None;
+                        self.show_notice("所选引擎缺少必需的组件".to_owned(), cx);
+                    }
+                    None => {}
+                }
+                cx.notify();
+            }
+            BridgeEvent::EngineSelectionFailed { container, reason } => {
+                // A rejected approval (stale fingerprint, vanished payload)
+                // must not apply the write it was guarding.
+                if self
+                    .pending_engine_action
+                    .as_ref()
+                    .is_some_and(|pending| pending.container == container)
+                {
+                    self.pending_engine_action = None;
+                }
+                if self
+                    .selected_container()
+                    .is_some_and(|selected| selected == container)
+                {
+                    self.show_notice(reason, cx);
                 }
             }
             BridgeEvent::Folders { container, folders } => {
@@ -2564,12 +2796,20 @@ impl WhiskyApp {
                     match update {
                         SetupUpdate::Status {
                             installed,
+                            managed_installed,
+                            any_engine_available,
                             version,
                             rosetta_installed,
                             apple_silicon,
                         } => {
+                            // Older helpers report neither extra key; there
+                            // `installed` IS the managed runtime's state.
                             self.setup_status = Some(SetupStatusDto {
                                 installed,
+                                managed_installed: Some(managed_installed.unwrap_or(installed)),
+                                any_engine_available: Some(
+                                    any_engine_available.unwrap_or(installed),
+                                ),
                                 version,
                                 path: self
                                     .setup_status
@@ -2579,7 +2819,11 @@ impl WhiskyApp {
                                 rosetta_installed,
                                 apple_silicon,
                             });
-                            if !installed
+                            // Only force the managed-runtime install prompt
+                            // when no engine at all can run a bottle: a
+                            // registered external engine (`anyEngineAvailable`)
+                            // is enough for external-only setups.
+                            if Self::managed_install_prompt_needed(&self.setup_status)
                                 && !self.setup_prompted
                                 && self.service_available("setup.install")
                             {
@@ -2626,6 +2870,8 @@ impl WhiskyApp {
                                 .is_some_and(|status| status.apple_silicon);
                             self.setup_status = Some(SetupStatusDto {
                                 installed: true,
+                                managed_installed: Some(true),
+                                any_engine_available: Some(true),
                                 version: version.clone(),
                                 path: String::new(),
                                 rosetta_installed,
@@ -2806,7 +3052,7 @@ impl WhiskyApp {
                                 }
                             } else {
                                 self.failures
-                                    .insert(index, "This bottle is unavailable.".to_owned());
+                                    .insert(index, "此容器当前不可用。".to_owned());
                             }
                         }
                         None => {
@@ -2832,7 +3078,7 @@ impl WhiskyApp {
         for index in 0..self.bottles.len() {
             if !self.bottles[index].available {
                 self.failures
-                    .insert(index, "This bottle is unavailable.".to_owned());
+                    .insert(index, "此容器当前不可用。".to_owned());
                 continue;
             }
             let path = self.bottles[index].path.clone();
@@ -2902,7 +3148,7 @@ impl WhiskyApp {
         self.selected_bottle
             .and_then(|index| self.bottles.get(index))
             .map(|bottle| bottle.name.as_str())
-            .unwrap_or("Bottle")
+            .unwrap_or("容器")
     }
 
     pub(crate) fn bottle_name_at(&self, slot: usize) -> &str {
@@ -2913,7 +3159,7 @@ impl WhiskyApp {
     }
 
     /// Entries in the visible scope before the search filter runs.
-    fn scope_entry_count(&self) -> usize {
+    pub(crate) fn scope_entry_count(&self) -> usize {
         match self.selected_bottle {
             Some(index) => self
                 .games()
@@ -3288,6 +3534,9 @@ impl WhiskyApp {
             #[cfg(not(target_os = "linux"))]
             self.bridge.load_gptk_status();
         }
+        if !self.demo && self.service_available("wine.engines.list") {
+            self.bridge.load_wine_engines();
+        }
         cx.notify();
     }
 
@@ -3319,6 +3568,477 @@ impl WhiskyApp {
         }
         let current = self.default_bottle_location.clone().unwrap_or_default();
         self.bridge.choose_folder(&current);
+    }
+
+    /// Re-read `wine.engines.list`; called when Settings opens and after
+    /// every management mutation.
+    pub(crate) fn load_wine_engines(&mut self) {
+        self.bridge.load_wine_engines();
+    }
+
+    /// Settings → 添加引擎: the folder reply registers the tree as an
+    /// external engine. Detection and rejection happen helper-side.
+    pub(crate) fn choose_wine_engine_directory(&mut self, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        self.engine_folder_pending = true;
+        self.bridge.choose_folder("");
+    }
+
+    /// Settings → 移除: drops the registration only; the engine's files are
+    /// never deleted.
+    pub(crate) fn remove_wine_engine(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        self.bridge.remove_wine_engine(id);
+        cx.notify();
+    }
+
+    /// Ask to rebind a container to another engine. Changing an existing
+    /// prefix goes through the warning dialog — the helper also refuses
+    /// while the container is busy, and a failure keeps the old binding.
+    pub(crate) fn request_engine_select(
+        &mut self,
+        container: &str,
+        engine_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if self.demo {
+            self.show_notice(DEMO_NOTICE, cx);
+            return;
+        }
+        let current = self
+            .engine_selections
+            .get(container)
+            .map(|selection| selection.engine_id.as_str());
+        if current == Some(engine_id) {
+            return;
+        }
+        let engine_name = self
+            .wine_engines
+            .iter()
+            .find(|engine| engine.id == engine_id)
+            .map(|engine| engine.name.clone())
+            .unwrap_or_else(|| engine_id.to_owned());
+        self.engine_dialog = Some(EngineDialogState {
+            kind: EngineDialogKind::Select { engine_name },
+            container: container.to_owned(),
+            engine_id: engine_id.to_owned(),
+        });
+        cx.notify();
+    }
+
+    /// The dialog's confirm button: run the queued engine action.
+    pub(crate) fn confirm_engine_dialog(&mut self, cx: &mut Context<Self>) {
+        let Some(dialog) = self.engine_dialog.take() else {
+            return;
+        };
+        match dialog.kind {
+            EngineDialogKind::Select { .. } => {
+                self.bridge.select_wine_engine(&dialog.container, &dialog.engine_id);
+            }
+            EngineDialogKind::Feature {
+                feature,
+                apply,
+                fingerprint,
+                ..
+            } => {
+                // Approval first, write second: the queued value is applied
+                // only when the matching `EngineSelection` reply carries the
+                // approval. A stale fingerprint, a vanished payload or a
+                // session drop answers `EngineSelectionFailed` and the write
+                // never happens.
+                self.pending_engine_action = Some(PendingEngineAction {
+                    container: dialog.container.clone(),
+                    engine_id: dialog.engine_id.clone(),
+                    feature: feature.clone(),
+                    fingerprint: fingerprint.clone(),
+                    apply,
+                });
+                self.bridge.set_engine_feature_override(
+                    &dialog.container,
+                    &feature,
+                    true,
+                    true,
+                    &fingerprint,
+                );
+            }
+        }
+        cx.notify();
+    }
+
+    /// The `EngineSelection` reply a pending action waits for: same engine,
+    /// the approval it asked for persisted, and the fingerprint the helper
+    /// bound it to still being the engine's CURRENT fingerprint — an engine
+    /// replaced between confirm and reply invalidates the approval.
+    fn engine_action_confirmed(&self, selection: &WineEngineSelectionDto) -> bool {
+        self.pending_engine_action.as_ref().is_some_and(|pending| {
+            selection.engine_id == pending.engine_id
+                && selection.engine.fingerprint.as_deref() == Some(pending.fingerprint.as_str())
+                && selection
+                    .feature_overrides
+                    .get(&pending.feature)
+                    .is_some_and(|approved| approved == &pending.fingerprint)
+        })
+    }
+
+    /// What the fresh selection says about a queued apply: `Ready` when the
+    /// requested value now passes policy, `NextApproval` when another
+    /// prerequisite still wants its own confirmation, `Blocked` when a hard
+    /// prerequisite is missing — the write must not happen either way but
+    /// only `Blocked` drops the pending action for good.
+    fn pending_apply_verdict(
+        &self,
+        selection: &WineEngineSelectionDto,
+        apply: &PendingEngineApply,
+    ) -> PendingVerdict {
+        let (field, value) = match apply {
+            PendingEngineApply::Config { field, value } => (field, value),
+            PendingEngineApply::ProgramDraft { field, value, .. } => (field, value),
+        };
+        let Some(field_policy) = selection.field_policy.get(field) else {
+            return PendingVerdict::Ready;
+        };
+        let Some((disabled, can_override, state, feature, _)) =
+            Self::engine_policy_decision(field_policy, value)
+        else {
+            return PendingVerdict::Ready;
+        };
+        if !disabled {
+            return PendingVerdict::Ready;
+        }
+        if can_override && state == "unverified" {
+            if let Some(feature) = feature {
+                return PendingVerdict::NextApproval(feature);
+            }
+        }
+        PendingVerdict::Blocked
+    }
+
+    /// Applies the write a confirmed feature approval was guarding. The
+    /// config-page mutation only happens when the page still shows the same
+    /// container — the tagged RPC is always safe to send.
+    fn apply_pending_engine_action(
+        &mut self,
+        pending: PendingEngineAction,
+        cx: &mut Context<Self>,
+    ) {
+        match pending.apply {
+            PendingEngineApply::Config { field, value } => {
+                let current = self
+                    .config
+                    .as_ref()
+                    .filter(|page| page.container == pending.container)
+                    .and_then(|page| page.values.get(&field).cloned())
+                    .unwrap_or(serde_json::Value::Null);
+                self.config_writes.begin(&field, current);
+                if let Some(page) = self
+                    .config
+                    .as_mut()
+                    .filter(|page| page.container == pending.container)
+                {
+                    page.values.insert(field.clone(), value.clone());
+                }
+                self.bridge
+                    .set_configuration(&pending.container, &field, value);
+            }
+            PendingEngineApply::ProgramDraft {
+                field,
+                value,
+                executable,
+            } => {
+                // Program drafts live on the open settings page — only a page
+                // still bound to the same container AND the same executable
+                // gets the value, written ungated so the approval does not
+                // re-open its own dialog.
+                if self.program_settings.container.as_deref() == Some(&pending.container)
+                    && self.program_settings.executable.as_deref() == Some(&executable)
+                {
+                    match value {
+                        serde_json::Value::Bool(on) => {
+                            self.write_program_override_bool(&field, on);
+                        }
+                        serde_json::Value::String(raw) => {
+                            self.write_program_choice(&field, &raw);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Cancel drops the pending action; nothing was sent to the helper.
+    pub(crate) fn dismiss_engine_dialog(&mut self, cx: &mut Context<Self>) {
+        self.engine_dialog = None;
+        cx.notify();
+    }
+
+    /// Gate a pending config write against the selected engine's feature
+    /// policy. Returns `true` when the write must not be sent now: either the
+    /// confirmation dialog opened, or the target is unavailable outright.
+    /// Disabling values (`false`, `"none"`, `"off"`) always pass.
+    fn engine_gate_check(
+        &mut self,
+        container: &str,
+        field: &str,
+        next: &serde_json::Value,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(selection) = self.engine_selections.get(container) else {
+            return false;
+        };
+        let Some(field_policy) = selection.field_policy.get(field) else {
+            return false;
+        };
+        let Some(decision) = Self::engine_policy_decision(field_policy, next) else {
+            return false;
+        };
+        let (disabled, can_override, state, feature, reason) = decision;
+        if !disabled {
+            return false;
+        }
+        if can_override && state == "unverified" {
+            if let Some(feature) = feature {
+                self.engine_dialog = Some(EngineDialogState {
+                    kind: EngineDialogKind::Feature {
+                        feature,
+                        apply: PendingEngineApply::Config {
+                            field: field.to_owned(),
+                            value: next.clone(),
+                        },
+                        reason: reason.unwrap_or_else(|| "该引擎未验证此特性".to_owned()),
+                        fingerprint: selection.engine.fingerprint.clone().unwrap_or_default(),
+                    },
+                    container: container.to_owned(),
+                    engine_id: selection.engine_id.clone(),
+                });
+                cx.notify();
+                return true;
+            }
+        }
+        // Unavailable or not confirmable — refuse the write entirely. The
+        // control is already disabled; this guards direct calls.
+        self.show_notice(
+            reason.unwrap_or_else(|| "所选引擎不支持此选项".to_owned()),
+            cx,
+        );
+        true
+    }
+
+    /// Whether `next` is a *disabling* write — off, none, false, empty —
+    /// which an engine gate always lets through.
+    fn engine_value_is_disabling(next: &serde_json::Value) -> bool {
+        match next {
+            serde_json::Value::Bool(v) => !*v,
+            serde_json::Value::String(v) => v.is_empty() || v == "none" || v == "off",
+            _ => false,
+        }
+    }
+
+    /// Resolve a field policy for one candidate value: per-choice policy
+    /// when the value names a choice, the field's own otherwise. `None`
+    /// when the write is unrestricted (disabling writes always pass).
+    fn engine_policy_decision(
+        field_policy: &crate::bridge::dto::EngineFieldPolicyDto,
+        next: &serde_json::Value,
+    ) -> Option<(bool, bool, String, Option<String>, Option<String>)> {
+        if Self::engine_value_is_disabling(next) {
+            return None;
+        }
+        let decision = next
+            .as_str()
+            .and_then(|choice| field_policy.choices.get(choice))
+            .map(|choice| {
+                (
+                    choice.disabled,
+                    choice.can_override,
+                    choice.state.clone(),
+                    choice
+                        .feature
+                        .clone()
+                        .or_else(|| field_policy.feature.clone()),
+                    choice
+                        .reason
+                        .clone()
+                        .or_else(|| field_policy.reason.clone()),
+                )
+            })
+            .unwrap_or_else(|| {
+                (
+                    field_policy.disabled,
+                    field_policy.can_override,
+                    field_policy.state.clone(),
+                    field_policy.feature.clone(),
+                    field_policy.reason.clone(),
+                )
+            });
+        Some(decision)
+    }
+
+    /// Same gate as `engine_gate_check` for the program-settings draft:
+    /// the container is the page's own, and a confirmed write lands in the
+    /// draft — never in the bottle configuration page.
+    fn program_gate_check(
+        &mut self,
+        field: &str,
+        next: &serde_json::Value,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(container) = self.program_settings.container.clone() else {
+            return false;
+        };
+        let Some(selection) = self.engine_selections.get(&container) else {
+            return false;
+        };
+        let Some(field_policy) = selection.field_policy.get(field) else {
+            return false;
+        };
+        let Some(decision) = Self::engine_policy_decision(field_policy, next) else {
+            return false;
+        };
+        let (disabled, can_override, state, feature, reason) = decision;
+        if !disabled {
+            return false;
+        }
+        if can_override && state == "unverified" {
+            if let Some(feature) = feature {
+                self.engine_dialog = Some(EngineDialogState {
+                    kind: EngineDialogKind::Feature {
+                        feature,
+                        apply: PendingEngineApply::ProgramDraft {
+                            field: field.to_owned(),
+                            value: next.clone(),
+                            executable: self
+                                .program_settings
+                                .executable
+                                .clone()
+                                .unwrap_or_default(),
+                        },
+                        reason: reason.unwrap_or_else(|| "该引擎未验证此特性".to_owned()),
+                        fingerprint: selection.engine.fingerprint.clone().unwrap_or_default(),
+                    },
+                    container,
+                    engine_id: selection.engine_id.clone(),
+                });
+                cx.notify();
+                return true;
+            }
+        }
+        self.show_notice(
+            reason.unwrap_or_else(|| "所选引擎不支持此选项".to_owned()),
+            cx,
+        );
+        true
+    }
+
+    /// The explicit "confirm, then enable" action next to a gated control:
+    /// opens the same feature dialog `engine_gate_check` would, with the
+    /// value the user asked for queued behind the approval.
+    pub(crate) fn request_feature_confirm(
+        &mut self,
+        container: &str,
+        feature: &str,
+        field: &str,
+        value: serde_json::Value,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(selection) = self.engine_selections.get(container) else {
+            return;
+        };
+        let reason = self
+            .engine_field_policy(container, field)
+            .and_then(|policy| policy.reason.clone())
+            .unwrap_or_else(|| "该引擎未验证此特性".to_owned());
+        self.engine_dialog = Some(EngineDialogState {
+            kind: EngineDialogKind::Feature {
+                feature: feature.to_owned(),
+                apply: PendingEngineApply::Config {
+                    field: field.to_owned(),
+                    value,
+                },
+                reason,
+                fingerprint: selection.engine.fingerprint.clone().unwrap_or_default(),
+            },
+            container: container.to_owned(),
+            engine_id: selection.engine_id.clone(),
+        });
+        cx.notify();
+    }
+
+    /// The program-page counterpart of `request_feature_confirm`: same
+    /// dialog, but the confirmed value lands in the open program draft —
+    /// tagged with the executable it was opened for.
+    pub(crate) fn request_program_feature_confirm(
+        &mut self,
+        container: &str,
+        feature: &str,
+        field: &str,
+        value: serde_json::Value,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(selection) = self.engine_selections.get(container) else {
+            return;
+        };
+        let reason = self
+            .engine_field_policy(container, field)
+            .and_then(|policy| policy.reason.clone())
+            .unwrap_or_else(|| "该引擎未验证此特性".to_owned());
+        self.engine_dialog = Some(EngineDialogState {
+            kind: EngineDialogKind::Feature {
+                feature: feature.to_owned(),
+                apply: PendingEngineApply::ProgramDraft {
+                    field: field.to_owned(),
+                    value,
+                    executable: self
+                        .program_settings
+                        .executable
+                        .clone()
+                        .unwrap_or_default(),
+                },
+                reason,
+                fingerprint: selection.engine.fingerprint.clone().unwrap_or_default(),
+            },
+            container: container.to_owned(),
+            engine_id: selection.engine_id.clone(),
+        });
+        cx.notify();
+    }
+
+    /// Revoke a persisted feature approval: `enabled=false` writes straight
+    /// through — it never queues a pending action, and turning a gated
+    /// value off separately stays possible because several settings can
+    /// share one feature.
+    pub(crate) fn revoke_engine_feature(&mut self, container: &str, feature: &str) {
+        self.bridge
+            .set_engine_feature_override(container, feature, false, false, "");
+    }
+
+    /// Field-level policy for `field` under `container`'s bound engine.
+    pub(crate) fn engine_field_policy(
+        &self,
+        container: &str,
+        field: &str,
+    ) -> Option<&EngineFieldPolicyDto> {
+        self.engine_selections
+            .get(container)
+            .and_then(|selection| selection.field_policy.get(field))
+    }
+
+    /// Policy for one `choice` inside `field`, if the bridge restricts it.
+    pub(crate) fn engine_choice_policy(
+        &self,
+        container: &str,
+        field: &str,
+        choice: &str,
+    ) -> Option<&crate::bridge::dto::EnginePolicyDto> {
+        self.engine_field_policy(container, field)
+            .and_then(|policy| policy.choices.get(choice))
     }
 
     /// The library's Refresh: SwiftUI reloads its bottles and re-reads every
@@ -3379,6 +4099,18 @@ impl WhiskyApp {
         self.request_all();
     }
 
+    /// Whether the setup status warrants forcing the managed-install
+    /// prompt: only when NO engine at all can run a bottle. An external
+    /// engine making `anyEngineAvailable` true suppresses the prompt even
+    /// when the managed runtime is not installed.
+    fn managed_install_prompt_needed(status: &Option<SetupStatusDto>) -> bool {
+        !status
+            .as_ref()
+            .and_then(|status| status.any_engine_available)
+            .or_else(|| status.as_ref().map(|status| status.installed))
+            .unwrap_or(false)
+    }
+
     pub(crate) fn service_available(&self, method: &str) -> bool {
         self.demo
             || (matches!(self.bridge_status, BridgeStatus::Connected { .. })
@@ -3415,6 +4147,12 @@ impl WhiskyApp {
                 self.show_hidden = !self.show_hidden;
                 self.invalidate_view();
                 self.show_hidden
+            }
+            "reverse-sort" => {
+                self.reversed = !self.reversed;
+                self.hovered = None;
+                self.invalidate_view();
+                self.reversed
             }
             _ => {
                 let slot = self.preview.toggles.entry(key).or_default();
@@ -4781,6 +5519,10 @@ impl WhiskyApp {
             self.config_writes.clear();
             self.config_text_pending.clear();
             self.config_text_generation = self.config_text_generation.wrapping_add(1);
+            // A write queued behind a feature approval belonged to the other
+            // bottle's page; navigating away drops it rather than letting a
+            // late reply fire a write the user no longer sees.
+            self.pending_engine_action = None;
         }
         self.config = Some(ConfigPage {
             container: container.clone(),
@@ -4791,6 +5533,12 @@ impl WhiskyApp {
             error: None,
         });
         self.bridge.load_configuration(&container);
+        if self.service_available("wine.engines.selection") {
+            self.bridge.load_engine_selection(&container);
+            if self.wine_engines.is_empty() {
+                self.bridge.load_wine_engines();
+            }
+        }
         if !self.environments.contains_key(&container) {
             self.bridge.load_environment(&container);
         }
@@ -5161,6 +5909,13 @@ impl WhiskyApp {
         self.bridge
             .load_program_settings(&game.container, &executable);
         self.bridge.load_program_history(&game.container, &executable);
+        // The override rows gate on the container's engine policy — load it
+        // even when the bottle configuration page was never opened.
+        if self.service_available("wine.engines.selection")
+            && !self.engine_selections.contains_key(&game.container)
+        {
+            self.bridge.load_engine_selection(&game.container);
+        }
         cx.notify();
     }
 
@@ -5462,7 +6217,7 @@ impl WhiskyApp {
         cx.notify();
     }
 
-    pub(crate) fn set_program_choice(&mut self, field: &str, raw: &str) {
+    pub(crate) fn set_program_choice(&mut self, field: &str, raw: &str, cx: &mut Context<Self>) {
         if field == "locale" {
             // The locale row has its own environment side effects; it is
             // handled by `set_program_locale` from the click listener.
@@ -5472,6 +6227,18 @@ impl WhiskyApp {
             self.program_settings.dll_new_mode = raw.to_owned();
             return;
         }
+        // The bottle's engine policy applies to program overrides too — the
+        // draft can hold an inactive preference, but an enabling write goes
+        // through the same confirmation gate as the config page.
+        if self.program_gate_check(field, &serde_json::Value::String(raw.to_owned()), cx) {
+            return;
+        }
+        self.write_program_choice(field, raw);
+    }
+
+    /// The ungated draft write behind `set_program_choice`; a confirmed
+    /// approval applies through here instead of re-opening its own dialog.
+    fn write_program_choice(&mut self, field: &str, raw: &str) {
         let Some(settings) = self.program_settings.settings.as_mut() else {
             return;
         };
@@ -5487,7 +6254,20 @@ impl WhiskyApp {
         }
     }
 
-    pub(crate) fn set_program_override_bool(&mut self, field: &str, value: bool) {
+    pub(crate) fn set_program_override_bool(
+        &mut self,
+        field: &str,
+        value: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.program_gate_check(field, &serde_json::Value::Bool(value), cx) {
+            return;
+        }
+        self.write_program_override_bool(field, value);
+    }
+
+    /// The ungated draft write behind `set_program_override_bool`.
+    fn write_program_override_bool(&mut self, field: &str, value: bool) {
         let Some(settings) = self.program_settings.settings.as_mut() else {
             return;
         };
@@ -5589,7 +6369,7 @@ impl WhiskyApp {
             || name.contains('=')
             || name.contains(',')
         {
-            self.show_notice("DLL 名称不能为空或包含空格、=、,", cx);
+            self.show_notice("DLL 名称不能为空，且不能包含空格、= 或 ,", cx);
             return;
         }
         let Some(settings) = self.program_settings.settings.as_mut() else {
@@ -5759,7 +6539,14 @@ impl WhiskyApp {
         if current == next {
             return;
         }
+        // Engine policy: a disabled-but-confirmable target needs the explicit
+        // confirmation dialog first; an unavailable target is refused here so
+        // even a direct call can't bypass the launch-side gate. Turning a
+        // gated feature *off* is always allowed.
         let container = page.container.clone();
+        if self.engine_gate_check(&container, field, &next, cx) {
+            return;
+        }
         self.config_writes.begin(field, current);
         if let Some(page) = self.config.as_mut() {
             page.values.insert(field.to_owned(), next.clone());
@@ -6424,7 +7211,7 @@ impl WhiskyApp {
                 return PrimaryAction::unavailable();
             }
             return PrimaryAction {
-                label: "Play",
+                label: "启动",
                 action: Some(RuntimeAction::Launch),
                 enabled: true,
                 busy: false,
@@ -6657,6 +7444,12 @@ impl WhiskyApp {
         if let PreviewSheet::MoveEntry(index) = sheet {
             self.prepare_move_entry(index, cx);
         }
+        if sheet == PreviewSheet::CreateBottle
+            && self.service_available("wine.engines.list")
+            && self.wine_engines.is_empty()
+        {
+            self.bridge.load_wine_engines();
+        }
         if sheet == PreviewSheet::Winetricks {
             // A finished job is a result surface, not a permanent lock: opening
             // the sheet again starts from the catalog.
@@ -6672,11 +7465,11 @@ impl WhiskyApp {
             return "设置".into();
         }
         match self.preview.page {
-            PreviewPage::Library => "Library".into(),
+            PreviewPage::Library => "游戏库".into(),
             PreviewPage::Statistics => "游玩统计".into(),
             PreviewPage::Launchers => "启动器".into(),
             PreviewPage::Bottle => self.bottle_name().to_owned().into(),
-            PreviewPage::ConfigureBottle => "Configure Bottle".into(),
+            PreviewPage::ConfigureBottle => "容器配置".into(),
             PreviewPage::Programs => "已安装的程序".into(),
             PreviewPage::Processes => "运行中的进程".into(),
             PreviewPage::GameConfigs => "游戏配置".into(),

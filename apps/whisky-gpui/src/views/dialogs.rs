@@ -331,19 +331,97 @@ impl WhiskyApp {
         input
     }
 
+    /// The reason an engine policy disables `field` on the program page.
+    fn program_field_reason(&self, field: &str) -> Option<String> {
+        self.program_settings
+            .container
+            .as_deref()
+            .and_then(|container| self.engine_field_policy(container, field))
+            .filter(|policy| policy.disabled)
+            .and_then(|policy| policy.reason.clone())
+    }
+
+    /// An engine-gated program override switch, same rules as the bottle
+    /// config page: gated renders visibly disabled with the reason; a saved
+    /// ON stays switchable OFF; `unverified` shows an explicit
+    /// "确认后尝试启用" action instead of a live switch.
+    fn program_engine_switch(
+        &self,
+        id: String,
+        label: &'static str,
+        checked: bool,
+        field: &'static str,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let container = self.program_settings.container.clone();
+        let policy = container
+            .as_deref()
+            .and_then(|container| self.engine_field_policy(container, field))
+            .cloned();
+        let gated = policy.as_ref().is_some_and(|policy| policy.disabled);
+        let confirmable = policy
+            .as_ref()
+            .is_some_and(|policy| policy.state == "unverified" && policy.can_override);
+        let feature = policy
+            .as_ref()
+            .and_then(|policy| policy.feature.clone())
+            .unwrap_or_default();
+        let mut column = col().gap(px(4.));
+        if let Some(reason) = self.program_field_reason(field) {
+            column = column.child(muted(reason).text_size(px(11.)).line_height(relative(1.4)));
+        }
+        // A saved ON the engine does not honor is an inactive preference —
+        // shown as such, still switchable to OFF.
+        if gated && checked {
+            column = column.child(
+                muted("已保存的偏好在当前引擎下未生效。")
+                    .text_size(px(11.))
+                    .line_height(relative(1.4)),
+            );
+        }
+        column = column.child(self.program_switch(
+            id,
+            label,
+            checked,
+            gated && !checked,
+            move |this, on, cx| this.set_program_override_bool(field, on, cx),
+            cx,
+        ));
+        if confirmable {
+            let container = container.clone().unwrap_or_default();
+            let field_id = field.to_owned();
+            column = column.child(
+                Button::new(format!("program-confirm:{field_id}"))
+                    .label("确认后尝试启用")
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.request_program_feature_confirm(
+                            &container,
+                            &feature,
+                            &field_id,
+                            serde_json::Value::Bool(true),
+                            cx,
+                        );
+                    })),
+            );
+        }
+        column.into_any_element()
+    }
+
     fn program_switch(
         &self,
         id: String,
         label: &'static str,
         checked: bool,
-        on_change: impl Fn(&mut WhiskyApp, bool) + 'static,
+        disabled: bool,
+        on_change: impl Fn(&mut WhiskyApp, bool, &mut Context<Self>) + 'static,
         cx: &Context<Self>,
     ) -> AnyElement {
         Switch::new(id)
             .label(label)
             .checked(checked)
+            .disabled(disabled)
             .on_change(cx.listener(move |this, checked, _, cx| {
-                on_change(this, *checked);
+                on_change(this, *checked, cx);
                 cx.notify();
             }))
             .into_any_element()
@@ -353,28 +431,75 @@ impl WhiskyApp {
         &self,
         id: String,
         current: String,
+        current_value: &str,
         options: &'static [(&'static str, &'static str)],
         field: &'static str,
         cx: &Context<Self>,
     ) -> AnyElement {
+        let container = self.program_settings.container.clone();
+        let field_policy = container
+            .as_deref()
+            .and_then(|container| self.engine_field_policy(container, field))
+            .cloned();
+        // Field-level gate fallback: fields like `dxvkHud` carry the policy
+        // on the FIELD, not per choice — every non-neutral option inherits
+        // it; off/none stay selectable so a saved value can be reverted.
+        let neutral = |id: &str| id.is_empty() || id == "none" || id == "off";
+        let policy_for = move |option_id: &str| -> Option<crate::bridge::dto::EnginePolicyDto> {
+            if let Some(policy) = field_policy
+                .as_ref()
+                .and_then(|policy| policy.choices.get(option_id))
+            {
+                return Some(policy.clone());
+            }
+            let policy = field_policy.as_ref()?;
+            if policy.disabled && !neutral(option_id) {
+                return Some(crate::bridge::dto::EnginePolicyDto {
+                    disabled: policy.disabled,
+                    reason: policy.reason.clone(),
+                    state: policy.state.clone(),
+                    can_override: policy.can_override,
+                    feature: policy.feature.clone(),
+                });
+            }
+            None
+        };
+        let selected_gated = policy_for(current_value).is_some_and(|policy| policy.disabled);
+        let label = if selected_gated {
+            format!("{current}（未生效）  ⌄")
+        } else {
+            format!("{current}  ⌄")
+        };
         let view = cx.entity().downgrade();
         Button::new(id)
-            .label(format!("{current}  ⌄"))
+            .label(label)
             .dropdown_menu(move |mut menu, _, _| {
                 for &(raw, display) in options {
                     let view = view.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new(display).on_click(move |_, _, cx| {
+                    let choice_policy = policy_for(raw);
+                    let confirmable = choice_policy.as_ref().is_some_and(|policy| {
+                        policy.disabled && policy.can_override && policy.state == "unverified"
+                    });
+                    let unavailable = choice_policy.as_ref().is_some_and(|policy| {
+                        policy.disabled && !(policy.can_override && policy.state == "unverified")
+                    });
+                    let title = if confirmable {
+                        format!("{display}（需确认）")
+                    } else {
+                        display.to_owned()
+                    };
+                    menu = menu.item(PopupMenuItem::new(title).disabled(unavailable).on_click(
+                        move |_, _, cx| {
                             let _ = view.update(cx, |this, cx| {
                                 if field == "locale" {
                                     this.set_program_locale(raw.to_owned(), cx);
                                 } else {
-                                    this.set_program_choice(field, raw);
+                                    this.set_program_choice(field, raw, cx);
                                     cx.notify();
                                 }
                             });
-                        }),
-                    );
+                        },
+                    ));
                 }
                 menu
             })
@@ -406,6 +531,7 @@ impl WhiskyApp {
         let locale = self.program_choice(
             "ps-locale".into(),
             program_settings::locale_label(&settings.locale).to_owned(),
+            &settings.locale,
             PROGRAM_LOCALES,
             "locale",
             cx,
@@ -511,12 +637,12 @@ impl WhiskyApp {
             .border_1()
             .cursor_pointer()
             .text_size(px(12.))
-            .border_color(rgba(if selected { 0xff891b99 } else { crate::theme::surface_border() }))
-            .bg(rgba(if selected { 0xff891b26 } else { crate::theme::card_bg() }))
+            .border_color(rgba(if selected { crate::theme::accent_subtle_border() } else { crate::theme::surface_border() }))
+            .bg(rgba(if selected { crate::theme::accent_subtle_bg() } else { crate::theme::card_bg() }))
             .text_color(rgb(if selected { crate::theme::pill_selected_text() } else { crate::theme::subtext() }))
-            .hover(|s| s.bg(rgba(if selected { 0xff891b33 } else { crate::theme::hover_strong() })))
+            .hover(|s| s.bg(rgba(if selected { crate::theme::accent_subtle_hover() } else { crate::theme::hover_strong() })))
             .when(selected, |d| {
-                d.child(icon("check", 11.).text_color(rgb(crate::theme::ACCENT)))
+                d.child(icon("check", 11.).text_color(rgb(crate::theme::accent_fg())))
             })
             .child(label)
             .on_click(cx.listener(move |this, _, _, cx| on_click(this, cx)))
@@ -625,7 +751,8 @@ impl WhiskyApp {
             "ps-override-graphics".into(),
             "覆盖图形设置",
             enabled,
-            |this, on| this.set_program_override_group("graphics", on),
+            false,
+            |this, on, _cx| this.set_program_override_group("graphics", on),
             cx,
         )];
         if enabled {
@@ -638,6 +765,7 @@ impl WhiskyApp {
                 self.program_choice(
                     "ps-graphics-backend".into(),
                     program_settings::graphics_label(&backend).to_owned(),
+                    &backend,
                     GRAPHICS_BACKENDS,
                     "graphicsBackend",
                     cx,
@@ -647,11 +775,11 @@ impl WhiskyApp {
                 .and_then(|value| value.dxvk_async)
                 .or(defaults.dxvk_async)
                 .unwrap_or(true);
-            children.push(self.program_switch(
+            children.push(self.program_engine_switch(
                 "ps-dxvk-async".into(),
                 "DXVK Async",
                 async_on,
-                |this, on| this.set_program_override_bool("dxvkAsync", on),
+                "dxvkAsync",
                 cx,
             ));
             let hud = overrides
@@ -663,6 +791,7 @@ impl WhiskyApp {
                 self.program_choice(
                     "ps-dxvk-hud".into(),
                     program_settings::hud_label(&hud).to_owned(),
+                    &hud,
                     DXVK_HUDS,
                     "dxvkHud",
                     cx,
@@ -674,11 +803,11 @@ impl WhiskyApp {
                 .and_then(|value| value.metal4_enabled)
                 .or(defaults.metal4_enabled)
                 .unwrap_or(false);
-            children.push(self.program_switch(
+            children.push(self.program_engine_switch(
                 "ps-metal4".into(),
                 "Metal 4 命令编码",
                 metal4,
-                |this, on| this.set_program_override_bool("metal4Enabled", on),
+                "metal4Enabled",
                 cx,
             ));
             }
@@ -710,7 +839,8 @@ impl WhiskyApp {
             "ps-override-upscale".into(),
             "覆盖超分设置",
             enabled,
-            |this, on| this.set_program_override_group("upscale", on),
+            false,
+            |this, on, _cx| this.set_program_override_group("upscale", on),
             cx,
         )];
         if enabled {
@@ -723,6 +853,7 @@ impl WhiskyApp {
                 self.program_choice(
                     "ps-gdi-upscaler".into(),
                     program_settings::upscaler_label(&upscaler).to_owned(),
+                    &upscaler,
                     GDI_UPSCALERS,
                     "gdiUpscaler",
                     cx,
@@ -737,6 +868,7 @@ impl WhiskyApp {
                 self.program_choice(
                     "ps-gdi-cache".into(),
                     program_settings::cache_label(&cache).to_owned(),
+                    &cache,
                     GDI_CACHES,
                     "gdiUpscalerCache",
                     cx,
@@ -843,7 +975,8 @@ impl WhiskyApp {
             "ps-override-sync".into(),
             "覆盖同步设置",
             enabled,
-            |this, on| this.set_program_override_group("sync", on),
+            false,
+            |this, on, _cx| this.set_program_override_group("sync", on),
             cx,
         )];
         if enabled {
@@ -858,6 +991,7 @@ impl WhiskyApp {
                 self.program_choice(
                     "ps-sync-mode".into(),
                     program_settings::sync_label(&sync).to_owned(),
+                    &sync,
                     SYNC_MODES,
                     "enhancedSync",
                     cx,
@@ -883,7 +1017,8 @@ impl WhiskyApp {
             "ps-override-performance".into(),
             "覆盖性能设置",
             enabled,
-            |this, on| this.set_program_override_group("performance", on),
+            false,
+            |this, on, _cx| this.set_program_override_group("performance", on),
             cx,
         )];
         if enabled {
@@ -893,11 +1028,11 @@ impl WhiskyApp {
                 .and_then(|value| value.shader_cache_enabled)
                 .or(defaults.shader_cache_enabled)
                 .unwrap_or(true);
-            children.push(self.program_switch(
+            children.push(self.program_engine_switch(
                 "ps-shader-cache".into(),
                 "着色器缓存",
                 shader_cache,
-                |this, on| this.set_program_override_bool("shaderCacheEnabled", on),
+                "shaderCacheEnabled",
                 cx,
             ));
         } else {
@@ -924,7 +1059,8 @@ impl WhiskyApp {
             "ps-override-input".into(),
             "覆盖输入设置",
             enabled,
-            |this, on| this.set_program_override_group("input", on),
+            false,
+            |this, on, _cx| this.set_program_override_group("input", on),
             cx,
         )];
         if enabled {
@@ -956,7 +1092,8 @@ impl WhiskyApp {
                     id.to_owned(),
                     label,
                     checked,
-                    move |this, on| this.set_program_override_bool(field, on),
+                    false,
+                    move |this, on, cx| this.set_program_override_bool(field, on, cx),
                     cx,
                 ));
             }
@@ -994,7 +1131,8 @@ impl WhiskyApp {
             "ps-override-display".into(),
             "覆盖显示设置",
             enabled,
-            |this, on| this.set_program_override_group("display", on),
+            false,
+            |this, on, _cx| this.set_program_override_group("display", on),
             cx,
         )];
         if enabled {
@@ -1006,7 +1144,8 @@ impl WhiskyApp {
                 "ps-emulate-modeset".into(),
                 "旧版全屏兼容",
                 emulate_modeset,
-                |this, on| this.set_program_override_bool("emulateModeset", on),
+                false,
+                |this, on, cx| this.set_program_override_bool("emulateModeset", on, cx),
                 cx,
             ));
             let virtual_desktop = overrides
@@ -1017,7 +1156,8 @@ impl WhiskyApp {
                 "ps-virtual-desktop".into(),
                 "启用虚拟桌面",
                 virtual_desktop,
-                |this, on| this.set_program_override_bool("virtualDesktopEnabled", on),
+                false,
+                |this, on, cx| this.set_program_override_bool("virtualDesktopEnabled", on, cx),
                 cx,
             ));
             if virtual_desktop {
@@ -1030,6 +1170,7 @@ impl WhiskyApp {
                     self.program_choice(
                         "ps-resolution".into(),
                         program_settings::resolution_label(&preset).to_owned(),
+                        &preset,
                         RESOLUTIONS,
                         "resolutionPreset",
                         cx,
@@ -1099,7 +1240,8 @@ impl WhiskyApp {
             "ps-override-dll".into(),
             "覆盖 DLL 设置",
             enabled,
-            |this, on| this.set_program_override_group("dll", on),
+            false,
+            |this, on, _cx| this.set_program_override_group("dll", on),
             cx,
         )];
         if enabled {
@@ -1143,6 +1285,7 @@ impl WhiskyApp {
             let mode_control = self.program_choice(
                 "ps-dll-new-mode".into(),
                 program_settings::dll_mode_label(&mode).to_owned(),
+                &mode,
                 DLL_MODES,
                 "dllNewMode",
                 cx,
@@ -1394,7 +1537,7 @@ impl WhiskyApp {
                                     this.choose_scan_roots(cx);
                                 })),
                         )
-                        .child(muted("可多选,从容器 C: 盘开始;子文件夹会成为游戏").text_size(px(11.)))
+                        .child(muted("可多选，从容器 C: 盘开始；子文件夹会成为游戏条目").text_size(px(11.)))
                         .into_any_element(),
                 );
                 rows.push(
@@ -1433,7 +1576,7 @@ impl WhiskyApp {
                                 })),
                         )
                         .child(
-                            muted("文件夹本身就是一个游戏,不扫描其子目录")
+                            muted("文件夹本身就是一个游戏，不扫描其子目录")
                                 .text_size(px(11.)),
                         )
                         .into_any_element(),
@@ -1815,7 +1958,7 @@ impl WhiskyApp {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(icon("package", 16.).text_color(rgb(if is_root { 0xff891b } else { crate::theme::muted_color() }))),
+                            .child(icon("package", 16.).text_color(rgb(if is_root { crate::theme::accent_fg() } else { crate::theme::muted_color() }))),
                     )
                     .child(
                         col()
@@ -1839,9 +1982,9 @@ impl WhiskyApp {
                                                 .px(px(6.))
                                                 .py(px(1.))
                                                 .rounded(px(4.))
-                                                .bg(rgba(0xff891b22))
+                                                .bg(rgba(crate::theme::accent_subtle_bg()))
                                                 .text_size(px(10.))
-                                                .text_color(rgb(0xff891b))
+                                                .text_color(rgb(crate::theme::accent_fg()))
                                                 .child("主程序"),
                                         )
                                     }),
@@ -1899,7 +2042,18 @@ impl WhiskyApp {
 
         let mut sections = Vec::new();
         let installed = self.winetricks.installed_for(&container);
-        let mut filter_rows: Vec<AnyElement> = vec![self.field("dependency-search", "搜索组件")];
+        let mut filter_rows: Vec<AnyElement> = vec![
+            col()
+                .gap(px(7.))
+                .py(px(8.))
+                .child("搜索组件")
+                .child(
+                    Input::new(&self.preview.inputs["dependency-search"])
+                        .prefix(icon("search", 13.).text_color(rgb(crate::theme::muted_color())))
+                        .cleanable(true),
+                )
+                .into_any_element(),
+        ];
         if let Some(catalog) = &self.winetricks.catalog {
             let mut tabs = row().flex_wrap().gap(px(6.)).py(px(6.));
             for category in &catalog.categories {
@@ -2150,13 +2304,13 @@ impl WhiskyApp {
             .gap(px(11.))
             .rounded(px(8.))
             .bg(if selected {
-                rgba(0xff891b1f)
+                rgba(crate::theme::accent_subtle_bg())
             } else {
                 rgba(crate::theme::card_bg_subtle())
             })
             .border_1()
             .border_color(if selected {
-                rgba(0xff891b55)
+                rgba(crate::theme::accent_subtle_border())
             } else {
                 rgba(crate::theme::card_border())
             })
@@ -2175,7 +2329,7 @@ impl WhiskyApp {
                     .flex()
                     .justify_center()
                     .text_size(px(13.))
-                    .text_color(rgb(if installed { 0x67d68b } else { crate::theme::muted_color() }))
+                    .text_color(rgb(if installed { crate::theme::installed_fg() } else { crate::theme::muted_color() }))
                     .child(if installed { "✓" } else { "○" }),
             )
             .child(
@@ -2204,9 +2358,10 @@ impl WhiskyApp {
                         .px(px(7.))
                         .py(px(2.))
                         .rounded(px(4.))
-                        .bg(rgba(0x67d68b1f))
+                        .bg(rgba(crate::theme::installed_bg()))
                         .text_size(px(10.))
-                        .text_color(rgb(0x67d68b))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(rgb(crate::theme::installed_fg()))
                         .child("已安装"),
                 )
             })
@@ -2386,7 +2541,18 @@ impl WhiskyApp {
             .id("metadata-search-row")
             .gap(px(8.))
             .py(px(8.))
-            .child(div().flex_1().min_w_0().child(Input::new(&input)))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                if event.keystroke.key == "enter" {
+                    this.command(Command::MetadataSearch, cx);
+                }
+            }))
+            .child(
+                div().flex_1().min_w_0().child(
+                    Input::new(&input)
+                        .prefix(icon("search", 13.).text_color(rgb(crate::theme::muted_color())))
+                        .cleanable(true),
+                ),
+            )
             .child(Button::new("metadata-bind-id")
                 .label("按 ID / 网址关联")
                 .disabled(!editable || searching)
@@ -2754,13 +2920,23 @@ impl WhiskyApp {
                             "create",
                             "新容器",
                             vec![
-                                self.field("bottle-name", "名称"),
+                                div()
+                                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                                        if event.keystroke.key == "enter"
+                                            && !this.create_bottle.as_ref().is_some_and(|s| s.running() || s.finished)
+                                        {
+                                            this.submit_create_bottle(cx);
+                                        }
+                                    }))
+                                    .child(self.field("bottle-name", "名称"))
+                                    .into_any_element(),
                                 self.choice(
                                     "create-windows",
                                     "Windows 版本",
                                     crate::create_bottle::WINDOWS_LABELS,
                                     cx,
                                 ),
+                                self.create_engine_choice(cx),
                                 self.info("位置", &location),
                                 self.info("架构", "64 位"),
                             ],
@@ -2923,13 +3099,13 @@ impl WhiskyApp {
                 }
                 if let Some(checks) = &self.diagnostic_checks {
                     for check in checks {
-                        let (label, symbol) = match check.outcome.as_str() {
-                            "pass" => ("通过", "check"),
-                            "already_configured" => ("已配置", "check"),
-                            "fail" => ("未通过", "info"),
-                            "warning" => ("警告", "info"),
-                            "error" => ("错误", "x"),
-                            _ => ("未知", "info"),
+                        let (label, symbol, color) = match check.outcome.as_str() {
+                            "pass" => ("通过", "check", crate::theme::installed_fg()),
+                            "already_configured" => ("已配置", "check", crate::theme::installed_fg()),
+                            "fail" => ("未通过", "triangle-alert", crate::theme::warning_fg()),
+                            "warning" => ("警告", "triangle-alert", crate::theme::warning_fg()),
+                            "error" => ("错误", "x", crate::theme::danger_fg()),
+                            _ => ("未知", "info", crate::theme::muted_color()),
                         };
                         let check_label = match check.check_id.as_str() {
                             "crash.log_classify" => "崩溃日志",
@@ -2954,7 +3130,7 @@ impl WhiskyApp {
                             row()
                                 .gap(px(8.))
                                 .py(px(5.))
-                                .child(icon(symbol, 13.).text_color(rgb(crate::theme::muted_color())))
+                                .child(icon(symbol, 13.).text_color(rgb(color)))
                                 .child(muted(detail).text_size(px(11.)))
                                 .into_any_element(),
                         );
@@ -3493,7 +3669,8 @@ impl WhiskyApp {
                                 "legacy-fullscreen-switch".into(),
                                 "旧版全屏兼容",
                                 enable,
-                                |this, on| this.legacy_fullscreen_set_enable(on),
+                                false,
+                                |this, on, _cx| this.legacy_fullscreen_set_enable(on),
                                 cx,
                             )),
                     )
@@ -3576,7 +3753,15 @@ impl WhiskyApp {
                 }
             });
 
-        self.bridge.create_bottle(name, &parent, windows_version);
+        let engine_id = self
+            .preview
+            .choices
+            .get("create-engine")
+            .cloned()
+            .filter(|id| !id.is_empty())
+            .unwrap_or_else(|| "managed".into());
+        self.bridge
+            .create_bottle_with_engine(name, &parent, windows_version, &engine_id);
         // Keep the sheet open: the Started event switches it to the
         // running view, which is the only in-progress cue the user gets
         // while the prefix bootstrap runs.
@@ -3716,9 +3901,19 @@ impl WhiskyApp {
             )
             .child(
                 col()
-                    .id("clipboard-dialog-card")
+                    .id("bottle-dialog-card")
                     .occlude()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                        if event.keystroke.key == "enter"
+                            && this.bottle_dialog.as_ref().is_some_and(|d| d.kind != BottleDialogKind::Remove)
+                        {
+                            this.command(Command::BottleDialogConfirm, cx);
+                            if this.bottle_dialog.is_none() {
+                                this.focus_handle.focus(window, cx);
+                            }
+                        }
+                    }))
                     .absolute()
                     .left(px((width - pw) / 2.))
                     .top(px((height - ph) / 2.))
@@ -3930,7 +4125,7 @@ impl WhiskyApp {
             .bg(rgba(crate::theme::overlay()))
             .child(
                 col()
-                    .id("clipboard-dialog-card")
+                    .id("setup-dialog-card")
                     .occlude()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .absolute()
@@ -4051,7 +4246,7 @@ impl WhiskyApp {
             )
             .child(
                 col()
-                    .id("clipboard-dialog-card")
+                    .id("about-dialog-card")
                     .occlude()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .absolute()
@@ -4133,11 +4328,11 @@ impl WhiskyApp {
     ) -> AnyElement {
         let (title, detail) = match &self.bridge_status {
             BridgeStatus::Failed { reason, retryable } => (
-                "Bridge unavailable",
+                "桥接服务不可用",
                 if *retryable {
                     reason.clone()
                 } else {
-                    format!("{reason}\n\nRetrying may not help until the helper is rebuilt.")
+                    format!("{reason}\n\n在重新构建或修复桥接辅助进程前，重试可能无效。")
                 },
             ),
             BridgeStatus::Connected {
@@ -4145,13 +4340,13 @@ impl WhiskyApp {
                 version,
                 methods,
             } => (
-                "Bridge connected",
-                format!("{helper}\n{version} · {methods} methods"),
+                "桥接服务已连接",
+                format!("{helper}\n{version} · {methods} 个接口"),
             ),
-            BridgeStatus::Stopped => ("Bridge stopped", "The helper is no longer running.".into()),
+            BridgeStatus::Stopped => ("桥接服务已停止", "后台桥接辅助进程已退出。".into()),
             BridgeStatus::Locating | BridgeStatus::Starting => (
-                "Connecting",
-                "The bridge helper is starting.".into(),
+                "正在连接…",
+                "正在启动桥接辅助进程，请稍候。".into(),
             ),
         };
         let (title, detail) = self.quit_error.as_ref()
@@ -4177,7 +4372,7 @@ impl WhiskyApp {
             )
             .child(
                 col()
-                    .id("clipboard-dialog-card")
+                    .id("bridge-dialog-card")
                     .occlude()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .absolute()
@@ -4244,7 +4439,7 @@ impl WhiskyApp {
                             .when(retry, |d| {
                                 d.child(
                                     Button::new("bridge-retry")
-                                        .label("Retry")
+                                        .label("重试")
                                         .primary()
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.bridge_retry(cx);
@@ -4452,4 +4647,177 @@ fn clipboard_size(bytes: i64) -> String {
         return format!("{bytes} 字节");
     }
     format!("{:.1} KB", bytes as f64 / 1024.)
+}
+
+
+impl WhiskyApp {
+    /// Create-bottle Wine engine picker. Values stored in
+    /// `preview.choices["create-engine"]` are engine ids; the row shows
+    /// names. Hidden when the helper predates `wine.engines`.
+    fn create_engine_choice(&self, cx: &Context<Self>) -> AnyElement {
+        if !self.service_available("wine.engines.list") || self.wine_engines.is_empty() {
+            return div().into_any_element();
+        }
+        let selected = self
+            .preview
+            .choices
+            .get("create-engine")
+            .cloned()
+            .unwrap_or_else(|| "managed".into());
+        let label = self
+            .wine_engines
+            .iter()
+            .find(|engine| engine.id == selected)
+            .map(|engine| engine.name.clone())
+            .unwrap_or_else(|| "Whisky Wine".to_owned());
+        let view = cx.entity().downgrade();
+        let engines = self.wine_engines.clone();
+        row()
+            .py(px(10.))
+            .gap(px(16.))
+            .child(div().flex_1().min_w_0().child("Wine 引擎"))
+            .child(
+                Button::new("create-engine")
+                    .label(format!("{label}  ⌄"))
+                    .dropdown_menu(move |mut menu, _, _| {
+                        for engine in &engines {
+                            let view = view.clone();
+                            let engine_id = engine.id.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(engine.name.clone())
+                                    .disabled(!engine.available)
+                                    .checked(selected == engine.id)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = view.update(cx, |this, cx| {
+                                            this.preview
+                                                .choices
+                                                .insert("create-engine", engine_id.clone().into());
+                                            cx.notify();
+                                        });
+                                    }),
+                            );
+                        }
+                        menu
+                    }),
+            )
+            .into_any_element()
+    }
+
+    /// The Wine-engine confirmation overlay: approve runs the queued
+    /// `wine.engines.select` / `setFeatureOverride`, cancel discards it.
+    /// Same presentation as the bottle dialog so it reads as one family.
+    pub(crate) fn engine_dialog_view(
+        &mut self,
+        width: f32,
+        height: f32,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(dialog) = self.engine_dialog.as_ref() else {
+            return div().into_any_element();
+        };
+        let (title, body): (&str, AnyElement) = match &dialog.kind {
+            crate::state::EngineDialogKind::Feature { feature, reason, .. } => (
+                "启用未验证的特性",
+                col()
+                    .gap(px(10.))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(format!("确定要启用「{feature}」吗？")),
+                    )
+                    .child(muted(reason.clone()))
+                    .child(
+                        muted("外部引擎未验证此特性：若引擎不支持，程序可能无法启动或崩溃。确认与当前引擎指纹绑定，引擎更换或更新后需重新确认。")
+                            .line_height(relative(1.4)),
+                    )
+                    .into_any_element(),
+            ),
+            crate::state::EngineDialogKind::Select { engine_name } => (
+                "更换 Wine 引擎",
+                col()
+                    .gap(px(10.))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(format!("将容器切换到「{engine_name}」？")),
+                    )
+                    .child(
+                        muted("更换引擎不会迁移或重建现有容器前缀，不同引擎可能需要不同的前缀版本。容器内的进程停止后才能更换；已确认的特性授权会被清除。")
+                            .line_height(relative(1.4)),
+                    )
+                    .into_any_element(),
+            ),
+        };
+        let footer = row()
+            .flex_shrink_0()
+            .justify_end()
+            .gap(px(8.))
+            .px(px(18.))
+            .py(px(13.))
+            .border_t_1()
+            .border_color(rgba(crate::theme::surface_border()))
+            .child(
+                Button::new("engine-dialog-cancel")
+                    .label("取消")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.dismiss_engine_dialog(cx);
+                        this.focus_handle.focus(window, cx);
+                    })),
+            )
+            .child(
+                Button::new("engine-dialog-confirm")
+                    .label("确认")
+                    .primary()
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.confirm_engine_dialog(cx);
+                        this.focus_handle.focus(window, cx);
+                    })),
+            );
+        let pw = 460_f32.min(width - 48.);
+        let ph = 280_f32.min(height - 48.);
+        div()
+            .absolute()
+            .inset_0()
+            .occlude()
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .bg(rgba(crate::theme::overlay()))
+            .child(
+                div()
+                    .id("engine-dialog-dismiss")
+                    .absolute()
+                    .inset_0()
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.dismiss_engine_dialog(cx);
+                        this.focus_handle.focus(window, cx);
+                    })),
+            )
+            .child(
+                col()
+                    .id("engine-dialog-card")
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .absolute()
+                    .left(px((width - pw) / 2.))
+                    .top(px((height - ph) / 2.))
+                    .w(px(pw))
+                    .rounded(px(RADIUS_LG))
+                    .overflow_hidden()
+                    .bg(rgb(crate::theme::surface()))
+                    .border_1()
+                    .border_color(rgba(crate::theme::surface_border()))
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_h_0()
+                            .px(px(18.))
+                            .py(px(16.))
+                            .gap(px(10.))
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                            .child(body),
+                    )
+                    .child(footer),
+            )
+            .into_any_element()
+    }
 }

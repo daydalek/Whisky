@@ -37,7 +37,7 @@ use super::{
         PreferencesSchemaDto, SetupStatusDto,
         ProcessDto, ProgramDto, RUNTIME_METHODS, RUNTIME_SESSION_METHODS, RuntimeEntryDto,
         RuntimeEventBatchDto, RuntimeEventPayloadDto, RuntimeSnapshotDto, ScanResultDto,
-        SystemInfoDto,
+        SystemInfoDto, WineEngineListDto, WineEngineSelectionDto,
     },
 };
 use crate::config::{self, ConfigField};
@@ -159,6 +159,12 @@ pub(crate) enum DiagnosticUpdate {
 pub(crate) enum SetupUpdate {
     Status {
         installed: bool,
+        /// `managedInstalled` — absent on helpers that predate external
+        /// engines; `installed` is the managed answer then.
+        managed_installed: Option<bool>,
+        /// `anyEngineAvailable` — a usable engine of any kind exists.
+        /// Absent on older helpers, where `installed` is the only engine.
+        any_engine_available: Option<bool>,
         version: Option<String>,
         rosetta_installed: bool,
         apple_silicon: bool,
@@ -485,6 +491,25 @@ pub(crate) enum BridgeEvent {
         field: Option<String>,
         reason: String,
     },
+    /// `wine.engines.list`/`register`/`remove` result — the refreshed list.
+    WineEngines {
+        list: WineEngineListDto,
+    },
+    /// An engine registration or removal the helper refused.
+    WineEngineOpFailed {
+        reason: String,
+    },
+    /// `wine.engines.selection`/`select`/`setFeatureOverride` reply for one
+    /// container. `container` tags it so stale replies can't leak across
+    /// bottles.
+    EngineSelection {
+        container: String,
+        selection: Box<WineEngineSelectionDto>,
+    },
+    EngineSelectionFailed {
+        container: String,
+        reason: String,
+    },
     Folders {
         container: String,
         folders: FoldersDto,
@@ -786,6 +811,36 @@ enum Command {
         name: String,
         parent: String,
         windows_version: String,
+        /// `wine.engines` id; "managed" keeps the old default.
+        engine_id: String,
+    },
+    /// `wine.engines.list` — the managed row plus registered external engines.
+    LoadWineEngines,
+    /// `wine.engines.register` — detect and register an external engine tree.
+    RegisterWineEngine {
+        path: String,
+        name: Option<String>,
+    },
+    /// `wine.engines.remove` — drop a registration (files stay on disk).
+    RemoveWineEngine {
+        id: String,
+    },
+    /// `wine.engines.selection` — engine binding + effective feature policy.
+    LoadEngineSelection {
+        container: String,
+    },
+    /// `wine.engines.select` — rebind a container; clears confirmations.
+    SelectWineEngine {
+        container: String,
+        engine_id: String,
+    },
+    /// `wine.engines.setFeatureOverride` — approve/revoke an unverified feature.
+    SetEngineFeatureOverride {
+        container: String,
+        feature: String,
+        enabled: bool,
+        confirmed: bool,
+        fingerprint: String,
     },
     LoadWinetricksCatalog,
     LoadInstalledWinetricks(String),
@@ -1289,10 +1344,73 @@ impl BridgeSupervisor {
     /// `bottle.create`. The reply is a job handle; progress and the refreshed
     /// catalogue arrive as `BridgeEvent::BottleCreate`.
     pub(crate) fn create_bottle(&self, name: &str, parent: &str, windows_version: &str) {
+        self.create_bottle_with_engine(name, parent, windows_version, "managed");
+    }
+
+    /// `bottle.create` bound to an explicit `wine.engines` id.
+    pub(crate) fn create_bottle_with_engine(
+        &self,
+        name: &str,
+        parent: &str,
+        windows_version: &str,
+        engine_id: &str,
+    ) {
         let _ = self.commands.send(Command::CreateBottle {
             name: name.to_owned(),
             parent: parent.to_owned(),
             windows_version: windows_version.to_owned(),
+            engine_id: engine_id.to_owned(),
+        });
+    }
+
+    /// `wine.engines.list`.
+    pub(crate) fn load_wine_engines(&self) {
+        let _ = self.commands.send(Command::LoadWineEngines);
+    }
+
+    /// `wine.engines.register`.
+    pub(crate) fn register_wine_engine(&self, path: &str, name: Option<&str>) {
+        let _ = self.commands.send(Command::RegisterWineEngine {
+            path: path.to_owned(),
+            name: name.map(str::to_owned),
+        });
+    }
+
+    /// `wine.engines.remove`.
+    pub(crate) fn remove_wine_engine(&self, id: &str) {
+        let _ = self.commands.send(Command::RemoveWineEngine { id: id.to_owned() });
+    }
+
+    /// `wine.engines.selection`.
+    pub(crate) fn load_engine_selection(&self, container: &str) {
+        let _ = self.commands.send(Command::LoadEngineSelection {
+            container: container.to_owned(),
+        });
+    }
+
+    /// `wine.engines.select`.
+    pub(crate) fn select_wine_engine(&self, container: &str, engine_id: &str) {
+        let _ = self.commands.send(Command::SelectWineEngine {
+            container: container.to_owned(),
+            engine_id: engine_id.to_owned(),
+        });
+    }
+
+    /// `wine.engines.setFeatureOverride`.
+    pub(crate) fn set_engine_feature_override(
+        &self,
+        container: &str,
+        feature: &str,
+        enabled: bool,
+        confirmed: bool,
+        fingerprint: &str,
+    ) {
+        let _ = self.commands.send(Command::SetEngineFeatureOverride {
+            container: container.to_owned(),
+            feature: feature.to_owned(),
+            enabled,
+            confirmed,
+            fingerprint: fingerprint.to_owned(),
         });
     }
 
@@ -3296,11 +3414,12 @@ fn run_with_spawner_and_backoff<F, B>(
                     name,
                     parent,
                     windows_version,
+                    engine_id,
                 }) => {
                     if create.is_some() {
                         eprintln!("whisky-bridge: a bottle create is already running");
                     } else {
-                        match start_create(&mut client, &name, &parent, &windows_version) {
+                        match start_create(&mut client, &name, &parent, &windows_version, &engine_id) {
                             Ok(job_id) => {
                                 emit_event(
                                     &events,
@@ -3327,6 +3446,173 @@ fn run_with_spawner_and_backoff<F, B>(
                             ),
                             Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                         }
+                    }
+                }
+                Some(Command::LoadWineEngines) => {
+                    match client.call("wine.engines.list", json!({})).map_err(classify) {
+                        Ok(reply) => match serde_json::from_value::<WineEngineListDto>(reply) {
+                            Ok(list) => emit_event(&events, BridgeEvent::WineEngines { list }),
+                            Err(error) => emit_event(&events, BridgeEvent::WineEngineOpFailed {
+                                reason: format!("invalid engine list: {error}"),
+                            }),
+                        },
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::WineEngineOpFailed { reason });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::RegisterWineEngine { path, name }) => {
+                    let mut params = json!({ "path": path });
+                    if let Some(name) = name.filter(|name| !name.is_empty()) {
+                        params["name"] = serde_json::Value::String(name);
+                    }
+                    let registered = client
+                        .call("wine.engines.register", params)
+                        .map_err(classify);
+                    let registered_ok = registered.is_ok();
+                    match registered {
+                        Ok(_) => match client.call("wine.engines.list", json!({})).map_err(classify) {
+                            Ok(reply) => match serde_json::from_value::<WineEngineListDto>(reply) {
+                                Ok(list) => emit_event(&events, BridgeEvent::WineEngines { list }),
+                                Err(error) => emit_event(&events, BridgeEvent::WineEngineOpFailed {
+                                    reason: format!("invalid engine list: {error}"),
+                                }),
+                            },
+                            Err(CallFailure::Remote(reason)) => {
+                                emit_event(&events, BridgeEvent::WineEngineOpFailed { reason });
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        },
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::WineEngineOpFailed { reason });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                    // A newly usable external engine changes
+                    // `anyEngineAvailable`, so the setup status the UI gates
+                    // the managed-install prompt on is refreshed too.
+                    if registered_ok {
+                        fetch_setup_status(&mut client, &events);
+                    }
+                }
+                Some(Command::RemoveWineEngine { id }) => {
+                    let removed = client
+                        .call("wine.engines.remove", json!({ "id": id }))
+                        .map_err(classify);
+                    let removed_ok = removed.is_ok();
+                    match removed {
+                        Ok(_) => match client.call("wine.engines.list", json!({})).map_err(classify) {
+                            Ok(reply) => match serde_json::from_value::<WineEngineListDto>(reply) {
+                                Ok(list) => emit_event(&events, BridgeEvent::WineEngines { list }),
+                                Err(error) => emit_event(&events, BridgeEvent::WineEngineOpFailed {
+                                    reason: format!("invalid engine list: {error}"),
+                                }),
+                            },
+                            Err(CallFailure::Remote(reason)) => {
+                                emit_event(&events, BridgeEvent::WineEngineOpFailed { reason });
+                            }
+                            Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                        },
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::WineEngineOpFailed { reason });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                    // Removing the last external engine can drop
+                    // `anyEngineAvailable` back to managed-only.
+                    if removed_ok {
+                        fetch_setup_status(&mut client, &events);
+                    }
+                }
+                Some(Command::LoadEngineSelection { container }) => {
+                    match client
+                        .call("wine.engines.selection", json!({ "container": container }))
+                        .map_err(classify)
+                    {
+                        Ok(reply) => match serde_json::from_value::<WineEngineSelectionDto>(reply) {
+                            Ok(selection) => emit_event(&events, BridgeEvent::EngineSelection {
+                                container,
+                                selection: Box::new(selection),
+                            }),
+                            Err(error) => emit_event(&events, BridgeEvent::EngineSelectionFailed {
+                                container,
+                                reason: format!("invalid engine selection: {error}"),
+                            }),
+                        },
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::EngineSelectionFailed {
+                                container,
+                                reason,
+                            });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::SelectWineEngine { container, engine_id }) => {
+                    match client
+                        .call(
+                            "wine.engines.select",
+                            json!({ "container": container, "id": engine_id }),
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(reply) => match serde_json::from_value::<WineEngineSelectionDto>(reply) {
+                            Ok(selection) => emit_event(&events, BridgeEvent::EngineSelection {
+                                container,
+                                selection: Box::new(selection),
+                            }),
+                            Err(error) => emit_event(&events, BridgeEvent::EngineSelectionFailed {
+                                container,
+                                reason: format!("invalid engine selection: {error}"),
+                            }),
+                        },
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::EngineSelectionFailed {
+                                container,
+                                reason,
+                            });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
+                    }
+                }
+                Some(Command::SetEngineFeatureOverride {
+                    container,
+                    feature,
+                    enabled,
+                    confirmed,
+                    fingerprint,
+                }) => {
+                    match client
+                        .call(
+                            "wine.engines.setFeatureOverride",
+                            json!({
+                                "container": container,
+                                "feature": feature,
+                                "enabled": enabled,
+                                "confirmed": confirmed,
+                                "fingerprint": fingerprint,
+                            }),
+                        )
+                        .map_err(classify)
+                    {
+                        Ok(reply) => match serde_json::from_value::<WineEngineSelectionDto>(reply) {
+                            Ok(selection) => emit_event(&events, BridgeEvent::EngineSelection {
+                                container,
+                                selection: Box::new(selection),
+                            }),
+                            Err(error) => emit_event(&events, BridgeEvent::EngineSelectionFailed {
+                                container,
+                                reason: format!("invalid engine selection: {error}"),
+                            }),
+                        },
+                        Err(CallFailure::Remote(reason)) => {
+                            emit_event(&events, BridgeEvent::EngineSelectionFailed {
+                                container,
+                                reason,
+                            });
+                        }
+                        Err(CallFailure::Session(reason)) => reconnect = Some(reason),
                     }
                 }
                 Some(Command::LoadWinetricksCatalog) => {
@@ -5150,6 +5436,7 @@ fn start_create(
     name: &str,
     parent: &str,
     windows_version: &str,
+    engine_id: &str,
 ) -> Result<String, CallFailure> {
     let reply = client
         .call(
@@ -5158,6 +5445,7 @@ fn start_create(
                 "name": name,
                 "parent": parent,
                 "windowsVersion": windows_version,
+                "engineID": engine_id,
             }),
         )
         .map_err(classify)?;
@@ -5436,6 +5724,8 @@ fn fetch_setup_status(client: &mut Client, events: &smol::channel::Sender<Bridge
         BridgeEvent::Setup {
             update: SetupUpdate::Status {
                 installed: status.installed,
+                managed_installed: status.managed_installed,
+                any_engine_available: status.any_engine_available,
                 version: status.version,
                 rosetta_installed: status.rosetta_installed,
                 apple_silicon: status.apple_silicon,

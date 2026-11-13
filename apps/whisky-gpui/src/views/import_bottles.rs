@@ -109,7 +109,23 @@ impl WhiskyApp {
             .bg(rgba(overlay()))
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
             .child(
+                div()
+                    .id("import-bottles-dismiss")
+                    .absolute()
+                    .inset_0()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if !busy {
+                            this.import_bottles = None;
+                            this.focus_handle.focus(window, cx);
+                            cx.notify();
+                        }
+                    })),
+            )
+            .child(
                 col()
+                    .id("import-bottles-card")
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .absolute()
                     .left(px((width - pw) / 2.))
                     .top(px((height - ph) / 2.))
@@ -125,12 +141,25 @@ impl WhiskyApp {
                         row()
                             .h(px(48.))
                             .px(px(18.))
+                            .gap(px(12.))
                             .border_b_1()
                             .border_color(rgba(surface_border()))
                             .child(
                                 div()
+                                    .flex_1()
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child("导入已有容器"),
+                            )
+                            .child(
+                                Button::new("import-bottles-close")
+                                    .label("×")
+                                    .ghost()
+                                    .disabled(busy)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.import_bottles = None;
+                                        this.focus_handle.focus(window, cx);
+                                        cx.notify();
+                                    })),
                             ),
                     )
                     .child(

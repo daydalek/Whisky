@@ -133,12 +133,16 @@ impl WhiskyApp {
     }
     fn bottle_home(&self, cx: &Context<Self>) -> AnyElement {
         let slot = self.bottle_slot();
-        let pins: Vec<_> = self
+        let bottle_games: Vec<_> = self
             .games()
             .iter()
             .enumerate()
             .filter(|(_, game)| game.bottle == slot && !game.is_launcher)
-            .take(5)
+            .collect();
+        let total_games = bottle_games.len();
+        let pins: Vec<_> = bottle_games
+            .into_iter()
+            .take(6)
             .map(|(i, game)| {
                 let (top, bottom) = theme::placeholder_gradient();
                 col()
@@ -150,10 +154,13 @@ impl WhiskyApp {
                         div()
                             .id(("pin", i))
                             .cursor_pointer()
-                            .w(px(76.))
-                            .h(px(90.))
+                            .w(px(80.))
+                            .h(px(108.))
                             .rounded(px(9.))
                             .overflow_hidden()
+                            .border_1()
+                            .border_color(rgba(theme::surface_border()))
+                            .hover(|d| d.border_color(rgb(theme::ACCENT)))
                             .on_click(cx.listener(move |this, _, _, cx| this.open_detail(i, cx)))
                             .child(match self.artwork(i) {
                                 Some(path) => self.artwork_image(path)
@@ -177,7 +184,7 @@ impl WhiskyApp {
                         // the artwork's bottom edge.
                         div()
                             .w_full()
-                            .h(px(32.))
+                            .h(px(34.))
                             .pt(px(8.))
                             .text_size(px(11.))
                             .text_center()
@@ -188,44 +195,156 @@ impl WhiskyApp {
             })
             .collect();
         let pins_empty = pins.is_empty();
+        let nav_items = [
+            ("app-window", "已安装的程序", "浏览、固定或屏蔽容器内的可执行文件", PreviewPage::Programs),
+            ("sliders-horizontal", "容器配置", "调整 Windows 版本、图形后端、超分与环境变量", PreviewPage::ConfigureBottle),
+            ("activity", "运行中的进程", "查看或结束当前容器内活跃的 Wine 进程", PreviewPage::Processes),
+            ("sparkles", "游戏配置", "匹配本地 GameDB 社区兼容性与推荐设置", PreviewPage::GameConfigs),
+        ];
         let mut links = col()
-            .rounded(px(10.))
+            .rounded(px(12.))
+            .overflow_hidden()
             .bg(rgba(theme::section_bg()))
             .border_1()
             .border_color(rgba(theme::section_border()));
-        for (i, (label, page)) in [
-            ("已安装的程序", PreviewPage::Programs),
-            ("Configure Bottle", PreviewPage::ConfigureBottle),
-            ("运行中的进程", PreviewPage::Processes),
-            ("游戏配置", PreviewPage::GameConfigs),
-        ]
-        .into_iter()
-        .enumerate()
-        {
+        for (i, (symbol, label, subtitle, page)) in nav_items.into_iter().enumerate() {
+            if i > 0 {
+                links = links.child(div().h(px(1.)).mx(px(16.)).bg(rgba(theme::divider())));
+            }
             links = links.child(
                 row()
                     .id(("bottle-link", i))
-                    .px(px(18.))
-                    .h(px(51.))
+                    .px(px(16.))
+                    .py(px(12.))
                     .gap(px(12.))
                     .cursor_pointer()
                     .hover(|d| d.bg(rgba(theme::hover())))
                     .on_click(cx.listener(move |this, _, _, cx| this.navigate(page, cx)))
-                    .child(div().flex_1().child(label))
-                    .child(muted("›")),
+                    .child(
+                        div()
+                            .size(px(32.))
+                            .rounded(px(8.))
+                            .bg(rgba(theme::accent_subtle_bg()))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .flex_shrink_0()
+                            .child(icon(symbol, 16.).text_color(rgb(theme::accent_fg()))),
+                    )
+                    .child(
+                        col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap(px(2.))
+                            .child(div().font_weight(FontWeight::MEDIUM).child(label))
+                            .child(muted(subtitle).text_size(px(11.)).truncate()),
+                    )
+                    .child(icon("chevron-right", 15.).text_color(rgb(theme::muted_color()))),
             );
         }
+
+        let summary_line = if self.demo {
+            "自动选择图形后端 · Windows 11 · Wine".to_owned()
+        } else {
+            let bottle = self.selected_bottle.and_then(|idx| self.bottles.get(idx));
+            let mut parts = vec![format!("{total_games} 款游戏")];
+            if let Some(bottle) = bottle {
+                if let Some(cfg) = self.config.as_ref().filter(|c| c.container == bottle.path && !c.loading) {
+                    if let Some(win) = cfg.values.get("windowsVersion").and_then(|v| v.as_str()) {
+                        let win_label = match win {
+                            "win11" => "Windows 11",
+                            "win10" => "Windows 10",
+                            "win81" => "Windows 8.1",
+                            "win8" => "Windows 8",
+                            "win7" => "Windows 7",
+                            "winxp" => "Windows XP",
+                            other => other,
+                        };
+                        parts.push(win_label.to_owned());
+                    }
+                    if let Some(backend) = cfg.values.get("graphicsBackend").and_then(|v| v.as_str()) {
+                        parts.push(crate::program_settings::graphics_label(backend).to_owned());
+                    }
+                }
+                parts.push(crate::create_bottle::display_bottle_location(&bottle.path));
+            }
+            parts.join(" · ")
+        };
+
+        let games_section = col()
+            .gap(px(12.))
+            .child(
+                row()
+                    .justify_between()
+                    .items_center()
+                    .child(
+                        row()
+                            .gap(px(8.))
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child("容器内游戏"))
+                            .child(muted(total_games.to_string()).text_size(px(11.))),
+                    )
+                    .when(total_games > 6, |d| {
+                        d.child(
+                            Button::new("bottle-view-all-games")
+                                .label(format!("在游戏库查看全部（{total_games}）"))
+                                .ghost()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.preview.page = PreviewPage::Library;
+                                    cx.notify();
+                                })),
+                        )
+                    }),
+            )
+            .when(!pins_empty, |d| {
+                d.child(row().items_start().flex_wrap().gap(px(14.)).children(pins))
+            })
+            .when(pins_empty, |d| {
+                d.child(
+                    row()
+                        .justify_between()
+                        .items_center()
+                        .flex_wrap()
+                        .gap(px(12.))
+                        .p(px(16.))
+                        .rounded(px(12.))
+                        .bg(rgba(theme::section_bg()))
+                        .border_1()
+                        .border_color(rgba(theme::section_border()))
+                        .child(
+                            col()
+                                .flex_1()
+                                .min_w_0()
+                                .gap(px(4.))
+                                .child(div().font_weight(FontWeight::MEDIUM).child("此容器还没有游戏"))
+                                .child(muted("可配置游戏目录自动扫描，或将已安装的 .exe 程序固定到此处。").text_size(px(11.))),
+                        )
+                        .child(
+                            row()
+                                .gap(px(8.))
+                                .child(self.action(
+                                    "bottle-empty-scan",
+                                    "扫描文件夹…",
+                                    Command::Sheet(PreviewSheet::Scan),
+                                    cx,
+                                ))
+                                .child(self.action(
+                                    "bottle-empty-pin",
+                                    "添加程序…",
+                                    Command::AddProgram,
+                                    cx,
+                                )),
+                        ),
+                )
+            });
+
         self.preview_scroll(
             "bottle-home-scroll",
             col()
                 .p(px(26.))
-                .gap(px(30.))
-                .child(row().items_start().flex_wrap().gap(px(16.)).children(pins))
-                .when(pins_empty, |d| {
-                    d.child(muted("No games in this bottle").p(px(4.)))
-                })
+                .gap(px(24.))
+                .child(games_section)
                 .child(links)
-                .child(muted("自动选择图形后端 · Windows 11 · Wine")),
+                .child(muted(summary_line).text_size(px(11.)).truncate()),
         )
     }
     /// Configure Bottle. The demo keeps its static design snapshot; a live
@@ -272,9 +391,12 @@ impl WhiskyApp {
                     .unwrap_or_else(|| field.default.clone());
                 let enabled = field.enabled(&page.capabilities);
                 let has_coreml = page.capabilities.iter().any(|cap| cap == "gdi.coreml");
-                rows.push(self.config_row(field, &value, enabled, has_coreml, window, cx));
+                rows.push(self.config_row(&container, field, &value, enabled, has_coreml, window, cx));
             }
             sections.push(self.section(group.spec.id, group.spec.title, rows, cx));
+        }
+        if let Some(engine) = self.engine_section(&container, cx) {
+            sections.insert(0, engine);
         }
         sections.push(self.environment_section(&container, cx));
         self.form("bottle-config-scroll", sections)
@@ -325,6 +447,7 @@ impl WhiskyApp {
     /// rows are debounced by their `InputState` observer.
     fn config_row(
         &mut self,
+        container: &str,
         field: &ConfigField,
         value: &serde_json::Value,
         enabled: bool,
@@ -332,9 +455,35 @@ impl WhiskyApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // Selected-engine policy: unavailable options stay visibly disabled
+        // with the bridge's reason; `unverified` ones show an explicit
+        // "确认后尝试启用" action — the control itself stays off until the
+        // approval lands (`engine_gate_check` queues the write behind it).
+        let policy = self.engine_field_policy(container, &field.id).cloned();
+        let gated = policy.as_ref().is_some_and(|policy| policy.disabled);
+        let confirmable = policy
+            .as_ref()
+            .is_some_and(|policy| policy.state == "unverified" && policy.can_override);
+        // `outer_enabled` is the section's own editability; `enabled` folds
+        // the engine gate in. Off/neutral actions stay reachable even while
+        // gated — only enabling writes are blocked.
+        let outer_enabled = enabled;
+        let enabled = enabled && !gated;
+        let gate_reason = gated.then(|| {
+            policy
+                .as_ref()
+                .and_then(|policy| policy.reason.clone())
+                .unwrap_or_else(|| "所选引擎不支持此选项".to_owned())
+        });
         match &field.kind {
             config::FieldKind::Toggle => {
+                let checked_now = value.as_bool().unwrap_or(false);
                 let id = field.id.clone();
+                let feature = policy
+                    .as_ref()
+                    .and_then(|policy| policy.feature.clone())
+                    .unwrap_or_default();
+                let container_owned = container.to_owned();
                 row()
                     .gap(px(20.))
                     .py(px(10.))
@@ -346,33 +495,127 @@ impl WhiskyApp {
                             .gap(px(4.))
                             .child(field.title.clone())
                             .when(field.id == "metalFXSpatial", |d| {
-                                d.child(muted("GDI / WineD3D OpenGL · Retina 超分；重启游戏后生效。"))
+                                d.child(muted(
+                                    "GDI / WineD3D OpenGL · Retina 超分；重启游戏后生效。",
+                                ))
                             })
                             .when(field.id == "metalFX", |d| {
                                 d.child(muted("仅 D3DMetal 后端；仅对游戏内开启 DLSS 的标题生效。"))
                             })
-                            .when(!enabled, |d| {
+                            .when(!enabled && gate_reason.is_none(), |d| {
                                 d.child(muted("需要 Wine 主机适配器").line_height(relative(1.4)))
+                            })
+                            .when_some(gate_reason.clone(), |d, reason| {
+                                d.child(muted(reason).line_height(relative(1.4))).when(
+                                    confirmable,
+                                    |d| {
+                                        d.child(
+                                            muted("启用将需要确认，且引擎更换后需重新确认。")
+                                                .line_height(relative(1.4)),
+                                        )
+                                    },
+                                )
+                            })
+                            // A saved ON the engine does not honor is shown
+                            // as an inactive preference, not a live setting.
+                            .when(gated && checked_now, |d| {
+                                d.child(
+                                    muted("已保存的偏好在当前引擎下未生效。")
+                                        .line_height(relative(1.4)),
+                                )
                             }),
                     )
                     .child(
-                        Switch::new(format!("config-toggle:{}", field.id))
-                            .checked(value.as_bool().unwrap_or(false))
-                            .disabled(!enabled)
-                            .on_change(cx.listener(move |this, checked, _, cx| {
-                                this.set_config_value(
-                                    &id,
-                                    serde_json::Value::Bool(*checked),
-                                    cx,
-                                );
-                            })),
+                        col()
+                            .gap(px(6.))
+                            .child(
+                                Switch::new(format!("config-toggle:{}", field.id))
+                                    .checked(checked_now)
+                                    // Off stays reachable: a gated saved ON
+                                    // must remain switchable to OFF.
+                                    .disabled(!outer_enabled || (gated && !checked_now))
+                                    .on_change(cx.listener(move |this, checked, _, cx| {
+                                        this.set_config_value(
+                                            &id,
+                                            serde_json::Value::Bool(*checked),
+                                            cx,
+                                        );
+                                    })),
+                            )
+                            .when(confirmable, |d| {
+                                let feature = feature.clone();
+                                let container = container_owned.clone();
+                                let field_id = field.id.clone();
+                                d.child(
+                                    Button::new(format!("config-confirm:{}", field.id))
+                                        .label("确认后尝试启用")
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.request_feature_confirm(
+                                                &container,
+                                                &feature,
+                                                &field_id,
+                                                serde_json::Value::Bool(true),
+                                                cx,
+                                            );
+                                        })),
+                                )
+                            }),
                     )
                     .into_any_element()
             }
             config::FieldKind::Choice { options } => {
                 let id = field.id.clone();
                 let selected = value.as_str().unwrap_or_default().to_owned();
-                let title = config::display_value(field, value).unwrap_or_default();
+                let mut title = config::display_value(field, value).unwrap_or_default();
+                let choice_policies = policy
+                    .as_ref()
+                    .map(|policy| policy.choices.clone())
+                    .unwrap_or_default();
+                // Field-level gate fallback: fields like `dxvkHud` carry the
+                // gate on the FIELD, not per choice — every non-neutral
+                // option inherits it, neutral/off choices stay selectable.
+                let neutral = |id: &str| id.is_empty() || id == "none" || id == "off";
+                let policy_for = move |option_id: &str| -> Option<crate::bridge::dto::EnginePolicyDto> {
+                    if let Some(policy) = choice_policies.get(option_id) {
+                        return Some(policy.clone());
+                    }
+                    let policy = policy.as_ref()?;
+                    if policy.disabled && !neutral(option_id) {
+                        return Some(crate::bridge::dto::EnginePolicyDto {
+                            disabled: policy.disabled,
+                            reason: policy.reason.clone(),
+                            state: policy.state.clone(),
+                            can_override: policy.can_override,
+                            feature: policy.feature.clone(),
+                        });
+                    }
+                    None
+                };
+                // A saved selection the engine does not enable stays visible
+                // but is marked inactive — the runtime ignores it until the
+                // user either reverts to a permitted value or confirms the
+                // feature.
+                let selected_gated = policy_for(selected.as_str())
+                    .is_some_and(|policy| policy.disabled);
+                if selected_gated {
+                    title = format!("{title}（未生效）");
+                }
+                let disabled_reasons: Vec<String> = options
+                    .iter()
+                    .filter_map(|option| {
+                        let policy = policy_for(&option.id)?;
+                        policy.disabled.then(|| {
+                            format!(
+                                "{}：{}",
+                                option.title,
+                                policy
+                                    .reason
+                                    .clone()
+                                    .unwrap_or_else(|| "所选引擎不支持".to_owned())
+                            )
+                        })
+                    })
+                    .collect();
                 let options: Vec<(String, String)> = options
                     .iter()
                     .map(|option| (option.id.clone(), option.title.clone()))
@@ -423,19 +666,51 @@ impl WhiskyApp {
                                 d.child(muted("会话内容缓存：跨场景与分辨率变化复用推理结果，重启游戏生效。"))
                                     .child(muted("持久化默认每个游戏 256 MiB 内存 + 4 GiB 磁盘，LRU 淘汰。"))
                                     .child(muted("仅作用于 CoreML 神经后端（Real-CUGAN／AnimeVideo-v3），MetalFX／Anime4K 不受影响。"))
-                            }),
+                            })
+                            .when_some(gate_reason.clone(), |d, reason| {
+                                d.child(muted(reason).line_height(relative(1.4)))
+                                    .when(confirmable, |d| {
+                                        d.child(muted("启用将需要确认，且引擎更换后需重新确认。").line_height(relative(1.4)))
+                                    })
+                            })
+                            .children(
+                                disabled_reasons
+                                    .iter()
+                                    .map(|reason| muted(reason.clone()).text_size(px(11.))),
+                            ),
                     )
                     .child(
                         Button::new(format!("config-choice:{}", field.id))
                             .label(format!("{title}  ⌄"))
-                            .disabled(!enabled)
+                            // Gated fields keep the menu reachable: neutral
+                            // choices (off/none) are always selectable so a
+                            // saved gated value can be reverted.
+                            .disabled(!outer_enabled)
                             .dropdown_menu(move |mut menu, _, _| {
                                 for (option_id, option_title) in &options {
                                     let view = view.clone();
                                     let id = id.clone();
                                     let option_id = option_id.clone();
+                                    let choice_disabled = policy_for(option_id.as_str())
+                                        .is_some_and(|policy| {
+                                            policy.disabled
+                                                && !(policy.can_override
+                                                    && policy.state == "unverified")
+                                        });
+                                    let choice_confirmable = policy_for(option_id.as_str())
+                                        .is_some_and(|policy| {
+                                            policy.disabled
+                                                && policy.can_override
+                                                && policy.state == "unverified"
+                                        });
+                                    let option_title = if choice_confirmable {
+                                        format!("{option_title}（需确认）")
+                                    } else {
+                                        option_title.clone()
+                                    };
                                     menu = menu.item(
-                                        PopupMenuItem::new(option_title.clone())
+                                        PopupMenuItem::new(option_title)
+                                            .disabled(choice_disabled)
                                             .checked(selected == option_id)
                                             .on_click(move |_, _, cx| {
                                                 let _ = view.update(cx, |this, cx| {
@@ -471,7 +746,9 @@ impl WhiskyApp {
                             .child(div().flex_1().child(field.title.clone()))
                             .when_some(hint, |d, hint| d.child(muted(hint))),
                     )
-                    .child(Input::new(&input).disabled(!enabled))
+                    // Clearing a gated saved value (empty write) always
+                    // passes the engine gate — keep the field editable.
+                    .child(Input::new(&input).disabled(!outer_enabled))
                     .when(field.id == "gdiUpscalerExcludedRegions", |d| {
                         d.child(muted("原图左上角起算：x,y,宽,高；多个矩形用英文分号分隔，留空为全部超分。"))
                             .child(muted("例如 1280×720 画面的底部文字区：0,520,1280,200。区域内普通缩放；重启游戏生效。"))
@@ -982,9 +1259,36 @@ impl WhiskyApp {
                             .flex_1()
                             .min_w_0()
                             .gap(px(4.))
-                            .child(div().truncate().child(program.name.clone()))
-                            .child(muted(path.clone()).truncate())
-                            .when(blocked, |d| d.child(muted("已屏蔽"))),
+                            .child(
+                                row()
+                                    .gap(px(6.))
+                                    .child(div().truncate().font_weight(FontWeight::MEDIUM).child(program.name.clone()))
+                                    .when(pinned, |d| {
+                                        d.child(
+                                            div()
+                                                .px(px(6.))
+                                                .py(px(1.))
+                                                .rounded(px(4.))
+                                                .bg(rgba(theme::accent_subtle_bg()))
+                                                .text_size(px(10.))
+                                                .text_color(rgb(theme::accent_fg()))
+                                                .child("已固定"),
+                                        )
+                                    })
+                                    .when(blocked, |d| {
+                                        d.child(
+                                            div()
+                                                .px(px(6.))
+                                                .py(px(1.))
+                                                .rounded(px(4.))
+                                                .bg(rgba(theme::badge_bg()))
+                                                .text_size(px(10.))
+                                                .text_color(rgb(theme::muted_color()))
+                                                .child("已屏蔽"),
+                                        )
+                                    }),
+                            )
+                            .child(muted(path.clone()).text_size(px(11.)).truncate()),
                     )
                     .child(
                         Button::new(format!("program-pin:{path}"))
@@ -1115,17 +1419,27 @@ impl WhiskyApp {
             .processes
             .as_ref()
             .filter(|page| page.container == container);
-        let mut rows: Vec<AnyElement> = vec![self.info("进程名称", "PID")];
+        let has_processes = page.is_some_and(|p| !p.table.is_empty());
+        let mut rows: Vec<AnyElement> = vec![
+            row()
+                .gap(px(18.))
+                .py(px(8.))
+                .border_b_1()
+                .border_color(rgba(theme::divider()))
+                .child(muted("进程名称").flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(11.)))
+                .child(muted("PID / 内存").text_size(px(11.)).font_weight(FontWeight::SEMIBOLD))
+                .into_any_element(),
+        ];
         match page {
             None => rows.push(self.process_status_row()),
             Some(page) => {
                 if let Some(reason) = &page.error {
-                    rows.push(muted(reason.clone()).into_any_element());
+                    rows.push(muted(reason.clone()).py(px(10.)).into_any_element());
                 } else if page.table.is_empty() {
                     if page.loading {
                         rows.push(self.process_status_row());
                     } else {
-                        rows.push(self.info("当前没有运行中的进程", "0"));
+                        rows.push(muted("当前容器没有运行中的 Wine 进程。").py(px(14.)).into_any_element());
                     }
                 }
                 for process in page.table.rows() {
@@ -1136,11 +1450,12 @@ impl WhiskyApp {
                     };
                     rows.push(
                         row()
-                            .gap(px(18.))
-                            .py(px(10.))
-                            .items_start()
-                            .child(div().flex_1().min_w_0().child(process.name.clone()))
-                            .child(muted(value).max_w(relative(0.65)))
+                            .gap(px(16.))
+                            .py(px(9.))
+                            .border_b_1()
+                            .border_color(rgba(theme::divider()))
+                            .child(div().flex_1().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(process.name.clone()))
+                            .child(muted(value).font_family("monospace").text_size(px(11.)))
                             .child(
                                 Button::new(format!("process-kill:{pid}"))
                                     .label("结束")
@@ -1155,12 +1470,27 @@ impl WhiskyApp {
             }
         }
         rows.push(
-            Button::new("refresh-processes")
-                .label("刷新")
-                .on_click(cx.listener(|this, _, _, cx| this.refresh_processes(cx)))
+            row()
+                .justify_end()
+                .gap(px(8.))
+                .pt(px(10.))
+                .pb(px(4.))
+                .child(
+                    Button::new("refresh-processes")
+                        .label("刷新")
+                        .on_click(cx.listener(|this, _, _, cx| this.refresh_processes(cx))),
+                )
+                .child(
+                    Button::new("stop-processes")
+                        .label("停止所有进程")
+                        .danger()
+                        .disabled(!has_processes)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.command(Command::StopAllProcesses, cx);
+                        })),
+                )
                 .into_any_element(),
         );
-        rows.push(self.action("stop-processes", "停止所有进程", Command::StopAllProcesses, cx));
         self.form(
             "processes-scroll",
             vec![self.section("process-list", "运行中的进程", rows, cx)],
@@ -1183,10 +1513,31 @@ impl WhiskyApp {
                 "process-list",
                 "运行中的进程",
                 vec![
-                    self.info("进程名称", "PID"),
-                    self.info("当前没有运行中的进程", "0"),
-                    self.action("refresh-processes", "刷新", Command::RefreshProcesses, cx),
-                    self.action("stop-processes", "停止所有进程", Command::StopAllProcesses, cx),
+                    row()
+                        .gap(px(18.))
+                        .py(px(8.))
+                        .border_b_1()
+                        .border_color(rgba(theme::divider()))
+                        .child(muted("进程名称").flex_1().font_weight(FontWeight::SEMIBOLD).text_size(px(11.)))
+                        .child(muted("PID / 内存").text_size(px(11.)).font_weight(FontWeight::SEMIBOLD))
+                        .into_any_element(),
+                    muted("当前容器没有运行中的 Wine 进程。").py(px(14.)).into_any_element(),
+                    row()
+                        .justify_end()
+                        .gap(px(8.))
+                        .pt(px(10.))
+                        .pb(px(4.))
+                        .child(self.action("refresh-processes", "刷新", Command::RefreshProcesses, cx))
+                        .child(
+                            Button::new("stop-processes")
+                                .label("停止所有进程")
+                                .danger()
+                                .disabled(true)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.command(Command::StopAllProcesses, cx);
+                                })),
+                        )
+                        .into_any_element(),
                 ],
                 cx,
             )],
@@ -1261,5 +1612,156 @@ impl WhiskyApp {
             "game-configs-scroll",
             vec![self.section("game-rules", "游戏配置", rows, cx)],
         )
+    }
+}
+
+impl WhiskyApp {
+    /// The bound Wine engine row on the bottle configuration page: current
+    /// engine, availability and a picker. Rebinding an existing prefix goes
+    /// through `EngineDialogKind::Select`; on old helpers without the API the
+    /// whole section disappears.
+    fn engine_section(&self, container: &str, cx: &Context<Self>) -> Option<AnyElement> {
+        if !self.service_available("wine.engines.selection") {
+            return None;
+        }
+        let selection = self.engine_selections.get(container);
+        let engine = selection.map(|selection| &selection.engine);
+        let current_id = selection
+            .map(|selection| selection.engine_id.clone())
+            .unwrap_or_else(|| "managed".to_owned());
+        let title = engine
+            .map(|engine| engine.name.clone())
+            .unwrap_or_else(|| "Whisky Wine".to_owned());
+        let unavailable_reason = engine.and_then(|engine| engine.error.clone());
+        let has_engines = !self.wine_engines.is_empty();
+        let view = cx.entity().downgrade();
+        let container_owned = container.to_owned();
+        let engines = self.wine_engines.clone();
+
+        let mut rows = vec![self.info(
+            "当前引擎",
+            if engine.is_some_and(|engine| engine.available) || engine.is_none() {
+                title.clone()
+            } else {
+                format!("{title} · 不可用")
+            },
+        )];
+        if let Some(reason) = unavailable_reason {
+            rows.push(muted(reason).text_size(px(11.)).into_any_element());
+        }
+        rows.push(
+            row()
+                .py(px(6.))
+                .child(
+                    Button::new("engine-select")
+                        .label("更换引擎  ⌄")
+                        .disabled(!has_engines)
+                        .dropdown_menu(move |mut menu, _, _| {
+                            if engines.is_empty() {
+                                menu = menu.item(
+                                    PopupMenuItem::new("（仅受管运行时）").disabled(true),
+                                );
+                            }
+                            for engine in &engines {
+                                let view = view.clone();
+                                let container = container_owned.clone();
+                                let engine_id = engine.id.clone();
+                                let label = if engine.available {
+                                    engine.name.clone()
+                                } else {
+                                    format!("{} · 不可用", engine.name)
+                                };
+                                menu = menu.item(
+                                    PopupMenuItem::new(label)
+                                        .disabled(!engine.available)
+                                        .checked(engine.id == current_id)
+                                        .on_click(move |_, _, cx| {
+                                            let _ = view.update(cx, |this, cx| {
+                                                this.request_engine_select(
+                                                    &container, &engine_id, cx,
+                                                );
+                                            });
+                                        }),
+                                );
+                            }
+                            menu
+                        }),
+                )
+                .into_any_element(),
+        );
+        rows.push(
+            muted("引擎更换不会迁移容器前缀；请先停止容器内所有进程。外部引擎只读使用，更新与 GPTK 部署仅作用于受管运行时。")
+                .text_size(px(11.))
+                .line_height(relative(1.4))
+                .into_any_element(),
+        );
+
+        // Capability section: every feature the engine reports, its state,
+        // and a revoke control for approvals — revoking is separate from
+        // turning a setting off, since several settings can share a feature.
+        if let Some(selection) = selection {
+            let container_features = container.to_owned();
+            let interesting: Vec<_> = selection
+                .features
+                .iter()
+                .filter(|feature| feature.state != "supported")
+                .collect();
+            if !interesting.is_empty() {
+                for feature in interesting {
+                    let state_label = match feature.state.as_str() {
+                        "unverified" if feature.enabled => "已确认",
+                        "unverified" => "未验证",
+                        _ => "不可用",
+                    };
+                    let reason = feature.reason.clone().unwrap_or_default();
+                    let mut line = col().gap(px(2.)).py(px(4.)).child(
+                        row()
+                            .gap(px(10.))
+                            .child(div().flex_1().min_w_0().child(format!(
+                                "{} · {state_label}",
+                                engine_feature_label(&feature.id)
+                            )))
+                            .when(feature.enabled, |d| {
+                                let container = container_features.clone();
+                                let feature_id = feature.id.clone();
+                                d.child(
+                                    Button::new(format!("engine-revoke:{}", feature.id))
+                                        .label("撤销确认")
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.revoke_engine_feature(&container, &feature_id);
+                                            cx.notify();
+                                        })),
+                                )
+                            }),
+                    );
+                    if !reason.is_empty() {
+                        line =
+                            line.child(muted(reason).text_size(px(11.)).line_height(relative(1.4)));
+                    }
+                    rows.push(line.into_any_element());
+                }
+            }
+        }
+        Some(self.section("wine-engine", "Wine 引擎", rows, cx))
+    }
+}
+
+/// Display label for a `wine.engines` feature id.
+fn engine_feature_label(id: &str) -> &str {
+    match id {
+        "dxvk" => "DXVK",
+        "dxmt" => "DXMT",
+        "d3dMetal" => "D3DMetal",
+        "esync" => "ESync",
+        "msync" => "MSync",
+        "avx" => "AVX",
+        "gdiUpscaling" => "GDI 超分",
+        "gdiCoreML" => "GDI CoreML",
+        "metal" => "Metal 选项",
+        "metalFX" => "MetalFX 桥",
+        "frameGeneration" => "帧生成",
+        "shadowImportedHostMemory" => "32 位 Vulkan 内存导入",
+        "dxvkAsync" => "DXVK Async",
+        _ => id,
     }
 }

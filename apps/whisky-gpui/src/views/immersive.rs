@@ -38,13 +38,7 @@ impl WhiskyApp {
         let games = self.games();
         let ordered = self.ordered(cx);
         if ordered.is_empty() {
-            return self.library_viewport(
-                3,
-                col()
-                    .w_full()
-                    .flex_shrink_0()
-                    .child(muted(self.empty_library_message()).p(px(30.))),
-            );
+            return self.library_viewport(3, self.library_empty_surface(cx));
         }
         let featured = crate::immersive::featured(games, &ordered, FEATURED_LIMIT);
         let current = if featured.is_empty() {
@@ -214,6 +208,7 @@ impl WhiskyApp {
         opacity: f32,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
+        let tip: &'static str = if left { "上一款精选" } else { "下一款精选" };
         let button = row()
             .id(id)
             .absolute()
@@ -227,6 +222,7 @@ impl WhiskyApp {
             .text_color(rgb(art_control_fg()))
             .cursor_pointer()
             .opacity(opacity)
+            .tooltip(move |_, cx| cx.new(|_| gpui_kit::component::tooltip::Tooltip::new(tip)).into())
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.set_immersive_slide(slide, cx);
             }))
@@ -300,7 +296,7 @@ impl WhiskyApp {
             .opacity(alpha);
         if let Some(state) = self.runtime_state(index) {
             if state == RuntimeState::Running {
-                block = block.child(live_badge(self.runtime_badge_label(index, "Running")));
+                block = block.child(live_badge(self.runtime_badge_label(index, "运行中")));
             } else if state.is_active() {
                 block =
                     block.child(phase_badge(self.runtime_badge_label(index, state.phase_label())));
@@ -515,6 +511,7 @@ impl WhiskyApp {
         direction: f32,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
+        let tip: &'static str = if direction < 0. { "向左滚动" } else { "向右滚动" };
         row()
             .id(SharedString::from(id))
             .justify_center()
@@ -525,6 +522,7 @@ impl WhiskyApp {
             .border_color(rgba(round_btn_border()))
             .cursor_pointer()
             .hover(|s| s.bg(rgba(round_btn_hover())))
+            .tooltip(move |_, cx| cx.new(|_| gpui_kit::component::tooltip::Tooltip::new(tip)).into())
             .on_click(cx.listener(move |_, _, _, cx| {
                 let step = f32::from(handle.bounds().size.width) * 0.8;
                 let offset = f32::from(handle.offset().x);
@@ -622,7 +620,7 @@ impl WhiskyApp {
             // Running and pending states stay visible; the idle affordance
             // waits for hover, matching the shelf covers.
             .child(match self.runtime_state(index) {
-                Some(RuntimeState::Running) => live_badge(self.runtime_badge_label(index, "Running"))
+                Some(RuntimeState::Running) => live_badge(self.runtime_badge_label(index, "运行中"))
                     .absolute()
                     .top(px(9.))
                     .right(px(9.))

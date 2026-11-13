@@ -175,7 +175,7 @@ impl WhiskyApp {
                     .child(muted(self.bottles.iter().find(|b| b.path == game.container)
                         .map_or("容器不可用", |b| b.name.as_str()).to_owned()).text_size(px(11.))))
                 .child(Button::new(("statistics-resume", index))
-                    .label(if self.demo || primary.label == "Play" { "继续游玩" } else { primary.label })
+                    .label(if self.demo || primary.label == "启动" { "继续游玩" } else { primary.label })
                     .primary().disabled(!self.demo && !primary.enabled)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.command(Command::Runtime(index), cx);

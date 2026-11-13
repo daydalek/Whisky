@@ -4,7 +4,7 @@
 //! Dark-mode values match the M0 baseline verbatim so existing visual captures
 //! stay pixel-identical when dark mode is active.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use gpui_kit::component::theme::{Theme, ThemeMode};
 use gpui_kit::{App, Window, WindowAppearance};
@@ -14,6 +14,7 @@ pub(crate) const BG: u32 = 0x202021;
 pub(crate) const MUTED: u32 = 0x97979b;
 pub(crate) const TEXT: u32 = 0xededee;
 pub(crate) const ACCENT: u32 = 0xff891b;
+pub(crate) const ACCENT_HOVER: u32 = 0xff9c3a;
 // Connection state. Added for the M1a status pill and failure dialog.
 pub(crate) const SUCCESS: u32 = 0x3ecf8e;
 pub(crate) const DANGER: u32 = 0xff5f57;
@@ -40,6 +41,10 @@ pub(crate) const SPRING_MS: u64 = 350;
 pub(crate) const LIVELY_SPRING_MS: u64 = 460;
 
 static DARK_MODE: AtomicBool = AtomicBool::new(true);
+/// `0` = uninitialized, `1` = Light, `2` = Dark.
+/// `gpui_kit::init` defaults to `ThemeMode::Light`, so checking `Theme::global(cx).mode`
+/// alone would skip applying our palette when the app launches in Light mode.
+static SYNCED_THEME_STATE: AtomicU8 = AtomicU8::new(0);
 
 /// User-facing appearance preference: follow OS appearance or force Light/Dark.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
@@ -137,23 +142,66 @@ pub(crate) fn sync_theme(
         .map(Window::appearance)
         .unwrap_or_else(|| cx.window_appearance());
     let resolved = mode.resolve(system);
-    set_dark(resolved.is_dark());
-    if Theme::global(cx).mode != resolved {
+    let dark = resolved.is_dark();
+    set_dark(dark);
+    let target_tag = if dark { 2 } else { 1 };
+    // `SYNCED_THEME_STATE` is process-wide while `Theme::global` is per-App:
+    // a second `App` (tests, extra windows) whose tag already matches still
+    // holds gpui-kit's default colors, so the brand tokens must be applied
+    // whenever this app's theme doesn't already carry them.
+    let expected_primary: gpui_kit::Hsla =
+        gpui_kit::rgb(if dark { ACCENT } else { 0xe8770f }).into();
+    if Theme::global(cx).mode != resolved
+        || SYNCED_THEME_STATE.load(Ordering::Relaxed) != target_tag
+        || Theme::global(cx).colors.primary != expected_primary
+    {
         Theme::change(resolved, None, cx);
-        if !resolved.is_dark() {
-            Theme::update(cx, |theme| {
+        Theme::update(cx, |theme| {
+            let white: gpui_kit::Hsla = gpui_kit::rgb(0xffffff).into();
+            if dark {
+                let primary: gpui_kit::Hsla = gpui_kit::rgb(ACCENT).into();
+                let primary_hover: gpui_kit::Hsla = gpui_kit::rgb(ACCENT_HOVER).into();
+                let primary_active: gpui_kit::Hsla = gpui_kit::rgb(0xe0740e).into();
+                theme.colors.primary = primary;
+                theme.colors.primary_hover = primary_hover;
+                theme.colors.primary_active = primary_active;
+                theme.colors.primary_foreground = white;
+                theme.colors.button_primary = primary;
+                theme.colors.button_primary_hover = primary_hover;
+                theme.colors.button_primary_active = primary_active;
+                theme.colors.button_primary_foreground = white;
+                theme.colors.progress_bar = primary;
+                theme.colors.slider_bar = primary;
+                theme.colors.caret = primary;
+                theme.colors.ring = gpui_kit::rgba(0xff891b88).into();
+                theme.colors.selection = gpui_kit::rgba(0xff891b38).into();
+            } else {
+                let primary: gpui_kit::Hsla = gpui_kit::rgb(0xe8770f).into();
+                let primary_hover: gpui_kit::Hsla = gpui_kit::rgb(0xf4841b).into();
+                let primary_active: gpui_kit::Hsla = gpui_kit::rgb(0xd16808).into();
                 let light_gray: gpui_kit::Hsla = gpui_kit::rgb(0xe8e8ed).into();
-                let light_gray_hover: gpui_kit::Hsla = gpui_kit::rgb(0xdedee5).into();
                 let light_gray_border: gpui_kit::Hsla = gpui_kit::rgb(0xd1d1d8).into();
+                theme.colors.primary = primary;
+                theme.colors.primary_hover = primary_hover;
+                theme.colors.primary_active = primary_active;
+                theme.colors.primary_foreground = white;
+                theme.colors.button_primary = primary;
+                theme.colors.button_primary_hover = primary_hover;
+                theme.colors.button_primary_active = primary_active;
+                theme.colors.button_primary_foreground = white;
+                theme.colors.progress_bar = primary;
+                theme.colors.slider_bar = primary;
+                theme.colors.caret = primary;
                 theme.colors.accent = light_gray;
                 theme.colors.list_active = light_gray;
                 theme.colors.list_active_border = light_gray_border;
                 theme.colors.table_active = light_gray;
                 theme.colors.table_active_border = light_gray_border;
-                theme.colors.selection = light_gray_hover;
-                theme.colors.ring = light_gray_border;
-            });
-        }
+                theme.colors.selection = gpui_kit::rgba(0xff891b2e).into();
+                theme.colors.ring = gpui_kit::rgba(0xe8770f70).into();
+            }
+        });
+        SYNCED_THEME_STATE.store(target_tag, Ordering::Relaxed);
     }
     resolved
 }
@@ -324,6 +372,46 @@ pub(crate) fn role_chip_text() -> u32 {
 
 pub(crate) fn live_dot() -> u32 {
     if is_dark() { SUCCESS } else { 0x1d9d63 }
+}
+
+pub(crate) fn accent_fg() -> u32 {
+    if is_dark() { ACCENT } else { 0xd86b06 }
+}
+
+pub(crate) fn accent_subtle_bg() -> u32 {
+    if is_dark() { 0xff891b24 } else { 0xff891b1a }
+}
+
+pub(crate) fn accent_subtle_hover() -> u32 {
+    if is_dark() { 0xff891b33 } else { 0xff891b29 }
+}
+
+pub(crate) fn accent_subtle_border() -> u32 {
+    if is_dark() { 0xff891b88 } else { 0xe0740e70 }
+}
+
+pub(crate) fn installed_fg() -> u32 {
+    if is_dark() { 0x52d184 } else { 0x168852 }
+}
+
+pub(crate) fn installed_bg() -> u32 {
+    if is_dark() { 0x3ecf8e1f } else { 0x1d9d631a }
+}
+
+pub(crate) fn warning_fg() -> u32 {
+    if is_dark() { 0xf5a623 } else { 0xb86e00 }
+}
+
+pub(crate) fn danger_fg() -> u32 {
+    if is_dark() { 0xff6b63 } else { 0xd93830 }
+}
+
+pub(crate) fn slider_track_bg() -> u32 {
+    if is_dark() { 0xffffff18 } else { 0x00000016 }
+}
+
+pub(crate) fn slider_thumb_border() -> u32 {
+    if is_dark() { 0xffffff33 } else { 0x0000002e }
 }
 
 #[cfg(test)]

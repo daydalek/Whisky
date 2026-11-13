@@ -487,6 +487,15 @@ pub(crate) struct ChecksReplyDto {
 pub(crate) struct SetupStatusDto {
     #[serde(default)]
     pub(crate) installed: bool,
+    /// Mirrors `installed` on new helpers; `None` on older helpers that
+    /// never sent it. External engines may make a runtime usable while
+    /// `managedInstalled` stays false.
+    #[serde(default)]
+    pub(crate) managed_installed: Option<bool>,
+    /// `Some(true)` when any engine — managed or a registered external one —
+    /// can run a bottle, so onboarding need not force the managed install.
+    #[serde(default)]
+    pub(crate) any_engine_available: Option<bool>,
     #[serde(default)]
     pub(crate) version: Option<String>,
     #[serde(default)]
@@ -1675,4 +1684,225 @@ mod game_reference_tests {
         assert!(!portable.apply_available(false));
         assert_eq!(portable.reference_platform, "macos");
     }
+
+    #[test]
+    fn setup_status_decodes_external_engine_availability() {
+        // A new helper reports managed install and any-engine availability
+        // separately: external-only setups must not be forced into the
+        // managed install flow.
+        // Nothing installed at the managed location, but a registered
+        // external engine makes `anyEngineAvailable` true — the state layer
+        // must not prompt for a managed install.
+        let external_only: SetupStatusDto = serde_json::from_value(serde_json::json!({
+            "installed": false, "managedInstalled": false,
+            "anyEngineAvailable": true, "version": "10.0",
+            "path": "/engines/wine", "rosettaInstalled": true, "appleSilicon": true
+        }))
+        .expect("external-only setup status");
+        assert!(!external_only.installed);
+        assert_eq!(external_only.managed_installed, Some(false));
+        assert_eq!(external_only.any_engine_available, Some(true));
+
+        // An older helper never sent the new keys: they stay `None` so the
+        // caller falls back to `installed` semantics.
+        let legacy: SetupStatusDto = serde_json::from_value(serde_json::json!({
+            "installed": false, "path": "/managed", "appleSilicon": true
+        }))
+        .expect("legacy setup status");
+        assert!(!legacy.installed);
+        assert_eq!(legacy.managed_installed, None);
+        assert_eq!(legacy.any_engine_available, None);
+    }
+
+    #[test]
+    fn engine_list_decodes_records_and_load_error() {
+        let list: WineEngineListDto = serde_json::from_value(serde_json::json!({
+            "engines": [
+                {"id": "managed", "name": "Whisky Wine", "path": "/managed",
+                 "managed": true, "available": true, "error": null,
+                 "architectures": ["arm64"], "fingerprint": null, "version": "10.0",
+                 "features": [{"id": "dxvk", "state": "supported",
+                               "reason": null, "canOverride": false}]},
+                {"id": "abc", "name": "External", "path": "/opt/wine 'quoted' 引擎",
+                 "managed": false, "available": false, "error": "missing loader",
+                 "architectures": [], "fingerprint": "fp1", "version": null, "features": []}
+            ],
+            "loadError": "registry corrupt"
+        }))
+        .expect("engine list");
+        assert_eq!(list.engines.len(), 2);
+        assert!(list.engines[0].managed);
+        assert!(list.engines[0].available);
+        assert!(!list.engines[1].available);
+        assert_eq!(list.engines[1].error.as_deref(), Some("missing loader"));
+        assert_eq!(list.engines[1].fingerprint.as_deref(), Some("fp1"));
+        assert_eq!(list.load_error.as_deref(), Some("registry corrupt"));
+
+        // Older helpers that never implement wine.engines.* decode an empty
+        // payload as "managed only" instead of failing.
+        let empty: WineEngineListDto = serde_json::from_value(serde_json::json!({}))
+            .expect("empty engine list");
+        assert!(empty.engines.is_empty());
+    }
+
+    #[test]
+    fn engine_selection_decodes_policy_and_overrides() {
+        let selection: WineEngineSelectionDto = serde_json::from_value(serde_json::json!({
+            "engineID": "abc",
+            "engine": {"id": "abc", "name": "External", "path": "/opt/wine",
+                       "managed": false, "available": true, "fingerprint": "fp1"},
+            "featureOverrides": {"msync": "fp1"},
+            "features": [
+                {"id": "msync", "state": "unverified", "canOverride": true, "enabled": true},
+                {"id": "dxvk", "state": "unavailable", "reason": "no DXVK payload",
+                 "canOverride": false, "enabled": false}
+            ],
+            "fieldPolicy": {
+                "enhancedSync": {"choices": {
+                    "msync": {"disabled": false, "state": "unverified",
+                              "canOverride": true, "feature": "msync"},
+                    "esync": {"disabled": true, "reason": "not on this engine",
+                              "state": "unavailable", "canOverride": false}
+                }},
+                "dxvkAsync": {"disabled": true, "reason": "requires DXVK",
+                              "state": "unavailable", "canOverride": false,
+                              "feature": "dxvkAsync", "choices": {}}
+            }
+        }))
+        .expect("engine selection");
+        assert_eq!(selection.engine_id, "abc");
+        assert_eq!(selection.feature_overrides.get("msync").map(String::as_str), Some("fp1"));
+        assert_eq!(selection.features.len(), 2);
+        assert!(selection.features[0].enabled);
+        let sync = &selection.field_policy["enhancedSync"];
+        assert!(!sync.disabled);
+        assert!(!sync.choices["msync"].disabled);
+        assert!(sync.choices["esync"].disabled);
+        assert_eq!(
+            sync.choices["esync"].reason.as_deref(),
+            Some("not on this engine")
+        );
+        assert_eq!(selection.field_policy["dxvkAsync"].feature.as_deref(), Some("dxvkAsync"));
+
+        // A bottle bound before the feature existed decodes to a readable
+        // default rather than erroring.
+        let empty: WineEngineSelectionDto = serde_json::from_value(serde_json::json!({}))
+            .expect("empty selection");
+        assert!(empty.engine_id.is_empty());
+        assert!(empty.features.is_empty());
+    }
+}
+
+/// One feature status inside a `wine.engines` engine record or selection.
+/// `enabled` is only present in `wine.engines.selection` replies — it folds
+/// the persisted fingerprint approvals into the static status.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WineEngineFeatureDto {
+    #[serde(default)]
+    pub(crate) id: String,
+    /// "supported" | "unverified" | "unavailable".
+    #[serde(default)]
+    pub(crate) state: String,
+    #[serde(default)]
+    pub(crate) reason: Option<String>,
+    #[serde(default)]
+    pub(crate) can_override: bool,
+    #[serde(default)]
+    pub(crate) enabled: bool,
+}
+
+/// One engine record from `wine.engines.list` / `*.register` / `*.selection`.
+/// Everything is defaulted so older helpers without the API decode as empty
+/// and the UI can fall back to "managed only".
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WineEngineDto {
+    #[serde(default)]
+    pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) path: String,
+    #[serde(default)]
+    pub(crate) managed: bool,
+    #[serde(default)]
+    pub(crate) available: bool,
+    #[serde(default)]
+    pub(crate) error: Option<String>,
+    #[serde(default)]
+    pub(crate) architectures: Vec<String>,
+    #[serde(default)]
+    pub(crate) fingerprint: Option<String>,
+    #[serde(default)]
+    pub(crate) version: Option<String>,
+    #[serde(default)]
+    pub(crate) features: Vec<WineEngineFeatureDto>,
+}
+
+/// `wine.engines.list` reply.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WineEngineListDto {
+    #[serde(default)]
+    pub(crate) engines: Vec<WineEngineDto>,
+    #[serde(default)]
+    pub(crate) load_error: Option<String>,
+}
+
+/// One field or one choice inside `fieldPolicy`: whether the engine blocks
+/// the setting and why. `state`/`can_override` tell the UI whether an
+/// explicit confirmation can still enable it.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EnginePolicyDto {
+    #[serde(default)]
+    pub(crate) disabled: bool,
+    #[serde(default)]
+    pub(crate) reason: Option<String>,
+    #[serde(default)]
+    pub(crate) state: String,
+    #[serde(default)]
+    pub(crate) can_override: bool,
+    /// The `wine.engines.setFeatureOverride` feature this entry confirms.
+    #[serde(default)]
+    pub(crate) feature: Option<String>,
+}
+
+/// Field-level policy may also carry per-choice entries.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EngineFieldPolicyDto {
+    #[serde(default)]
+    pub(crate) disabled: bool,
+    #[serde(default)]
+    pub(crate) reason: Option<String>,
+    #[serde(default)]
+    pub(crate) state: String,
+    #[serde(default)]
+    pub(crate) can_override: bool,
+    /// The `wine.engines.setFeatureOverride` feature this field confirms.
+    #[serde(default)]
+    pub(crate) feature: Option<String>,
+    #[serde(default)]
+    pub(crate) choices: BTreeMap<String, EnginePolicyDto>,
+}
+
+/// `wine.engines.selection` / `*.select` / `*.setFeatureOverride` reply:
+/// the bound engine (record included even when unavailable), the persisted
+/// confirmations, effective per-feature state and the schema-field policy.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WineEngineSelectionDto {
+    // The wire key is `engineID` — all-caps acronym, not camelCase `engineId`.
+    #[serde(default, rename = "engineID")]
+    pub(crate) engine_id: String,
+    #[serde(default)]
+    pub(crate) engine: WineEngineDto,
+    #[serde(default)]
+    pub(crate) feature_overrides: BTreeMap<String, String>,
+    #[serde(default)]
+    pub(crate) features: Vec<WineEngineFeatureDto>,
+    #[serde(default)]
+    pub(crate) field_policy: BTreeMap<String, EngineFieldPolicyDto>,
 }

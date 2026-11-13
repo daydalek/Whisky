@@ -35,9 +35,9 @@ pub(crate) enum BridgeStatus {
 impl BridgeStatus {
     pub(crate) fn label(&self) -> &'static str {
         match self {
-            Self::Locating | Self::Starting => "Connecting…",
-            Self::Connected { .. } => "Connected",
-            Self::Failed { .. } | Self::Stopped => "Unavailable",
+            Self::Locating | Self::Starting => "连接中…",
+            Self::Connected { .. } => "运行服务已连接",
+            Self::Failed { .. } | Self::Stopped => "服务不可用",
         }
     }
 }

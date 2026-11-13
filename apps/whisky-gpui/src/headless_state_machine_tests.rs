@@ -124,8 +124,8 @@ fn test_demo_data_fixtures_integrity_and_cjk_aspects() {
 
     // Verify empty library copy behavior
     assert_eq!(empty_library_message(true, 2, 0), "没有找到匹配的游戏");
-    assert_eq!(empty_library_message(false, 0, 0), "No bottles yet");
-    assert_eq!(empty_library_message(false, 1, 0), "No games in this bottle");
+    assert_eq!(empty_library_message(false, 0, 0), "还没有创建容器");
+    assert_eq!(empty_library_message(false, 1, 0), "此容器还没有游戏");
     assert_eq!(empty_library_message(false, 1, 5), "没有找到匹配的游戏");
 }
 
@@ -1315,6 +1315,573 @@ fn test_root_window_real_state_and_settings_keybinding(cx: &mut gpui_kit::TestAp
     window
         .read_with(cx, |this, _| {
             assert!(this.settings, "ShowSettings shortcut must open settings")
+        })
+        .unwrap();
+
+    // Escape exits Settings so users are never trapped when the sidebar is hidden.
+    cx.simulate_keystrokes(window.into(), "escape");
+    window
+        .read_with(cx, |this, _| {
+            assert!(!this.settings, "Escape must dismiss settings")
+        })
+        .unwrap();
+
+    // FocusSearch (Cmd+F / Ctrl+F) from Settings returns to Library and focuses search.
+    cx.simulate_keystrokes(window.into(), crate::platform::SHORTCUTS[3]);
+    cx.simulate_keystrokes(window.into(), crate::platform::SHORTCUTS[6]);
+    window
+        .read_with(cx, |this, cx| {
+            assert!(!this.settings, "FocusSearch must exit settings");
+            assert!(
+                this.preview.page == crate::state::PreviewPage::Library,
+                "FocusSearch must return to Library"
+            );
+            let _ = this.search.read(cx);
+        })
+        .unwrap();
+
+    // Light mode sync_theme must apply brand primary even on initial Light startup,
+    // and reverse-sort toggle must invert ordered indices deterministically.
+    window
+        .update(cx, |this, _, cx| {
+            crate::theme::sync_theme(AppearanceMode::Light, None, cx);
+            let expected: gpui_kit::Hsla = gpui_kit::rgb(0xe8770f).into();
+            assert_eq!(
+                gpui_kit::component::theme::Theme::global(cx).colors.primary,
+                expected
+            );
+            this.bottle_entries.insert(
+                "/bottles/alpha".into(),
+                vec![
+                    make_test_game("g1", "Alpha", None, None, 1, false, false, None, None, false),
+                    make_test_game("g2", "Beta", None, None, 1, false, false, None, None, false),
+                ],
+            );
+            this.entries = crate::library_view::merge_bottles(&this.bottles, &this.bottle_entries);
+            this.selected_bottle = None;
+            this.set_appearance(AppearanceMode::Dark, cx);
+            let forward = this.ordered(cx);
+            this.command(crate::views::Command::Toggle("reverse-sort"), cx);
+            let mut backward = this.ordered(cx);
+            backward.reverse();
+            assert_eq!(forward, backward, "reverse-sort must invert ordered()");
+        })
+        .unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// 14. Wine engine selection: per-container readback, gated writes, dialogs
+// ---------------------------------------------------------------------------
+
+use crate::bridge::dto::{
+    EngineFieldPolicyDto, EnginePolicyDto, WineEngineDto, WineEngineFeatureDto,
+    WineEngineListDto, WineEngineSelectionDto,
+};
+use crate::config::{ConfigField, FieldKind};
+fn engine_window(
+    cx: &mut gpui_kit::TestAppContext,
+) -> gpui_kit::WindowHandle<crate::state::WhiskyApp> {
+    cx.update(|app| {
+        gpui_kit::init(app);
+        crate::bind_shortcuts(app);
+    });
+    let (_events_tx, events_rx) = smol::channel::unbounded();
+    let bridge = crate::bridge::BridgeSupervisor::disconnected_for_tests();
+    cx.add_window(|window, cx| {
+        crate::state::WhiskyApp::new_with_bridge(window, cx, bridge, events_rx, false)
+    })
+}
+
+fn external_selection() -> Box<WineEngineSelectionDto> {
+    let mut choices = BTreeMap::new();
+    choices.insert(
+        "dxvk".to_owned(),
+        EnginePolicyDto {
+            disabled: true,
+            reason: Some("no DXVK payload in this engine".to_owned()),
+            state: "unavailable".to_owned(),
+            can_override: false,
+            feature: Some("dxvk".to_owned()),
+        },
+    );
+    choices.insert(
+        "dxmt".to_owned(),
+        EnginePolicyDto {
+            disabled: false,
+            reason: None,
+            state: "supported".to_owned(),
+            can_override: false,
+            feature: Some("dxmt".to_owned()),
+        },
+    );
+    let mut field_policy = BTreeMap::new();
+    field_policy.insert(
+        "graphicsBackend".to_owned(),
+        EngineFieldPolicyDto {
+            choices,
+            ..EngineFieldPolicyDto::default()
+        },
+    );
+    field_policy.insert(
+        "dxvkAsync".to_owned(),
+        EngineFieldPolicyDto {
+            disabled: true,
+            reason: Some("DXVK async is unverified on this engine".to_owned()),
+            state: "unverified".to_owned(),
+            can_override: true,
+            feature: Some("dxvkAsync".to_owned()),
+            choices: BTreeMap::new(),
+        },
+    );
+    field_policy.insert(
+        "metalValidation".to_owned(),
+        EngineFieldPolicyDto {
+            disabled: true,
+            reason: Some("managed runtime only".to_owned()),
+            state: "unavailable".to_owned(),
+            can_override: false,
+            feature: None,
+            choices: BTreeMap::new(),
+        },
+    );
+    Box::new(WineEngineSelectionDto {
+        engine_id: "external-1".to_owned(),
+        engine: WineEngineDto {
+            id: "external-1".to_owned(),
+            name: "External".to_owned(),
+            path: "/engines/external".to_owned(),
+            managed: false,
+            available: true,
+            fingerprint: Some("fp-1".to_owned()),
+            features: vec![WineEngineFeatureDto {
+                id: "dxvkAsync".to_owned(),
+                state: "unverified".to_owned(),
+                can_override: true,
+                ..WineEngineFeatureDto::default()
+            }],
+            ..WineEngineDto::default()
+        },
+        feature_overrides: BTreeMap::new(),
+        features: Vec::new(),
+        field_policy,
+    })
+}
+
+fn toggle_field(id: &str) -> ConfigField {
+    ConfigField {
+        id: id.to_owned(),
+        title: id.to_owned(),
+        title_key: String::new(),
+        kind: FieldKind::Toggle,
+        default: serde_json::Value::Bool(false),
+        requires: Vec::new(),
+        platforms: Vec::new(),
+    }
+}
+
+#[gpui_kit::test]
+fn engine_selection_replies_stay_on_their_own_container(cx: &mut gpui_kit::TestAppContext) {
+    let window = engine_window(cx);
+    window
+        .update(cx, |this, _, cx| {
+            this.bottles = vec![
+                crate::model::BottleVm {
+                    path: "/bottles/a".into(),
+                    name: "A".into(),
+                    available: true,
+                },
+                crate::model::BottleVm {
+                    path: "/bottles/b".into(),
+                    name: "B".into(),
+                    available: true,
+                },
+            ];
+            this.selected_bottle = Some(0);
+            this.apply_bridge_event(
+                crate::bridge::BridgeEvent::EngineSelection {
+                    container: "/bottles/b".into(),
+                    selection: external_selection(),
+                },
+                cx,
+            );
+            this.apply_bridge_event(
+                crate::bridge::BridgeEvent::EngineSelection {
+                    container: "/bottles/a".into(),
+                    selection: external_selection(),
+                },
+                cx,
+            );
+            // Both replies landed under their own containers; nothing leaked
+            // from the stale B readback into the page for A.
+            assert_eq!(this.engine_selections.len(), 2);
+            assert!(this.engine_selections.contains_key("/bottles/a"));
+            assert!(this.engine_selections.contains_key("/bottles/b"));
+
+            // A failure for a bottle the user is not looking at stays quiet.
+            this.apply_bridge_event(
+                crate::bridge::BridgeEvent::EngineSelectionFailed {
+                    container: "/bottles/b".into(),
+                    reason: "busy".into(),
+                },
+                cx,
+            );
+            assert!(this.notice.is_none());
+            this.apply_bridge_event(
+                crate::bridge::BridgeEvent::EngineSelectionFailed {
+                    container: "/bottles/a".into(),
+                    reason: "container busy".into(),
+                },
+                cx,
+            );
+            assert!(this.notice.is_some());
+        })
+        .unwrap();
+}
+
+#[gpui_kit::test]
+fn wine_engines_events_update_list_and_report_errors(cx: &mut gpui_kit::TestAppContext) {
+    let window = engine_window(cx);
+    window
+        .update(cx, |this, _, cx| {
+            this.apply_bridge_event(
+                crate::bridge::BridgeEvent::WineEngines {
+                    list: WineEngineListDto {
+                        engines: vec![
+                            WineEngineDto {
+                                id: "managed".into(),
+                                managed: true,
+                                available: true,
+                                ..WineEngineDto::default()
+                            },
+                            WineEngineDto {
+                                id: "ext".into(),
+                                managed: false,
+                                available: false,
+                                error: Some("missing loader".into()),
+                                ..WineEngineDto::default()
+                            },
+                        ],
+                        load_error: Some("registry corrupt".into()),
+                    },
+                },
+                cx,
+            );
+            assert_eq!(this.wine_engines.len(), 2);
+            assert_eq!(this.wine_engines_error.as_deref(), Some("registry corrupt"));
+
+            this.apply_bridge_event(
+                crate::bridge::BridgeEvent::WineEngineOpFailed {
+                    reason: "engine in use".into(),
+                },
+                cx,
+            );
+            assert!(this.notice.is_some());
+        })
+        .unwrap();
+}
+
+#[gpui_kit::test]
+fn confirmable_engine_feature_opens_dialog_and_cancel_drops_it(
+    cx: &mut gpui_kit::TestAppContext,
+) {
+    let window = engine_window(cx);
+    window
+        .update(cx, |this, _, cx| {
+            this.config = Some(crate::state::ConfigPage {
+                container: "/bottles/a".into(),
+                capabilities: Vec::new(),
+                fields: vec![toggle_field("dxvkAsync")],
+                values: BTreeMap::new(),
+                loading: false,
+                error: None,
+            });
+            this.engine_selections
+                .insert("/bottles/a".into(), *external_selection());
+
+            // Enabling an unverified feature is not written immediately: the
+            // confirmation dialog opens instead.
+            this.set_config_value("dxvkAsync", serde_json::json!(true), cx);
+            let page = this.config.as_ref().unwrap();
+            assert!(!page.values.contains_key("dxvkAsync"), "unconfirmed write must not land");
+            let dialog = this.engine_dialog.as_ref().expect("confirmation dialog");
+            match &dialog.kind {
+                crate::state::EngineDialogKind::Feature {
+                    feature,
+                    apply,
+                    fingerprint,
+                    ..
+                } => {
+                    assert_eq!(feature, "dxvkAsync");
+                    match apply {
+                        crate::state::PendingEngineApply::Config { field, value } => {
+                            assert_eq!(field, "dxvkAsync");
+                            assert_eq!(value, &serde_json::json!(true));
+                        }
+                        _ => panic!("config apply expected"),
+                    }
+                    assert_eq!(fingerprint, "fp-1");
+                }
+                _ => panic!("feature confirmation expected"),
+            }
+
+            // Cancel drops the action without touching the bottle config.
+            this.dismiss_engine_dialog(cx);
+            assert!(this.engine_dialog.is_none());
+            assert!(this.pending_engine_action.is_none());
+            assert!(
+                !this
+                    .config
+                    .as_ref()
+                    .unwrap()
+                    .values
+                    .contains_key("dxvkAsync")
+            );
+        })
+        .unwrap();
+}
+
+#[gpui_kit::test]
+fn confirming_engine_feature_applies_the_queued_write(cx: &mut gpui_kit::TestAppContext) {
+    let window = engine_window(cx);
+    window
+        .update(cx, |this, _, cx| {
+            this.config = Some(crate::state::ConfigPage {
+                container: "/bottles/a".into(),
+                capabilities: Vec::new(),
+                fields: vec![toggle_field("dxvkAsync")],
+                values: BTreeMap::new(),
+                loading: false,
+                error: None,
+            });
+            this.engine_selections
+                .insert("/bottles/a".into(), *external_selection());
+            this.set_config_value("dxvkAsync", serde_json::json!(true), cx);
+            assert!(this.engine_dialog.is_some());
+
+            // Confirming sends only the approval: the queued write waits for
+            // the matching `EngineSelection` reply, so nothing lands yet.
+            this.confirm_engine_dialog(cx);
+            assert!(this.engine_dialog.is_none());
+            assert!(this.pending_engine_action.is_some());
+            assert!(
+                !this
+                    .config
+                    .as_ref()
+                    .unwrap()
+                    .values
+                    .contains_key("dxvkAsync"),
+                "write must wait for the approval reply"
+            );
+
+            // A reply for another container does not satisfy the pending
+            // action — it stays queued for the real reply.
+            let mut other = *external_selection();
+            other
+                .feature_overrides
+                .insert("dxvkAsync".to_owned(), "fp-1".to_owned());
+            this.apply_bridge_event(
+                crate::bridge::BridgeEvent::EngineSelection {
+                    container: "/bottles/b".into(),
+                    selection: Box::new(other),
+                },
+                cx,
+            );
+            assert!(this.pending_engine_action.is_some());
+            assert!(
+                !this
+                    .config
+                    .as_ref()
+                    .unwrap()
+                    .values
+                    .contains_key("dxvkAsync")
+            );
+
+            // The matching reply — approval persisted under the fingerprint
+            // the dialog was opened against, AND the field now ungated (the
+            // helper recomputes policy with the override) — applies the
+            // queued write.
+            let mut approved = *external_selection();
+            approved
+                .feature_overrides
+                .insert("dxvkAsync".to_owned(), "fp-1".to_owned());
+            approved
+                .field_policy
+                .get_mut("dxvkAsync")
+                .unwrap()
+                .disabled = false;
+            this.apply_bridge_event(
+                crate::bridge::BridgeEvent::EngineSelection {
+                    container: "/bottles/a".into(),
+                    selection: Box::new(approved),
+                },
+                cx,
+            );
+            assert!(this.pending_engine_action.is_none());
+            assert_eq!(
+                this.config.as_ref().unwrap().values.get("dxvkAsync"),
+                Some(&serde_json::json!(true)),
+                "confirmed write lands in the page values"
+            );
+        })
+        .unwrap();
+}
+
+#[gpui_kit::test]
+fn rejected_engine_approval_applies_no_write(cx: &mut gpui_kit::TestAppContext) {
+    let window = engine_window(cx);
+    window
+        .update(cx, |this, _, cx| {
+            this.config = Some(crate::state::ConfigPage {
+                container: "/bottles/a".into(),
+                capabilities: Vec::new(),
+                fields: vec![toggle_field("dxvkAsync")],
+                values: BTreeMap::new(),
+                loading: false,
+                error: None,
+            });
+            this.engine_selections
+                .insert("/bottles/a".into(), *external_selection());
+            this.set_config_value("dxvkAsync", serde_json::json!(true), cx);
+            this.confirm_engine_dialog(cx);
+            assert!(this.pending_engine_action.is_some());
+
+            // A stale fingerprint / busy container fails the override: the
+            // pending action clears and the requested write never happens.
+            this.apply_bridge_event(
+                crate::bridge::BridgeEvent::EngineSelectionFailed {
+                    container: "/bottles/a".into(),
+                    reason: "engine fingerprint changed".into(),
+                },
+                cx,
+            );
+            assert!(this.pending_engine_action.is_none());
+            assert!(
+                !this
+                    .config
+                    .as_ref()
+                    .unwrap()
+                    .values
+                    .contains_key("dxvkAsync"),
+                "rejected approval must not write"
+            );
+        })
+        .unwrap();
+}
+
+#[gpui_kit::test]
+fn unavailable_engine_field_is_refused_not_confirmed(cx: &mut gpui_kit::TestAppContext) {
+    let window = engine_window(cx);
+    window
+        .update(cx, |this, _, cx| {
+            this.config = Some(crate::state::ConfigPage {
+                container: "/bottles/a".into(),
+                capabilities: Vec::new(),
+                fields: vec![toggle_field("metalValidation")],
+                values: BTreeMap::new(),
+                loading: false,
+                error: None,
+            });
+            this.engine_selections
+                .insert("/bottles/a".into(), *external_selection());
+
+            // `metalValidation` is managed-only: no dialog, a refusal notice.
+            this.set_config_value("metalValidation", serde_json::json!(true), cx);
+            assert!(this.engine_dialog.is_none());
+            assert!(
+                !this
+                    .config
+                    .as_ref()
+                    .unwrap()
+                    .values
+                    .contains_key("metalValidation")
+            );
+            assert!(this.notice.is_some());
+        })
+        .unwrap();
+}
+
+#[gpui_kit::test]
+fn disabling_a_gated_field_writes_without_confirmation(cx: &mut gpui_kit::TestAppContext) {
+    let window = engine_window(cx);
+    window
+        .update(cx, |this, _, cx| {
+            let mut values = BTreeMap::new();
+            values.insert("dxvkAsync".to_owned(), serde_json::json!(true));
+            this.config = Some(crate::state::ConfigPage {
+                container: "/bottles/a".into(),
+                capabilities: Vec::new(),
+                fields: vec![toggle_field("dxvkAsync")],
+                values,
+                loading: false,
+                error: None,
+            });
+            this.engine_selections
+                .insert("/bottles/a".into(), *external_selection());
+
+            // Turning a gated feature off is always allowed — never gated.
+            this.set_config_value("dxvkAsync", serde_json::json!(false), cx);
+            assert!(this.engine_dialog.is_none());
+            assert_eq!(
+                this.config.as_ref().unwrap().values.get("dxvkAsync"),
+                Some(&serde_json::json!(false))
+            );
+        })
+        .unwrap();
+}
+
+#[gpui_kit::test]
+fn choice_level_policy_gates_individual_options(cx: &mut gpui_kit::TestAppContext) {
+    let window = engine_window(cx);
+    window
+        .update(cx, |this, _, cx| {
+            this.config = Some(crate::state::ConfigPage {
+                container: "/bottles/a".into(),
+                capabilities: Vec::new(),
+                fields: vec![ConfigField {
+                    id: "graphicsBackend".to_owned(),
+                    title: "Backend".to_owned(),
+                    title_key: String::new(),
+                    kind: FieldKind::Choice {
+                        options: vec![
+                            crate::config::ConfigOption {
+                                id: "dxvk".into(),
+                                title: "DXVK".into(),
+                            },
+                            crate::config::ConfigOption {
+                                id: "dxmt".into(),
+                                title: "DXMT".into(),
+                            },
+                        ],
+                    },
+                    default: serde_json::Value::String("recommended".into()),
+                    requires: Vec::new(),
+                    platforms: Vec::new(),
+                }],
+                values: BTreeMap::new(),
+                loading: false,
+                error: None,
+            });
+            this.engine_selections
+                .insert("/bottles/a".into(), *external_selection());
+
+            // The DXVK choice is unavailable on this engine — refused with a
+            // reason, and the value stays untouched.
+            this.set_config_value("graphicsBackend", serde_json::json!("dxvk"), cx);
+            assert!(this.engine_dialog.is_none());
+            assert!(this.notice.is_some());
+            assert!(!this
+                .config
+                .as_ref()
+                .unwrap()
+                .values
+                .contains_key("graphicsBackend"));
+
+            // DXMT is supported: writes straight through, no dialog.
+            this.set_config_value("graphicsBackend", serde_json::json!("dxmt"), cx);
+            assert_eq!(
+                this.config.as_ref().unwrap().values.get("graphicsBackend"),
+                Some(&serde_json::json!("dxmt"))
+            );
         })
         .unwrap();
 }

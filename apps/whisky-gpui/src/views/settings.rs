@@ -151,7 +151,7 @@ impl WhiskyApp {
                     .h(px(5.))
                     .w_full()
                     .rounded_full()
-                    .bg(rgba(round_btn_bg())),
+                    .bg(rgba(slider_track_bg())),
             )
             .child(
                 div()
@@ -173,7 +173,8 @@ impl WhiskyApp {
                     .rounded_full()
                     .bg(rgb(0xffffff))
                     .border_1()
-                    .border_color(rgba(round_btn_border())),
+                    .border_color(rgba(slider_thumb_border()))
+                    .shadow_xs(),
             );
         if enabled {
             track = track
@@ -584,11 +585,15 @@ impl WhiskyApp {
                                     },
                                 ),
                             ),
-                            Button::new("runtime-install")
-                                .label("安装或更新运行时…")
-                                .disabled(!self.service_available("setup.install"))
-                                .on_click(
-                                    cx.listener(|this, _, _, cx| this.install_wine_runtime(cx)),
+                            row()
+                                .py(px(6.))
+                                .child(
+                                    Button::new("runtime-install")
+                                        .label("安装或更新运行时…")
+                                        .disabled(!self.service_available("setup.install"))
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| this.install_wine_runtime(cx)),
+                                        ),
                                 )
                                 .into_any_element(),
                         ]
@@ -622,6 +627,8 @@ impl WhiskyApp {
                 ),
                 #[cfg(not(target_os = "linux"))]
                 self.gptk_section(cx),
+                #[cfg(not(target_os = "linux"))]
+                self.engines_section(cx),
             ],
         )
     }
@@ -698,5 +705,116 @@ impl WhiskyApp {
         rows.push(muted(footer_text).text_size(px(11.)).into_any_element());
 
         self.section("gptk", "Game Porting Toolkit", rows, cx)
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+impl WhiskyApp {
+    /// 自定义 Wine 引擎: registered external engine trees. The managed row is
+    /// immutable — install/update lives in the Wine 运行时 section — and
+    /// removal only drops the registration, never the files.
+    fn engines_section(&self, cx: &Context<Self>) -> AnyElement {
+        let mut rows = Vec::new();
+
+        if self.service_available("wine.engines.list") {
+            for engine in &self.wine_engines {
+                let mut status = if engine.managed {
+                    "受管".to_owned()
+                } else if engine.available {
+                    // Detection never launches the engine, so a version is
+                    // known only when the tree ships metadata.
+                    match &engine.version {
+                        Some(version) => format!("已注册 · {version}"),
+                        None => "已注册 · 版本未知".to_owned(),
+                    }
+                } else {
+                    "不可用".to_owned()
+                };
+                if !engine.architectures.is_empty() {
+                    status = format!("{status} · {}", engine.architectures.join("/"));
+                }
+                rows.push(self.info(engine.name.clone(), status));
+                if let Some(reason) = &engine.error {
+                    rows.push(muted(reason.clone()).text_size(px(11.)).into_any_element());
+                }
+                // Static detection cannot prove a feature works — list what
+                // the tree carries unverified and what it lacks entirely.
+                let unverified: Vec<&str> = engine
+                    .features
+                    .iter()
+                    .filter(|feature| feature.state == "unverified")
+                    .map(|feature| feature.id.as_str())
+                    .collect();
+                let unavailable: Vec<&str> = engine
+                    .features
+                    .iter()
+                    .filter(|feature| feature.state == "unavailable")
+                    .map(|feature| feature.id.as_str())
+                    .collect();
+                if !unverified.is_empty() || !unavailable.is_empty() {
+                    let mut summary = String::new();
+                    if !unverified.is_empty() {
+                        summary.push_str(&format!("未验证（需确认）: {}", unverified.join("、")));
+                    }
+                    if !unavailable.is_empty() {
+                        if !summary.is_empty() {
+                            summary.push_str("；");
+                        }
+                        summary.push_str(&format!("不可用: {}", unavailable.join("、")));
+                    }
+                    rows.push(
+                        muted(summary)
+                            .text_size(px(11.))
+                            .line_height(relative(1.4))
+                            .into_any_element(),
+                    );
+                }
+                if !engine.managed {
+                    rows.push(
+                        muted(engine.path.clone()).text_size(px(11.)).truncate().into_any_element(),
+                    );
+                    let id = engine.id.clone();
+                    rows.push(
+                        row()
+                            .py(px(4.))
+                            .child(
+                                Button::new(format!("engine-remove:{id}"))
+                                    .label("移除注册")
+                                    .danger()
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.remove_wine_engine(&id, cx);
+                                    })),
+                            )
+                            .into_any_element(),
+                    );
+                }
+            }
+            if let Some(error) = &self.wine_engines_error {
+                rows.push(muted(format!("引擎注册表读取失败：{error}")).into_any_element());
+            }
+            rows.push(
+                row()
+                    .py(px(6.))
+                    .gap(px(12.))
+                    .child(
+                        Button::new("engine-register")
+                            .label("添加引擎目录…")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.choose_wine_engine_directory(cx);
+                            })),
+                    )
+                    .into_any_element(),
+            );
+            rows.push(
+                muted("外部引擎仅做静态检测并以只读方式使用：不会在目录内写入、更新或部署 D3DMetal。每个容器可在其配置页绑定引擎。")
+                    .text_size(px(11.))
+                    .line_height(relative(1.4))
+                    .into_any_element(),
+            );
+        } else {
+            rows.push(self.info("当前服务", "自定义引擎需要 macOS Wine 宿主适配器"));
+        }
+
+        self.section("wine-engines", "自定义 Wine 引擎", rows, cx)
     }
 }

@@ -55,13 +55,7 @@ impl WhiskyApp {
         let Some(selected) =
             crate::gallery::selected_index(games, &indices, self.gallery_selection.as_ref())
         else {
-            return self.library_viewport(
-                4,
-                col()
-                    .w_full()
-                    .flex_shrink_0()
-                    .child(muted(self.empty_library_message()).p(px(30.))),
-            );
+            return self.library_viewport(4, self.library_empty_surface(cx));
         };
         let layout = GalleryLayout::new(width);
         let wall = self.gallery_wall(&indices, selected, layout, cx);
@@ -227,7 +221,7 @@ impl WhiskyApp {
             )
             .child(match self.runtime_state(index) {
                 Some(RuntimeState::Running) => {
-                    live_badge(self.runtime_badge_label(index, "Running"))
+                    live_badge(self.runtime_badge_label(index, "运行中"))
                         .absolute()
                         .top(px(7.))
                         .right(px(7.))
@@ -317,7 +311,7 @@ impl WhiskyApp {
         badges = badges.child(badge("package", "Wine"));
         if let Some(state) = self.runtime_state(index) {
             if state == RuntimeState::Running {
-                badges = badges.child(live_badge(self.runtime_badge_label(index, "Running")));
+                badges = badges.child(live_badge(self.runtime_badge_label(index, "运行中")));
             } else if state.is_active() {
                 badges = badges.child(phase_badge(
                     self.runtime_badge_label(index, state.phase_label()),

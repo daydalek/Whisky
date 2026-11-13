@@ -88,7 +88,7 @@ impl WhiskyApp {
     /// Date-group label for the staggered rail. The demo keeps its hand-tuned
     /// pair of groups; real entries group by the last-played date the library
     /// already records, and unplayed entries tail into their own group.
-    fn staggered_group_label(&self, index: usize, position: usize) -> Option<String> {
+    pub(crate) fn staggered_group_label(&self, index: usize, position: usize) -> Option<String> {
         if self.demo {
             return Some(if position < 4 { "今天" } else { "更早" }.to_owned());
         }
@@ -190,7 +190,10 @@ impl WhiskyApp {
             );
         }
         if indices.is_empty() {
-            content = content.child(muted(self.empty_library_message()).p(px(30.)));
+            return self.library_viewport(
+                crate::preferences::STAGGERED_MODE,
+                self.library_empty_surface(cx),
+            );
         }
         let paint = RailPaint {
             rail_x: layout.rail_x,
@@ -305,7 +308,7 @@ impl WhiskyApp {
         }
         if let Some(state) = self.runtime_state(index) {
             meta = if state == RuntimeState::Running {
-                meta.child(live_badge(self.runtime_badge_label(index, "Running")))
+                meta.child(live_badge(self.runtime_badge_label(index, "运行中")))
             } else if state.is_active() {
                 meta.child(phase_badge(
                     self.runtime_badge_label(index, state.phase_label()),

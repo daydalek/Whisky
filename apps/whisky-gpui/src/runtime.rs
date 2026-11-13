@@ -69,13 +69,13 @@ impl RuntimeState {
     /// Short phase label mirroring Swift's `phaseLabel`, used by the card badge.
     pub(crate) fn phase_label(self) -> &'static str {
         match self {
-            Self::CheckingLaunch => "Starting…",
-            Self::Preparing => "Preparing…",
-            Self::Launching => "Launching…",
-            Self::StartingSteam => "Starting Steam",
-            Self::WaitingForSteam => "Waiting for Steam",
-            Self::Running => "Running",
-            Self::Idle | Self::Unknown => "Starting…",
+            Self::CheckingLaunch => "启动检查…",
+            Self::Preparing => "正在准备…",
+            Self::Launching => "正在启动…",
+            Self::StartingSteam => "正在启动 Steam",
+            Self::WaitingForSteam => "等待 Steam…",
+            Self::Running => "运行中",
+            Self::Idle | Self::Unknown => "正在启动…",
         }
     }
 }
@@ -105,11 +105,11 @@ pub(crate) struct PrimaryAction {
 }
 
 impl PrimaryAction {
-    /// Neutral, disabled "Play": used before a container is configured and for
+    /// Neutral, disabled "启动": used before a container is configured and for
     /// states this build does not understand. Never panics, never guesses.
     pub(crate) const fn unavailable() -> Self {
         Self {
-            label: "Play",
+            label: "启动",
             action: None,
             enabled: false,
             busy: false,
@@ -129,13 +129,13 @@ pub(crate) fn primary_action_for(state: RuntimeState, capabilities: i64) -> Prim
     let can_stop = capabilities & CAP_STOP != 0;
     match state {
         RuntimeState::Idle => PrimaryAction {
-            label: "Play",
+            label: "启动",
             action: can_launch.then_some(RuntimeAction::Launch),
             enabled: can_launch,
             busy: false,
         },
         RuntimeState::CheckingLaunch => PrimaryAction {
-            label: "Starting…",
+            label: "正在启动…",
             action: None,
             enabled: false,
             busy: true,
@@ -143,14 +143,14 @@ pub(crate) fn primary_action_for(state: RuntimeState, capabilities: i64) -> Prim
         RuntimeState::Preparing | RuntimeState::Launching => {
             if can_cancel {
                 PrimaryAction {
-                    label: "Cancel",
+                    label: "取消",
                     action: Some(RuntimeAction::Cancel),
                     enabled: true,
                     busy: false,
                 }
             } else {
                 PrimaryAction {
-                    label: "Starting…",
+                    label: "正在启动…",
                     action: None,
                     enabled: false,
                     busy: true,
@@ -158,10 +158,10 @@ pub(crate) fn primary_action_for(state: RuntimeState, capabilities: i64) -> Prim
             }
         }
         // Entries the driver cannot stop carry no `stop` capability, so a
-        // running entry reads as "Running" rather than offering a control
+        // running entry reads as "运行中" rather than offering a control
         // the helper rejects.
         RuntimeState::Running if !can_stop => PrimaryAction {
-            label: "Running",
+            label: "运行中",
             action: None,
             enabled: false,
             busy: false,
@@ -169,14 +169,14 @@ pub(crate) fn primary_action_for(state: RuntimeState, capabilities: i64) -> Prim
         RuntimeState::Running | RuntimeState::StartingSteam | RuntimeState::WaitingForSteam => {
             if can_stop {
                 PrimaryAction {
-                    label: "Stop",
+                    label: "停止",
                     action: Some(RuntimeAction::Stop),
                     enabled: true,
                     busy: false,
                 }
             } else {
                 PrimaryAction {
-                    label: "Starting…",
+                    label: "正在启动…",
                     action: None,
                     enabled: false,
                     busy: true,
@@ -452,13 +452,13 @@ mod tests {
             table.apply(RuntimeUpdate::merge("bottle", vec![dto("pinned:a", state, STEAM)]));
             seen.push(labels(&table, "pinned:a"));
         }
-        assert_eq!(seen, ["Play", "Cancel", "Cancel", "Stop", "Play"]);
+        assert_eq!(seen, ["启动", "取消", "取消", "停止", "启动"]);
     }
 
     #[test]
     fn checking_launch_has_no_cancel_and_shows_the_progress_treatment() {
         let action = primary_action_for(RuntimeState::CheckingLaunch, STEAM);
-        assert_eq!(action.label, "Starting…");
+        assert_eq!(action.label, "正在启动…");
         assert!(action.busy);
         assert!(!action.enabled);
         assert_eq!(action.action, None);
@@ -467,19 +467,19 @@ mod tests {
     #[test]
     fn a_running_program_offers_no_stop_because_the_helper_would_refuse() {
         let action = primary_action_for(RuntimeState::Running, PROGRAM);
-        assert_eq!(action.label, "Running");
+        assert_eq!(action.label, "运行中");
         assert!(!action.enabled);
         assert_eq!(action.action, None);
 
         let steam = primary_action_for(RuntimeState::Running, STEAM);
-        assert_eq!(steam.label, "Stop");
+        assert_eq!(steam.label, "停止");
         assert_eq!(steam.action, Some(RuntimeAction::Stop));
     }
 
     #[test]
     fn idle_without_the_launch_capability_is_disabled() {
         let action = primary_action_for(RuntimeState::Idle, 0);
-        assert_eq!(action.label, "Play");
+        assert_eq!(action.label, "启动");
         assert!(!action.enabled);
         assert_eq!(action.action, None);
     }
@@ -496,12 +496,12 @@ mod tests {
         // A delta that does not mention `pinned:b` keeps it.
         table.apply(RuntimeUpdate::merge("bottle", vec![dto("pinned:a", "idle", STEAM)]));
         assert!(table.entry("pinned:b").is_some());
-        assert_eq!(labels(&table, "pinned:a"), "Play");
+        assert_eq!(labels(&table, "pinned:a"), "启动");
 
         // A resync is the whole truth: the vanished entry is dropped.
         table.apply(RuntimeUpdate::resync("bottle", vec![dto("pinned:a", "running", STEAM)]));
         assert!(table.entry("pinned:b").is_none());
-        assert_eq!(labels(&table, "pinned:a"), "Stop");
+        assert_eq!(labels(&table, "pinned:a"), "停止");
     }
 
     #[test]
@@ -518,9 +518,9 @@ mod tests {
         let mut table = RuntimeTable::default();
         table.apply(RuntimeUpdate::resync("bottle", vec![dto("pinned:a", "idle", STEAM)]));
         table.set_state("pinned:a", RuntimeState::Preparing);
-        assert_eq!(labels(&table, "pinned:a"), "Cancel");
+        assert_eq!(labels(&table, "pinned:a"), "取消");
         table.apply(RuntimeUpdate::merge("bottle", vec![dto("pinned:a", "idle", STEAM)]));
-        assert_eq!(labels(&table, "pinned:a"), "Play");
+        assert_eq!(labels(&table, "pinned:a"), "启动");
     }
 
     #[test]

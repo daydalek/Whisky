@@ -56,6 +56,7 @@ gpui_kit::actions!(
         QuitPreview,
         ToggleMotion,
         RefreshLibrary,
+        FocusSearch,
         ShowAbout,
         ShowSettings,
         ToggleSidebar,
@@ -151,6 +152,40 @@ impl Render for WhiskyApp {
                     this.refresh_library(cx);
                 }
             }))
+            .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
+                if this.onboarding.is_some()
+                    || this.bridge_dialog
+                    || this.bottle_dialog.is_some()
+                    || this.import_bottles.is_some()
+                {
+                    return;
+                }
+                if this.preview.sheet == Some(crate::state::PreviewSheet::Winetricks) {
+                    if let Some(input) = this.preview.inputs.get("dependency-search") {
+                        let handle = input.read(cx).focus_handle(cx);
+                        window.focus(&handle, cx);
+                    }
+                    return;
+                }
+                if let Some(crate::state::PreviewSheet::GameInfo(_)) = this.preview.sheet {
+                    if let Some(input) = this.game_info.as_ref().and_then(|page| page.input.as_ref()) {
+                        let handle = input.read(cx).focus_handle(cx);
+                        window.focus(&handle, cx);
+                    }
+                    return;
+                }
+                if this.preview.sheet.is_some() || this.detail_open {
+                    return;
+                }
+                if this.settings || this.preview.page != PreviewPage::Library {
+                    this.settings = false;
+                    this.preview.page = PreviewPage::Library;
+                    this.selected_bottle = None;
+                }
+                let handle = this.search.read(cx).focus_handle(cx);
+                window.focus(&handle, cx);
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &ShowAbout, _, cx| this.show_about(cx)))
             .on_action(cx.listener(|this, _: &ShowSettings, _, cx| this.open_settings(cx)))
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
@@ -192,8 +227,10 @@ impl Render for WhiskyApp {
                     this.preview_dismiss(cx);
                 } else if this.detail_open {
                     this.detail_open = false;
-                } else {
+                } else if this.staggered_selection.is_some() {
                     this.staggered_selection = None;
+                } else if this.settings {
+                    this.settings = false;
                 }
                 this.focus_handle.focus(window, cx);
                 cx.notify();
@@ -250,6 +287,9 @@ impl Render for WhiskyApp {
         }
         if self.bottle_dialog.is_some() {
             root = root.child(self.bottle_dialog_view(ww, wh, window, cx));
+        }
+        if self.engine_dialog.is_some() {
+            root = root.child(self.engine_dialog_view(ww, wh, window, cx));
         }
         if self.import_bottles.is_some() {
             root = root.child(self.import_bottles_view(ww, wh, cx));
@@ -541,6 +581,7 @@ fn install_menus(cx: &mut App) {
             MenuItem::os_action("全选", NoAction, OsAction::SelectAll),
         ]),
         Menu::new("显示").items(vec![
+            MenuItem::action("搜索游戏库", FocusSearch),
             MenuItem::action("刷新游戏库", RefreshLibrary),
             MenuItem::separator(),
             MenuItem::action("显示/隐藏侧边栏", ToggleSidebar),
@@ -571,6 +612,7 @@ pub(crate) fn bind_shortcuts(cx: &mut App) {
         KeyBinding::new(platform::SHORTCUTS[3], ShowSettings, None),
         KeyBinding::new(platform::SHORTCUTS[4], ToggleSidebar, None),
         KeyBinding::new(platform::SHORTCUTS[5], MinimizeWindow, None),
+        KeyBinding::new(platform::SHORTCUTS[6], FocusSearch, None),
     ]);
 }
 

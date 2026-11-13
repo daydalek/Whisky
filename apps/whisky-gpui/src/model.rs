@@ -218,9 +218,9 @@ pub(crate) fn empty_library_message(
     if demo {
         "没有找到匹配的游戏"
     } else if bottles == 0 {
-        "No bottles yet"
+        "还没有创建容器"
     } else if visible_entries == 0 {
-        "No games in this bottle"
+        "此容器还没有游戏"
     } else {
         "没有找到匹配的游戏"
     }
@@ -307,11 +307,11 @@ mod tests {
     fn empty_library_copy_distinguishes_missing_bottles_from_empty_bottles() {
         assert_eq!(
             empty_library_message(false, 0, 0),
-            "No bottles yet"
+            "还没有创建容器"
         );
         assert_eq!(
             empty_library_message(false, 2, 0),
-            "No games in this bottle"
+            "此容器还没有游戏"
         );
         assert_eq!(
             empty_library_message(false, 2, 5),
