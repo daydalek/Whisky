@@ -56,12 +56,14 @@ final class ScopeRecorder {
 /// The DLL override layout of a Steam launch once DXVK is scoped to the
 /// launcher's processes instead of the bottle (#276). The runtime is pinned
 /// in every case, so the suite answers the same on any machine.
-@Suite("Launcher DLL override scoping")
+@Suite("Launcher DLL override scoping", .managedInstalled)
 @MainActor
 final class LauncherScopingTests {
     private let tempRoot: URL
 
     init() throws {
+        // The managed engine must resolve without the real runtime install —
+        // the `.managedInstalled` trait holds the task-local override.
         tempRoot = FileManager.default.temporaryDirectory
             .appending(path: "launcher_scoping_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)

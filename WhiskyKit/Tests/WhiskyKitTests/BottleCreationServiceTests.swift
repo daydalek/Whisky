@@ -39,7 +39,7 @@ struct BottleCreationServiceTests {
             parentDirectory: root,
             destinationDirectory: destination,
             registry: BottleData(entriesFile: registryURL),
-            runtimeIsAvailable: { true },
+            runtimeIsAvailable: { _ in true },
             validateLocation: { _ in .valid },
             bootstrapPrefix: { bottle in
                 try FileManager.default.createDirectory(
@@ -72,7 +72,7 @@ struct BottleCreationServiceTests {
                 destinationDirectory: destination,
                 registry: BottleData(entriesFile: root
                     .appendingPathComponent("registry.plist")),
-                runtimeIsAvailable: { true },
+                runtimeIsAvailable: { _ in true },
                 validateLocation: { _ in .valid },
                 bootstrapPrefix: { _ in
                     Issue.record("Existing prefix reached bootstrap")
@@ -94,7 +94,7 @@ struct BottleCreationServiceTests {
                 parentDirectory: root,
                 destinationDirectory: destination,
                 registry: BottleData(entriesFile: registryURL),
-                runtimeIsAvailable: { true },
+                runtimeIsAvailable: { _ in true },
                 validateLocation: { _ in .valid },
                 bootstrapPrefix: { _ in throw CocoaError(.fileWriteUnknown) }
             )
@@ -115,7 +115,7 @@ struct BottleCreationServiceTests {
                 destinationDirectory: destination,
                 registry: BottleData(entriesFile: root
                     .appendingPathComponent("registry.plist")),
-                runtimeIsAvailable: { false },
+                runtimeIsAvailable: { _ in false },
                 validateLocation: { _ in
                     Issue.record("Unexpected filesystem preflight")
                     return .valid

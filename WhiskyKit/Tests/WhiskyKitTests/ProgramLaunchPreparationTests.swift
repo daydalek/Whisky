@@ -46,12 +46,14 @@ private final class RegistryRecorder {
     }
 }
 
-@Suite("Program launch preparation")
+@Suite("Program launch preparation", .managedInstalled)
 @MainActor
 final class ProgramLaunchPreparationTests {
     private let tempRoot: URL
 
     init() throws {
+        // The managed engine must resolve without the real runtime install —
+        // the `.managedInstalled` trait holds the task-local override.
         tempRoot = FileManager.default.temporaryDirectory
             .appending(path: "launch_prep_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)

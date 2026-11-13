@@ -152,7 +152,7 @@ public enum StabilityDiagnostics {
 
         """
 
-        let envKeys = Wine.constructWineEnvironment(for: bottle, environment: [:])
+        let envKeys = ((try? Wine.constructWineEnvironment(for: bottle, environment: [:])) ?? [:])
             .keys
             .sorted()
 

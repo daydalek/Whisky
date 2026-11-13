@@ -41,26 +41,25 @@ public extension WinetricksService {
 
         let winetricksPath = resourcesURL.appending(path: "winetricks").path(percentEncoded: false)
         do {
-            let result = try await WineProcessQuery.run(
-                executable: URL(fileURLWithPath: "/usr/bin/env"),
-                arguments: ["bash", winetricksPath, "list-installed"],
-                environment: [
-                    "WINEPREFIX": bottleURL.path,
-                    "WINE": "wine64",
-                    "PATH": [
-                        WhiskyWineInstaller.binFolder.path,
-                        resourcesURL.path,
-                        "/usr/bin",
-                        "/bin"
-                    ].joined(separator: ":"),
-                    "HOME": NSHomeDirectory()
-                ],
-                timeout: 30
-            )
-            guard result.exitCode == 0 else { return nil }
-            let verbs = Set(result.output.components(separatedBy: .newlines)
-                .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
-            return verbs.isEmpty ? nil : verbs
+            // Same recipe as installs: the shared lease is held for the whole
+            // query and the selected engine supplies the absolute loader,
+            // server and library paths — no PATH fallthrough to another
+            // runtime.
+            return try await Wine.withEngineOperation(bottle: bottle) {
+                let engine = try await Wine.engine(for: bottle)
+                let result = try await WineProcessQuery.run(
+                    executable: URL(fileURLWithPath: "/usr/bin/env"),
+                    arguments: ["bash", winetricksPath, "list-installed"],
+                    environment: winetricksEnvironment(
+                        bottleURL: bottleURL, resourcesURL: resourcesURL, engine: engine
+                    ),
+                    timeout: 30
+                )
+                guard result.exitCode == 0 else { return nil }
+                let verbs = Set(result.output.components(separatedBy: .newlines)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+                return verbs.isEmpty ? nil : verbs
+            }
         } catch {
             logger.warning("Failed to discover installed winetricks verbs: \(error.localizedDescription)")
             return nil

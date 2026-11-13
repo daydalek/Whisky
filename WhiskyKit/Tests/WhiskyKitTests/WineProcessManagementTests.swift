@@ -19,7 +19,29 @@
 @testable import WhiskyKit
 import XCTest
 
+/// The injectable runner signature `Wine.$probeWineserverRunner` stores —
+/// named so hoisted constants keep each `withValue` call to one literal
+/// plus one trailing closure (the form both linters accept).
+private typealias InjectedProbeRunner = @Sendable (
+    URL, [String], [String: String], TimeInterval
+) async throws -> WineProcessQuery.Result
+
 final class WineProcessManagementTests: XCTestCase {
+    /// The flag's value before this test — restored in tearDown.
+    private var previousManagedInstallOverride: Bool?
+
+    override func setUp() {
+        super.setUp()
+        // The managed engine must resolve without the real runtime install.
+        previousManagedInstallOverride = WineEngine.managedInstallOverride
+        WineEngine.managedInstallOverride = true
+    }
+
+    override func tearDown() {
+        WineEngine.managedInstallOverride = previousManagedInstallOverride
+        super.tearDown()
+    }
+
     /// A fresh prefix can never have a live wineserver, so the probe must
     /// report false — whether wineserver spawns and exits nonzero (runtime
     /// installed) or the spawn itself fails (no runtime, e.g. CI).
@@ -106,7 +128,7 @@ final class WineProcessManagementTests: XCTestCase {
     /// Verifies that killBottleAndWait invokes wineserver with -k to signal termination,
     /// followed by wineserver with -w to wait until processes exit, and injects the bottle's WINEPREFIX.
     @MainActor
-    func testKillBottleAndWaitExecutesKillThenWait() async throws {
+    func testKillBottleAndWaitExecutesKillThenWait() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("test-shutdown-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -146,6 +168,158 @@ final class WineProcessManagementTests: XCTestCase {
 
         // Verifies helper run created a log entry for taskmgr launch
         XCTAssertEqual(logFiles(in: logsFolder).count, 1)
+    }
+
+    // MARK: - Wineserver probe semantics
+
+    private struct ProbeCall {
+        let executable: URL
+        let arguments: [String]
+        let environment: [String: String]
+    }
+
+    private final class ProbeRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var calls: [ProbeCall] = []
+
+        func record(_ call: ProbeCall) {
+            lock.lock()
+            defer { lock.unlock() }
+            calls.append(call)
+        }
+
+        var recorded: [ProbeCall] {
+            lock.lock()
+            defer { lock.unlock() }
+            return calls
+        }
+
+        func reset() {
+            lock.lock()
+            defer { lock.unlock() }
+            calls = []
+        }
+    }
+
+    /// The probe contract: exit 0 means a server answered, 1 means none did,
+    /// and anything else — a dyld crash, a signal — is UNKNOWN and throws, so
+    /// a selection decision fails closed instead of mistaking it for idle.
+    @MainActor
+    func testProbeWineserverExitStatuses() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let bottle = Bottle(bottleUrl: tempDir, inFlight: false, isAvailable: true)
+        let engine = fakeEngine(root: tempDir.appendingPathComponent("engine"))
+
+        let recorder = ProbeRecorder()
+        for code: Int32 in [0, 1] {
+            recorder.reset()
+            let probe: InjectedProbeRunner = { exe, args, env, _ in
+                recorder.record(ProbeCall(executable: exe, arguments: args, environment: env))
+                return WineProcessQuery.Result(output: "", diagnostics: "", exitCode: code)
+            }
+            let running = try await Wine.$probeWineserverRunner.withValue(probe) {
+                try await Wine.probeWineserver(for: bottle, engine: engine)
+            }
+            XCTAssertEqual(running, code == 0)
+            // The probe binds the SELECTED engine's server binary, not a
+            // global one, and carries the bottle prefix in the environment.
+            let calls = recorder.recorded
+            XCTAssertEqual(calls.map(\.executable), [engine.wineserverBinary])
+            XCTAssertEqual(calls.map(\.arguments), [["-k0"]])
+            XCTAssertEqual(calls.first?.environment["WINEPREFIX"], tempDir.path(percentEncoded: false))
+        }
+
+        // Exit 2 (dyld crash, bad loader) throws instead of reading as idle.
+        do {
+            let crashed: InjectedProbeRunner = { _, _, _, _ in
+                WineProcessQuery.Result(output: "", diagnostics: "dyld: boom", exitCode: 2)
+            }
+            _ = try await Wine.$probeWineserverRunner.withValue(crashed) {
+                try await Wine.probeWineserver(for: bottle, engine: engine)
+            }
+            XCTFail("a non-0/1 probe status must throw")
+        } catch let WineProcessQuery.Failure.commandFailed(code, message) {
+            XCTAssertEqual(code, 2)
+            XCTAssertTrue(message.contains("dyld: boom"))
+        }
+    }
+
+    /// A wedged probe (timeout) also propagates as unknown, and two engines
+    /// probe their own server binaries — not a shared default.
+    @MainActor
+    func testProbeWineserverBindsEachEngineAndPropagatesFailure() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let bottle = Bottle(bottleUrl: tempDir, inFlight: false, isAvailable: true)
+        let engineA = fakeEngine(root: tempDir.appendingPathComponent("engineA"))
+        let engineB = fakeEngine(root: tempDir.appendingPathComponent("engineB"))
+
+        let recorder = ProbeRecorder()
+        for engine in [engineA, engineB] {
+            let probe: InjectedProbeRunner = { exe, _, _, _ in
+                recorder.record(ProbeCall(executable: exe, arguments: [], environment: [:]))
+                return WineProcessQuery.Result(output: "", diagnostics: "", exitCode: 1)
+            }
+            _ = try await Wine.$probeWineserverRunner.withValue(probe) {
+                try await Wine.probeWineserver(for: bottle, engine: engine)
+            }
+        }
+        XCTAssertEqual(
+            recorder.recorded.map(\.executable), [engineA.wineserverBinary, engineB.wineserverBinary]
+        )
+
+        do {
+            let wedged: InjectedProbeRunner = { _, _, _, _ in
+                throw WineProcessQuery.Failure.timedOut
+            }
+            _ = try await Wine.$probeWineserverRunner.withValue(wedged) {
+                try await Wine.probeWineserver(for: bottle, engine: engineA)
+            }
+            XCTFail("a timed-out probe must throw, not read as idle")
+        } catch WineProcessQuery.Failure.timedOut {}
+    }
+
+    /// The informational sidebar probe still swallows failures into `false`;
+    /// only the selection path treats unknown as blocking.
+    @MainActor
+    func testInformationalProbeSwallowsUnknownStatus() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let bottle = Bottle(bottleUrl: tempDir, inFlight: false, isAvailable: true)
+
+        let crashed: InjectedProbeRunner = { _, _, _, _ in
+            WineProcessQuery.Result(output: "", diagnostics: "", exitCode: 2)
+        }
+        let running = await Wine.$probeWineserverRunner.withValue(crashed) {
+            await Wine.isWineserverRunning(for: bottle)
+        }
+        XCTAssertFalse(running)
+    }
+
+    /// A minimal external descriptor; no real binaries needed since the
+    /// injected runner never spawns.
+    private func fakeEngine(root: URL) -> WineEngine {
+        WineEngine(
+            id: root.lastPathComponent,
+            name: root.lastPathComponent,
+            rootURL: root,
+            wineBinary: root.appendingPathComponent("bin/wine64"),
+            wineserverBinary: root.appendingPathComponent("bin/wineserver"),
+            libraryURL: root.appendingPathComponent("lib"),
+            librariesURL: nil,
+            isManaged: false,
+            fingerprint: "fp",
+            architectures: ["arm64"],
+            availabilityError: nil,
+            version: nil
+        )
     }
 
     // MARK: - Helpers

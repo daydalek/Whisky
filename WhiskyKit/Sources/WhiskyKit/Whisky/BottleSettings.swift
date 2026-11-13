@@ -345,6 +345,24 @@ public struct BottleSettings: Codable, Equatable {
         set { wineConfig.enhancedSync = newValue }
     }
 
+    /// The Wine engine this bottle runs under.
+    ///
+    /// `"managed"` is the installed Whisky Wine runtime; any other value is a
+    /// ``WineEngineStore`` registration id. An unregistered or undetectable id
+    /// makes launches fail explicitly — it never silently falls back to the
+    /// managed engine.
+    public var wineEngineID: String {
+        get { wineConfig.engineID }
+        set { wineConfig.engineID = newValue }
+    }
+
+    /// Per-feature user confirmations: `WineEngineFeature` raw value → the
+    /// engine fingerprint the confirmation was granted for.
+    public var wineFeatureOverrides: [String: String] {
+        get { wineConfig.featureOverrides }
+        set { wineConfig.featureOverrides = newValue }
+    }
+
     /// Whether to display the Metal performance HUD overlay.
     ///
     /// Shows frame rate and GPU statistics during gameplay.
@@ -961,20 +979,28 @@ public struct BottleSettings: Codable, Equatable {
     ///   - builtinD3D12IsD3DMetal: Whether the runtime's builtin `d3d12` is
     ///     D3DMetal's, which decides whether the DXVK and DXMT presets turn it
     ///     off. Defaults to whether the GPTK payload is deployed.
+    ///   - featureGate: Whether a ``WineEngineFeature`` may take effect under
+    ///     the selected engine. Defaults to always-true — the behavior every
+    ///     managed launch had before engine selection existed.
     /// - Returns: Managed DLL override entries with their sources for the DLLOverrideResolver.
     public func populateBottleManagedLayer(
         builder: inout EnvironmentBuilder,
         resolvedBackend: GraphicsBackend? = nil,
-        builtinD3D12IsD3DMetal: Bool = GPTKImporter.isDeployed()
+        builtinD3D12IsD3DMetal: Bool = GPTKImporter.isDeployed(),
+        featureGate: (WineEngineFeature) -> Bool = { _ in true }
     ) -> [(entry: DLLOverrideEntry, source: DLLOverrideSource)] {
         var managedDLLOverrides: [(entry: DLLOverrideEntry, source: DLLOverrideSource)] = []
 
-        // Resolve the graphics backend (`.recommended` -> concrete backend)
-        let resolvedBackend = if graphicsBackend == .recommended {
+        // Resolve the graphics backend (`.recommended` -> concrete backend),
+        // then clamp it to what the engine policy permits: a saved `dxvk` or
+        // `d3dMetal` choice on an engine without the capability injects no
+        // overrides and falls back to WineD3D.
+        let unresolvedBackend = if graphicsBackend == .recommended {
             resolvedBackend ?? GraphicsBackendResolver.resolve()
         } else {
             graphicsBackend
         }
+        let resolvedBackend = Wine.gatedBackend(unresolvedBackend, gate: featureGate)
 
         // Backend-conditional env vars and DLL overrides
         switch resolvedBackend {
@@ -986,19 +1012,19 @@ public struct BottleSettings: Codable, Equatable {
             // the whole frame generation switch. The only other reader wants
             // the value "wined3d" alongside CX_LIBVULKAN, so this is inert for
             // it.
-            if frameGeneration {
+            if frameGeneration, featureGate(.frameGeneration) {
                 builder.set("CX_ACTIVE_GRAPHICS_BACKEND", "d3dmetal", layer: .bottleManaged)
             }
             // The DLL placement that actually gates the DLSS-to-MetalFX path
             // happens in `Wine.applyMetalFX` at launch; this is the opt-in.
-            if metalFX {
+            if metalFX, featureGate(.metalFX) {
                 builder.set("D3DM_ENABLE_METALFX", "1", layer: .bottleManaged)
             }
 
             // `D3DMDevice::MTL4OptionEnabled` checks the OS version before it
             // reads this and only takes the Metal 4 path for D3D12 devices, so
             // the variable is inert rather than harmful everywhere else.
-            if metal4Enabled {
+            if metal4Enabled, featureGate(.metal) {
                 builder.set("D3DM_MTL4", "1", layer: .bottleManaged)
             }
 
@@ -1017,7 +1043,7 @@ public struct BottleSettings: Codable, Equatable {
             case .off:
                 break
             }
-            if dxvkAsync {
+            if dxvkAsync, featureGate(.dxvkAsync) {
                 builder.set("DXVK_ASYNC", "1", layer: .bottleManaged)
             }
 
@@ -1034,7 +1060,7 @@ public struct BottleSettings: Codable, Equatable {
             builder.set("WINED3DMETAL", "0", layer: .bottleManaged)
         }
 
-        if shadowImportedHostMemory {
+        if shadowImportedHostMemory, featureGate(.shadowImportedHostMemory) {
             builder.set("MVK_CONFIG_SHADOW_IMPORTED_HOST_MEMORY", "1", layer: .bottleManaged)
         }
 
@@ -1044,41 +1070,53 @@ public struct BottleSettings: Codable, Equatable {
         }
 
         // GDI presentation belongs to the macOS window driver and applies
-        // independently of the bottle's Direct3D translation backend.
-        let gdiUpscalerValue: String
-        let neuralModel: String
-        let adaptiveFast: String
-        switch gdiUpscaler {
-        case .realesrgan:
-            gdiUpscalerValue = "realcugan"
-            neuralModel = "animevideov3"
-            adaptiveFast = "metalfx"
-        case .adaptiveRealesrgan:
-            gdiUpscalerValue = "adaptive"
-            neuralModel = "animevideov3"
-            adaptiveFast = "metalfx"
-        case .adaptiveAnime4k:
-            gdiUpscalerValue = "adaptive"
-            neuralModel = "realcugan"
-            adaptiveFast = "anime4k"
-        case .adaptiveAnime4kRealesrgan:
-            gdiUpscalerValue = "adaptive"
-            neuralModel = "animevideov3"
-            adaptiveFast = "anime4k"
-        default:
-            gdiUpscalerValue = gdiUpscaler.rawValue
-            neuralModel = "realcugan"
-            adaptiveFast = "metalfx"
+        // independently of the bottle's Direct3D translation backend. On an
+        // engine the feature is not enabled for, none of its variables are
+        // emitted — a saved upscaler choice stays inert rather than leaking
+        // extension env into a runtime that never agreed to it. Neural
+        // algorithms additionally need the CoreML payload approved: a saved
+        // Real-CUGAN choice on an engine with only the shader upscaler emits
+        // nothing rather than silently falling back to another model.
+        let gdiUpscalingPermitted = featureGate(.gdiUpscaling)
+            && (!gdiUpscaler.requiresCoreML || featureGate(.gdiCoreML))
+        if gdiUpscalingPermitted {
+            let gdiUpscalerValue: String
+            let neuralModel: String
+            let adaptiveFast: String
+            switch gdiUpscaler {
+            case .realesrgan:
+                gdiUpscalerValue = "realcugan"
+                neuralModel = "animevideov3"
+                adaptiveFast = "metalfx"
+            case .adaptiveRealesrgan:
+                gdiUpscalerValue = "adaptive"
+                neuralModel = "animevideov3"
+                adaptiveFast = "metalfx"
+            case .adaptiveAnime4k:
+                gdiUpscalerValue = "adaptive"
+                neuralModel = "realcugan"
+                adaptiveFast = "anime4k"
+            case .adaptiveAnime4kRealesrgan:
+                gdiUpscalerValue = "adaptive"
+                neuralModel = "animevideov3"
+                adaptiveFast = "anime4k"
+            default:
+                gdiUpscalerValue = gdiUpscaler.rawValue
+                neuralModel = "realcugan"
+                adaptiveFast = "metalfx"
+            }
+            builder.set("WINE_GDI_UPSCALER", gdiUpscalerValue, layer: .bottleManaged)
+            // An older runtime ignores WINE_GDI_NEURAL_MODEL and runs Real-CUGAN.
+            builder.set("WINE_GDI_NEURAL_MODEL", neuralModel, layer: .bottleManaged)
+            builder.set("WINE_GDI_ADAPTIVE_FAST", adaptiveFast, layer: .bottleManaged)
+            builder.set("WINE_METALFX", gdiUpscaler == .metalfx ? "spatial" : "off", layer: .bottleManaged)
+            builder.set("WINE_GDI_UPSCALER_EXCLUDE", gdiUpscalerExcludedRegions, layer: .bottleManaged)
+            builder.set("WINE_GDI_CACHE_MODE", gdiUpscalerCache.rawValue, layer: .bottleManaged)
         }
-        builder.set("WINE_GDI_UPSCALER", gdiUpscalerValue, layer: .bottleManaged)
-        // An older runtime ignores WINE_GDI_NEURAL_MODEL and runs Real-CUGAN.
-        builder.set("WINE_GDI_NEURAL_MODEL", neuralModel, layer: .bottleManaged)
-        builder.set("WINE_GDI_ADAPTIVE_FAST", adaptiveFast, layer: .bottleManaged)
-        builder.set("WINE_METALFX", gdiUpscaler == .metalfx ? "spatial" : "off", layer: .bottleManaged)
-        builder.set("WINE_GDI_UPSCALER_EXCLUDE", gdiUpscalerExcludedRegions, layer: .bottleManaged)
-        builder.set("WINE_GDI_CACHE_MODE", gdiUpscalerCache.rawValue, layer: .bottleManaged)
 
-        // Enhanced sync mode
+        // Enhanced sync mode. "none" removes both variables unconditionally —
+        // it asks for less, never for a feature the engine may lack. The
+        // affirmative modes are gated like every other engine feature.
         switch enhancedSync {
         case .none:
             // Honor the explicit "none" choice: neither variable is set, so
@@ -1087,33 +1125,37 @@ public struct BottleSettings: Codable, Equatable {
             builder.remove("WINEESYNC", layer: .bottleManaged)
             builder.remove("WINEMSYNC", layer: .bottleManaged)
         case .esync:
-            builder.set("WINEESYNC", "1", layer: .bottleManaged)
+            if featureGate(.esync) {
+                builder.set("WINEESYNC", "1", layer: .bottleManaged)
+            }
         case .msync:
-            builder.set("WINEMSYNC", "1", layer: .bottleManaged)
-            // D3DM detects ESYNC and changes behaviour accordingly
-            // so we have to lie to it so that it doesn't break
-            // under MSYNC. Values hardcoded in lid3dshared.dylib
-            builder.set("WINEESYNC", "1", layer: .bottleManaged)
+            if featureGate(.msync) {
+                builder.set("WINEMSYNC", "1", layer: .bottleManaged)
+                // D3DM detects ESYNC and changes behaviour accordingly
+                // so we have to lie to it so that it doesn't break
+                // under MSYNC. Values hardcoded in lid3dshared.dylib
+                builder.set("WINEESYNC", "1", layer: .bottleManaged)
+            }
         }
 
-        if metalHud {
+        if metalHud, featureGate(.metal) {
             builder.set("MTL_HUD_ENABLED", "1", layer: .bottleManaged)
         }
 
-        if metalTrace {
+        if metalTrace, featureGate(.metal) {
             builder.set("METAL_CAPTURE_ENABLED", "1", layer: .bottleManaged)
         }
 
-        if avxEnabled {
+        if avxEnabled, featureGate(.avx) {
             builder.set("ROSETTA_ADVERTISE_AVX", "1", layer: .bottleManaged)
         }
 
-        if dxrEnabled {
+        if dxrEnabled, featureGate(.metal) {
             builder.set("D3DM_SUPPORT_DXR", "1", layer: .bottleManaged)
         }
 
         // Metal validation - useful for debugging but can impact performance
-        if metalValidation {
+        if metalValidation, featureGate(.metal) {
             builder.set("MTL_DEBUG_LAYER", "1", layer: .bottleManaged)
         }
 
@@ -1126,7 +1168,7 @@ public struct BottleSettings: Codable, Equatable {
         // Shader cache control. DXVK_STATE_CACHE is the variable DXVK actually
         // reads; the previous pair (a compile-thread throttle and an NVIDIA GL
         // driver variable) changed nothing on this platform.
-        if !shaderCacheEnabled {
+        if !shaderCacheEnabled, featureGate(.dxvk) {
             builder.set("DXVK_STATE_CACHE", "0", layer: .bottleManaged)
         }
 
@@ -1153,12 +1195,21 @@ public struct BottleSettings: Codable, Equatable {
     ///   - builtinD3D12IsD3DMetal: Whether the runtime's builtin `d3d12` is
     ///     D3DMetal's, passed on to the DXVK preset a launcher can require.
     ///     Defaults to whether the GPTK payload is deployed.
+    ///   - featureGate: Whether a ``WineEngineFeature`` may take effect under
+    ///     the selected engine; the launcher's forced DXVK override is withheld
+    ///     when the engine has no confirmed DXVK capability.
+    ///   - compatibilityFixesAllowed: Whether the launcher-specific env fixes
+    ///     and GPU spoof — written against the managed runtime's quirks — may
+    ///     be injected at all. `false` on external engines, where they were
+    ///     never verified; locale normalization still applies, it is generic.
     /// - Returns: Launcher-required DLL override entries with their sources.
     public func populateLauncherManagedLayer(
         builder: inout EnvironmentBuilder,
         targetURL: URL? = nil,
         preferredLanguages: [String] = Locale.preferredLanguages,
-        builtinD3D12IsD3DMetal: Bool = GPTKImporter.isDeployed()
+        builtinD3D12IsD3DMetal: Bool = GPTKImporter.isDeployed(),
+        featureGate: (WineEngineFeature) -> Bool = { _ in true },
+        compatibilityFixesAllowed: Bool = true
     ) -> [(entry: DLLOverrideEntry, source: DLLOverrideSource)] {
         var launcherDLLOverrides: [(entry: DLLOverrideEntry, source: DLLOverrideSource)] = []
 
@@ -1176,15 +1227,22 @@ public struct BottleSettings: Codable, Equatable {
             effectiveLauncher = detectedLauncher
         }
 
-        // Apply launcher-specific environment overrides if launcher is active
+        // Apply launcher-specific environment overrides if launcher is active.
+        // The fix sets were written against the managed runtime (CEF sandbox
+        // flags, DXVK_ASYNC for its DXVK build, WINE_LARGE_ADDRESS_AWARE): on
+        // an external engine they are withheld entirely, and the DXVK preset
+        // still needs the engine's DXVK capability.
         if let launcher = effectiveLauncher {
-            let fixDetails = launcher.fixDetails()
-            for detail in fixDetails {
-                builder.set(detail.key, detail.value, layer: .launcherManaged, reason: detail.reason)
+            if compatibilityFixesAllowed {
+                let fixDetails = launcher.fixDetails()
+                for detail in fixDetails {
+                    builder.set(detail.key, detail.value, layer: .launcherManaged, reason: detail.reason)
+                }
             }
 
-            // Auto-enable DXVK DLL overrides if launcher requires it
-            if autoEnableDXVK, launcher.requiresDXVK {
+            // Auto-enable DXVK DLL overrides if launcher requires it — but
+            // only where the engine actually permits DXVK.
+            if autoEnableDXVK, launcher.requiresDXVK, featureGate(.dxvk) {
                 for entry in DLLOverrideResolver.dxvkPreset(builtinD3D12IsD3DMetal: builtinD3D12IsD3DMetal) {
                     launcherDLLOverrides.append((entry: entry, source: .launcher(launcher.displayName)))
                 }
@@ -1206,8 +1264,9 @@ public struct BottleSettings: Codable, Equatable {
             )
         }
 
-        // Apply GPU spoofing if enabled
-        if gpuSpoofing {
+        // Apply GPU spoofing if enabled — D3DMetal reads these, so it belongs
+        // to the managed compatibility set just like the fix details.
+        if gpuSpoofing, compatibilityFixesAllowed {
             let gpuEnv = spoofEnvironment()
             let launcherEnv = effectiveLauncher?.environmentOverrides() ?? [:]
             // Don't override values already set by launcher preset (original behavior:

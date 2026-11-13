@@ -55,6 +55,12 @@ public struct BottleWineConfig: Codable, Equatable {
     var windowsVersion: WinVersion = .win10
     var enhancedSync: EnhancedSync = .msync
     var avxEnabled: Bool = false
+    /// Engine the bottle runs under: `"managed"` or a ``WineEngineStore`` id.
+    var engineID: String = WineEngine.managedID
+    /// Feature confirmations: `WineEngineFeature` raw value → the engine
+    /// fingerprint the user approved. A confirmation stops applying as soon
+    /// as the engine's fingerprint changes.
+    var featureOverrides: [String: String] = [:]
 
     public init() {}
 
@@ -65,5 +71,11 @@ public struct BottleWineConfig: Codable, Equatable {
         self.windowsVersion = container.decodeLenientIfPresent(WinVersion.self, forKey: .windowsVersion) ?? .win10
         self.enhancedSync = try container.decodeIfPresent(EnhancedSync.self, forKey: .enhancedSync) ?? .msync
         self.avxEnabled = try container.decodeIfPresent(Bool.self, forKey: .avxEnabled) ?? false
+        self.engineID = try container.decodeIfPresent(String.self, forKey: .engineID) ?? WineEngine.managedID
+        // A malformed overrides map must not take the whole config down;
+        // dropping it just means unverified features stay off.
+        self.featureOverrides = (try? container.decodeIfPresent(
+            [String: String].self, forKey: .featureOverrides
+        )) ?? [:]
     }
 }

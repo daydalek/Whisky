@@ -20,7 +20,7 @@ import Foundation
 import Testing
 @testable import WhiskyKit
 
-/// `WhiskyCmd shellenv` prints ``Wine/generateTerminalEnvironmentCommand(bottle:)`` for
+/// `WhiskyCmd shellenv` prints ``Wine/try generateTerminalEnvironmentCommand(bottle:)`` for
 /// `eval`, and Open in Terminal evaluates the same text in the user's login shell. A syntax
 /// check cannot catch the failure this guards against: the old output parsed fine and still
 /// set the wrong values. So these tests evaluate the real output in each installed login
@@ -28,12 +28,38 @@ import Testing
 /// what it exports with the environment it was generated from.
 ///
 /// Serialized for the same reason as ``ShellQuotingTests``: each case waits on a real shell.
-@Suite("Terminal environment command", .serialized)
-struct TerminalEnvironmentCommandTests {
+@Suite("Terminal environment command", .serialized, .managedInstalled)
+final class TerminalEnvironmentCommandTests {
+    init() {
+        // The managed bottle path resolves through ``WineEngine/managed`` —
+        // the `.managedInstalled` trait holds the task-local override, so
+        // parallel suites never see a leaked or reset process-global.
+    }
+
     /// Characters a custom bottle path can carry. The old quoting kept the backslash `.esc`
     /// puts before a space, `=`, `;` or `'`, and stripped it before `"`, `$`, a backtick or
     /// another backslash; both groups are checked.
     static let trickyCharacters: [Character] = [" ", "=", ";", "$", "`", "\"", "'", "\\"]
+
+    /// A descriptor whose `bin/` is `bin` — the command generator only reads
+    /// paths from it, so the fixture needs no real binaries.
+    static func engineWithBin(_ bin: URL, loader: String = "wine64") -> WineEngine {
+        let root = bin.deletingLastPathComponent()
+        return WineEngine(
+            id: "test-engine",
+            name: "Test",
+            rootURL: root,
+            wineBinary: bin.appending(path: loader),
+            wineserverBinary: bin.appending(path: "wineserver"),
+            libraryURL: root.appending(path: "lib"),
+            librariesURL: nil,
+            isManaged: false,
+            fingerprint: "test",
+            architectures: ["arm64"],
+            availabilityError: nil,
+            version: nil
+        )
+    }
 
     /// Evaluates `output` the way `eval "$(WhiskyCmd shellenv <bottle>)"` does, then runs
     /// `probe` in the same shell.
@@ -114,8 +140,8 @@ struct TerminalEnvironmentCommandTests {
             DLLOverrideEntry(dllName: #"x\'$(touch \#(marker.path))\'"#, mode: .native)
         ]
 
-        let output = Wine.generateTerminalEnvironmentCommand(bottle: bottle)
-        let expected = Wine.constructWineEnvironment(for: bottle)
+        let output = try Wine.generateTerminalEnvironmentCommand(bottle: bottle)
+        let expected = try Wine.constructWineEnvironment(for: bottle)
 
         // Guard against a vacuous pass: the settings have to put every character under
         // test into the values, starting with the override list from the report.
@@ -134,7 +160,7 @@ struct TerminalEnvironmentCommandTests {
             #expect(exported[key] == value, "\(key)")
         }
         #expect(exported["PATH"] == "\(WhiskyWineInstaller.binFolder.path):\(TestShell.basePath)")
-        #expect(exported["WINE"] == "wine64")
+        #expect(exported["WINE"] == WhiskyWineInstaller.binFolder.appending(path: "wine64").path)
         #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
 
@@ -154,7 +180,9 @@ struct TerminalEnvironmentCommandTests {
         try Data("#!/bin/sh\necho wine-stub\n".utf8).write(to: wine64)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wine64.path)
 
-        let output = Wine.generateTerminalEnvironmentCommand(binFolder: binFolder, environment: [:])
+        let output = Wine.generateTerminalEnvironmentCommand(
+            engine: Self.engineWithBin(binFolder), environment: [:]
+        )
 
         let exported = try await Self.exportedEnvironment(evaluating: output, in: shell, home: root)
         #expect(exported["PATH"] == "\(binFolder.path):\(TestShell.basePath)")
@@ -164,6 +192,47 @@ struct TerminalEnvironmentCommandTests {
         let lookup = try await Self.evaluate(output, in: shell, home: root, then: "command -v wine64 && wine64")
         #expect(lookup.status == 0, "\(lookup.errors)")
         #expect(lookup.output == "\(wine64.path)\nwine-stub\n")
+    }
+
+    @Test(
+        "Alias expansions invoke the exact loader under a hostile path",
+        arguments: TestShell.loginShells
+    )
+    func aliasExpansionSurvivesEval(shell: TestShell) async throws {
+        let root = try TestShell.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let marker = root.appending(path: "expanded")
+
+        // A wine-only engine (bin/wine, no wine64) under a path carrying
+        // every character that broke the old double-quoted alias RHS:
+        // $, a backtick substitution, both quote kinds, a backslash, a
+        // newline, separators — expansion would also touch the marker.
+        let bin = root.appending(
+            path: "it's \"odd\" $HOME `touch \(marker.path)` $(touch \(marker.path)) back\\slash\nnext; a=b"
+        ).appending(path: "bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let loader = bin.appending(path: "wine")
+        try Data("#!/bin/sh\necho \"LOADER:$0 ARGS:$*\"\n".utf8).write(to: loader)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: loader.path)
+
+        let engine = Self.engineWithBin(bin, loader: "wine")
+        let output = Wine.generateTerminalEnvironmentCommand(engine: engine, environment: [:])
+
+        // `wine` could also resolve through PATH, but `winecfg` exists ONLY as
+        // the alias `'<loader>' winecfg` — no binary in bin — so its output
+        // proves the alias expands to the exact quoted loader. A nested eval
+        // mirrors the interactive terminal: zsh parses `-c` input up front
+        // and bash needs `expand_aliases`, so the probe must be parsed at
+        // runtime, after the eval defines the aliases.
+        let setup = shell == .bash ? "shopt -s expand_aliases; " : ""
+        let result = try await Self.evaluate(
+            output, in: shell, home: root,
+            then: "\(setup)eval 'wine --version && winecfg'"
+        )
+        #expect(result.status == 0, "\(result.errors)")
+        #expect(result.output.contains("LOADER:\(loader.path) ARGS:--version"))
+        #expect(result.output.contains("LOADER:\(loader.path) ARGS:winecfg"))
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
 
     @Test("Values a shell would expand, split or unescape come back verbatim", arguments: TestShell.loginShells)
@@ -188,7 +257,9 @@ struct TerminalEnvironmentCommandTests {
             "NOT A KEY": "skipped"
         ]
 
-        let output = Wine.generateTerminalEnvironmentCommand(binFolder: root, environment: environment)
+        let output = Wine.generateTerminalEnvironmentCommand(
+            engine: Self.engineWithBin(root), environment: environment
+        )
         let exported = try await Self.exportedEnvironment(evaluating: output, in: shell, home: root)
 
         for (key, value) in environment where Wine.isValidEnvKey(key) {

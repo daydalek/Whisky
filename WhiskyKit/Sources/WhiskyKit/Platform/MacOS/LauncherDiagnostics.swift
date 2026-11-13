@@ -179,7 +179,7 @@ public enum LauncherDiagnostics {
         """
 
         var env: [String: String] = [:]
-        for (key, value) in Wine.constructWineEnvironment(for: bottle, environment: [:]) {
+        for (key, value) in (try? Wine.constructWineEnvironment(for: bottle, environment: [:])) ?? [:] {
             env[key] = value
         }
 

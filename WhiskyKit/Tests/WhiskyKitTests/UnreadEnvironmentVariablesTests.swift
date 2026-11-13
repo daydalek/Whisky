@@ -46,6 +46,21 @@ private let unreadVariables = [
 ]
 
 final class UnreadEnvironmentVariablesTests: XCTestCase {
+    /// The flag's value before this test — restored in tearDown.
+    private var previousManagedInstallOverride: Bool?
+
+    override func setUp() {
+        super.setUp()
+        // The managed engine must resolve without the real runtime install.
+        previousManagedInstallOverride = WineEngine.managedInstallOverride
+        WineEngine.managedInstallOverride = true
+    }
+
+    override func tearDown() {
+        WineEngine.managedInstallOverride = previousManagedInstallOverride
+        super.tearDown()
+    }
+
     func testPlatformRegistryHoldsOnlyReadVariables() {
         let keys = Set(MacOSCompatibilityFixes.allFixes.map(\.key))
         XCTAssertEqual(
@@ -65,7 +80,7 @@ final class UnreadEnvironmentVariablesTests: XCTestCase {
 
         for launcher in LauncherType.allCases {
             bottle.settings.detectedLauncher = launcher
-            let env = Wine.constructWineEnvironment(for: bottle)
+            let env = try Wine.constructWineEnvironment(for: bottle)
             for name in unreadVariables {
                 XCTAssertNil(env[name], "\(name) set for \(launcher.rawValue)")
             }

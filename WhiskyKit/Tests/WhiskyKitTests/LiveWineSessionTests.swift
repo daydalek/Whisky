@@ -27,7 +27,7 @@ struct LiveWineSessionTests {
         let binary = try URL(filePath: #require(configuration["WHISKY_LIVE_WINE_BINARY"]))
         let prefix = try URL(filePath: #require(configuration["WHISKY_LIVE_WINE_PREFIX"]))
         let bottle = Bottle(bottleUrl: prefix)
-        var environment = Wine.constructWineEnvironment(for: bottle, environment: [:])
+        var environment = try Wine.constructWineEnvironment(for: bottle, environment: [:])
         environment["WINEDEBUG"] = "-all"
         var successfulSnapshots = 0
         let polling = Task {

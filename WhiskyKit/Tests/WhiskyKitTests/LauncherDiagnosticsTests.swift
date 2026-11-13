@@ -28,6 +28,21 @@ import XCTest
 /// bottle configurations and produces valid output for troubleshooting.
 @MainActor
 final class LauncherDiagnosticsTests: XCTestCase {
+    /// The flag's value before this test — restored in tearDown.
+    private var previousManagedInstallOverride: Bool?
+
+    override func setUp() {
+        super.setUp()
+        // The managed engine must resolve without the real runtime install.
+        previousManagedInstallOverride = WineEngine.managedInstallOverride
+        WineEngine.managedInstallOverride = true
+    }
+
+    override func tearDown() {
+        WineEngine.managedInstallOverride = previousManagedInstallOverride
+        super.tearDown()
+    }
+
     // MARK: - Bottle Configuration Tests
 
     func testDiagnosticsWithDefaultBottleSettings() throws {
@@ -385,7 +400,7 @@ final class LauncherDiagnosticsTests: XCTestCase {
         try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempURL) }
         let bottle = Bottle(bottleUrl: tempURL, inFlight: false, isAvailable: true)
-        let env = Wine.constructWineEnvironment(for: bottle)
+        let env = try Wine.constructWineEnvironment(for: bottle)
         let bin = WhiskyWineInstaller.binFolder
         XCTAssertEqual(env["WINEPREFIX"], tempURL.path)
         XCTAssertEqual(env["WINELOADER"], Wine.wineBinary.path)
@@ -394,7 +409,7 @@ final class LauncherDiagnosticsTests: XCTestCase {
             env["DYLD_FALLBACK_LIBRARY_PATH"],
             "\(bin.deletingLastPathComponent().appending(path: "lib").path):/usr/lib"
         )
-        let custom = Wine.constructWineEnvironment(
+        let custom = try Wine.constructWineEnvironment(
             for: bottle, environment: ["DYLD_FALLBACK_LIBRARY_PATH": "/custom/runtime/lib:/usr/lib"]
         )
         XCTAssertEqual(custom["DYLD_FALLBACK_LIBRARY_PATH"], "/custom/runtime/lib:/usr/lib")
@@ -411,7 +426,7 @@ final class LauncherDiagnosticsTests: XCTestCase {
         bottle.settings.detectedLauncher = .steam
 
         // Use constructWineEnvironment to get full environment including macOS compat fixes
-        let env = Wine.constructWineEnvironment(for: bottle, environment: [:])
+        let env = try Wine.constructWineEnvironment(for: bottle, environment: [:])
 
         // Verify Steam-specific environment variables are merged
         XCTAssertEqual(env["STEAM_DISABLE_CEF_SANDBOX"], "1", "Steam-specific CEF disable from preset")
@@ -430,7 +445,7 @@ final class LauncherDiagnosticsTests: XCTestCase {
         let bottle = Bottle(bottleUrl: tempURL, inFlight: false, isAvailable: true)
 
         var env: [String: String] = [:]
-        for (key, value) in Wine.constructWineEnvironment(for: bottle, environment: [:]) {
+        for (key, value) in try Wine.constructWineEnvironment(for: bottle, environment: [:]) {
             env[key] = value
         }
 
@@ -491,13 +506,13 @@ final class LauncherDiagnosticsTests: XCTestCase {
         bottle.settings.detectedLauncher = .steam
         bottle.settings.launcherLocale = .english
 
-        let env = Wine.constructWineEnvironment(for: bottle, environment: [:])
+        let env = try Wine.constructWineEnvironment(for: bottle, environment: [:])
         XCTAssertEqual(env["LC_ALL"], "en_US.UTF-8", "Steam's LC_ALL must have .UTF-8 suffix")
         XCTAssertEqual(env["LANG"], "en_US.UTF-8", "Steam's LANG must have .UTF-8 suffix")
 
         // User-selected CJK locale on a Steam bottle must NOT be clobbered to English
         bottle.settings.launcherLocale = .chineseSimplified
-        let zhEnv = Wine.constructWineEnvironment(for: bottle, environment: [:])
+        let zhEnv = try Wine.constructWineEnvironment(for: bottle, environment: [:])
         XCTAssertEqual(zhEnv["LC_ALL"], "zh_CN.UTF-8")
         XCTAssertEqual(zhEnv["LANG"], "zh_CN.UTF-8")
         XCTAssertEqual(zhEnv["LC_TIME"], "C")
@@ -533,7 +548,7 @@ final class LauncherDiagnosticsTests: XCTestCase {
         bottle.settings.launcherLocale = .english
 
         let standaloneExe = URL(fileURLWithPath: "C:/Games/VisualNovel/game.exe")
-        let standaloneEnv = Wine.constructWineEnvironment(
+        let standaloneEnv = try Wine.constructWineEnvironment(
             for: bottle, targetURL: standaloneExe
         )
 
@@ -545,7 +560,7 @@ final class LauncherDiagnosticsTests: XCTestCase {
 
         // Launching Steam itself still applies the launcher layer
         let steamExe = URL(fileURLWithPath: "C:/Program Files (x86)/Steam/steam.exe")
-        let steamEnv = Wine.constructWineEnvironment(
+        let steamEnv = try Wine.constructWineEnvironment(
             for: bottle, targetURL: steamExe
         )
         XCTAssertEqual(steamEnv["LC_ALL"], "en_US.UTF-8")
@@ -554,7 +569,7 @@ final class LauncherDiagnosticsTests: XCTestCase {
 
         // Manual mode forces the launcher layer even for non-launcher executables
         bottle.settings.launcherMode = .manual
-        let manualEnv = Wine.constructWineEnvironment(
+        let manualEnv = try Wine.constructWineEnvironment(
             for: bottle, targetURL: standaloneExe
         )
         XCTAssertEqual(manualEnv["LC_ALL"], "en_US.UTF-8")

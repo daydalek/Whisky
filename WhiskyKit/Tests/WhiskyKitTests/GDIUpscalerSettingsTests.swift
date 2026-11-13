@@ -20,6 +20,21 @@
 import XCTest
 
 final class GDIUpscalerSettingsTests: XCTestCase {
+    /// The flag's value before this test — restored in tearDown.
+    private var previousManagedInstallOverride: Bool?
+
+    override func setUp() {
+        super.setUp()
+        // The managed engine must resolve without the real runtime install.
+        previousManagedInstallOverride = WineEngine.managedInstallOverride
+        WineEngine.managedInstallOverride = true
+    }
+
+    override func tearDown() {
+        WineEngine.managedInstallOverride = previousManagedInstallOverride
+        super.tearDown()
+    }
+
     func testLegacyAndExplicitMetadataSelection() throws {
         let cases: [([String: Any], GDIUpscaler)] = [
             ([:], .off), (["metalFXSpatial": true], .metalfx),
@@ -225,7 +240,7 @@ final class GDIUpscalerSettingsTests: XCTestCase {
         let alias = tempURL.appending(path: "alias.exe")
         try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: game)
 
-        let direct = Wine.constructWineEnvironment(for: bottle, targetURL: game)
+        let direct = try Wine.constructWineEnvironment(for: bottle, targetURL: game)
         XCTAssertEqual(
             direct["WINE_GDI_CACHE_DIRECTORY"],
             FileManager.default.homeDirectoryForCurrentUser
@@ -235,15 +250,15 @@ final class GDIUpscalerSettingsTests: XCTestCase {
             direct["WINE_GDI_CACHE_GAME"],
             game.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false)
         )
-        let linked = Wine.constructWineEnvironment(for: bottle, targetURL: alias)
+        let linked = try Wine.constructWineEnvironment(for: bottle, targetURL: alias)
         XCTAssertEqual(linked["WINE_GDI_CACHE_GAME"], direct["WINE_GDI_CACHE_GAME"])
-        let absent = Wine.constructWineEnvironment(for: bottle)
+        let absent = try Wine.constructWineEnvironment(for: bottle)
         XCTAssertNil(absent["WINE_GDI_CACHE_GAME"])
-        let overridden = Wine.constructWineEnvironment(
+        let overridden = try Wine.constructWineEnvironment(
             for: bottle, environment: ["WINE_GDI_CACHE_GAME": "explicit"], targetURL: game
         )
         XCTAssertEqual(overridden["WINE_GDI_CACHE_GAME"], "explicit")
-        let customRoot = Wine.constructWineEnvironment(
+        let customRoot = try Wine.constructWineEnvironment(
             for: bottle, environment: ["WINE_GDI_CACHE_DIRECTORY": "/tmp/custom-cache"], targetURL: game
         )
         XCTAssertEqual(customRoot["WINE_GDI_CACHE_DIRECTORY"], "/tmp/custom-cache")
@@ -270,7 +285,7 @@ final class GDIUpscalerSettingsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let bottle = Bottle(bottleUrl: root, inFlight: false, isAvailable: true)
         let game = root.appendingPathComponent("drive_c/Game/game.exe")
-        let env = Wine.constructWineEnvironment(
+        let env = try Wine.constructWineEnvironment(
             for: bottle, environment: ["WINE_GDI_UPSCALER_PICK": "off"], targetURL: game,
             recommendedBackend: .wined3d, builtinD3D12IsD3DMetal: false
         )
@@ -314,9 +329,9 @@ final class GDIUpscalerSettingsTests: XCTestCase {
             Program.upscaleRegionProfileURL(for: other, bottleURL: root)
         )
         bottle.settings.gdiUpscalerExcludedRegions = "0,520,1280,200"
-        let populated = Wine.constructWineEnvironment(for: bottle, targetURL: game)
+        let populated = try Wine.constructWineEnvironment(for: bottle, targetURL: game)
         XCTAssertEqual(populated["WINE_GDI_UPSCALER_EXCLUDE"], "0,520,1280,200")
-        let overridden = Wine.constructWineEnvironment(
+        let overridden = try Wine.constructWineEnvironment(
             for: bottle, environment: ["WINE_GDI_UPSCALER_EXCLUDE": "1,2,3,4"],
             targetURL: game
         )

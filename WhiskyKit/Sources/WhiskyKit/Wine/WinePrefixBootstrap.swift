@@ -130,24 +130,33 @@ public extension Wine {
     ///   or an error if Wine cannot be run.
     @MainActor
     static func bootstrapPrefix(bottle: Bottle) async throws {
-        guard WhiskyWineInstaller.isWhiskyWineInstalled() else {
-            throw WinePrefixBootstrapError.runtimeMissing
-        }
+        // One lease covers the whole bootstrap: the winecfg run and the
+        // version probe both run under the pinned engine, and a reselection
+        // waits for the prefix to exist before it can rebind it.
+        try await withEngineOperation(bottle: bottle) {
+            let engine = try engine(for: bottle)
+            if engine.isManaged, !WhiskyWineInstaller.isWhiskyWineInstalled() {
+                throw WinePrefixBootstrapError.runtimeMissing
+            }
 
-        try await changeWinVersion(bottle: bottle, win: bottle.settings.windowsVersion)
-        if let version = try? await wineVersion(), let semantic = SemanticVersion(version) {
-            bottle.settings.wineVersion = semantic
+            try await changeWinVersion(bottle: bottle, win: bottle.settings.windowsVersion)
+            if let version = try? await wineVersion(for: engine), let semantic = SemanticVersion(version) {
+                bottle.settings.wineVersion = semantic
+            }
+            BottleFontBootstrap.copySystemFonts(toPrefix: bottle.url)
         }
-        BottleFontBootstrap.copySystemFonts(toPrefix: bottle.url)
     }
 
     /// Configures a newly created Bottle using the same strict steps as the app's create flow.
     /// The caller checks runtime availability before creating the Bottle directory.
     @MainActor
     static func configureNewBottlePrefix(bottle: Bottle) async throws {
-        try await changeWinVersion(bottle: bottle, win: bottle.settings.windowsVersion)
-        let version = try await wineVersion()
-        bottle.settings.wineVersion = SemanticVersion(version) ?? SemanticVersion(0, 0, 0)
-        BottleFontBootstrap.copySystemFonts(toPrefix: bottle.url)
+        try await withEngineOperation(bottle: bottle) {
+            let engine = try engine(for: bottle)
+            try await changeWinVersion(bottle: bottle, win: bottle.settings.windowsVersion)
+            let version = try await wineVersion(for: engine)
+            bottle.settings.wineVersion = SemanticVersion(version) ?? SemanticVersion(0, 0, 0)
+            BottleFontBootstrap.copySystemFonts(toPrefix: bottle.url)
+        }
     }
 }

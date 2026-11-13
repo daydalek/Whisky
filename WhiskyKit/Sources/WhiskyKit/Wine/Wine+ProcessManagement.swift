@@ -45,12 +45,12 @@ public extension Wine {
         // wedged wineserver can't leak the continuation + process forever.
         let running: Bool
         do {
-            let result = try await WineProcessQuery.run(
-                executable: WhiskyWineInstaller.binFolder.appending(path: "wineserver"),
-                arguments: ["-k0"], environment: ["WINEPREFIX": bottle.url.path], timeout: 5
-            )
-            running = result.exitCode == 0
+            running = try await probeWineserver(for: bottle)
         } catch {
+            // Informational only (the sidebar repeats this every 60s): an
+            // unresolvable engine or a wedged probe reads as "not running".
+            // Engine selection never consults this — it uses the throwing
+            // ``probeWineserver(for:)`` so an unknown state refuses.
             running = false
         }
 
@@ -70,17 +70,20 @@ public extension Wine {
     /// - Throws: A spawn, timeout, output-decoding or helper error.
     @MainActor
     static func listProcesses(for bottle: Bottle) async throws -> [WineProcess] {
-        var environment = constructWineEnvironment(for: bottle, environment: [:])
-        environment["WINEDEBUG"] = "-all"
-        environment["LC_ALL"] = "en_US.UTF-8"
-        let snapshotEnvironment = environment
-        let executable = wineBinary
-        let key = WineProcessSnapshotPool.Key(executable: executable, environment: environment)
-        let processes = try await WineProcessSnapshotPool.shared.processes(key: key) {
-            try await queryProcesses(executable: executable, environment: snapshotEnvironment)
+        try await withEngineOperation(bottle: bottle) {
+            let engine = try engine(for: bottle)
+            var environment = try constructWineEnvironment(for: bottle, environment: [:], engine: engine)
+            environment["WINEDEBUG"] = "-all"
+            environment["LC_ALL"] = "en_US.UTF-8"
+            let snapshotEnvironment = environment
+            let executable = engine.wineBinary
+            let key = WineProcessSnapshotPool.Key(executable: executable, environment: environment)
+            let processes = try await WineProcessSnapshotPool.shared.processes(key: key) {
+                try await queryProcesses(executable: executable, environment: snapshotEnvironment)
+            }
+            try Task.checkCancellation()
+            return processes
         }
-        try Task.checkCancellation()
-        return processes
     }
 
     internal static var processSnapshotHelperURL: URL? {
@@ -102,14 +105,81 @@ public extension Wine {
         return processes
     }
 
+    /// Interprets a probe exit status: `0` means a server answered, `1` means
+    /// none did. Any other status — a dyld crash, a bad loader, a signal — is
+    /// an UNKNOWN state, not "idle": callers deciding whether mutation is
+    /// safe must fail closed, so it throws with the captured diagnostics.
+    internal static func interpretProbeExit(_ result: WineProcessQuery.Result) throws -> Bool {
+        switch result.exitCode {
+        case 0: return true
+        case 1: return false
+        default:
+            throw WineProcessQuery.Failure.commandFailed(
+                result.exitCode, String(result.diagnostics.prefix(2_048))
+            )
+        }
+    }
+
+    /// The low-level probe invocation, injectable so tests can drive
+    /// 0/1/other/timeout outcomes without spawning a real `wineserver`.
+    /// Task-local so parallel suites never share an injected probe.
+    @TaskLocal internal static var probeWineserverRunner:
+        @Sendable (URL, [String], [String: String], TimeInterval) async throws -> WineProcessQuery.Result =
+        { executable, arguments, environment, timeout in
+            try await WineProcessQuery.run(
+                executable: executable, arguments: arguments,
+                environment: environment, timeout: timeout
+            )
+        }
+
+    /// Whole-probe override for cross-module tests that cannot reach the
+    /// internal runner: the bound engine still resolves, only the spawn is
+    /// replaced. Task-local like the other seams.
+    @TaskLocal static var wineserverProbeOverride:
+        (@Sendable (URL, URL) async throws -> Bool)?
+
     /// A failed executable query propagates separately from a stopped server.
+    ///
+    /// Exit code 0 means a server answers for the prefix; 1 means none does;
+    /// anything else throws. A spawn failure, a timeout or an engine that
+    /// will not resolve throws, so a caller deciding whether mutation is safe
+    /// fails closed instead of mistaking an unknown state for idle. The probe
+    /// runs under the selected engine's own server binary and library paths —
+    /// a missing or unapproved selection is part of the answer.
+    ///
+    /// - Parameters:
+    ///   - bottle: The bottle whose wineserver to probe.
+    ///   - engine: The already-resolved engine to probe with. `nil` resolves
+    ///     the bottle's bound engine through the active engine store.
     @MainActor
-    static func probeWineserver(for bottle: Bottle) async throws -> Bool {
-        let result = try await WineProcessQuery.run(
-            executable: WhiskyWineInstaller.binFolder.appending(path: "wineserver"),
-            arguments: ["-k0"], environment: ["WINEPREFIX": bottle.url.path], timeout: 3
+    static func probeWineserver(for bottle: Bottle, engine explicitEngine: WineEngine? = nil) async throws -> Bool {
+        let engine = try explicitEngine ?? Self.engine(for: bottle)
+        if let override = wineserverProbeOverride {
+            return try await override(engine.wineserverBinary, bottle.url)
+        }
+        var environment = engine.probeEnvironment
+        environment["WINEPREFIX"] = bottle.url.path(percentEncoded: false)
+        let result = try await probeWineserverRunner(
+            engine.wineserverBinary, ["-k0"], environment, 3
         )
-        return result.exitCode == 0
+        return try interpretProbeExit(result)
+    }
+
+    /// Whether ANY wineserver answers on this host — deliberately global.
+    ///
+    /// Used only by the missing-engine recovery path in engine selection,
+    /// where the bottle's own server binary is gone: if anything Wine-ish
+    /// still runs, recovery refuses rather than rebind a prefix a foreign
+    /// server might still hold. Injectable so tests never spawn a probe.
+    /// `pgrep` shares the probe contract: 0 running, 1 idle, anything else
+    /// throws. Non-Maltoria Wine users hold no leases; the mutual exclusion
+    /// is Maltoria-internal by design. Task-local for test injection.
+    @TaskLocal static var anyWineserverRunning: @Sendable () async throws -> Bool = {
+        let result = try await WineProcessQuery.run(
+            executable: URL(fileURLWithPath: "/usr/bin/pgrep"),
+            arguments: ["-xq", "wineserver"], environment: [:], timeout: 5
+        )
+        return try interpretProbeExit(result)
     }
 
     /// Parses the CSV shared by the Unicode snapshot helper and legacy tasklist output.

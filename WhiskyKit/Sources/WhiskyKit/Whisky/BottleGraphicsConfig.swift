@@ -271,6 +271,21 @@ public enum GDIUpscaler: String, Codable, CaseIterable, Sendable {
         case .adaptiveAnime4kRealesrgan: "动态 Anime4K／静态 AnimeVideo-v3"
         }
     }
+
+    /// Whether the algorithm needs the neural CoreML path: the Real-CUGAN /
+    /// Real-ESRGAN models and every adaptive mode (their static pass is a
+    /// neural model). `metalfx` and `anime4k` run without it, `off` needs
+    /// nothing. Engine policy gates these on ``WineEngineFeature/gdiCoreML``
+    /// in addition to ``WineEngineFeature/gdiUpscaling``.
+    public var requiresCoreML: Bool {
+        switch self {
+        case .realcugan, .adaptive, .realesrgan,
+             .adaptiveRealesrgan, .adaptiveAnime4k, .adaptiveAnime4kRealesrgan:
+            true
+        case .off, .metalfx, .anime4k:
+            false
+        }
+    }
 }
 
 public enum GDIUpscalerCacheMode: String, Codable, CaseIterable, Sendable {

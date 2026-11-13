@@ -34,14 +34,21 @@ class LauncherFixesTestCase: XCTestCase {
     var tempDir: URL!
     var bottleURL: URL!
 
+    /// The flag's value before this test — restored in tearDown.
+    private var previousManagedInstallOverride: Bool?
+
     override func setUp() {
         super.setUp()
+        // The managed engine must resolve without the real runtime install.
+        previousManagedInstallOverride = WineEngine.managedInstallOverride
+        WineEngine.managedInstallOverride = true
         tempDir = FileManager.default.temporaryDirectory.appending(path: "launcher_fixes_\(UUID().uuidString)")
         bottleURL = tempDir.appending(path: "Bottle")
         try? FileManager.default.createDirectory(at: bottleURL, withIntermediateDirectories: true)
     }
 
     override func tearDown() {
+        WineEngine.managedInstallOverride = previousManagedInstallOverride
         try? FileManager.default.removeItem(at: tempDir)
         super.tearDown()
     }
@@ -225,10 +232,10 @@ final class LauncherFixesApplyTests: LauncherFixesTestCase {
         LauncherFixes.apply(to: bottle, launcher: .steam)
 
         XCTAssertTrue(bottle.settings.gpuSpoofing)
-        XCTAssertNil(Wine.constructWineEnvironment(for: bottle)["D3DM_SUPPORT_DXR"])
+        XCTAssertNil(try Wine.constructWineEnvironment(for: bottle)["D3DM_SUPPORT_DXR"])
 
         bottle.settings.dxrEnabled = true
-        XCTAssertEqual(Wine.constructWineEnvironment(for: bottle)["D3DM_SUPPORT_DXR"], "1")
+        XCTAssertEqual(try Wine.constructWineEnvironment(for: bottle)["D3DM_SUPPORT_DXR"], "1")
     }
 }
 

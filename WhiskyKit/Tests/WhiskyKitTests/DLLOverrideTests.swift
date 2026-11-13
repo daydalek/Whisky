@@ -21,6 +21,21 @@ import XCTest
 
 // swiftlint:disable:next type_body_length
 final class DLLOverrideTests: XCTestCase {
+    /// The flag's value before this test — restored in tearDown.
+    private var previousManagedInstallOverride: Bool?
+
+    override func setUp() {
+        super.setUp()
+        // The managed engine must resolve without the real runtime install.
+        previousManagedInstallOverride = WineEngine.managedInstallOverride
+        WineEngine.managedInstallOverride = true
+    }
+
+    override func tearDown() {
+        WineEngine.managedInstallOverride = previousManagedInstallOverride
+        super.tearDown()
+    }
+
     // MARK: - DLL Override Mode
 
     func testDLLOverrideModeRawValues() {
@@ -295,10 +310,10 @@ final class DLLOverrideTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: bottle.url) }
         bottle.settings.graphicsBackend = .dxmt
 
-        let stock = Wine.constructWineEnvironment(for: bottle, builtinD3D12IsD3DMetal: false)
+        let stock = try Wine.constructWineEnvironment(for: bottle, builtinD3D12IsD3DMetal: false)
         XCTAssertEqual(stock["WINEDLLOVERRIDES"], "d3d10core=n,b;d3d11=n,b;dxgi=n,b;winemetal=b")
 
-        let gptk = Wine.constructWineEnvironment(for: bottle, builtinD3D12IsD3DMetal: true)
+        let gptk = try Wine.constructWineEnvironment(for: bottle, builtinD3D12IsD3DMetal: true)
         XCTAssertEqual(gptk["WINEDLLOVERRIDES"], "d3d10core=n,b;d3d11=n,b;d3d12=;dxgi=n,b;winemetal=b")
     }
 
@@ -315,12 +330,12 @@ final class DLLOverrideTests: XCTestCase {
         var steamPin = ProgramOverrides()
         steamPin.graphicsBackend = .dxvk
 
-        let stock = Wine.constructWineEnvironment(
+        let stock = try Wine.constructWineEnvironment(
             for: bottle, programOverrides: steamPin, builtinD3D12IsD3DMetal: false
         )
         XCTAssertEqual(stock["WINEDLLOVERRIDES"], "d3d10core=n,b;d3d11=n,b;d3d9=n,b;dxgi=n,b;winemetal=b")
 
-        let gptk = Wine.constructWineEnvironment(
+        let gptk = try Wine.constructWineEnvironment(
             for: bottle, programOverrides: steamPin, builtinD3D12IsD3DMetal: true
         )
         XCTAssertEqual(gptk["WINEDLLOVERRIDES"], "d3d10core=n,b;d3d11=n,b;d3d12=;d3d9=n,b;dxgi=n,b;winemetal=b")
@@ -336,14 +351,14 @@ final class DLLOverrideTests: XCTestCase {
         bottle.settings.graphicsBackend = .dxmt
 
         bottle.settings.dllOverrides = [DLLOverrideEntry(dllName: "d3d12", mode: .builtin)]
-        let direct = Wine.constructWineEnvironment(for: bottle, builtinD3D12IsD3DMetal: true)
+        let direct = try Wine.constructWineEnvironment(for: bottle, builtinD3D12IsD3DMetal: true)
         XCTAssertEqual(direct["WINEDLLOVERRIDES"], "d3d10core=n,b;d3d11=n,b;d3d12=b;dxgi=n,b;winemetal=b")
 
         bottle.settings.dllOverrides = []
         var gameUnderSteam = ProgramOverrides()
         gameUnderSteam.graphicsBackend = .dxvk
         gameUnderSteam.dllOverrides = [DLLOverrideEntry(dllName: "d3d12", mode: .builtin)]
-        let steam = Wine.constructWineEnvironment(
+        let steam = try Wine.constructWineEnvironment(
             for: bottle, programOverrides: gameUnderSteam, builtinD3D12IsD3DMetal: true
         )
         XCTAssertEqual(steam["WINEDLLOVERRIDES"], "d3d10core=n,b;d3d11=n,b;d3d12=b;d3d9=n,b;dxgi=n,b;winemetal=b")

@@ -70,34 +70,45 @@ public enum EffectiveBackend {
     ///     runtime's games. Defaults to the resolver's answer.
     ///   - d3dMetalDeployed: Whether the runtime's builtin D3D path is
     ///     D3DMetal's. Defaults to the deployment check launches share.
+    ///   - featureGate: The engine feature policy the launch resolves under.
+    ///     Defaults to all-permitted — the managed runtime's behavior; the
+    ///     bottle-taking APIs substitute the selected engine's gate, so a
+    ///     prediction never names a backend the engine policy drops.
     public static func resolve(
         _ choice: GraphicsBackend,
         steeredLauncher: LauncherType? = nil,
         recommendedBackend: GraphicsBackend = GraphicsBackendResolver.resolve(),
-        d3dMetalDeployed: Bool = GPTKImporter.isDeployed()
+        d3dMetalDeployed: Bool = GPTKImporter.isDeployed(),
+        featureGate: @escaping (WineEngineFeature) -> Bool = { _ in true }
     ) -> GraphicsBackend {
         resolveDetailed(
             choice, steeredLauncher: steeredLauncher,
-            recommendedBackend: recommendedBackend, d3dMetalDeployed: d3dMetalDeployed
+            recommendedBackend: recommendedBackend, d3dMetalDeployed: d3dMetalDeployed,
+            featureGate: featureGate
         ).backend
     }
 
-    /// ``resolve(_:steeredLauncher:recommendedBackend:d3dMetalDeployed:)``
+    /// ``resolve(_:steeredLauncher:recommendedBackend:d3dMetalDeployed:featureGate:)``
     /// with the fallback it took spelled out in a ``Resolution``.
     public static func resolveDetailed(
         _ choice: GraphicsBackend,
         steeredLauncher: LauncherType? = nil,
         recommendedBackend: GraphicsBackend = GraphicsBackendResolver.resolve(),
-        d3dMetalDeployed: Bool = GPTKImporter.isDeployed()
+        d3dMetalDeployed: Bool = GPTKImporter.isDeployed(),
+        featureGate: @escaping (WineEngineFeature) -> Bool = { _ in true }
     ) -> Resolution {
         let resolved = if choice == .recommended {
             steeredLauncher.map { GraphicsBackendResolver.resolve(for: $0) } ?? recommendedBackend
         } else {
             choice
         }
-        return resolved == .d3dMetal && !d3dMetalDeployed
-            ? Resolution(backend: .wined3d, unavailable: .d3dMetal)
-            : Resolution(backend: resolved)
+        let gated = Wine.gatedBackend(resolved, gate: featureGate)
+        if gated == .d3dMetal, !d3dMetalDeployed {
+            return Resolution(backend: .wined3d, unavailable: .d3dMetal)
+        }
+        return Resolution(
+            backend: gated, unavailable: gated != resolved ? resolved : nil
+        )
     }
 
     /// The resolution a direct program launch produces: the executable's own
@@ -109,16 +120,23 @@ public enum EffectiveBackend {
     public static func forProgram(
         executable: URL,
         bottle: Bottle,
-        recommendedBackend: GraphicsBackend = GraphicsBackendResolver.resolve(),
-        d3dMetalDeployed: Bool = GPTKImporter.isDeployed()
+        recommendedBackend: GraphicsBackend? = nil,
+        d3dMetalDeployed: Bool? = nil,
+        featureGate: ((WineEngineFeature) -> Bool)? = nil
     ) -> Resolution {
+        // The same policy `prepareProgramLaunch` resolves under for this
+        // bottle: recommended resolution, payload availability and the
+        // feature gate all come from the selected engine unless a test
+        // injects fixtures.
+        let policy = Wine.backendPolicy(for: bottle)
         let overrides = bottle.programs.first { $0.url == executable }?.settings.overrides
             ?? Program.persistedOverrides(for: executable, bottleURL: bottle.url)
         return resolveDetailed(
             overrides?.graphicsBackend ?? bottle.settings.graphicsBackend,
             steeredLauncher: LauncherType.detect(from: executable),
-            recommendedBackend: recommendedBackend,
-            d3dMetalDeployed: d3dMetalDeployed
+            recommendedBackend: recommendedBackend ?? policy.recommendedBackend,
+            d3dMetalDeployed: d3dMetalDeployed ?? policy.d3dMetalDeployed,
+            featureGate: featureGate ?? policy.featureGate
         )
     }
 
@@ -132,15 +150,18 @@ public enum EffectiveBackend {
     public static func forSteamGame(
         appID: Int,
         bottle: Bottle,
-        recommendedBackend: GraphicsBackend = GraphicsBackendResolver.resolve(),
-        d3dMetalDeployed: Bool = GPTKImporter.isDeployed()
+        recommendedBackend: GraphicsBackend? = nil,
+        d3dMetalDeployed: Bool? = nil,
+        featureGate: ((WineEngineFeature) -> Bool)? = nil
     ) -> Resolution? {
+        let policy = Wine.backendPolicy(for: bottle)
         guard let inputs = try? SteamLauncher.launchInputs(appId: appID, bottle: bottle, installURL: nil)
         else { return nil }
         return resolveDetailed(
             inputs.plan.overrides.graphicsBackend ?? bottle.settings.graphicsBackend,
-            recommendedBackend: recommendedBackend,
-            d3dMetalDeployed: d3dMetalDeployed
+            recommendedBackend: recommendedBackend ?? policy.recommendedBackend,
+            d3dMetalDeployed: d3dMetalDeployed ?? policy.d3dMetalDeployed,
+            featureGate: featureGate ?? policy.featureGate
         )
     }
 
@@ -153,14 +174,16 @@ public enum EffectiveBackend {
         of entry: LibraryEntry,
         executable: URL?,
         bottle: Bottle,
-        recommendedBackend: GraphicsBackend = GraphicsBackendResolver.resolve(),
-        d3dMetalDeployed: Bool = GPTKImporter.isDeployed()
+        recommendedBackend: GraphicsBackend? = nil,
+        d3dMetalDeployed: Bool? = nil,
+        featureGate: ((WineEngineFeature) -> Bool)? = nil
     ) -> Resolution? {
         switch entry.launch {
         case let .steam(appID):
             return forSteamGame(
                 appID: appID, bottle: bottle,
-                recommendedBackend: recommendedBackend, d3dMetalDeployed: d3dMetalDeployed
+                recommendedBackend: recommendedBackend, d3dMetalDeployed: d3dMetalDeployed,
+                featureGate: featureGate
             )
         case let .program(target):
             let resolved = executable ?? {
@@ -175,7 +198,8 @@ public enum EffectiveBackend {
             return resolved.map {
                 forProgram(
                     executable: $0, bottle: bottle,
-                    recommendedBackend: recommendedBackend, d3dMetalDeployed: d3dMetalDeployed
+                    recommendedBackend: recommendedBackend, d3dMetalDeployed: d3dMetalDeployed,
+                    featureGate: featureGate
                 )
             }
         }

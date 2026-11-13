@@ -239,7 +239,7 @@ public enum DiagnosticExporter {
     @MainActor
     private static func generateEnvironmentKeysSection(bottle: Bottle) -> String {
         var section = "### Environment Keys\n\n"
-        let env = Wine.constructWineEnvironment(for: bottle, environment: [:])
+        let env = (try? Wine.constructWineEnvironment(for: bottle, environment: [:])) ?? [:]
         let sortedKeys = env.keys.sorted()
         section += sortedKeys.joined(separator: ", ")
         section += "\n"
@@ -288,7 +288,7 @@ public enum DiagnosticExporter {
     /// Generates a JSON string with environment variables, redacted as configured.
     @MainActor
     static func generateEnvironmentJSON(bottle: Bottle, options: ExportOptions) -> String {
-        let env = Wine.constructWineEnvironment(for: bottle, environment: [:])
+        let env = (try? Wine.constructWineEnvironment(for: bottle, environment: [:])) ?? [:]
         let redacted = Redactor.redactEnvironment(env, includeSensitive: options.includeSensitiveDetails)
         return dictionaryToJSON(redacted)
     }

@@ -130,17 +130,20 @@ public extension Wine {
         descendantLaunchers: [LauncherType] = [],
         recommendedBackend: GraphicsBackend? = nil,
         builtinD3D12IsD3DMetal: Bool = GPTKImporter.isDeployed(),
+        engine: WineEngine? = nil,
         writer: DLLOverrideWriter = { try await syncDLLOverrides(bottle: $0, scopes: $1) }
     ) async throws {
-        let bottleOverrides = constructWineEnvironment(
-            for: bottle, recommendedBackend: recommendedBackend, builtinD3D12IsD3DMetal: builtinD3D12IsD3DMetal
+        let bottleOverrides = try constructWineEnvironment(
+            for: bottle, recommendedBackend: recommendedBackend, builtinD3D12IsD3DMetal: builtinD3D12IsD3DMetal,
+            engine: engine
         )["WINEDLLOVERRIDES"] ?? ""
         var scopes = DLLOverrideScopes(bottle: bottleOverrides)
         let launcher = LauncherType.detect(from: url)
         let launcherSet = { (userOverrides: ProgramOverrides?) in
-            launcherDLLOverrides(
+            try launcherDLLOverrides(
                 bottle: bottle, userOverrides: userOverrides,
-                recommendedBackend: recommendedBackend, builtinD3D12IsD3DMetal: builtinD3D12IsD3DMetal
+                recommendedBackend: recommendedBackend, builtinD3D12IsD3DMetal: builtinD3D12IsD3DMetal,
+                engine: engine
             )
         }
 
@@ -161,7 +164,7 @@ public extension Wine {
         var gamePlan: String?
         if applyToDescendants, let launcher {
             gamePlan = wineEnvironment.removeValue(forKey: "WINEDLLOVERRIDES") ?? ""
-            let own = launcherSet(Program.persistedOverrides(for: url, bottleURL: bottle.url))
+            let own = try launcherSet(Program.persistedOverrides(for: url, bottleURL: bottle.url))
             scopes.add(launcher.helperExecutables, disablingNVAPI(in: own))
             scopes.add([url.lastPathComponent], own)
         } else if !applyToDescendants {
@@ -179,7 +182,7 @@ public extension Wine {
         let steamRoot = SteamLibrary.detectInstall(bottleURL: bottle.url)
         if launcher == .steam || steamRoot != nil {
             let steamExe = steamRoot?.appending(path: "steam.exe")
-            let own = launcherSet(steamExe.flatMap { Program.persistedOverrides(for: $0, bottleURL: bottle.url) })
+            let own = try launcherSet(steamExe.flatMap { Program.persistedOverrides(for: $0, bottleURL: bottle.url) })
             scopes.add(LauncherType.steam.helperExecutables, disablingNVAPI(in: own))
             scopes.add(["steam.exe"], own)
         }
@@ -190,7 +193,7 @@ public extension Wine {
             scopes.add(descendantExecutables, gamePlan)
         }
 
-        scopes.add(
+        try scopes.add(
             chainExecutables(for: launcher, descendantLaunchers: descendantLaunchers, bottleURL: bottle.url),
             disablingD3D12(in: launcherSet(nil))
         )
@@ -236,15 +239,17 @@ public extension Wine {
         bottle: Bottle,
         userOverrides: ProgramOverrides? = nil,
         recommendedBackend: GraphicsBackend? = nil,
-        builtinD3D12IsD3DMetal: Bool = GPTKImporter.isDeployed()
-    ) -> String {
+        builtinD3D12IsD3DMetal: Bool = GPTKImporter.isDeployed(),
+        engine: WineEngine? = nil
+    ) throws -> String {
         var pinned = userOverrides ?? ProgramOverrides()
         if pinned.graphicsBackend == nil || pinned.graphicsBackend == .recommended {
             pinned.graphicsBackend = .dxvk
         }
-        return constructWineEnvironment(
+        return try constructWineEnvironment(
             for: bottle, programOverrides: pinned,
-            recommendedBackend: recommendedBackend, builtinD3D12IsD3DMetal: builtinD3D12IsD3DMetal
+            recommendedBackend: recommendedBackend, builtinD3D12IsD3DMetal: builtinD3D12IsD3DMetal,
+            engine: engine
         )["WINEDLLOVERRIDES"] ?? ""
     }
 

@@ -72,7 +72,7 @@ struct ProgramEnvironmentPresetTests {
         editor.settings.applyLocalePreset(.japanese)
         editor.settings.applyWineD3DRenderer(.gdi)
         let reloaded = Program(url: exe, bottle: bottle, peFile: nil)
-        let env = Wine.constructWineEnvironment(for: bottle, environment: reloaded.generateEnvironment())
+        let env = try Wine.constructWineEnvironment(for: bottle, environment: reloaded.generateEnvironment())
         #expect(env["LANG"] == "ja_JP.UTF-8")
         #expect(env["LC_ALL"] == "ja_JP.UTF-8")
         #expect(env["WINE_D3D_CONFIG"] == "renderer=gdi")

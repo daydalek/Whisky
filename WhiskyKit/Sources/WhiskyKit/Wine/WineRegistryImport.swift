@@ -59,26 +59,30 @@ extension Wine {
     /// output handles, so capture to files and observe the command's own exit.
     @MainActor
     static func runRegistryImport(_ arguments: [String], bottle: Bottle) async throws {
-        let log = try makeFileHandle()
-        defer { try? log.closeWineLog() }
-        log.writeApplicationInfo()
-        log.writeInfo(for: bottle)
-        WineUserProfile.reconcile(bottleURL: bottle.url)
-        let environment = prefixSetupEnvironment(
-            args: arguments, environment: constructWineEnvironment(for: bottle, environment: [:])
-        )
-        let description = Process()
-        description.arguments = arguments
-        description.environment = environment
-        log.writeInfo(for: description)
-        let result = try await WineProcessQuery.run(
-            executable: wineBinary, arguments: arguments, environment: environment, timeout: 120
-        )
-        log.writeWineLog(line: result.output)
-        log.writeWineLog(line: result.diagnostics)
-        log.writeWineLog(line: "Registry import exited with code \(result.exitCode)")
-        guard result.exitCode == 0 else {
-            throw RegistryImportError(exitCode: result.exitCode)
+        try await withEngineOperation(bottle: bottle) {
+            let engine = try engine(for: bottle)
+            let log = try makeFileHandle()
+            defer { try? log.closeWineLog() }
+            log.writeApplicationInfo()
+            log.writeInfo(for: bottle)
+            WineUserProfile.reconcile(bottleURL: bottle.url)
+            let environment = try prefixSetupEnvironment(
+                args: arguments,
+                environment: constructWineEnvironment(for: bottle, environment: [:], engine: engine)
+            )
+            let description = Process()
+            description.arguments = arguments
+            description.environment = environment
+            log.writeInfo(for: description)
+            let result = try await WineProcessQuery.run(
+                executable: engine.wineBinary, arguments: arguments, environment: environment, timeout: 120
+            )
+            log.writeWineLog(line: result.output)
+            log.writeWineLog(line: result.diagnostics)
+            log.writeWineLog(line: "Registry import exited with code \(result.exitCode)")
+            guard result.exitCode == 0 else {
+                throw RegistryImportError(exitCode: result.exitCode)
+            }
         }
     }
 }

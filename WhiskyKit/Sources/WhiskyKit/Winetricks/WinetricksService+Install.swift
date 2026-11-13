@@ -111,7 +111,8 @@ public extension WinetricksService {
     private static func configureInstallProcess(
         verb: String,
         bottleURL: URL,
-        resourcesURL: URL
+        resourcesURL: URL,
+        engine: WineEngine
     ) -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -123,18 +124,37 @@ public extension WinetricksService {
         }
         arguments.append(verb)
         process.arguments = arguments
-        process.environment = [
+        process.environment = winetricksEnvironment(
+            bottleURL: bottleURL, resourcesURL: resourcesURL, engine: engine
+        )
+        return process
+    }
+
+    /// The environment every winetricks invocation runs under.
+    ///
+    /// `WINE` and `WINESERVER` name the selected engine's binaries by absolute
+    /// path — a `wine`-only tree (no `wine64` name) works, and no lookup can
+    /// fall through to a different runtime's tools. `DYLD_FALLBACK_LIBRARY_PATH`
+    /// keeps the engine's own libraries ahead of the system ones, and PATH
+    /// carries the engine's bin first so helper tools the script shells out
+    /// to come from the same tree.
+    static func winetricksEnvironment(
+        bottleURL: URL, resourcesURL: URL, engine: WineEngine
+    ) -> [String: String] {
+        [
             "WINEPREFIX": bottleURL.path(percentEncoded: false),
-            "WINE": "wine64",
+            "WINE": engine.wineBinary.path(percentEncoded: false),
+            "WINESERVER": engine.wineserverBinary.path(percentEncoded: false),
+            "DYLD_FALLBACK_LIBRARY_PATH":
+                "\(engine.libraryURL.path(percentEncoded: false)):/usr/lib",
             "PATH": [
-                WhiskyWineInstaller.binFolder.path(percentEncoded: false),
+                engine.binFolder.path(percentEncoded: false),
                 resourcesURL.path(percentEncoded: false),
                 "/usr/bin",
                 "/bin"
             ].joined(separator: ":"),
             "HOME": NSHomeDirectory()
         ]
-        return process
     }
 
     /// Attaches readability handlers that forward pipe output as progress events.
@@ -172,7 +192,6 @@ public extension WinetricksService {
         continuation.yield(.preparing)
 
         let bottleURL = await MainActor.run { bottle.url }
-
         guard let resourcesURL = WhiskyResources.tool("cabextract")?.deletingLastPathComponent()
         else {
             logger.warning("Could not locate cabextract resource for winetricks install")
@@ -181,35 +200,28 @@ public extension WinetricksService {
             return
         }
 
-        let process = configureInstallProcess(verb: verb, bottleURL: bottleURL, resourcesURL: resourcesURL)
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        attachOutputHandlers(stdout: stdoutPipe, stderr: stderrPipe, continuation: continuation)
-
+        // The whole invocation holds the prefix's shared engine lease: a
+        // reselection cannot resolve underneath an install in flight, and the
+        // pinned descriptor gives the process its loader, server and libs.
+        let exitCode: Int32?
         do {
-            try process.run()
-            logger.info("Started winetricks install for verb '\(verb)'")
+            exitCode = try await Wine.withEngineOperation(bottle: bottle) {
+                let engine = try await Wine.engine(for: bottle)
+                let invocation = WinetricksInvocation(
+                    verb: verb, bottleURL: bottleURL, resourcesURL: resourcesURL,
+                    engine: engine, timeout: timeout
+                )
+                return await runWinetricksProcess(invocation, continuation: continuation)
+            }
         } catch {
-            logger.error("Failed to launch winetricks install: \(error.localizedDescription)")
             continuation.yield(.failed(error.localizedDescription))
             continuation.finish()
             return
         }
-
-        let interrupted = await awaitProcessCompletion(process, timeout: timeout)
-        stdoutPipe.fileHandleForReading.readabilityHandler = nil
-        stderrPipe.fileHandleForReading.readabilityHandler = nil
-
-        if let interrupted {
-            continuation.yield(.failed(interrupted))
+        guard let exitCode else {
             continuation.finish()
             return
         }
-        let exitCode = process.terminationStatus
-        logger.info("winetricks install '\(verb)' exited with status \(exitCode)")
-        continuation.yield(.completed(exitCode: exitCode))
 
         if exitCode == 0, verb == "vcrun2019" || verb == "vcrun2022" {
             await MainActor.run {
@@ -220,6 +232,55 @@ public extension WinetricksService {
         // Refresh the verb cache after installation
         _ = await WinetricksService.loadInstalledVerbs(for: bottle)
         continuation.finish()
+    }
+
+    /// One verb install invocation: what runs, where, and for how long.
+    private struct WinetricksInvocation {
+        let verb: String
+        let bottleURL: URL
+        let resourcesURL: URL
+        let engine: WineEngine
+        let timeout: TimeInterval
+    }
+
+    /// Launches the configured winetricks process, streams its output and
+    /// waits for it. Returns the exit code, or `nil` after yielding the
+    /// launch/timeout failure itself.
+    private static func runWinetricksProcess(
+        _ invocation: WinetricksInvocation,
+        continuation: AsyncStream<WinetricksInstallProgress>.Continuation
+    ) async -> Int32? {
+        let process = configureInstallProcess(
+            verb: invocation.verb, bottleURL: invocation.bottleURL,
+            resourcesURL: invocation.resourcesURL, engine: invocation.engine
+        )
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        attachOutputHandlers(stdout: stdoutPipe, stderr: stderrPipe, continuation: continuation)
+
+        do {
+            try process.run()
+            logger.info("Started winetricks install for verb '\(invocation.verb)'")
+        } catch {
+            logger.error("Failed to launch winetricks install: \(error.localizedDescription)")
+            continuation.yield(.failed(error.localizedDescription))
+            return nil
+        }
+
+        let interrupted = await awaitProcessCompletion(process, timeout: invocation.timeout)
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+
+        if let interrupted {
+            continuation.yield(.failed(interrupted))
+            return nil
+        }
+        let exitCode = process.terminationStatus
+        logger.info("winetricks install '\(invocation.verb)' exited with status \(exitCode)")
+        continuation.yield(.completed(exitCode: exitCode))
+        return exitCode
     }
 
     /// Polling keeps the cooperative executor available and bounds termination after cancellation.

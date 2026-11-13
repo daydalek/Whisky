@@ -48,7 +48,7 @@ struct GameProfileLayerTests {
 
         let bottle = Bottle(bottleUrl: tempDir, inFlight: false, isAvailable: true)
 
-        let env = Wine.constructWineEnvironment(
+        let env = try Wine.constructWineEnvironment(
             for: bottle,
             environment: ["CONTESTED": "program-user"],
             gameProfileEnvironment: [

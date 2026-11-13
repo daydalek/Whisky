@@ -22,6 +22,21 @@ import XCTest
 
 // swiftlint:disable:next type_body_length
 final class EnvironmentVariablesTests: XCTestCase {
+    /// The flag's value before this test — restored in tearDown.
+    private var previousManagedInstallOverride: Bool?
+
+    override func setUp() {
+        super.setUp()
+        // The managed engine must resolve without the real runtime install.
+        previousManagedInstallOverride = WineEngine.managedInstallOverride
+        WineEngine.managedInstallOverride = true
+    }
+
+    override func tearDown() {
+        WineEngine.managedInstallOverride = previousManagedInstallOverride
+        super.tearDown()
+    }
+
     // MARK: - DXVK Environment Variables
 
     func testEnvironmentVariablesWithDXVK() {
@@ -245,7 +260,7 @@ final class EnvironmentVariablesTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
         let bottle = Bottle(bottleUrl: tempDir, inFlight: false, isAvailable: true)
 
-        let env = Wine.constructWineEnvironment(for: bottle)
+        let env = try Wine.constructWineEnvironment(for: bottle)
 
         // Supported macOS is 15.4+ at minimum, so both fixes apply.
         // D3DM_VALIDATION is no longer one: no runtime reads it.
@@ -266,7 +281,7 @@ final class EnvironmentVariablesTests: XCTestCase {
             "9INVALID-KEY": "nope"
         ]
 
-        let env = Wine.constructWineEnvironment(
+        let env = try Wine.constructWineEnvironment(
             for: bottle,
             environment: ["SHARED_VAR": "program"]
         )
@@ -285,7 +300,7 @@ final class EnvironmentVariablesTests: XCTestCase {
         let bottle = Bottle(bottleUrl: tempDir, inFlight: false, isAvailable: true)
         bottle.settings.metalValidation = true
 
-        let env = Wine.constructWineEnvironment(for: bottle)
+        let env = try Wine.constructWineEnvironment(for: bottle)
 
         // The platform layer pins MTL_DEBUG_LAYER=0 on every supported macOS.
         // The toggle's bottle layer outranks it, and nothing may write 0 back

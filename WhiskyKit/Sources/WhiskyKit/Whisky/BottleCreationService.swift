@@ -35,7 +35,7 @@ public struct BottleCreationResult {
 
 /// The shared create-and-initialize operation used by SwiftUI and GPUI clients.
 public enum BottleCreationService {
-    public typealias RuntimeAvailabilityCheck = @MainActor () -> Bool
+    public typealias RuntimeAvailabilityCheck = @MainActor (WineEngine) -> Bool
     public typealias LocationValidator = @MainActor (URL) -> BottleLocationValidation.ValidationResult
     public typealias PrefixBootstrapper = @MainActor (Bottle) async throws -> Void
     public typealias BottleCreatedHandler = @MainActor (Bottle) -> Void
@@ -47,8 +47,10 @@ public enum BottleCreationService {
         parentDirectory: URL,
         destinationDirectory: URL,
         registry: BottleData,
-        runtimeIsAvailable: @escaping RuntimeAvailabilityCheck = {
-            WhiskyWineInstaller.isWhiskyWineInstalled()
+        engineID: String = WineEngine.managedID,
+        engineStore: WineEngineStore = .shared,
+        runtimeIsAvailable: @escaping RuntimeAvailabilityCheck = { engine in
+            engine.isManaged ? WhiskyWineInstaller.isWhiskyWineInstalled() : engine.isAvailable
         },
         validateLocation: @escaping LocationValidator = {
             BottleLocationValidation.validate(at: $0)
@@ -61,7 +63,10 @@ public enum BottleCreationService {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw BottleCreationServiceError.emptyName }
         try validateDirectories(destination: destinationDirectory, parent: parentDirectory)
-        guard runtimeIsAvailable() else { throw BottleCreationServiceError.runtimeMissing }
+        // Resolve before any directory or prefix mutation: an unknown or
+        // broken engine selection fails here, never silently as managed.
+        let engine = try engineStore.resolve(id: engineID)
+        guard runtimeIsAvailable(engine) else { throw BottleCreationServiceError.runtimeMissing }
 
         let locationResult = validateLocation(parentDirectory)
         guard locationResult == .valid else {
@@ -76,10 +81,16 @@ public enum BottleCreationService {
         let bottle = Bottle(bottleUrl: destinationDirectory, inFlight: true)
         bottle.settings.windowsVersion = windowsVersion
         bottle.settings.name = name
+        bottle.settings.wineEngineID = engine.id
         onBottleCreated(bottle)
 
         do {
-            try await bootstrapPrefix(bottle)
+            // The bootstrap re-resolves the bottle's engine through
+            // `Wine.engineStore`; pin it to the same registry that just
+            // resolved `engine` so creation never consults a different view.
+            try await Wine.$engineStoreOverride.withValue(engineStore) {
+                try await bootstrapPrefix(bottle)
+            }
             bottle.saveBottleSettings()
             SettingsPersistence.shared.flush()
 

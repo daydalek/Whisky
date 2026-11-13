@@ -27,8 +27,14 @@ final class ProgramGenerateTerminalCommandTests: XCTestCase {
     var bottleURL: URL!
     var programURL: URL!
 
+    /// The flag's value before this test — restored in tearDown.
+    private var previousManagedInstallOverride: Bool?
+
     override func setUp() {
         super.setUp()
+        // The managed engine must resolve without the real runtime install.
+        previousManagedInstallOverride = WineEngine.managedInstallOverride
+        WineEngine.managedInstallOverride = true
         tempDir = FileManager.default.temporaryDirectory.appending(path: "program_test_\(UUID().uuidString)")
         bottleURL = tempDir.appending(path: "TestBottle")
 
@@ -42,38 +48,39 @@ final class ProgramGenerateTerminalCommandTests: XCTestCase {
     }
 
     override func tearDown() {
+        WineEngine.managedInstallOverride = previousManagedInstallOverride
         try? FileManager.default.removeItem(at: tempDir)
         super.tearDown()
     }
 
     @MainActor
-    func testGenerateTerminalCommandContainsProgramPath() {
+    func testGenerateTerminalCommandContainsProgramPath() throws {
         let bottle = Bottle(bottleUrl: bottleURL)
         let program = Program(url: programURL, bottle: bottle)
 
-        let command = program.generateTerminalCommand()
+        let command = try program.generateTerminalCommand()
 
         // Command should contain the program path
         XCTAssertTrue(command.contains("test_program.exe"), "Command should contain program name")
     }
 
     @MainActor
-    func testGenerateTerminalCommandContainsWineBinary() {
+    func testGenerateTerminalCommandContainsWineBinary() throws {
         let bottle = Bottle(bottleUrl: bottleURL)
         let program = Program(url: programURL, bottle: bottle)
 
-        let command = program.generateTerminalCommand()
+        let command = try program.generateTerminalCommand()
 
         // Command should contain wine64
         XCTAssertTrue(command.contains("wine64"), "Command should contain wine64 binary")
     }
 
     @MainActor
-    func testGenerateTerminalCommandWithCustomArgs() {
+    func testGenerateTerminalCommandWithCustomArgs() throws {
         let bottle = Bottle(bottleUrl: bottleURL)
         let program = Program(url: programURL, bottle: bottle)
 
-        let command = program.generateTerminalCommand(args: "-windowed -nosound")
+        let command = try program.generateTerminalCommand(args: "-windowed -nosound")
 
         // Command should contain the custom arguments
         XCTAssertTrue(command.contains("-windowed"), "Command should contain -windowed arg")
@@ -81,23 +88,23 @@ final class ProgramGenerateTerminalCommandTests: XCTestCase {
     }
 
     @MainActor
-    func testGenerateTerminalCommandWithNilArgsUsesSettings() {
+    func testGenerateTerminalCommandWithNilArgsUsesSettings() throws {
         let bottle = Bottle(bottleUrl: bottleURL)
         let program = Program(url: programURL, bottle: bottle)
         program.settings.arguments = "-testarg"
 
-        let command = program.generateTerminalCommand(args: nil)
+        let command = try program.generateTerminalCommand(args: nil)
 
         // Command should contain the settings arguments
         XCTAssertTrue(command.contains("-testarg"), "Command should contain settings argument")
     }
 
     @MainActor
-    func testGenerateTerminalCommandWithEmptyArgs() {
+    func testGenerateTerminalCommandWithEmptyArgs() throws {
         let bottle = Bottle(bottleUrl: bottleURL)
         let program = Program(url: programURL, bottle: bottle)
 
-        let command = program.generateTerminalCommand(args: "")
+        let command = try program.generateTerminalCommand(args: "")
 
         // Command should still be valid with empty args
         XCTAssertTrue(command.contains("wine64"), "Command should still contain wine64")
@@ -105,11 +112,11 @@ final class ProgramGenerateTerminalCommandTests: XCTestCase {
     }
 
     @MainActor
-    func testGenerateTerminalCommandContainsWinePrefix() {
+    func testGenerateTerminalCommandContainsWinePrefix() throws {
         let bottle = Bottle(bottleUrl: bottleURL)
         let program = Program(url: programURL, bottle: bottle)
 
-        let command = program.generateTerminalCommand()
+        let command = try program.generateTerminalCommand()
 
         // Command should set WINEPREFIX to bottle path
         XCTAssertTrue(command.contains("WINEPREFIX="), "Command should set WINEPREFIX")
@@ -119,11 +126,11 @@ final class ProgramGenerateTerminalCommandTests: XCTestCase {
     // MARK: - Array-based generateTerminalCommand Tests
 
     @MainActor
-    func testGenerateTerminalCommandWithArrayArgs() {
+    func testGenerateTerminalCommandWithArrayArgs() throws {
         let bottle = Bottle(bottleUrl: bottleURL)
         let program = Program(url: programURL, bottle: bottle)
 
-        let command = program.generateTerminalCommand(args: ["-windowed", "-nosound"])
+        let command = try program.generateTerminalCommand(args: ["-windowed", "-nosound"])
 
         // Command should contain the arguments
         XCTAssertTrue(command.contains("-windowed"), "Command should contain -windowed arg")
@@ -131,11 +138,11 @@ final class ProgramGenerateTerminalCommandTests: XCTestCase {
     }
 
     @MainActor
-    func testGenerateTerminalCommandWithArrayArgsContainingSpaces() {
+    func testGenerateTerminalCommandWithArrayArgsContainingSpaces() throws {
         let bottle = Bottle(bottleUrl: bottleURL)
         let program = Program(url: programURL, bottle: bottle)
 
-        let command = program.generateTerminalCommand(args: ["--name", "Player Name"])
+        let command = try program.generateTerminalCommand(args: ["--name", "Player Name"])
 
         // Command should contain escaped arguments
         XCTAssertTrue(command.contains("--name"), "Command should contain --name arg")
@@ -147,11 +154,11 @@ final class ProgramGenerateTerminalCommandTests: XCTestCase {
     }
 
     @MainActor
-    func testGenerateTerminalCommandWithEmptyArrayArgs() {
+    func testGenerateTerminalCommandWithEmptyArrayArgs() throws {
         let bottle = Bottle(bottleUrl: bottleURL)
         let program = Program(url: programURL, bottle: bottle)
 
-        let command = program.generateTerminalCommand(args: [])
+        let command = try program.generateTerminalCommand(args: [])
 
         // Command should still be valid with empty args array
         XCTAssertTrue(command.contains("wine64"), "Command should still contain wine64")
@@ -159,11 +166,11 @@ final class ProgramGenerateTerminalCommandTests: XCTestCase {
     }
 
     @MainActor
-    func testGenerateTerminalCommandWithSpecialCharacterArgs() {
+    func testGenerateTerminalCommandWithSpecialCharacterArgs() throws {
         let bottle = Bottle(bottleUrl: bottleURL)
         let program = Program(url: programURL, bottle: bottle)
 
-        let command = program.generateTerminalCommand(args: ["--path", "--flag"])
+        let command = try program.generateTerminalCommand(args: ["--path", "--flag"])
 
         // Basic flags without special chars should be in command
         XCTAssertTrue(command.contains("--path"), "Command should contain path arg")

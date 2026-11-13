@@ -68,7 +68,7 @@ final class WineDXVKResidueTests: XCTestCase {
         let bystander = prefixRoot.appending(path: "drive_c/windows/system32/d3d11.dll")
         try nativeFake("dxvk-d3d11").write(to: bystander)
 
-        Wine.removeStaleNativeDXGI(prefixRoot: prefixRoot, libraryFolder: noRuntime)
+        Wine.removeStaleNativeDXGI(prefixRoot: prefixRoot, wineLibURL: noRuntime)
 
         XCTAssertFalse(exists(dxgi("system32")))
         XCTAssertFalse(exists(dxgi("syswow64")))
@@ -80,7 +80,7 @@ final class WineDXVKResidueTests: XCTestCase {
     func testBuiltinMarkedDXGIIsKept() throws {
         try builtinFake("wine-fake").write(to: dxgi("system32"))
 
-        Wine.removeStaleNativeDXGI(prefixRoot: prefixRoot, libraryFolder: noRuntime)
+        Wine.removeStaleNativeDXGI(prefixRoot: prefixRoot, wineLibURL: noRuntime)
 
         XCTAssertTrue(exists(dxgi("system32")))
     }
@@ -88,7 +88,7 @@ final class WineDXVKResidueTests: XCTestCase {
     /// A prefix that never saw DXMT has no dxgi.dll of its own; the removal
     /// must be a silent no-op.
     func testMissingDXGIIsANoOp() {
-        Wine.removeStaleNativeDXGI(prefixRoot: prefixRoot, libraryFolder: noRuntime)
+        Wine.removeStaleNativeDXGI(prefixRoot: prefixRoot, wineLibURL: noRuntime)
 
         XCTAssertFalse(exists(dxgi("system32")))
         XCTAssertFalse(exists(dxgi("syswow64")))
@@ -100,7 +100,7 @@ final class WineDXVKResidueTests: XCTestCase {
     func testTruncatedFileIsLeftAlone() throws {
         try Data("stub".utf8).write(to: dxgi("system32"))
 
-        Wine.removeStaleNativeDXGI(prefixRoot: prefixRoot, libraryFolder: noRuntime)
+        Wine.removeStaleNativeDXGI(prefixRoot: prefixRoot, wineLibURL: noRuntime)
 
         XCTAssertTrue(exists(dxgi("system32")))
     }
@@ -180,7 +180,7 @@ final class WineDXVKResidueTests: XCTestCase {
             prefixRoot: prefixRoot,
             gptkOriginalsDXGI: originalsDXGI,
             gptkPayloadIsDeployed: false,
-            libraryFolder: makeRuntime()
+            engine: managedEngine(root: makeRuntime())
         )
 
         XCTAssertEqual(try Data(contentsOf: dxgi("system32")), builtinFake("builtin-x86_64-windows"))
@@ -199,7 +199,7 @@ final class WineDXVKResidueTests: XCTestCase {
             prefixRoot: prefixRoot,
             gptkOriginalsDXGI: originalsDXGI,
             gptkPayloadIsDeployed: false,
-            libraryFolder: noRuntime
+            engine: managedEngine(root: noRuntime)
         )
 
         XCTAssertTrue(exists(dxgi("system32")))
@@ -232,7 +232,7 @@ final class WineDXVKResidueTests: XCTestCase {
             prefixRoot: prefixRoot,
             gptkOriginalsDXGI: originalsDXGI,
             gptkPayloadIsDeployed: true,
-            libraryFolder: makeRuntime()
+            engine: managedEngine(root: makeRuntime())
         )
 
         XCTAssertEqual(try Data(contentsOf: dxgi("syswow64")), builtinFake("builtin-i386-windows"))
@@ -264,7 +264,7 @@ final class WineDXVKResidueTests: XCTestCase {
             prefixRoot: prefixRoot,
             gptkOriginalsDXGI: originalsDXGI,
             gptkPayloadIsDeployed: true,
-            libraryFolder: runtime
+            engine: managedEngine(root: runtime)
         )
         let past = Date(timeIntervalSince1970: 1_000_000)
         try FileManager.default.setAttributes(
@@ -277,7 +277,7 @@ final class WineDXVKResidueTests: XCTestCase {
             prefixRoot: prefixRoot,
             gptkOriginalsDXGI: originalsDXGI,
             gptkPayloadIsDeployed: true,
-            libraryFolder: runtime
+            engine: managedEngine(root: runtime)
         )
 
         let after = try identity(dxgi("system32"))
@@ -297,7 +297,7 @@ final class WineDXVKResidueTests: XCTestCase {
             prefixRoot: prefixRoot,
             gptkOriginalsDXGI: originalsDXGI,
             gptkPayloadIsDeployed: true,
-            libraryFolder: noRuntime
+            engine: managedEngine(root: noRuntime)
         )
 
         XCTAssertTrue(try Wine.isNativePE(dxgi("system32")))
@@ -314,7 +314,7 @@ final class WineDXVKResidueTests: XCTestCase {
             prefixRoot: prefixRoot,
             gptkOriginalsDXGI: originalsDXGI,
             gptkPayloadIsDeployed: true,
-            libraryFolder: noRuntime
+            engine: managedEngine(root: noRuntime)
         )
 
         XCTAssertTrue(try Wine.isNativePE(dxgi("system32")))
@@ -326,6 +326,19 @@ final class WineDXVKResidueTests: XCTestCase {
     /// back, which is the behaviour the removal tests above pin down.
     private var noRuntime: URL {
         tempDir.appending(path: "no-runtime")
+    }
+
+    /// A managed-engine descriptor whose lib is `root`'s `Wine/lib`, so the
+    /// reconcile path reads payload/lib decisions from fixture files.
+    private func managedEngine(root: URL) -> WineEngine {
+        WineEngine(
+            id: "managed", name: "Test", rootURL: root,
+            wineBinary: root, wineserverBinary: root,
+            libraryURL: root.appending(path: "Wine/lib"),
+            librariesURL: nil, isManaged: true,
+            fingerprint: "", architectures: ["arm64"],
+            availabilityError: nil, version: nil
+        )
     }
 
     /// A runtime folder laid out like an installed WhiskyWine, carrying a
@@ -347,7 +360,7 @@ final class WineDXVKResidueTests: XCTestCase {
         try nativeFake("dxmt64").write(to: dxgi("system32"))
         try nativeFake("dxmt32").write(to: dxgi("syswow64"))
 
-        try Wine.removeStaleNativeDXGI(prefixRoot: prefixRoot, libraryFolder: makeRuntime())
+        try Wine.removeStaleNativeDXGI(prefixRoot: prefixRoot, wineLibURL: makeRuntime().appending(path: "Wine/lib"))
 
         XCTAssertEqual(try Data(contentsOf: dxgi("system32")), builtinFake("builtin-x86_64-windows"))
         XCTAssertEqual(try Data(contentsOf: dxgi("syswow64")), builtinFake("builtin-i386-windows"))
@@ -360,7 +373,7 @@ final class WineDXVKResidueTests: XCTestCase {
     func testExistingBuiltinPlaceholderIsNotRewritten() throws {
         try builtinFake("already-there").write(to: dxgi("system32"))
 
-        try Wine.removeStaleNativeDXGI(prefixRoot: prefixRoot, libraryFolder: makeRuntime())
+        try Wine.removeStaleNativeDXGI(prefixRoot: prefixRoot, wineLibURL: makeRuntime().appending(path: "Wine/lib"))
 
         XCTAssertEqual(try Data(contentsOf: dxgi("system32")), builtinFake("already-there"))
     }
