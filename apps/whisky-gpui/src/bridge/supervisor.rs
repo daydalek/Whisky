@@ -2997,6 +2997,11 @@ fn run_with_spawner_and_backoff<F, B>(
                 }
                 Some(Command::EditFolders { container, edit }) => {
                     let (method, params) = edit.call(&container);
+                    // Folder edits (chosen executable, assign, exclude, roots)
+                    // change what `library.entries` returns; serving the cached
+                    // snapshot would resurrect "needs executable" for a game
+                    // whose executable was just saved.
+                    cache = None;
                     match client.call(method, params).map_err(classify) {
                         Ok(reply) => match serde_json::from_value::<FoldersDto>(reply) {
                             Ok(folders) => {

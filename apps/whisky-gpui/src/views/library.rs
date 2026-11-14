@@ -10,7 +10,7 @@ use gpui_kit::component::{
     spinner::Spinner,
     tooltip::Tooltip,
 };
-use gpui_kit::{prelude::*, *};
+use gpui_kit::{IntoElement, prelude::*, *};
 
 use crate::bridge::BridgeStatus;
 use crate::controls::*;

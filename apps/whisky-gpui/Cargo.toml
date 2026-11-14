@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-gpui-kit = "=0.8.0"
+gpui-kit = { version = "=0.8.0", features = ["gpui-fast"] }
 chrono = "=0.4.45"
 image = "=0.25.10"
 serde = { version = "=1.0.229", features = ["derive"] }

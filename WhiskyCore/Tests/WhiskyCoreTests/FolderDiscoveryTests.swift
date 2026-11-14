@@ -170,4 +170,25 @@ struct FolderDiscoveryTests {
             Issue.record("Expected preserved offline standalone entry")
         }
     }
+
+    @Test func containerRootWithStrayInstallerDoesNotCollapseSubfolders() throws {
+        let bottle = FileManager.default.temporaryDirectory
+            .resolvingSymlinksInPath()
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: bottle) }
+
+        let games = bottle.appendingPathComponent("drive_c/Games")
+        for name in ["Game One", "Game Two/data"] {
+            try FileManager.default.createDirectory(
+                at: games.appendingPathComponent(name),
+                withIntermediateDirectories: true
+            )
+        }
+        try Data([0x4D, 0x5A]).write(to: games.appendingPathComponent("installer.exe"))
+
+        var library = FolderGameLibrary()
+        library.roots = ["drive_c/Games"]
+        let entries = library.scan(bottleURL: bottle, steamDirectories: [])
+        #expect(Set(entries.map(\.name)) == ["Game One", "Game Two"])
+    }
 }

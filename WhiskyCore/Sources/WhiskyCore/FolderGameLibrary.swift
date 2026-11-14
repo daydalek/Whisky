@@ -215,8 +215,22 @@ public struct FolderGameLibrary: Codable, Sendable {
     ) -> Bool {
         let rootPath = root.standardizedFileURL.path
         let bottlePath = bottleURL.standardizedFileURL.path
-        let driveCPath = bottleURL.appendingPathComponent("drive_c").standardizedFileURL.path
+        let driveC = bottleURL.appendingPathComponent("drive_c").standardizedFileURL
+        let driveCPath = driveC.path
         guard rootPath != bottlePath, rootPath != driveCPath else { return false }
+
+        // Standard bottle library/install roots inside drive_c are containers
+        // of games even if an installer or utility .exe sits at their root.
+        let containerNames = Set([
+            "games",
+            "program files",
+            "program files (x86)",
+            "program files (arm)"
+        ])
+        if root.standardizedFileURL.deletingLastPathComponent().path == driveCPath,
+           containerNames.contains(root.lastPathComponent.lowercased()) {
+            return false
+        }
 
         var hasDirectExecutable = false
         var childDirectories: [URL] = []
@@ -226,7 +240,7 @@ public struct FolderGameLibrary: Codable, Sendable {
             else { continue }
             if values.isDirectory == true {
                 childDirectories.append(child)
-            } else if child.pathExtension.lowercased() == "exe" {
+            } else if isStandaloneGameExecutable(child) {
                 hasDirectExecutable = true
             }
         }
@@ -248,6 +262,19 @@ public struct FolderGameLibrary: Codable, Sendable {
                 return item.pathExtension.lowercased() == "exe"
             }
         }
+    }
+
+    private static func isStandaloneGameExecutable(_ url: URL) -> Bool {
+        guard url.pathExtension.lowercased() == "exe" else { return false }
+        let name = url.lastPathComponent.lowercased()
+        let ignoredNames = Set(["installer.exe", "setup.exe", "uninstall.exe", "unins000.exe"])
+        guard !ignoredNames.contains(name),
+              !InstalledPrograms.noiseExecutableNames.contains(name),
+              let handle = try? FileHandle(forReadingFrom: url)
+        else { return false }
+        defer { try? handle.close() }
+        guard let header = try? handle.read(upToCount: 2) else { return false }
+        return header == Data([0x4D, 0x5A])
     }
 
     private static func location(_ bottle: URL) -> URL {
